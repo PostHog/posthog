@@ -8,7 +8,8 @@ from parameterized import parameterized
 
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.community_skills import CommunitySkill
-from ..community_skill_sync import _validate_entry_within_caps, sync_community_skills_from_github
+from ..community_scout_config import validate_shareable_scout_config
+from ..community_skill_sync import _validate_entry_shape, _validate_entry_within_caps, sync_community_skills_from_github
 from ..skill_services import MAX_SKILL_BODY_BYTES
 
 
@@ -46,6 +47,81 @@ class TestCommunitySkillSyncValidation(SimpleTestCase):
         entry["description"] += "x"
         with self.assertRaisesRegex(ValueError, f"exceeds the {SPEC_DESCRIPTION_MAX_LENGTH} character limit"):
             _validate_entry_within_caps(entry)
+
+
+class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
+    def _entry(self, **overrides) -> dict:
+        return {
+            "slug": "signals-scout-feed",
+            "name": "Feed scout",
+            "description": "Watch a feed for problems.",
+            "body": "# Scout",
+            **overrides,
+        }
+
+    def test_scout_entry_keeps_its_shareable_settings(self) -> None:
+        _validate_entry_shape(
+            self._entry(kind="scout", scout_config={"run_interval_minutes": 720, "emit": False, "tags": ["feeds"]})
+        )
+
+    def test_scout_tags_are_stored_in_the_slug_form_the_setup_flow_keeps(self) -> None:
+        # The setup form normalizes a tag to a lowercase slug, so a catalog entry that stored the
+        # raw spelling would arrive as a tag nobody can filter the fleet by.
+        entry = self._entry(kind="scout", scout_config={"tags": ["Web Analytics", "web_analytics", "Revenue"]})
+        _validate_entry_shape(entry)
+        self.assertEqual(validate_shareable_scout_config(entry["scout_config"])["tags"], ["revenue", "web-analytics"])
+
+    @parameterized.expand(
+        [
+            ("an unknown kind", {"kind": "agent"}, "is not one of"),
+            ("a false kind", {"kind": False}, "is not one of"),
+            ("a zero kind", {"kind": 0}, "is not one of"),
+            ("settings on a plain skill", {"scout_config": {"emit": False}}, "only valid on a 'scout'"),
+            # The three that grant a scout reach into a project — never carried by a published one.
+            ("network access", {"kind": "scout", "scout_config": {"network_access": "full"}}, "cannot carry"),
+            ("a pinned model", {"kind": "scout", "scout_config": {"model": "claude"}}, "cannot carry"),
+            (
+                "gateway servers",
+                {"kind": "scout", "scout_config": {"mcp_gateway_server_ids": ["abc"]}},
+                "cannot carry",
+            ),
+            (
+                "a cadence under the floor",
+                {"kind": "scout", "scout_config": {"run_interval_minutes": 5}},
+                "must be between",
+            ),
+            (
+                "an invalid cron",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "61 9 * * *"}},
+                "valid five-field",
+            ),
+            (
+                "a cron under the cadence floor",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "* * * * *"}},
+                "at least 30 minutes",
+            ),
+            (
+                "a cron that never occurs",
+                {"kind": "scout", "scout_config": {"run_cron_schedule": "0 0 31 2 *"}},
+                "real date",
+            ),
+            (
+                # Signals refuses one outright, so accepting it here would sync a tag the setup form
+                # silently drops rather than one the created scout carries.
+                "a tag that normalizes to nothing",
+                {"kind": "scout", "scout_config": {"tags": ["!!!"]}},
+                "empty once normalized",
+            ),
+            (
+                "bundled files",
+                {"kind": "scout", "files": [{"path": "references/g.md", "content": "x"}]},
+                "cannot bundle files",
+            ),
+        ]
+    )
+    def test_rejects(self, _name, overrides, message) -> None:
+        with self.assertRaisesRegex(ValueError, message):
+            _validate_entry_shape(self._entry(**overrides))
 
 
 class TestCommunitySkillSync(APIBaseTest):
@@ -98,6 +174,32 @@ class TestCommunitySkillSync(APIBaseTest):
 
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 0, "skipped": 1, "removed": 0})
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_reconciles_new_fields_for_an_unchanged_sha(self, mock_get) -> None:
+        existing = _create_community_skill(slug="signals-scout-feed")
+        CommunitySkill.objects.filter(pk=existing.pk).update(source_sha="same-sha", kind="skill", scout_config={})
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "signals-scout-feed",
+                    "name": "Feed scout",
+                    "description": "Watch the feed.",
+                    "body": "# Scout",
+                    "source_sha": "same-sha",
+                    "kind": "scout",
+                    "scout_config": {"run_interval_minutes": 720},
+                }
+            ]
+        }
+
+        result = sync_community_skills_from_github()
+
+        existing.refresh_from_db()
+        self.assertEqual(result, {"synced": 1, "skipped": 0, "removed": 0})
+        self.assertEqual(existing.kind, "scout")
+        self.assertEqual(existing.scout_config, {"run_interval_minutes": 720})
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_empty_registry_does_not_wipe_catalog(self, mock_get) -> None:
@@ -334,6 +436,37 @@ class TestCommunitySkillSync(APIBaseTest):
         ):
             with self.assertRaises(OperationalError):
                 sync_community_skills_from_github()
+
+    @patch("products.skills.backend.api.community_skill_sync.github_request")
+    def test_sync_persists_kind_and_scout_config(self, mock_get) -> None:
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {
+            "skills": [
+                {
+                    "slug": "signals-scout-feed",
+                    "name": "Feed scout",
+                    "description": "Watch a feed for problems.",
+                    "body": "# Scout",
+                    "kind": "scout",
+                    "scout_config": {"run_interval_minutes": 720, "emit": False},
+                },
+                {
+                    "slug": "plain-skill",
+                    "name": "Plain skill",
+                    "description": "Do a thing.",
+                    "body": "# Plain",
+                },
+            ]
+        }
+
+        sync_community_skills_from_github()
+
+        scout = CommunitySkill.objects.get(slug="signals-scout-feed")
+        self.assertEqual(scout.kind, "scout")
+        self.assertEqual(scout.scout_config, {"run_interval_minutes": 720, "emit": False})
+        plain = CommunitySkill.objects.get(slug="plain-skill")
+        self.assertEqual(plain.kind, "skill")
+        self.assertEqual(plain.scout_config, {})
 
     @patch("products.skills.backend.api.community_skill_sync.github_request")
     def test_sync_lowercases_tags(self, mock_get) -> None:

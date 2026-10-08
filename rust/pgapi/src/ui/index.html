@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg: #14161a; --panel: #1c1f25; --panel2: #22262d; --border: #2c313a;
-    --text: #e6e8eb; --muted: #8b93a1; --accent: #7aa2f7; --ok: #6cc38b; --warn: #e0af68; --error: #f7768e;
+    --text: #e6e8eb; --muted: #8b93a1; --accent: #7aa2f7; --ok: #6cc38b; --warn: #e0af68; --error: #f7768e; --tag: #c3a6ff;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
@@ -59,7 +59,9 @@
   .marker i { position: absolute; top: -1px; left: -4px; width: 8px; height: 8px; background: var(--c); border-radius: 0 0 4px 4px; pointer-events: auto; cursor: help; }
   .kv td:first-child { color: var(--muted); width: 180px; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
-  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(122, 162, 247, .1); border: 1px solid rgba(122, 162, 247, .3); border-radius: 4px; padding: 0 5px; margin: 0 4px 2px 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+  .tags { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; font-family: var(--mono); font-size: 11px; }
+  .tags:first-child { margin-top: 0; }
+  .tag { display: inline-block; vertical-align: top; color: var(--tag); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag b { color: var(--muted); font-weight: 400; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--accent); border-radius: 6px; font-family: var(--mono); font-size: 11px; }
   .chip button { padding: 0 4px; border: 0; background: none; color: var(--muted); }
@@ -89,7 +91,7 @@
   const PAGES = [
     ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'], ['locks', 'Locks'],
     ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
-    ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
+    ['cpu', 'CPU'], ['checkpoints', 'Checkpoints'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
   ];
   const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h', build: null };
   const $ = (s, r = document) => r.querySelector(s);
@@ -180,16 +182,16 @@
   // Tags label a query by the code that ran it (/* nodejs:PERSONS_WRITE<updatePersonsBatch> */, /* route='/api/x' */).
   const TAG_ORDER = ['service', 'db_use', 'operation', 'caller', 'route', 'controller', 'task', 'workflow', 'query_type', 'purpose', 'team_id'];
   const tagEntries = tags => tags ? Object.entries(tags).sort(([a], [b]) => (TAG_ORDER.indexOf(a) + 1 || 99) - (TAG_ORDER.indexOf(b) + 1 || 99)) : [];
-  const tagPills = (tags, max = 5) => { const e = tagEntries(tags); if (!e.length) return null; return el('span', {}, e.slice(0, max).map(([k, v]) => el('span', { class: 'tag', title: `${k}=${v}` }, el('b', {}, k + '='), v)), e.length > max ? el('span', { class: 'muted' }, `+${e.length - max}`) : null); };
-  // The row label: tags first, SQL underneath, so a list reads by code path rather than by statement text.
-  const queryLabel = r => el('span', {}, tagPills(r.tags), r.tags && Object.keys(r.tags).length ? el('br') : null, queryCell(r.query));
+  const tagPills = (tags, max = 5) => { const e = tagEntries(tags); if (!e.length) return null; return el('div', { class: 'tags' }, e.slice(0, max).map(([k, v]) => el('span', { class: 'tag', title: `${k}=${v}` }, el('b', {}, k + '='), v)), e.length > max ? el('span', { class: 'muted' }, `+${e.length - max}`) : null); };
+  // The row label: SQL first, the tags of the code that ran it on a quieter line underneath.
+  const queryLabel = r => el('span', {}, queryCell(r.query), tagPills(r.tags));
   const tagFilterChip = (tags, onClear) => tags ? el('span', { class: 'chip' }, tags, el('button', { title: 'clear tag filter', onclick: onClear }, '✕')) : null;
 
   // ---------- time series chart (uPlot) ----------
   // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
   // missing: what a bucket that a series has no point for counts as. 0 suits counts and
   // rates (nothing happened); null suits gauges and latency (nothing was measured) and draws a gap.
-  // stacked: every series is drawn as an area on top of the ones before it, so missing is always 0.
+  // stacked: every series is drawn as a bar on top of the ones before it, one bar per bucket, so missing is always 0.
   // Every chart on a page shares one cursor, and dragging across any of them sets the range.
   const charts = [];
   // Markers for the events in range are fetched once per page and drawn on every chart on it. The
@@ -210,6 +212,7 @@
       u.over.append(el('div', { class: 'marker', style: `left:${u.valToPos(x, 'x')}px; --c:${markerColor(e.kind)}` }, el('i', { title })));
     }
   }
+  const BARS = typeof uPlot === 'undefined' ? null : uPlot.paths.bars({ size: [0.85, 40], gap: 1 });
   const AXIS = { stroke: '#8b93a1', font: '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif', grid: { stroke: '#2c313a', width: 1 }, ticks: { stroke: '#2c313a', width: 1 } };
   function chart(series, { yfmt = v => fmt.dec(v, 1), stacked = false, missing = 0, height = 170 } = {}) {
     if (stacked) series = [...series.filter(s => !s.line), ...series.filter(s => s.line)];
@@ -231,15 +234,20 @@
     };
     let { data, bands } = stacked ? stack(() => true) : { data: raw, bands: [] };
     const restack = u => { const { data, bands } = stack(i => u.series[i + 1].show); u.delBand(null); bands.forEach(b => u.addBand(b)); u.setData([xs, ...data]); };
+    // Bars are centered on their bucket, so the first and last would be cut in half without half a bucket of room at each end.
+    const half = xs.length > 1 ? xs.slice(1).reduce((min, x, i) => Math.min(min, x - xs[i]), Infinity) / 2 : 0;
     const opts = {
       width: 600, height, bands,
       cursor: { y: false, sync: { key: 'page', setSeries: false }, drag: { x: true, y: false, setScale: false, dist: 4 }, points: { size: 6 }, bind: { dblclick: () => () => zoomOut() } },
       legend: { live: true },
-      scales: { x: { time: true }, y: { range: (u, min, max) => [0, max > 0 ? uPlot.rangeNum(0, max, 0.1, true)[1] : 1] } },
+      scales: { x: { time: true, range: stacked && xs.length > 1 ? (u, min, max) => [min - half, max + half] : undefined }, y: { range: (u, min, max) => [0, max > 0 ? uPlot.rangeNum(0, max, 0.1, true)[1] : 1] } },
       axes: [{ ...AXIS }, { ...AXIS, size: 60, values: (u, vals) => vals.map(yfmt) }],
       series: [
         { value: (u, v) => v == null ? '' : fmt.ts(new Date(v * 1000)) },
-        ...series.map(s => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false }, dash: s.line ? [4, 4] : null, fill: stacked && !s.line ? s.color + '59' : null, spanGaps: !!s.line, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) })),
+        ...series.map(s => {
+          const bar = stacked && !s.line;
+          return { label: s.name, stroke: s.color, width: bar ? 0 : 1.5, points: { show: false }, dash: s.line ? [4, 4] : null, fill: bar ? s.color + 'cc' : null, paths: bar ? BARS : undefined, spanGaps: !!s.line, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) };
+        }),
       ],
       hooks: { setSeries: stacked ? [restack] : [], draw: [u => markerEvents.then(ev => drawMarkers(u, ev))], setSelect: [u => {
         if (u.select.width < 4) return;
@@ -394,7 +402,7 @@
       : 'mean only: no sampled durations in this range (needs log_min_duration_sample and the logs collector)';
     return [
       el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
-      panel('Text', tagPills(t.tags, 12) ? el('div', { style: 'margin-bottom:8px' }, tagPills(t.tags, 12), el('span', { class: 'muted', style: 'font-size:11px' }, ' tags on the first call seen')) : null, el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
+      panel('Text', el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null, tagPills(t.tags, 12) ? el('div', { style: 'margin-top:8px' }, tagPills(t.tags, 12), el('div', { class: 'muted small' }, 'tags on the first call seen')) : null),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel(`Calls per ${per}`, chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
         panel(`Latency per ${per}`,
@@ -581,14 +589,14 @@
         panel('Errors grouped', table(d.summary, [{ key: 'class', label: 'class' }, { key: 'sqlstate', label: 'sqlstate', cls: 'mono' }, { key: 'message', label: 'message' }, { key: 'n', label: 'count', num: true, fmt: fmt.num }])),
       ),
       el('div', { style: 'margin-top:12px' }, panel('Recent errors', table(d.recent, [
-        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) },
+        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => el('span', {}, queryCell(r.statement), tagPills(r.tags, 3)) },
       ], { empty: 'no errors in range' }))),
-      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) }], { empty: 'none (needs log_temp_files)' }))),
+      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => el('span', {}, queryCell(r.statement), tagPills(r.tags, 3)) }], { empty: 'none (needs log_temp_files)' }))),
     ];
   };
 
-  pages.system = async () => {
-    const d = await api(`/servers/${state.server}/system`, { ...rangeQuery() });
+  pages.cpu = async () => {
+    const d = await api(`/servers/${state.server}/cpu`, { ...rangeQuery() });
     const byInst = (rows, key) => { const m = {}; for (const r of rows) (m[r.instance] ||= []).push([new Date(r.collected_at), r[key]]); return Object.entries(m).map(([n, pts], i) => ({ name: n, color: COLORS[i], points: pts })); };
     const cpuTitle = 'Host CPU %' + (d.host.length ? ` (${d.host.map(h => `${h.instance}: ${h.ncpu} vCPU`).join(', ')})` : '');
     const noProctab = () => el('div', { class: 'empty' }, 'No pg_proctab data. Run CREATE EXTENSION pg_proctab in the database the collector connects to; rows start within 10 minutes.');
@@ -601,7 +609,7 @@
       { key: 'backends', label: 'backends', num: true, fmt: fmt.num },
     ];
     return [
-      el('h1', {}, 'System'),
+      el('h1', {}, 'CPU'),
       el('div', { class: 'grid two' },
         panel(cpuTitle, d.cpu.length ? chart(byInst(d.cpu, 'cpu_pct'), { yfmt: fmt.pct, missing: null }) : noProctab()),
         panel('Load average', d.memory.length ? chart(byInst(d.memory, 'load1'), { yfmt: v => fmt.dec(v, 2), missing: null }) : el('div', { class: 'empty' }, 'no pg_proctab data')),
@@ -617,12 +625,25 @@
           { key: 'tags', label: 'code path', render: r => el('a', { href: hashFor('queries', { tags: tagEntries(r.tags).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join(',') }) }, tagPills(r.tags, 4)) },
           ...cpuCols,
         ], { empty: 'no query tags seen on active backends in this range' }))),
-      el('div', { style: 'margin-top:12px' }, panel('CPU by query (sampled from the active statement each minute)', table(d.cpu_by_query, [
-        { key: 'query', label: 'query', render: r => el('a', { href: hashFor('query', { queryid: r.queryid, datname: r.datname }) }, queryLabel(r)) },
-        { key: 'datname', label: 'db' },
-        ...cpuCols,
-      ], { empty: 'no query ids seen on active backends in this range' }))),
-      el('div', { class: 'grid two', style: 'margin-top:12px' },
+      el('div', { style: 'margin-top:12px' }, panel('CPU by query (estimated)',
+        el('div', { class: 'muted small', style: 'margin-bottom:6px' }, "Each role's measured CPU is split between its queries: execution time minus I/O time first, then the rest (planning, parsing, protocol) by number of calls. Share is of all query CPU on the instance."),
+        table(d.cpu_by_query, [
+          { key: 'query', label: 'query', render: r => el('a', { href: hashFor('query', { queryid: r.queryid, datname: r.datname }) }, queryLabel(r)) },
+          { key: 'datname', label: 'db' },
+          { key: 'cpu_seconds', label: 'CPU time', num: true, fmt: v => fmt.dec(v, 1) + ' s' },
+          { key: 'avg_cores', label: 'avg cores', num: true, fmt: cores },
+          { key: 'host_pct', label: '% of host', num: true, fmt: v => v == null ? '–' : fmt.dec(v, 2) + '%' },
+          { key: 'share_pct', label: 'share', num: true, fmt: v => v == null ? '–' : fmt.dec(v, 1) + '%' },
+          { key: 'calls', label: 'calls', num: true, fmt: fmt.num },
+        ], { empty: 'no pg_stat_statements rows in this range' }))),
+    ];
+  };
+
+  pages.checkpoints = async () => {
+    const d = await api(`/servers/${state.server}/checkpoints`, { ...rangeQuery() });
+    return [
+      el('h1', {}, 'Checkpoints & replicas'),
+      el('div', { class: 'grid two' },
         panel('Checkpoints (from the log)', table(d.checkpoints, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind' }, { key: 'buffers_written', label: 'buffers', num: true, fmt: fmt.num }, { key: 'buffers_pct', label: '%', num: true, fmt: fmt.pct }, { key: 'write_s', label: 'write', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'sync_s', label: 'sync', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'distance_kb', label: 'distance', num: true, fmt: v => fmt.bytes(v * 1024) }], { empty: 'none in range' })),
         panel('bgwriter / checkpointer (summed)', table(d.bgwriter, [{ key: 'instance', label: 'instance' }, { key: 'checkpoints_timed', label: 'timed', num: true, fmt: fmt.num }, { key: 'checkpoints_req', label: 'requested', num: true, fmt: fmt.num }, { key: 'buffers_checkpoint', label: 'ckpt buffers', num: true, fmt: fmt.num }, { key: 'buffers_clean', label: 'bgw buffers', num: true, fmt: fmt.num }, { key: 'buffers_alloc', label: 'allocated', num: true, fmt: fmt.num }])),
         panel('Aurora replicas', table(d.aurora_replicas, [{ key: 'instance_id', label: 'instance' }, { key: 'role', label: 'role' }, { key: 'replica_lag_ms', label: 'lag', num: true, fmt: v => v == null ? '–' : fmt.ms(v) }, { key: 'replay_latency_us', label: 'replay', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'active_txns', label: 'txns', num: true }, { key: 'storage_daemon_cpu', label: 'storage cpu', num: true, fmt: fmt.pct }], { empty: 'not Aurora' })),
@@ -687,6 +708,8 @@
   async function route() {
     const h = parseHash();
     if (!h && state.servers.length) { go('overview', {}, state.servers[0].server_id); return; }
+    // Old bookmarks point at the page before it was renamed.
+    if (h?.page === 'system') { go('cpu', h.params, h.server); return; }
     if (h) { state.server = h.server; state.page = h.page; state.params = h.params; }
     $('#server').value = state.server;
     syncRangeControl();

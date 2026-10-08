@@ -25,6 +25,8 @@ export function frontendResolvePlugin(repoRoot: string): Plugin {
     const anchors = [
         path.join(repoRoot, 'frontend', 'src', 'index.tsx'),
         path.join(repoRoot, 'packages', 'quill', 'packages', 'quill', 'src', 'index.ts'),
+        // Deps of mcp ui-apps source that neither the app nor quill installs.
+        path.join(repoRoot, 'common', 'storybook', 'package.json'),
     ]
 
     return {

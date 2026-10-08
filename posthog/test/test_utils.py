@@ -19,6 +19,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
+import posthoganalytics
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -53,6 +55,7 @@ from posthog.utils import (
     get_js_url,
     get_self_capture_team_id,
     get_short_user_agent,
+    initialize_self_capture_api_token,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
@@ -1404,6 +1407,33 @@ class TestBuildFlagProvider(TestCase):
     @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
     def test_explicit_env_team_id_wins_over_eu_region(self):
         assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestInitializeSelfCaptureHost(SimpleTestCase):
+    def setUp(self):
+        for name in ("disabled", "api_key", "host"):
+            self.addCleanup(setattr, posthoganalytics, name, getattr(posthoganalytics, name))
+        for target, value in (
+            ("posthog.utils.resolve_self_capture_team", Team(api_token="phc_self_capture_test")),
+            ("posthog.utils._build_flag_provider", None),
+            ("posthoganalytics.feature_flag_definitions", {}),
+        ):
+            mocked = patch(target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    @parameterized.expand(
+        [
+            ("explicit host", "http://static-proxy:8000", "http://static-proxy:8000"),
+            ("falls back to site url", "", "https://preview.example.com"),
+        ]
+    )
+    def test_backend_sends_to_self_capture_host(self, _name, self_capture_host, expected_host):
+        with override_settings(SELF_CAPTURE_HOST=self_capture_host, SITE_URL="https://preview.example.com"):
+            async_to_sync(initialize_self_capture_api_token)()
+
+        assert posthoganalytics.host == expected_host
+        assert posthoganalytics.api_key == "phc_self_capture_test"
 
 
 class TestSelfCaptureBrowserFlagToken(TestCase):

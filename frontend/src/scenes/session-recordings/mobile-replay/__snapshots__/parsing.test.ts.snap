@@ -108,6 +108,7 @@ exports[`snapshot parsing handles normal mobile data 1`] = `
                 "childNodes": [
                   {
                     "attributes": {
+                      "data-posthog-screenshot": "true",
                       "data-rrweb-id": 4324378400,
                       "height": 852,
                       "src": "data:image/jpeg;base64,/9j/4AAQSkZJR",

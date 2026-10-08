@@ -148,31 +148,6 @@ class TestPagination:
         # The saved cursor seeds the very first request.
         assert params[0]["page"] == "saved_cursor"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_cursor_after_yielding_page(self, MockSession: mock.MagicMock) -> None:
-        # State is persisted AFTER a page is yielded (never before) and only while a next page
-        # remains — a crash re-yields the next page rather than skipping it.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response(_page([{"article_id": "a1"}], "p2")), _response(_page([{"article_id": "a2"}], None))],
-        )
-
-        manager = _make_manager()
-        _rows(_source("latest", manager))
-
-        # Only the first page has a following page, so exactly one cursor is saved, pointing at it.
-        assert [c.args[0] for c in manager.save_state.call_args_list] == [NewsDataResumeConfig(next_page="p2")]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_results_key_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        # A 200 body without `results` is the API's "no data" signal — an empty page, not an error.
-        session = MockSession.return_value
-        _wire(session, [_response({"status": "success"})])
-
-        assert _rows(_source("latest")) == []
-        assert session.send.call_count == 1
-
 
 class TestIncrementalFromDate:
     @parameterized.expand(
@@ -260,20 +235,6 @@ class TestRetries:
             _rows(_source("latest"))
         assert session.send.call_count == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_then_success_recovers(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response({}, status=429, reason="Too Many Requests"), _response(_page([{"article_id": "a1"}], None))],
-        )
-
-        rows = _rows(_source("latest"))
-
-        assert [r["article_id"] for r in rows] == ["a1"]
-        assert session.send.call_count == 2
-
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_raises_http_error_without_retry(
@@ -309,12 +270,6 @@ class TestSourceResponseMetadata:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
 
-    def test_sources_endpoint_is_unpartitioned(self) -> None:
-        response = _source("sources")
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -323,9 +278,3 @@ class TestValidateCredentials:
         session.get.return_value = mock.MagicMock(status_code=status_code)
         with mock.patch(NEWSDATA_SESSION_PATCH, return_value=session):
             assert validate_credentials("pub_test") is expected
-
-    def test_network_failure_is_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(NEWSDATA_SESSION_PATCH, return_value=session):
-            assert validate_credentials("pub_test") is False

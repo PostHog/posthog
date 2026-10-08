@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         AI_REPLY_TRACE_NAMESPACE,
         BLOCKER_AWARE_LOOP_PATCH,
         DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
+        DRAFT_ACTIVITY_MAX_ATTEMPTS,
         LEGACY_MAX_ATTEMPTS,
         MAX_ATTEMPTS,
         MAX_CLARIFICATION_ROUNDS,
@@ -185,10 +186,11 @@ class SupportReplyWorkflow:
             return "skipped_human_engaged"
 
         # Record lifecycle start
+        run_started_at = workflow.now().isoformat()
         await _record_triage(
             {
                 "status": "in_progress",
-                "started_at": workflow.now().isoformat(),
+                "started_at": run_started_at,
             }
         )
 
@@ -383,7 +385,7 @@ class SupportReplyWorkflow:
                             custom_instructions=ctx_output.custom_instructions,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
+                        retry_policy=RetryPolicy(maximum_attempts=DRAFT_ACTIVITY_MAX_ATTEMPTS),
                     ),
                 )
                 sandbox_seconds += draft_output.sandbox_seconds or 0.0
@@ -800,6 +802,8 @@ class SupportReplyWorkflow:
                 triage_patch = {
                     **outcome,
                     "status": triage_status,
+                    # The start write is best effort, so the stored started_at can belong to an earlier run.
+                    "started_at": run_started_at,
                     "finished_at": workflow.now().isoformat(),
                     "ai_trace_id": trace_id,
                     "draft_task_run_ids": draft_task_run_ids,

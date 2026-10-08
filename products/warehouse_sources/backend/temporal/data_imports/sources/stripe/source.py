@@ -249,7 +249,7 @@ Once created, copy the **Signing secret** from the webhook details page and add 
 If automatic creation failed with a permissions error, the fix depends on how you connected:
 
 - **Restricted API key**: give the key **Write** access on **Webhook endpoints** in your [Stripe API keys settings](https://dashboard.stripe.com/apikeys), then reconnect the source.
-- **OAuth**: disconnect and reconnect your Stripe account, then accept the permissions PostHog asks for. If the error stays, use the manual steps above.""",
+- **OAuth**: Stripe doesn't let apps create webhooks, so reconnecting won't fix this. Use the manual steps above.""",
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -272,7 +272,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         return {
             "401 Client Error: Unauthorized for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
-            "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
+            "Expired API Key provided": "Your Stripe credentials have expired. If you connected with OAuth, reconnect your Stripe account. If you use an API key, create a new key and update the source.",
             "Invalid API Key provided": None,
             # Stripe rejects the request when the restricted key has an IP allowlist that doesn't
             # include PostHog's egress IPs. This is a customer-side key configuration that retrying

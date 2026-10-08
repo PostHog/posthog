@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
     INCREMENTAL_FIELDS,
     MAX_DATASET_IDS,
     SOCRATA_ID_FIELD,
+    SODA2_API_VERSION,
+    SODA3_API_VERSION,
     parse_dataset_ids,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -33,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResumeConfig]):
     api_docs_url = "https://dev.socrata.com/consumers/getting-started.html"
+    supported_versions = (SODA2_API_VERSION, SODA3_API_VERSION)
+    default_version = SODA3_API_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -40,6 +44,8 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Matched first: SODA 3 rejects a missing token too, so "remove it" is not a fix there.
+            "403 Client Error: Forbidden for url: https://data.cdc.gov/api/v3/": "Invalid or missing CDC Open Data app token. Check the token in the source settings.",
             "403 Client Error: Forbidden for url: https://data.cdc.gov": "Invalid CDC Open Data app token. Check the token in the source settings, or remove it to use the shared public pool.",
             "404 Client Error: Not Found for url: https://data.cdc.gov": "Dataset not found on data.cdc.gov. Check the dataset ID in the source settings.",
         }
@@ -99,7 +105,9 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
             )
 
         probe_dataset_id = schema_name if schema_name in dataset_ids else dataset_ids[0]
-        return validate_cdc_open_data_credentials(config.app_token or "", probe_dataset_id)
+        return validate_cdc_open_data_credentials(
+            config.app_token or "", probe_dataset_id, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CdcOpenDataResumeConfig]:
         return ResumableSourceManager[CdcOpenDataResumeConfig](inputs, CdcOpenDataResumeConfig)
@@ -120,6 +128,7 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -134,7 +143,7 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
 
 Find a dataset's ID in its data.cdc.gov URL — for example `9bhg-hcku` in `https://data.cdc.gov/d/9bhg-hcku`. Browse the full catalog at [data.cdc.gov](https://data.cdc.gov).
 
-No account is required. Optionally, register a free [Socrata app token](https://support.socrata.com/hc/en-us/articles/210138558-Generating-an-App-Token) to avoid the shared public rate limit.
+You need a free [Socrata app token](https://support.socrata.com/hc/en-us/articles/210138558-Generating-an-App-Token) to connect. The current data.cdc.gov API requires one.
 """,
             docsUrl="https://posthog.com/docs/cdp/sources/cdc-open-data",
             iconPath="/static/services/cdc_open_data.png",
@@ -152,12 +161,12 @@ No account is required. Optionally, register a free [Socrata app token](https://
                     ),
                     SourceFieldInputConfig(
                         name="app_token",
-                        label="App token (optional)",
+                        label="App token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
                         secret=True,
-                        caption="Lifts the shared per-IP rate limit. Leave blank to use the public pool.",
+                        caption="Required for new sources. Register a free token in your Socrata profile.",
                     ),
                 ],
             ),

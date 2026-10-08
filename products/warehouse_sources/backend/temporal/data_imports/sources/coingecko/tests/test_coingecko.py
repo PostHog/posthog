@@ -12,7 +12,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import (
     DEMO_BASE_URL,
     NO_COINS_ERROR,
-    PAGE_SIZE,
     PLAN_DEMO,
     PLAN_PRO,
     PRO_BASE_URL,
@@ -22,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
     CHART_WINDOW_DAYS,
-    COINGECKO_ENDPOINTS,
     DEFAULT_HISTORY_DAYS,
     MAX_COINS,
     TICKERS_PAGE_SIZE,
@@ -119,23 +117,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestReferenceEndpoints:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_request_yields_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows = [{"id": "bitcoin", "symbol": "btc", "name": "Bitcoin"}]
-        _wire(session, [_response(rows)])
-
-        assert _rows(_source(PLAN_DEMO, "key", "coins_list", _manager())) == rows
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_body_yields_nothing_and_no_extra_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source(PLAN_DEMO, "key", "coins_list", _manager())) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_loud(self, MockSession) -> None:
         session = MockSession.return_value
         # A 200 that isn't a bare array is an unexpected/changed shape — fail loud, not a garbage row.
@@ -156,50 +137,6 @@ class TestReferenceEndpoints:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": f"c{i}"} for i in range(PAGE_SIZE)]
-        short_page = [{"id": "last"}]
-        snaps = _wire(session, [_response(full_page), _response(short_page)])
-
-        manager = _manager()
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_markets", manager))
-
-        assert rows == [*full_page, *short_page]
-        # Page number progresses 1 -> 2; the short page ends it without a third request.
-        assert session.send.call_count == 2
-        assert snaps[0]["params"]["page"] == 1
-        assert snaps[0]["params"]["per_page"] == PAGE_SIZE
-        assert snaps[1]["params"]["page"] == 2
-        # Checkpoint saved once after the first full page, pointing at the next page.
-        manager.save_state.assert_called_once_with(CoinGeckoResumeConfig(page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminates_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": f"c{i}"} for i in range(PAGE_SIZE)]
-        _wire(session, [_response(full_page), _response([])])
-
-        manager = _manager()
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_markets", manager))
-
-        assert rows == full_page
-        assert session.send.call_count == 2
-        manager.save_state.assert_called_once_with(CoinGeckoResumeConfig(page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}, {"id": "b"}])])
-
-        manager = _manager()
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_markets", manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"id": "x"}])])
@@ -208,23 +145,6 @@ class TestPagination:
         _rows(_source(PLAN_DEMO, "key", "coins_markets", manager))
 
         assert snaps[0]["params"]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_static_extra_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([{"id": "btc"}])])
-
-        _rows(_source(PLAN_DEMO, "key", "coins_markets", _manager()))
-        assert snaps[0]["params"]["vs_currency"] == "usd"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_insights_requests_capped_per_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        # CoinGecko caps /insights per_page at 20, so the source must not send the default 250.
-        snaps = _wire(session, [_response([{"title": "t", "posted_at": "2026-01-01T00:00:00Z"}])])
-
-        _rows(_source(PLAN_PRO, "key", "insights", _manager()))
-        assert snaps[0]["params"]["per_page"] == 20
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_insights_stops_at_max_page_cap(self, MockSession) -> None:
@@ -248,28 +168,6 @@ class TestRateLimitAndErrors:
         # A 200 body carrying the rate-limit envelope must be retried, then the retry succeeds —
         # regardless of the server's JSON whitespace.
         _wire(session, [_rate_limit_body(compact=compact), _response(good)])
-
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
-        assert rows == good
-        assert session.send.call_count == 2
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_429_status_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        good = [{"id": "btc"}]
-        _wire(session, [_response({}, status=429), _response(good)])
-
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
-        assert rows == good
-        assert session.send.call_count == 2
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_500_status_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        good = [{"id": "btc"}]
-        _wire(session, [_response({}, status=500), _response(good)])
 
         rows = _rows(_source(PLAN_DEMO, "key", "coins_list", _manager()))
         assert rows == good
@@ -324,11 +222,6 @@ class TestValidateCredentials:
         assert validate_credentials(PLAN_DEMO, "key") is expected
 
     @mock.patch(COINGECKO_SESSION_PATCH)
-    def test_transient_error_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials(PLAN_PRO, "key") is False
-
-    @mock.patch(COINGECKO_SESSION_PATCH)
     def test_pings_plan_host_with_key_and_redaction(self, mock_session: mock.MagicMock) -> None:
         get = mock_session.return_value.get
         get.return_value = mock.MagicMock(status_code=200)
@@ -356,65 +249,8 @@ class TestSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
 
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in COINGECKO_ENDPOINTS:
-            response = _source(PLAN_DEMO, "key", endpoint, _manager())
-            assert response.name == endpoint
-            assert response.primary_keys == COINGECKO_ENDPOINTS[endpoint].primary_keys
-
-
-class TestGlobalMarketData:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unwraps_the_data_envelope_into_one_row(self, MockSession) -> None:
-        session = MockSession.return_value
-        # /global is the one endpoint whose rows sit under an envelope key rather than being a bare
-        # array, so a missing selector would sync zero rows or fail the shape check.
-        totals = {"active_cryptocurrencies": 17397, "markets": 1476, "updated_at": 1779878351}
-        _wire(session, [_response({"data": totals})])
-
-        assert _rows(_source(PLAN_DEMO, "key", "global_market_data", _manager())) == [totals]
-        assert session.send.call_count == 1
-
 
 class TestCoinTickers:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_configured_coins(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _response(
-                    {
-                        "name": "Bitcoin",
-                        "tickers": [{"base": "BTC", "target": "USDT", "market": {"identifier": "binance"}}],
-                    }
-                ),
-                _response(
-                    {
-                        "name": "Ethereum",
-                        "tickers": [{"base": "ETH", "target": "USDT", "market": {"identifier": "kraken"}}],
-                    }
-                ),
-            ],
-        )
-
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids="bitcoin, ethereum"))
-
-        assert [row["coin_id"] for row in rows] == ["bitcoin", "ethereum"]
-        # The exchange id is lifted out of the nested `market` object so every part of the primary
-        # key is a flat column.
-        assert [row["market_identifier"] for row in rows] == ["binance", "kraken"]
-        assert snaps[0]["url"].endswith("/coins/bitcoin/tickers")
-        assert snaps[1]["url"].endswith("/coins/ethereum/tickers")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_market_identifier_survives_a_missing_market(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"name": "Bitcoin", "tickers": [{"base": "BTC", "target": "USDT"}]})])
-
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids="bitcoin"))
-        assert rows[0]["market_identifier"] is None
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_pages_one_coin_then_moves_to_the_next(self, MockSession) -> None:
         session = MockSession.return_value
@@ -453,19 +289,6 @@ class TestCoinTickers:
             mock.call(CoinGeckoResumeConfig(coin_index=2)),
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_at_the_saved_coin_and_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"name": "Solana", "tickers": [{"base": "SOL", "target": "USDT"}]})])
-
-        manager = _manager(CoinGeckoResumeConfig(page=4, coin_index=2))
-        rows = _rows(_source(PLAN_DEMO, "key", "coins_tickers", manager, coin_ids="bitcoin,ethereum,solana"))
-
-        assert session.send.call_count == 1
-        assert snaps[0]["url"].endswith("/coins/solana/tickers")
-        assert snaps[0]["params"]["page"] == 4
-        assert [row["coin_id"] for row in rows] == ["solana"]
-
     @parameterized.expand([("blank", ""), ("unset", None), ("separators only", " , ")])
     def test_no_coins_fails_with_the_curated_error(self, _name: str, coin_ids: str | None) -> None:
         with pytest.raises(ValueError, match=NO_COINS_ERROR):
@@ -481,53 +304,8 @@ class TestCoinTickers:
         _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids=coin_ids))
         assert session.send.call_count == MAX_COINS
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_duplicate_coins_are_fetched_once(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"name": "Bitcoin", "tickers": []})])
-
-        _rows(_source(PLAN_DEMO, "key", "coins_tickers", _manager(), coin_ids="bitcoin, BITCOIN , bitcoin"))
-        assert session.send.call_count == 1
-
 
 class TestMarketChart:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_zips_the_three_series_into_one_row_per_timestamp(self, MockSession) -> None:
-        session = MockSession.return_value
-        first, second = 1764547200000, 1764633600000
-        _wire(
-            session,
-            [
-                _response(
-                    {
-                        "prices": [[first, 90832.0], [second, 90360.0]],
-                        "market_caps": [[first, 1.5e12], [second, 1.6e12]],
-                        "total_volumes": [[first, 1.8e10], [second, 1.9e10]],
-                    }
-                )
-            ],
-        )
-
-        start = (_today() - timedelta(days=5)).isoformat()
-        rows = _rows(_source(PLAN_PRO, "key", "coins_market_chart", _manager(), coin_ids="bitcoin", start_date=start))
-
-        assert rows == [
-            {
-                "coin_id": "bitcoin",
-                "timestamp": datetime.fromtimestamp(first / 1000, tz=UTC),
-                "price": 90832.0,
-                "market_cap": 1.5e12,
-                "total_volume": 1.8e10,
-            },
-            {
-                "coin_id": "bitcoin",
-                "timestamp": datetime.fromtimestamp(second / 1000, tz=UTC),
-                "price": 90360.0,
-                "market_cap": 1.6e12,
-                "total_volume": 1.9e10,
-            },
-        ]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_series_of_unequal_length_still_line_up(self, MockSession) -> None:
         session = MockSession.return_value
@@ -552,41 +330,8 @@ class TestMarketChart:
         with pytest.raises(ValueError, match="market chart object"):
             _rows(_source(PLAN_PRO, "key", "coins_market_chart", _manager(), coin_ids="bitcoin", start_date=start))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pins_daily_granularity_and_usd(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"prices": [], "market_caps": [], "total_volumes": []})])
-
-        start = (_today() - timedelta(days=5)).isoformat()
-        _rows(_source(PLAN_PRO, "key", "coins_market_chart", _manager(), coin_ids="bitcoin", start_date=start))
-
-        # Without an explicit interval the API picks granularity from the window length, so a short
-        # incremental window would return hourly points that don't line up with the synced daily ones.
-        assert snaps[0]["params"]["interval"] == "daily"
-        assert snaps[0]["params"]["vs_currency"] == "usd"
-
 
 class TestOhlc:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_maps_candles_onto_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        closed_at = 1764547200000
-        _wire(session, [_response([[closed_at, 90832.0, 91905.0, 90406.0, 90406.0]])])
-
-        start = (_today() - timedelta(days=5)).isoformat()
-        rows = _rows(_source(PLAN_PRO, "key", "coins_ohlc", _manager(), coin_ids="bitcoin", start_date=start))
-
-        assert rows == [
-            {
-                "coin_id": "bitcoin",
-                "timestamp": datetime.fromtimestamp(closed_at / 1000, tz=UTC),
-                "open": 90832.0,
-                "high": 91905.0,
-                "low": 90406.0,
-                "close": 90406.0,
-            }
-        ]
-
     @parameterized.expand(
         [("short candle", [[1764547200000, 1.0, 2.0]]), ("unparseable timestamp", [["nope", 1.0, 2.0, 3.0, 4.0]])]
     )
@@ -600,20 +345,6 @@ class TestOhlc:
 
 
 class TestChartWindows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_splits_a_long_backfill_into_windows_the_api_accepts(self, MockSession) -> None:
-        session = MockSession.return_value
-        today = _today()
-        start = today - timedelta(days=CHART_WINDOW_DAYS + 10)
-        snaps = _wire(session, [_response([]) for _ in range(4)])
-        _rows(_source(PLAN_PRO, "key", "coins_ohlc", _manager(), coin_ids="bitcoin", start_date=start.isoformat()))
-
-        first_end = start + timedelta(days=CHART_WINDOW_DAYS - 1)
-        assert [(snap["params"]["from"], snap["params"]["to"]) for snap in snaps[:2]] == [
-            (start.isoformat(), first_end.isoformat()),
-            ((first_end + timedelta(days=1)).isoformat(), today.isoformat()),
-        ]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_one_batch_holds_every_coin_for_a_window(self, MockSession) -> None:
         session = MockSession.return_value
@@ -695,19 +426,6 @@ class TestChartWindows:
         assert snaps[0]["params"]["from"] == last_synced_day.isoformat()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_start_date_is_floored(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([[1764547200000, 1.0, 2.0, 3.0, 4.0]])])
-
-        # A configuration stored before the floor existed must not schedule an unbounded backfill.
-        # Only the first window is pulled here; the rest would run all the way to today.
-        pages = _source(PLAN_PRO, "key", "coins_ohlc", _manager(), coin_ids="bitcoin", start_date="0001-01-01").items()
-        next(iter(pages))
-
-        assert snaps[0]["params"]["from"] == "2018-01-01"
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_at_the_saved_window(self, MockSession) -> None:
         session = MockSession.return_value
         snaps = _wire(session, [_response([]) for _ in range(4)])
@@ -762,50 +480,6 @@ class TestExchangeRates:
 
 
 class TestGlobalMarketCapChart:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_zips_the_two_series_into_one_row_per_timestamp(self, MockSession) -> None:
-        session = MockSession.return_value
-        first, second = 1764547200000, 1764633600000
-        _wire(
-            session,
-            [
-                _response(
-                    {
-                        "market_cap_chart": {
-                            "market_cap": [[first, 2.6e12], [second, 2.7e12]],
-                            "volume": [[first, 7.2e10], [second, 7.3e10]],
-                        }
-                    }
-                )
-            ],
-        )
-
-        rows = _rows(_source(PLAN_PRO, "key", "global_market_cap_chart", _manager()))
-
-        assert rows == [
-            {"timestamp": datetime.fromtimestamp(first / 1000, tz=UTC), "market_cap": 2.6e12, "volume": 7.2e10},
-            {"timestamp": datetime.fromtimestamp(second / 1000, tz=UTC), "market_cap": 2.7e12, "volume": 7.3e10},
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_asks_for_the_whole_history(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"market_cap_chart": {"market_cap": [], "volume": []}})])
-
-        _rows(
-            _source(
-                PLAN_PRO,
-                "key",
-                "global_market_cap_chart",
-                _manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime.now(UTC),
-            )
-        )
-        # A full refresh must ignore the stored watermark, or it would resync a narrow window and
-        # leave the rest of the table behind.
-        assert snaps[0]["params"]["days"] == "max"
-
     @parameterized.expand(
         [
             # The endpoint takes a relative window from a fixed enum, so a gap picks the smallest

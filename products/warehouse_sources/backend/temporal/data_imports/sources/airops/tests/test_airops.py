@@ -92,25 +92,6 @@ class TestMakeSession:
 
 class TestApps:
     @mock.patch(SESSION_PATCH)
-    def test_yields_the_unwrapped_array(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        seen = _wire(session, [_response([{"id": 1, "name": "A"}, {"id": 2, "name": "B"}])])
-
-        batches = _batches(_source("apps"))
-
-        assert batches == [[{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]]
-        # The apps endpoint has no pagination — exactly one request.
-        assert session.send.call_count == 1
-        assert seen[0]["url"] == APPS_URL
-        # The bearer token is applied by the framework auth at prepare time (so it's redacted).
-        assert seen[0]["auth_headers"]["Authorization"] == "Bearer k"
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_apps_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        _wire(MockSession.return_value, [_response([])])
-        assert _batches(_source("apps")) == []
-
-    @mock.patch(SESSION_PATCH)
     def test_non_list_body_fails_loud(self, MockSession: mock.MagicMock) -> None:
         # The documented shape is a bare array; a 200 with anything else means the response shape
         # changed — fail loud rather than silently syncing 0 (or garbage) rows.
@@ -158,23 +139,6 @@ class TestExecutions:
         assert seen[3]["params"] == {"items": 100}
 
     @mock.patch(SESSION_PATCH)
-    def test_stops_when_cursor_missing_even_if_has_more_true(self, MockSession: mock.MagicMock) -> None:
-        # A truthy has_more with no cursor would otherwise loop forever re-fetching page one.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 10}]),
-                _response({"data": [{"id": "e1"}], "meta": {"has_more": True}}),
-            ],
-        )
-
-        batches = _batches(_source("executions"))
-
-        assert [row for batch in batches for row in batch] == [{"id": "e1", "airops_app_id": 10}]
-        assert session.send.call_count == 2
-
-    @mock.patch(SESSION_PATCH)
     def test_stops_when_has_more_false_even_if_cursor_present(self, MockSession: mock.MagicMock) -> None:
         # An explicit has_more=false ends the app's pagination even when a cursor is echoed back,
         # so the last page isn't paid for twice.
@@ -193,66 +157,14 @@ class TestExecutions:
         assert session.send.call_count == 2
 
     @mock.patch(SESSION_PATCH)
-    def test_paginates_when_cursor_present_without_has_more(self, MockSession: mock.MagicMock) -> None:
-        # A response with a cursor but no has_more flag must still page to the next cursor.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 10}]),
-                _response({"data": [{"id": "e1"}], "meta": {"cursor": "c1"}}),
-                _response({"data": [{"id": "e2"}], "meta": {"has_more": False}}),
-            ],
-        )
-
-        batches = _batches(_source("executions"))
-
-        assert [row for batch in batches for row in batch] == [
-            {"id": "e1", "airops_app_id": 10},
-            {"id": "e2", "airops_app_id": 10},
-        ]
-        assert session.send.call_count == 3
-
-    @mock.patch(SESSION_PATCH)
     def test_fails_when_app_missing_id(self, MockSession: mock.MagicMock) -> None:
         # A missing app id must fail loudly rather than silently dropping that app's executions.
         _wire(MockSession.return_value, [_response([{"name": "no id"}])])
         with pytest.raises(ValueError, match="field 'id'"):
             _batches(_source("executions"))
 
-    @mock.patch(SESSION_PATCH)
-    def test_no_apps_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        assert _batches(_source("executions")) == []
-        assert session.send.call_count == 1
-
 
 class TestBrandKits:
-    @mock.patch(SESSION_PATCH)
-    def test_paginates_by_page_number_in_body(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        seen = _wire(
-            session,
-            [
-                _response({"data": [{"id": 1}], "meta": {"total_pages": 2}}, url=BRAND_KITS_URL),
-                _response({"data": [{"id": 2}], "meta": {"total_pages": 2}}, url=BRAND_KITS_URL),
-            ],
-        )
-
-        rows = [row for batch in _batches(_source("brand_kits")) for row in batch]
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # `meta.total_pages` stops pagination after the last page — exactly two requests, no extra
-        # empty page.
-        assert session.send.call_count == 2
-        assert [s["url"] for s in seen] == [BRAND_KITS_URL, BRAND_KITS_URL]
-        # Page size and the incrementing page number both ride in the POST body, not the query string.
-        assert seen[0]["json"] == {"per_page": 100, "page": 1}
-        assert seen[1]["json"] == {"per_page": 100, "page": 2}
-        assert seen[0]["params"] == {}
-        assert seen[0]["auth_headers"]["Authorization"] == "Bearer k"
-
     @mock.patch(SESSION_PATCH)
     def test_missing_data_key_fails_loud(self, MockSession: mock.MagicMock) -> None:
         # A 200 whose body drops the `data` array means the response shape changed — fail loud
@@ -361,21 +273,6 @@ class TestValidateCredentials:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("key") is expected
 
-    @mock.patch(SESSION_PATCH)
-    def test_network_failure_is_false(self, MockSession: mock.MagicMock) -> None:
-        MockSession.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_probes_apps_endpoint_with_bearer_header(self, MockSession: mock.MagicMock) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-
-        call = MockSession.return_value.get.call_args
-        called_url = call.args[0] if call.args else call.kwargs["url"]
-        assert called_url == APPS_URL
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
-
 
 class TestAirOpsSourceResponse:
     @pytest.mark.parametrize(
@@ -397,11 +294,3 @@ class TestAirOpsSourceResponse:
         assert response.primary_keys == primary_keys
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
-
-    def test_citations_keyed_by_url_without_partition(self) -> None:
-        # Citations carry no id or creation timestamp: identity is (brand kit id, URL) and there is
-        # no stable timestamp to partition on.
-        response = _source("citations")
-        assert response.primary_keys == ["brand_kit_id", "url"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None

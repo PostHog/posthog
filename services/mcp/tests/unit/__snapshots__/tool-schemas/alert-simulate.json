@@ -2252,6 +2252,13 @@
             ],
             "description": "Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing)."
         },
+        "evaluation_delay_intervals": {
+            "default": 0,
+            "description": "Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+        },
         "insight": {
             "anyOf": [
                 {

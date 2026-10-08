@@ -9,7 +9,7 @@ import { percentage } from 'lib/utils/numbers'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     EMAIL_METRIC_INVOCATION_FILTERS,
-    EmailMetric,
+    EmailMetricName,
     METRIC_COLORS,
     WORKFLOW_EMAIL_METRICS,
 } from './workflowMetricsSummaryLogic'
@@ -29,7 +29,7 @@ export function EmailMetricsSummary({
     compact,
 }: {
     logicKey: string
-    onMetricClick?: (metricKey: EmailMetric) => void
+    onMetricClick?: (metricKey: EmailMetricName) => void
     compact?: boolean
 }): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))

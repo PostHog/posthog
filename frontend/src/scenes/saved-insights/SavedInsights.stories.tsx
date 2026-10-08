@@ -76,6 +76,22 @@ export const HomeWithBooleanFlag: Story = {
     },
 }
 
+export const HomeNarrow: Story = {
+    ...Home,
+    parameters: {
+        ...Home.parameters,
+        testOptions: { viewport: { width: 800, height: 2000 }, waitForLoadersToDisappear: true },
+    },
+}
+
+export const HomePhone: Story = {
+    ...Home,
+    parameters: {
+        ...Home.parameters,
+        testOptions: { viewport: { width: 375, height: 2000 }, waitForLoadersToDisappear: true },
+    },
+}
+
 export const EmptyState: Story = {
     decorators: [
         mswDecorator({

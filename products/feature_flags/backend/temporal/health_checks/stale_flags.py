@@ -1,21 +1,26 @@
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from datetime import datetime
 
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.utils import get_instance_region
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.config import is_v1_config
+from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
 from products.feature_flags.backend.flag_status import (
     ROLLOUT_FULLY_ROLLED_OUT,
     ROLLOUT_NOT_ROLLED_OUT,
@@ -32,6 +37,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
+
+LIVE_GATE_FLAG = "health-check-stale-feature-flags-live"
 
 # `last_called_at` exists and predates the stale threshold. The column only records received
 # `$feature_flag_called` events, so it says nothing about evaluations that send no event.
@@ -70,12 +77,12 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # Dry until the feature-flags scout can consume these issues; flipping this is an
-    # operational checkpoint, not a code change to make casually.
+    # Both stay for one more deploy, so the gate reaches every worker before anything can write.
+    # Web's migrate job copies these into the schedule's workflow inputs, and the health-check
+    # worker deploys as a separate app behind it. A worker still on the previous release has no
+    # `eligible_team_ids`, so removing them in this release would let a run that starts inside
+    # that window write live issues for every active team. The follow-up removes both.
     dry_run = True
-    # dry_run stops the writes, not the detection queries. Sample teams until one batch of
-    # this check has a measured cost, because filter_stale_flags has only ever run paginated
-    # for a single team.
     rollout_percentage = 0.01
     remediation = Remediation(
         human="""
@@ -130,6 +137,34 @@ class StaleFeatureFlagsCheck(HealthCheck):
             link=f"/feature_flags/{flag_id}" if flag_id is not None else "/feature_flags",
         )
 
+    @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        """Only the teams `LIVE_GATE_FLAG` answers `True` for.
+
+        Every other answer drops the team from the run, which leaves whatever issues it already
+        holds untouched. That covers a deliberate `False`, a flag that does not exist, an
+        archived or switched-off gate, an unreadable definition set, and an SDK that is off by
+        configuration. None of them can resolve an issue.
+
+        Turning the gate off for a team therefore stops new issues without closing open ones.
+        Closing those is a deliberate act, not a side effect of a flag flip.
+        """
+        # The read below already answers non-True when the SDK is off or holds no definitions,
+        # so this guard is about cost and visibility, not safety. While definitions are not
+        # loaded, every flag read retries the definitions load, so checking once here stops a
+        # batch from making one load attempt per team. The warning is the only record of why a
+        # whole batch was skipped, because the caller returns before it logs anything.
+        if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
+            logger.warning(
+                "stale_feature_flags_live_gate_unreadable",
+                team_count=len(team_ids),
+                sdk_disabled=posthoganalytics.disabled,
+            )
+            return []
+        enabled = [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
+        logger.info("stale_feature_flags_live_gate_evaluated", team_count=len(team_ids), enabled_count=len(enabled))
+        return enabled
+
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         reportable_flags = FeatureFlag.objects.filter(
             team_id__in=team_ids,
@@ -143,15 +178,18 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # boundary be selected by one of them and then classified against the other.
         stale_threshold = stale_flag_threshold()
 
-        stale_candidates = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_rows = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
+        stale_candidates = _v1_flags(stale_rows)
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
-        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity.
+        # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity. It reads
+        # `stale_rows`, not `stale_candidates`, so a never-called non-v1 row also stays out of the
+        # rollout query instead of being fetched and logged a second time.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
-        overlap_ids = {flag.id for flag in stale_candidates if flag.last_called_at is None}
+        overlap_ids = {flag.id for flag in stale_rows if flag.last_called_at is None}
         # The prefilter reads configuration only and returns a superset, so the policy that makes
         # one of those flags a cleanup candidate is applied here, and the checker settles each
         # remaining row. A flag created after the cutoff is too new for a constant configuration to
@@ -169,7 +207,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
         )
         full_rollout_candidates = [
             flag
-            for flag in full_rollout_query
+            for flag in _v1_flags(full_rollout_query)
             if not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).is_flag_fully_rolled_out(flag)[0]
         ]
@@ -188,8 +226,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
             issues.setdefault(flag.team_id, []).append(_build_result(flag, now, stale_threshold))
 
         if issues:
-            # Each issue fires its own alert once dry_run flips, so the flip decision needs the
-            # worst single team, which the framework's batch-wide dry-run summary does not show.
+            # Each issue fires its own alert, so widening the gate needs the worst single team,
+            # which the workflow's run totals do not show.
             issue_counts = [len(team_issues) for team_issues in issues.values()]
             evidence_classes = [
                 result.payload["evidence_class"] for team_issues in issues.values() for result in team_issues
@@ -203,6 +241,36 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 full_rollout_query_issue_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
+
+
+def _live_gate_answer(team_id: int) -> bool | str | None:
+    # Local evaluation only sees the properties supplied here, so a project-id rollout needs the
+    # id passed in or the condition never matches. Team ids are per region and EU evaluates a
+    # mirror of this flag, so every condition needs a `region` filter as well or it matches the
+    # same-numbered project in both regions, which are different customers.
+    region = get_instance_region() or "DEV"
+    return get_feature_flag_or_none(
+        LIVE_GATE_FLAG,
+        f"team-{team_id}",
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
+    """Keep the rows whose `filters` is None or a config format 1 object.
+
+    Drop and log the rest, so `detect` never reports a flag it can't read.
+    """
+    kept = []
+    for flag in flags:
+        if is_v1_config(flag.filters):
+            kept.append(flag)
+        else:
+            logger.info("stale_feature_flags_skipped_unsupported_config", flag_id=flag.id, team_id=flag.team_id)
+    return kept
 
 
 def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
@@ -220,15 +288,12 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     which none of this contradicts.
     """
     filters = flag.filters or {}
-    # A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
-    # legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
-    # rollout check instead of falling through to a later blanket condition.
     # Two siblings encode part of the same evaluation order. `group_cohort_restriction_blocker` in
     # `products/feature_flags/backend/facade/filters.py` reads `holdout`, `holdout_groups` and
     # `super_groups`. `is_unconditionally_fully_rolled_out` in
     # `products/feature_flags/backend/persisted_flags.py` reads `holdout` and `super_groups`.
-    # Neither reads `early_exit`, so the three lists have never been in parity.
-    if any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit")):
+    # Neither reads `early_exit`, so those two have never been in parity with this list.
+    if any(filters.get(key) for key in EVALUATED_BEFORE_RELEASE_CONDITIONS):
         return True
     # These three decide the result from evaluation context the configuration does not carry, so a
     # blanket condition does not reach everyone. A group-aggregated condition is skipped for a

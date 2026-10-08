@@ -7,7 +7,7 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
 An absent discriminator or numeric 1 (including 1.0) selects v1.
 Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
-The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
+The service evaluates v1 and a successfully parsed v2 configuration; every other non-v1 document is rejected per flag.
 The classification converts the discriminator to correctly rounded binary64, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
@@ -16,7 +16,7 @@ PostgreSQL decodes filters as raw JSON through the same reader used by service-c
 V2 validation checks the retained tokens for duplicate object keys, nonzero numeric underflow, and excess percentage precision before admitting the typed configuration.
 These checks share one token pass with the compact document-size limit; original tokens survive cache round trips.
 Validation cannot recover precision or duplicate keys already lost by an upstream producer, so writers must enforce these constraints before ordinary JSON decoding.
-The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, and seeds.
+The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, seeds, and compiled regexes.
 Manually constructed opaque filters still use the passthrough-map serialization fallback.
 
 The parser accepts person-assigned boolean configurations with ordered targeted-release and percentage-rollout rules.
@@ -38,7 +38,7 @@ Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1
 The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
 Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
 
-The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+The evaluator classifies eligible non-v1 flags once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag whose document the v2 parser did not accept gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
@@ -47,14 +47,45 @@ Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed
 These outcomes cover cache and PostgreSQL reads and contain no configuration values.
 
 The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
-The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
-The cache builder consumer labels flag data parsing failures `config_format` in metrics and dead-letter queue headers and sends them to that queue without retrying.
-Inactive and deleted non-v1 flags do not fail the team's rebuild.
+The Rust and Python cache builders omit an unsupported non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes; the PostgreSQL fallback applies the same omission, so a Redis miss does not change which flags a team serves.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
 To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
 Never restore a reader that interprets v2 data as v1.
+
+The `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
+The reader compiles each regex predicate once at parse time and stores it on the cached config, counted as a fixed `ESTIMATED_COMPILED_REGEX_BYTES` (2048) per compiled regex, as v1 does; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
+Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
+`get_match` runs it for an active flag whose parse succeeded, with the request distinct ID as the subject (hash key overrides, device identifiers and experience continuity do not apply), the team timezone and exact-matching setting, and the matcher's request time.
+Person properties come from the same override-and-database acquisition v1 conditions use: a v2 predicate key absent from the request overrides triggers database preparation, and the merged map is `Complete` once the database was consulted or the request restricted evaluation to its overrides (`only_use_override_person_properties`, which the historical `test_evaluation` endpoint sets with the reconstructed property set, so a missing key means not set, as for v1), and `Partial` when the overrides covered every predicate key without a database read.
+A request always carries its distinct ID as an override, so a predicate never sees `Unavailable` context; that variant is passed only for a rule set without predicates, where it is never read.
+The typed outcome is projected onto the existing match shape and reaches every response format unchanged: a targeting match sets `enabled` to the rule value with `condition_match` and the rule index, a terminal rollout miss and no rule match set `enabled` to the flag default (`false` for a null default) with `out_of_rollout_bound` or `no_condition_match`, never a variant or a payload.
+An evaluation error (missing context, an invalid property value, an invalid regex, a hash failure) returns that flag with `failed: true`, `enabled: false` and the `flag_evaluation_error` reason, and sets `errorsWhileComputingFlags`, so a configured `false` stays distinct from an error and from omission.
+Detailed condition analysis describes v1 release conditions, so a v2 flag reports an empty `conditions` list when a request asks for it; the field stays present because Django's `test_evaluation` reads its absence as a rejected internal request.
+The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
+The service adapter must retain eligibility and load/merge property context before invoking it.
+
+Rules and their ANDed predicates run in stored order.
+The first conclusive predicate miss skips that rule; a reached error fails the evaluation, and negation applies only after a conclusive result.
+The property adapter reuses existing operator semantics and an explicit clock for relative dates.
+Invalid compiled regexes are errors in this evaluator, so negation cannot turn invalid syntax into success; v1 keeps its existing invalid-pattern behavior.
+Targeted matches and percentage inclusions return the rule's boolean, including false, with its UUID, kind, and original index.
+With `on_rollout_miss: return_default`, a rollout miss returns the configured boolean/null default and reports the missed rule.
+With `on_rollout_miss: continue`, evaluation moves to the next rule and the missed rule is not reported in the result.
+Exhaustion returns the default with no matched rule.
+Null means no configured value for the caller.
+Errors and flags left out of the `/flags` response remain separate from a successful false or null.
+
+Percentage rules use the stored seed and the shared SHA1/60-bit binary64 primitive with an empty salt.
+The comparison is inclusive, including hash zero at 0%.
+An empty subject always misses; a nonempty subject at 100% bypasses hashing.
+Repeated seeds reuse their hash within one evaluation.
+The evaluator has no database access, writes, events, identity allocation, or gate decisions.
+`get_match` is its response consumer; the cache builders and the PostgreSQL fallback carry supported v2 rows beside v1.
+Evaluator fixtures from harness release 1.8.0 are pinned under contract version 2.2.0.
+`SOURCE.json` lists the vendored subset; its README, manifest, and checksum index keep the upstream bytes, and the integrity test checks each vendored file against that index.
+To roll back evaluation, remove the `get_match` dispatch first; supported v2 rows then follow the per-request rejection path, and the format-aware readers required by stored data stay.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.
 Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
@@ -406,7 +437,7 @@ Rust deserializes `EvaluationMetadata` and maps pre-grouped stages directly to `
 
 #### Fallback path (PostgreSQL)
 
-When `evaluation_metadata` is absent (PG fallback, old cache entries), the service builds a DAG using `petgraph`:
+On a hypercache miss or a hypercache infrastructure error (anything other than a JSON or pickle parse error, which fails the request), the service loads flags from Postgres and computes the same metadata with `compute_flag_dependencies_or_single_stage()` in `cache_builder.rs`, which builds a DAG using `petgraph`:
 
 1. Extract dependencies from all flag property filters
 2. Build a directed graph (edges from dependent -> dependency)
@@ -414,13 +445,7 @@ When `evaluation_metadata` is absent (PG fallback, old cache entries), the servi
 4. Track missing dependencies (flags depending on non-existent flags)
 5. Compute topological evaluation stages using Kahn's algorithm
 
-#### Backwards compatibility
-
-The two paths are fully compatible via `#[serde(default)]` on `evaluation_metadata`:
-
-- **Old Rust + new cache**: `evaluation_metadata` is an unknown field, ignored. Falls back to petgraph.
-- **New Rust + old cache**: `evaluation_metadata` absent → `None` → falls back to petgraph.
-- **New Rust + new cache**: `evaluation_metadata` present → fast pre-computed path.
+If `compute_flag_dependencies()` returns an error, every flag goes in one stage.
 
 ### Evaluation stages
 
@@ -446,6 +471,27 @@ match filter.value {
 ```
 
 Evaluated results are cached in `FlagEvaluationState.flag_evaluation_results` for subsequent dependent flags. Flags with missing or cyclic dependencies evaluate to `false` with reason `MissingDependency`.
+
+A failed flag records no result, so a dependent would otherwise read its `flag_evaluates_to` condition as a non-match.
+Instead, when a flag fails earlier in the request, for example because the persons database fetch failed, the dependent compares two answers: the answer it would give if the failed flag matched, and the answer from its other conditions.
+A filter on the failed flag passes, and the other filters and the rollout of its condition still apply, so that condition can still be a definite non-match.
+A condition is also a definite non-match when no single value of the failed flag satisfies all its filters on that flag, for example `true` together with `false`.
+If that condition matches, its variant is the first answer.
+With `early_exit`, the condition can instead stop on its rollout, and then the first answer is no match.
+The dependent returns `failed: true` with the `dependency_failed` reason when the two answers differ, and its normal value when they agree.
+An SDK can then tell the error apart from a configured `false`.
+The two answers agree, for example, when an earlier condition matches, or when a later condition matches with the same variant.
+The check is conservative.
+Two conditions on the same failed flag can fail a dependent even when every value of that flag gives the same answer.
+The failure reaches transitive dependents stage by stage.
+The check runs only after a flag has failed in the request.
+An unsupported non-v1 flag is the exception: it fails, but its dependents read it as false, as described above.
+The batch evaluation endpoint adds a person to the cohort when the target is enabled, and it never reads the variant.
+So it compares the two answers by match only for the target, and for each dependency that only `true` or `false` filters read.
+A failed flag that could change only the variant of one of these flags does not fail it.
+A dependency that an evaluated flag filters on by variant keeps the variant comparison.
+The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every dependency that failed on its own reports a transient code.
+An unsupported non-v1 dependency does not count, because its dependents read it as false.
 
 ### Partial flag evaluation
 
@@ -536,9 +582,17 @@ Both property sources record whether their fetch ran, and a filter whose source 
 
 - `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
 - The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
-- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a failed lookup says nothing about any group, and a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that one.
+- `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that group.
 
-One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies only after the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before.
+One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies when the request carries no usable group key and no group property override, or when the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before. A request without group context therefore gets the same answer under a loaded, stale, or failed mapping.
+
+A failed lookup says nothing about any group in the request, so a condition that aggregates by a group or filters on a group property cannot be evaluated when the request sends group context.
+The matcher cannot tell which group type the condition's index names, so a key or override for any group type counts.
+The matcher skips that condition and evaluates the others.
+A later condition that matches still decides the flag, although the skipped condition could have picked a different variant.
+With `early_exit`, a skipped condition below 100% rollout could instead stop on its rollout with no match, so a later match then returns `failed: true` too.
+When no condition matches, the flag returns `failed: true` with the lookup's own error code, such as `timeout:persons_db_deadline` or `database_unavailable`, instead of `false`.
+Client SDKs then keep their cached value.
 
 Self-hosted upgrades across this change can see different `/flags` and `/decide` responses without any change to the request or the flag. A negative group filter that previously matched because of a fetch miss now stops matching. A condition that combines person and group filters now loads the group types referenced only by those filters, so the group's stored properties decide the filter where an empty map used to.
 

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -9,13 +10,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import (
+    CAMPAIGN_SUBSCRIBER_STATUS_FIELD,
+    CAMPAIGN_SUBSCRIBER_STATUSES,
+    DRIP_ENDPOINTS,
+    DripEndpointConfig,
+)
 
 DRIP_BASE_URL = "https://api.getdrip.com/v2"
+REQUEST_TIMEOUT_SECONDS = 30.0
 
 
 @dataclasses.dataclass
@@ -94,6 +105,73 @@ def _base_params(endpoint: str) -> dict[str, Any]:
     return params
 
 
+def _client_config(api_token: str, account_id: str, per_page: Optional[int]) -> ClientConfig:
+    return {
+        "base_url": f"{DRIP_BASE_URL}/{account_id}",
+        "headers": {"Accept": "application/json"},
+        # Drip uses HTTP Basic auth with the API token as the username and an empty password;
+        # supplying it via the framework auth config keeps the token redacted from logs.
+        "auth": {"type": "http_basic", "username": api_token, "password": ""},
+        "paginator": DripPaginator(per_page=per_page),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
+def _wrap_scalar_pages(pages: Iterator[Any], column: str) -> Iterator[list[dict[str, Any]]]:
+    """Turn pages of bare strings into rows.
+
+    `/tags` and `/custom_field_identifiers` answer with a list of strings rather than objects,
+    so each value becomes a single-column row.
+    """
+    for page in pages:
+        yield [{column: value} for value in page]
+
+
+def _campaign_subscriber_pages(
+    config: DripEndpointConfig,
+    api_token: str,
+    account_id: str,
+    team_id: int,
+    job_id: str,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan campaign membership out over campaigns, once per subscription status.
+
+    The endpoint filters by a single status and defaults to `active`, so an unswept table would
+    silently drop everyone who unsubscribed from or was removed from a campaign. The rows are
+    subscriber objects and carry no campaign status of their own, hence the added column.
+    """
+    assert config.fanout is not None
+    parent_config = DRIP_ENDPOINTS[config.fanout.parent_name]
+
+    for status in CAMPAIGN_SUBSCRIBER_STATUSES:
+        resource = build_dependent_resource(
+            endpoint_configs=DRIP_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=dataclasses.replace(
+                config.fanout,
+                parent_params={"sort": parent_config.sort, "direction": parent_config.direction},
+                child_params={"status": status, "direction": config.direction},
+            ),
+            client_config=_client_config(api_token, account_id, config.per_page),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param="per_page",
+            # The paginator holds the page number, so parent and child each get their own.
+            parent_endpoint_extra={
+                "paginator": DripPaginator(per_page=parent_config.per_page),
+                "data_selector": parent_config.data_key,
+            },
+            child_endpoint_extra={
+                "paginator": DripPaginator(per_page=config.per_page),
+                "data_selector": config.data_key,
+            },
+        )
+        for page in resource:
+            yield [{**row, CAMPAIGN_SUBSCRIBER_STATUS_FIELD: status} for row in page]
+
+
 def drip_source(
     api_token: str,
     account_id: str,
@@ -105,15 +183,22 @@ def drip_source(
 ) -> SourceResponse:
     config = DRIP_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        # Dependent resources have no resume support in the rest_source framework, so the manager
+        # is intentionally not threaded into this path.
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _campaign_subscriber_pages(config, api_token, account_id, team_id, job_id),
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime" if config.partition_key else None,
+            partition_format="month" if config.partition_key else None,
+            partition_keys=[config.partition_key] if config.partition_key else None,
+        )
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": f"{DRIP_BASE_URL}/{account_id}",
-            "headers": {"Accept": "application/json"},
-            # Drip uses HTTP Basic auth with the API token as the username and an empty password;
-            # supplying it via the framework auth config keeps the token redacted from logs.
-            "auth": {"type": "http_basic", "username": api_token, "password": ""},
-            "paginator": DripPaginator(per_page=config.per_page),
-        },
+        "client": _client_config(api_token, account_id, config.per_page),
         "resources": [
             {
                 "name": endpoint,
@@ -147,9 +232,16 @@ def drip_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    scalar_row_key = config.scalar_row_key
+    items = (
+        (lambda: _wrap_scalar_pages(iter(resource), scalar_row_key))
+        if scalar_row_key is not None
+        else (lambda: resource)
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

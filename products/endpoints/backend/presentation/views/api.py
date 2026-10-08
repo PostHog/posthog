@@ -335,7 +335,7 @@ class EndpointViewSet(
     def _with_materialization_job_prefetches(queryset):
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
-        return queryset.select_related("saved_query").prefetch_related(
+        return queryset.select_related("saved_query", "team").prefetch_related(
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",

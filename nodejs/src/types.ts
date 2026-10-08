@@ -150,6 +150,7 @@ export interface PluginServerCapabilities {
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
     cdpRerunWorker?: boolean
+    cdpDlqReplay?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean
     recordingApi?: boolean
@@ -183,6 +184,13 @@ export interface JobPayloadFieldOptions {
 
 export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
+}
+
+/** Mirrors FlagEvaluationsMode on OrganizationFeatureFlagsConfig in the Django feature_flags product. */
+export enum FlagEvaluationsMode {
+    Events = 0,
+    ReadFlagEvaluations = 1,
+    FlagEvaluationsOnly = 2,
 }
 
 export enum CookielessServerHashMode {
@@ -277,6 +285,7 @@ export interface Team {
     ingested_event: boolean
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
+    flag_evaluations_mode: FlagEvaluationsMode
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null

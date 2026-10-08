@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
+import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
 import { GENERATED_TOOLS as billing } from './billing'
 import { GENERATED_TOOLS as billing_alerts } from './billing_alerts'
@@ -17,6 +18,7 @@ import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as context_layer } from './context_layer'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
+import { GENERATED_TOOLS as cross_project_dashboards } from './cross_project_dashboards'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_catalog } from './data_catalog'
@@ -60,8 +62,8 @@ import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
+import { GENERATED_TOOLS as today } from './today'
 import { GENERATED_TOOLS as tracing } from './tracing'
-import { GENERATED_TOOLS as user_interviews } from './user_interviews'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
@@ -73,6 +75,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...ai_observability,
     ...alerts,
     ...annotations,
+    ...autoresearch,
     ...batch_exports,
     ...billing,
     ...billing_alerts,
@@ -84,6 +87,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...context_layer,
     ...conversations,
     ...core,
+    ...cross_project_dashboards,
     ...customer_analytics,
     ...dashboards,
     ...data_catalog,
@@ -127,8 +131,8 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...subscriptions,
     ...surveys,
     ...tasks,
+    ...today,
     ...tracing,
-    ...user_interviews,
     ...visual_review,
     ...warehouse_sources,
     ...web_analytics,

@@ -678,6 +678,30 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             pr_number=123,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+        merged_assignment = self._create_report(title="Merged assignment")
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=merged_assignment,
+            pr_url="https://github.com/PostHog/posthog/pull/124",
+            repository="posthog/posthog",
+            pr_number=124,
+            pr_state=SignalReportAssignment.PrState.MERGED,
+            pr_merged=True,
+        )
+        linked = {}
+        for number, state in [(125, SignalReportPullRequest.State.OPEN), (126, SignalReportPullRequest.State.MERGED)]:
+            report = self._create_report(title=f"Linked {state}")
+            pr = SignalReportPullRequest.objects.create(
+                team=self.team,
+                repository="posthog/posthog",
+                number=number,
+                url=f"https://github.com/PostHog/posthog/pull/{number}",
+                state=state,
+            )
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+            )
+            linked[state] = report
 
         response = self.client.get(self._list_url(unclaimed="true"))
 
@@ -686,6 +710,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert str(unclaimed.id) in ids
         assert str(claimed.id) not in ids
         assert str(in_review.id) not in ids
+        assert str(merged_assignment.id) in ids
+        assert str(linked[SignalReportPullRequest.State.OPEN].id) not in ids
+        assert str(linked[SignalReportPullRequest.State.MERGED].id) in ids
 
     def test_assignee_me_matches_exact_external_agent(self):
         mine = self._create_report(title="Mine")

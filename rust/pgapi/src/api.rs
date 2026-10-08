@@ -66,6 +66,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/servers/:server/schema", get(schema))
         .route("/servers/:server/logs", get(logs))
         .route("/servers/:server/system", get(system))
+        .route("/servers/:server/cpu", get(cpu))
+        .route("/servers/:server/checkpoints", get(checkpoints))
         .route("/collector/health", get(collector_health))
         .route("/sql", get(sql))
         .route("/stats-schema", get(stats_schema))
@@ -313,6 +315,14 @@ async fn logs(State(s): S, Path(server): Path<String>, Query(p): Query<OptDbQ>) 
 async fn system(State(s): S, Path(server): Path<String>, Query(r): Query<Range>) -> R {
     let (f, t) = r.resolve()?;
     Ok(Json(q::system(&s.db, &server, f, t).await?))
+}
+async fn cpu(State(s): S, Path(server): Path<String>, Query(r): Query<Range>) -> R {
+    let (f, t) = r.resolve()?;
+    Ok(Json(q::cpu(&s.db, &server, f, t).await?))
+}
+async fn checkpoints(State(s): S, Path(server): Path<String>, Query(r): Query<Range>) -> R {
+    let (f, t) = r.resolve()?;
+    Ok(Json(q::checkpoints(&s.db, &server, f, t).await?))
 }
 async fn collector_health(State(s): S) -> R {
     Ok(Json(q::collector_health(&s.db).await?))

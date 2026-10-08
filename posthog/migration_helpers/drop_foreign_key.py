@@ -22,6 +22,10 @@ Django's state:
         ),
     ]
 
+Several keys on one table go in one op, so they share one lock phase:
+
+    DropForeignKey("posthog_mymodel", column=["owner_id", "team_id"])
+
 For a whole table leaving state, name the parent instead of the column:
 
     migrations.SeparateDatabaseAndState(
@@ -38,19 +42,25 @@ a bin/migrate retry.
 The op is irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new
 migration rather than by unapplying this one.
 
-The op deliberately does not touch lock_timeout, exactly like `AddForeignKeyNotValid`.
-Dropping a foreign key takes ACCESS EXCLUSIVE on the referenced parent for a metadata-only
-change held for microseconds, so it should fail fast on contention under whatever
-lock_timeout the connection carries, rather than queue that lock and stall the parent.
-Never disable the timeout here: on a hot parent an unbounded wait blocks every query that
-arrives behind it. A bin/migrate retry re-attempts once the lock is free.
+The drop is a catalog change and scans nothing, but a bare `DROP CONSTRAINT` locks the child
+before the parent and deadlocks against live reads. This op locks every parent, then the
+child, with `lock_tables`, and only then drops. `lock_phase.py` has the reasoning.
+
+The locks last until COMMIT, so keep the op alone in its migration, next to state-only
+operations at most, and give it every key on the table at once. The migration risk analyzer
+blocks a migration that does otherwise.
 """
 
-from django.db import router
+from collections.abc import Sequence
+
+from django.db import router, transaction
 from django.db.migrations.operations.base import Operation
 
-_CONSTRAINT_NAMES_SQL = """
-    SELECT con.conname
+from posthog.dataclasses import frozen
+from posthog.migration_helpers.lock_phase import lock_tables
+
+_CONSTRAINTS_SQL = """
+    SELECT DISTINCT con.conname, tgt.relname
     FROM pg_constraint con
     JOIN pg_class src ON src.oid = con.conrelid
     JOIN pg_class tgt ON tgt.oid = con.confrelid
@@ -59,8 +69,14 @@ _CONSTRAINT_NAMES_SQL = """
       AND src.relname = %(table)s
       AND pg_table_is_visible(src.oid)
       AND (%(to_table)s IS NULL OR tgt.relname = %(to_table)s)
-      AND (%(column)s IS NULL OR att.attname = %(column)s)
+      AND (%(columns)s::name[] IS NULL OR att.attname = ANY(%(columns)s::name[]))
 """
+
+
+@frozen
+class _ForeignKeyConstraint:
+    name: str
+    parent: str
 
 
 class DropForeignKey(Operation):
@@ -73,8 +89,8 @@ class DropForeignKey(Operation):
         table: the child table holding the constraint, e.g. `"posthog_mymodel"`. A raw
             table name rather than a model name, because the model or field is leaving
             Django's state in this same migration and may no longer resolve.
-        column: the child column, e.g. `"owner_id"`. Note the `_id` suffix Django gives
-            foreign key columns.
+        column: the child column, e.g. `"owner_id"`, or a list of them. Note the `_id`
+            suffix Django gives foreign key columns.
         to_table: the referenced parent table, e.g. `"posthog_team"`.
 
     Pass `column`, `to_table`, or both. Passing neither would drop every foreign key on the
@@ -89,15 +105,25 @@ class DropForeignKey(Operation):
     reversible = False
     reduces_to_sql = True
 
-    def __init__(self, table: str, column: str | None = None, to_table: str | None = None) -> None:
-        if column is None and to_table is None:
+    def __init__(self, table: str, column: str | Sequence[str] | None = None, to_table: str | None = None) -> None:
+        columns = [column] if isinstance(column, str) else list(column or [])
+        if not columns and to_table is None:
             raise ValueError("DropForeignKey needs a column, a to_table, or both")
         self.table = table
-        self.column = column
+        self.columns = columns
         self.to_table = to_table
 
     def state_forwards(self, app_label, state) -> None:
         pass
+
+    def _constraints(self, schema_editor) -> list[_ForeignKeyConstraint]:
+        """Every key that matches the filter, sorted by constraint name."""
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute(
+                _CONSTRAINTS_SQL,
+                {"table": self.table, "to_table": self.to_table, "columns": self.columns or None},
+            )
+            return [_ForeignKeyConstraint(name=name, parent=parent) for name, parent in sorted(cursor.fetchall())]
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         # A product app in products/db_routing.yaml migrates on its own database. Django still
@@ -105,22 +131,23 @@ class DropForeignKey(Operation):
         # them apart, so a same-named table elsewhere would lose its foreign key.
         if not router.allow_migrate(schema_editor.connection.alias, app_label):
             return
-        for name in self._constraint_names(schema_editor):
-            schema_editor.execute(
-                f"ALTER TABLE {schema_editor.quote_name(self.table)} DROP CONSTRAINT {schema_editor.quote_name(name)}"
-            )
+        constraints = self._constraints(schema_editor)
+        if not constraints:
+            return
+        # A key that references its own table names the child as its parent, and the child
+        # goes last in the lock list.
+        parents = sorted({constraint.parent for constraint in constraints} - {self.table})
+        drops = ", ".join(f"DROP CONSTRAINT {schema_editor.quote_name(constraint.name)}" for constraint in constraints)
+        # LOCK TABLE needs a transaction. Inside an atomic migration this is a savepoint.
+        # Under atomic = False it is a transaction of its own, which lets go of the parents
+        # as soon as the drops finish.
+        with transaction.atomic(using=schema_editor.connection.alias):
+            lock_tables(schema_editor, [*parents, self.table])
+            schema_editor.execute(f"ALTER TABLE {schema_editor.quote_name(self.table)} {drops}")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         raise NotImplementedError("DropForeignKey is irreversible; add the constraint back with AddForeignKeyNotValid")
 
     def describe(self) -> str:
-        target = self.column or f"-> {self.to_table}"
+        target = ", ".join(self.columns) or f"-> {self.to_table}"
         return f"Drop foreign key on {self.table} ({target})"
-
-    def _constraint_names(self, schema_editor) -> list[str]:
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute(
-                _CONSTRAINT_NAMES_SQL,
-                {"table": self.table, "to_table": self.to_table, "column": self.column},
-            )
-            return sorted({row[0] for row in cursor.fetchall()})

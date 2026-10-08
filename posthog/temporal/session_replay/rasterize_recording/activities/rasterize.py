@@ -52,6 +52,69 @@ def report_export_event(asset: ExportedAsset, event: str, **properties: Any) -> 
     capture_export_event(asset, event, ph_background_capture(), **properties)
 
 
+def rasterization_input_from_context(
+    ctx: dict[str, Any],
+    *,
+    team_id: int,
+    session_id: str,
+    s3_bucket: str,
+    s3_key_prefix: str,
+    output_format: str,
+    recording_api_token: str = "",
+) -> RasterizationActivityInput:
+    """The render an export context describes, with the defaults and bounds every render gets.
+
+    Shared with callers that render without an ExportedAsset, so their renders match production's.
+    """
+    # Callers may pass `timestamp`+`duration` or the native `start_offset_s`/`end_offset_s`.
+    start_offset_s = ctx.get("start_offset_s") if ctx.get("start_offset_s") is not None else ctx.get("timestamp")
+    duration = ctx.get("duration")
+    end_offset_s = ctx.get("end_offset_s")
+    if end_offset_s is None and duration is not None:
+        end_offset_s = (start_offset_s or 0) + duration
+
+    viewport_width = ctx.get("width")
+    viewport_height = ctx.get("height")
+    if viewport_width is not None:
+        viewport_width = max(400, min(3840, int(viewport_width)))
+    if viewport_height is not None:
+        viewport_height = max(300, min(2160, int(viewport_height)))
+
+    # The output video is always real-time (the ffmpeg setpts filter undoes the speed-up); speed
+    # only reduces the virtual time a render spends playing the session. 1x for short clips keeps
+    # capture simple; 4x for full sessions bounds virtual time on long recordings.
+    default_speed = 1 if (duration is not None and duration <= 5) else 4
+    # `or` rather than a .get default so an explicit null in export_context also falls back instead
+    # of failing pydantic validation three retries in a row.
+    playback_speed = ctx.get("playback_speed") or default_speed
+    recording_fps = ctx.get("recording_fps") or 24
+    # Clamp the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
+    # The lower bound matches Node's validateInput: speeds below 1 have no slow-motion filter chain
+    # and would misreport the video duration.
+    playback_speed = max(1.0, min(360.0, float(playback_speed)))
+    recording_fps = min(60, int(recording_fps))
+
+    return RasterizationActivityInput(
+        team_id=team_id,
+        session_id=session_id,
+        recording_api_token=recording_api_token,
+        s3_bucket=s3_bucket,
+        s3_key_prefix=s3_key_prefix,
+        playback_speed=playback_speed,
+        recording_fps=recording_fps,
+        trim=ctx.get("trim"),
+        show_metadata_footer=ctx.get("show_metadata_footer", False),
+        viewport_width=viewport_width,
+        viewport_height=viewport_height,
+        start_offset_s=start_offset_s,
+        end_offset_s=end_offset_s,
+        output_format=output_format,
+        skip_inactivity=ctx.get("skip_inactivity", True),
+        mouse_tail=ctx.get("mouse_tail", True),
+        max_virtual_time=ctx.get("max_virtual_time"),
+    )
+
+
 @activity.defn
 def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResult:
     close_old_connections()
@@ -83,58 +146,20 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
 
     s3_key_prefix = f"{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/{output_format}/team-{asset.team_id}/task-{asset.id}"
 
-    # Callers may pass `timestamp`+`duration` or the native `start_offset_s`/`end_offset_s`.
-    start_offset_s = ctx.get("start_offset_s") if ctx.get("start_offset_s") is not None else ctx.get("timestamp")
-    duration = ctx.get("duration")
-    end_offset_s = ctx.get("end_offset_s")
-    if end_offset_s is None and duration is not None:
-        end_offset_s = (start_offset_s or 0) + duration
-
-    viewport_width = ctx.get("width")
-    viewport_height = ctx.get("height")
-    if viewport_width is not None:
-        viewport_width = max(400, min(3840, int(viewport_width)))
-    if viewport_height is not None:
-        viewport_height = max(300, min(2160, int(viewport_height)))
-
-    # The output video is always real-time (the ffmpeg setpts filter undoes the speed-up); speed
-    # only reduces the virtual time a render spends playing the session. 1x for short clips keeps
-    # capture simple; 4x for full sessions bounds virtual time on long recordings.
-    default_speed = 1 if (duration is not None and duration <= 5) else 4
-    # `or` rather than a .get default so an explicit null in export_context also falls back instead
-    # of failing pydantic validation three retries in a row.
-    playback_speed = ctx.get("playback_speed") or default_speed
-    recording_fps = ctx.get("recording_fps") or 24
-    # Clamp the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
-    # The lower bound matches Node's validateInput: speeds below 1 have no slow-motion filter chain
-    # and would misreport the video duration.
-    playback_speed = max(1.0, min(360.0, float(playback_speed)))
-    recording_fps = min(60, int(recording_fps))
-
     # Empty until the signing secret is configured; the rasterizer then relays the legacy shared
     # secret instead, so rollout can happen per environment without breaking rendering.
     recording_api_token = (
         mint_recording_api_token(asset.team_id, "read", ttl=_RASTERIZE_TOKEN_TTL) if recording_api_jwt_enabled() else ""
     )
 
-    activity_input = RasterizationActivityInput(
+    activity_input = rasterization_input_from_context(
+        ctx,
         team_id=asset.team_id,
         session_id=session_id,
-        recording_api_token=recording_api_token,
         s3_bucket=settings.OBJECT_STORAGE_BUCKET,
         s3_key_prefix=s3_key_prefix,
-        playback_speed=playback_speed,
-        recording_fps=recording_fps,
-        trim=ctx.get("trim"),
-        show_metadata_footer=ctx.get("show_metadata_footer", False),
-        viewport_width=viewport_width,
-        viewport_height=viewport_height,
-        start_offset_s=start_offset_s,
-        end_offset_s=end_offset_s,
         output_format=output_format,
-        skip_inactivity=ctx.get("skip_inactivity", True),
-        mouse_tail=ctx.get("mouse_tail", True),
-        max_virtual_time=ctx.get("max_virtual_time"),
+        recording_api_token=recording_api_token,
     )
 
     fingerprint = compute_params_fingerprint(activity_input)
@@ -151,8 +176,8 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     report_export_event(
         asset,
         "export started",
-        playback_speed=playback_speed,
-        recording_fps=recording_fps,
+        playback_speed=activity_input.playback_speed,
+        recording_fps=activity_input.recording_fps,
         output_format=output_format,
     )
 
@@ -191,6 +216,7 @@ def _try_synthesize_cached_output(
         video_duration_s=float(ctx["video_duration_s"]),
         playback_speed=float(ctx["playback_speed"]),
         show_metadata_footer=bool(ctx.get("show_metadata_footer", False)),
+        footer_height_px=int(ctx.get("footer_height_px") or 0),
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
         file_size_bytes=int(ctx["file_size_bytes"]),
@@ -218,6 +244,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                 include={
                     "video_duration_s",
                     "playback_speed",
+                    "footer_height_px",
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",

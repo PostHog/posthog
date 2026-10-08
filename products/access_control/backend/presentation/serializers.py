@@ -12,6 +12,8 @@ from posthog.models.organization import OrganizationMembership
 
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
+from ..facade.enums import AI_EVENT_PROPERTY_CHOICES, SCOPE_OBJECT_CHOICES
+from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
 _ACCESS_LEVEL_CHOICES = [(e.value, e.value) for e in PropertyAccessLevel]
@@ -83,7 +85,13 @@ class PropertyAccessControlUpdateSerializer(serializers.Serializer):
     """Request body for upserting a rule (create or update)."""
 
     property_definition_id = serializers.CharField(
-        help_text="The property definition ID this rule applies to.",
+        required=False,
+        help_text="The existing property definition ID. Provide this or ai_property.",
+    )
+    ai_property = serializers.ChoiceField(
+        choices=AI_EVENT_PROPERTY_CHOICES,
+        required=False,
+        help_text="A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.",
     )
     access_level = serializers.ChoiceField(
         choices=_ACCESS_LEVEL_CHOICES,
@@ -101,6 +109,11 @@ class PropertyAccessControlUpdateSerializer(serializers.Serializer):
         default=None,
         help_text="The role UUID to set an override for.",
     )
+
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
+        if ("property_definition_id" in attrs) == ("ai_property" in attrs):
+            raise serializers.ValidationError("Provide exactly one of property_definition_id or ai_property.")
+        return attrs
 
 
 class PropertyAccessControlDeleteSerializer(serializers.Serializer):
@@ -221,7 +234,9 @@ class AccessControlResourceDefaultSerializer(serializers.Serializer):
 
 
 class AccessControlObjectRuleResourceSerializer(serializers.Serializer):
-    resource = serializers.CharField(help_text="A resource type that supports rules on single objects.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="A resource type that supports rules on single objects."
+    )
     available_access_levels = serializers.ListField(
         child=serializers.CharField(),
         help_text="The levels an object rule on this resource type accepts, lowest first.",
@@ -246,7 +261,9 @@ class AccessControlDefaultsResponseSerializer(_AccessControlSettingsResponseSeri
 class AccessControlObjectRuleSerializer(serializers.Serializer):
     """A stored rule on one object, as configured for a subject."""
 
-    resource = serializers.CharField(help_text="The object's resource type, for example `dashboard`.")
+    resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The object's resource type, for example `dashboard`."
+    )
     resource_id = serializers.CharField(help_text="The object's primary key.")
     name = serializers.CharField(help_text="The object's display name. Falls back to the id when it has no name.")
     short_id = serializers.CharField(
@@ -280,4 +297,61 @@ class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
 class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
     uses_most_specific_access_resolution = serializers.BooleanField(
         help_text="Always true: the organization now resolves access with the most specific rule."
+    )
+
+
+class AccessControlRuleRequestSerializer(serializers.Serializer):
+    """The scope and level of one rule write. On its own it is the default rule, for everyone in the
+    project without a member or role rule of their own. The subclasses add the subject."""
+
+    resource = serializers.ChoiceField(
+        choices=RULE_RESOURCE_CHOICES,
+        help_text="The scope of the rule: `project` for the project itself (with the project id as `resource_id`), "
+        "a resource type such as `dashboard` for the whole resource type or for one object of it, or "
+        "`property_definition` for one person or event property.",
+    )
+    resource_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key for "
+        "a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only "
+        "for a rule on a whole resource type.",
+    )
+    access_level = serializers.CharField(
+        allow_null=True,
+        help_text="The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` "
+        "for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, "
+        "so the subject falls back to the level it inherits.",
+    )
+
+
+class AccessControlMemberRuleRequestSerializer(AccessControlRuleRequestSerializer):
+    """A rule for one organization member."""
+
+    member_id = serializers.UUIDField(
+        help_text="The organization membership id, as `organization_membership_id` in the members endpoint.",
+    )
+
+
+class AccessControlRoleRuleRequestSerializer(AccessControlRuleRequestSerializer):
+    """A rule for every member of one role."""
+
+    role_id = serializers.UUIDField(help_text="The role id, as `role_id` in the roles endpoint.")
+
+
+class AccessControlStoredRuleSerializer(serializers.Serializer):
+    """One stored rule, the same shape for object, resource, project and property rules."""
+
+    resource = serializers.CharField(help_text="The rule's scope, as sent in the request.")
+    resource_id = serializers.CharField(
+        allow_null=True,
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key, or a "
+        "property definition id. Null for a resource-type rule.",
+    )
+    access_level = serializers.CharField(help_text="The stored level.")
+    member_id = serializers.UUIDField(
+        allow_null=True, help_text="The organization membership the rule is for. Null unless it is a member rule."
+    )
+    role_id = serializers.UUIDField(
+        allow_null=True, help_text="The role the rule is for. Null unless it is a role rule."
     )

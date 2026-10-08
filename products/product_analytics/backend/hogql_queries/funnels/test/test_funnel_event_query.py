@@ -632,3 +632,29 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         funnel_event_query = FunnelEventQuery(context=context).to_query()
         select = format_query(funnel_event_query)
         self.assertIn(f"ifNull(toString(session.{breakdown_property}), '')", select)
+
+    @parameterized.expand(
+        [
+            ("$group_key", ["group_0", "key"]),
+            ("$virt_revenue", ["group_0", "$virt_revenue"]),
+            ("industry", ["group_0", "properties", "industry"]),
+        ]
+    )
+    @time_machine.travel("2025-11-12", tick=False)
+    def test_group_breakdown_chain(self, breakdown_property: str, expected_chain: list[str]):
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$autocapture")],
+            breakdownFilter=BreakdownFilter(
+                breakdown=breakdown_property, breakdown_type=BreakdownType.GROUP, breakdown_group_type_index=0
+            ),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        # A single group breakdown is not wrapped in an array, unlike the session breakdown above.
+        if_null = FunnelEventQuery(context=context)._get_breakdown_expr()
+        assert isinstance(if_null, ast.Call) and if_null.name == "ifNull"
+        to_string = if_null.args[0]
+        assert isinstance(to_string, ast.Call) and to_string.name == "toString"
+        field = to_string.args[0]
+        assert isinstance(field, ast.Field)
+        self.assertEqual(field.chain, expected_chain)

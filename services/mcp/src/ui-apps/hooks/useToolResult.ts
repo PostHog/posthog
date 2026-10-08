@@ -246,7 +246,7 @@ export function useToolResult<T = unknown>({
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
                     if (analytics) {
-                        identifyUser(analytics.distinctId, analytics.toolName)
+                        identifyUser(analytics.distinctId, analytics.toolName, analytics.mcpClientName)
                     }
 
                     // `hasAppData` and `rendered` separate a healthy result that rode the

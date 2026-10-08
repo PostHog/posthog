@@ -165,10 +165,15 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
-        # Metric label predicates are not PostHog property filters, so only the
-        # dashboard's date range applies to this tile.
+        # Metric label predicates are not PostHog property filters, so the dashboard's
+        # property filters do not apply. Its date range and label filters do.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.clauses = [
+                clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
+                for clause in self.query.clauses
+            ]

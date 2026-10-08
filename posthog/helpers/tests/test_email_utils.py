@@ -285,6 +285,29 @@ class TestUserExistsWithStrippedAlias(TestCase):
             user.delete()
 
 
+class TestUserExistsWithGmailCanonical(TestCase):
+    @parameterized.expand(
+        [
+            ("dotted_lookup_plain_stored", "someone@gmail.com", "some.one@gmail.com", True),
+            ("plain_lookup_dotted_stored", "s.o.m.e.one@gmail.com", "someone@gmail.com", True),
+            ("alias_and_dots_stored", "some.one+old@gmail.com", "someone@gmail.com", True),
+            ("alias_and_dots_looked_up", "someone@gmail.com", "s.o.m.e.one+new@gmail.com", True),
+            ("googlemail_is_gmail", "someone@googlemail.com", "some.one@gmail.com", True),
+            ("mixed_case_stored", "Some.One@Gmail.com", "someone@gmail.com", True),
+            ("other_domain_keeps_dots", "someone@example.com", "some.one@example.com", False),
+            ("different_mailbox", "someone@gmail.com", "someone2@gmail.com", False),
+        ]
+    )
+    def test_collapses_dots_and_alias_only_for_gmail(
+        self, _name: str, stored_email: str, looked_up_email: str, expected: bool
+    ) -> None:
+        user = User.objects.create(email=stored_email, first_name="Base")
+        try:
+            self.assertEqual(EmailValidationHelper.user_exists_with_gmail_canonical(looked_up_email), expected)
+        finally:
+            user.delete()
+
+
 class TestESPSuppressionCheck(SimpleTestCase):
     def test_returns_not_suppressed_for_empty_email(self):
         result = check_esp_suppression("")

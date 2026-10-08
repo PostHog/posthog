@@ -102,7 +102,7 @@ class QuotaState:
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
     # Posted to the receipt ledger; deletes cannot refund it.
     credits_settled: int = 0
-    # Held by in-flight observations and running prompt evaluations; released without a receipt on failure.
+    # Held by in-flight observations; released without a receipt on failure.
     credits_reserved: int = 0
 
     @property
@@ -324,7 +324,7 @@ def compute_scanner_budgets(
     """Per-scanner budgets for the org's current billing period, with an entry for every requested scanner.
 
     Settled credits come from the immutable receipt ledger, so deleting observations cannot refund a
-    scanner's limit. In-flight observations and running prompt evaluations are reserved live from their
+    scanner's limit. In-flight observations are reserved live from their
     frozen snapshot model, exactly as the org snapshot does, because a sweep tick admits many
     observations concurrently against one read. Receipts written before `scanner_id` existed were
     backfilled from their observation rows (0070); only receipts whose observation was deleted
@@ -336,11 +336,6 @@ def compute_scanner_budgets(
     Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
     scanner budgets taken alongside it cannot straddle a period boundary.
     """
-    # Deferred: breaks the quota -> prompt_evaluation -> temporal -> quota import cycle.
-    from products.replay_vision.backend.prompt_evaluation import (  # noqa: PLC0415
-        in_flight_evaluation_credits_by_scanner,
-    )
-
     if not scanner_ids:
         return {}
     if period is None:
@@ -356,15 +351,11 @@ def compute_scanner_budgets(
     # rest report zero usage, and `blocked` is always False without a limit.
     capped_ids = [scanner_id for scanner_id in scanner_ids if (configs.get(scanner_id) or (None,))[0] is not None]
     in_flight: dict[UUID, int] = {}
-    in_flight_evaluations: dict[UUID, int] = {}
     settled: dict[UUID, int] = {}
     if capped_ids:
         # Reservations are read BEFORE the receipt ledger: an observation settling between the two reads
         # is then counted by both (a transient over-count that fails toward capped), never by neither.
         in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
-        # Evaluations write receipts directly, never observation rows, so a running test would otherwise
-        # drain the cap invisibly. Not period-filtered: a live run charges whichever period it settles in.
-        in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, capped_ids)
         settled = {
             row["scanner_id"]: row["total_credits"] or 0
             for row in ReplayObservationUsage.objects.filter(
@@ -380,7 +371,7 @@ def compute_scanner_budgets(
     for scanner_id in scanner_ids:
         config = configs.get(scanner_id)
         settled_credits = settled.get(scanner_id, 0)
-        reserved = in_flight.get(scanner_id, 0) + in_flight_evaluations.get(scanner_id, 0)
+        reserved = in_flight.get(scanner_id, 0)
         result[scanner_id] = ScannerBudget(
             credit_limit=config[0] if config else None,
             credits_used=settled_credits + reserved,
@@ -482,10 +473,6 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
 
 
 def quota_state(organization_id: UUID) -> QuotaState:
-    # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
-    # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
-    from products.replay_vision.backend.prompt_evaluation import in_flight_evaluation_credits  # noqa: PLC0415
-
     # Single `now` so the usage window and any caller comparisons are computed from one instant.
     now = datetime.now(UTC)
     organization = Organization.objects.filter(pk=organization_id).only("usage").first()
@@ -508,9 +495,7 @@ def quota_state(organization_id: UUID) -> QuotaState:
             created_at__lt=period.end,
         ).values_list("scanner_snapshot__model", flat=True)
     )
-    in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
-    # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
-    reserved = in_flight + in_flight_evaluation_credits(organization_id)
+    reserved = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA

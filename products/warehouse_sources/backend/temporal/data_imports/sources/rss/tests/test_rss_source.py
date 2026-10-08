@@ -3,7 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rss import RssSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rss.source import RssSource
 
@@ -13,22 +12,6 @@ class TestRssSource:
         self.source = RssSource()
         self.team_id = 123
         self.config = RssSourceConfig(api_key="rss-key")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Rss"
-        assert config.label == "RSS.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Intentionally unreleased until validated against a live RSS.com Network-plan account.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/rss"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another host.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [

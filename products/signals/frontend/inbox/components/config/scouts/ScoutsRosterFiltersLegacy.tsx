@@ -42,14 +42,7 @@ export function ScoutsRosterFiltersLegacy({ compact }: { compact: boolean }): JS
                     size="xsmall"
                     options={scoutTagOptions}
                     selected={activeScoutTags}
-                    onToggle={(tag) =>
-                        setScoutTagFilter(
-                            activeScoutTags.includes(tag)
-                                ? activeScoutTags.filter((candidate) => candidate !== tag)
-                                : [...activeScoutTags, tag]
-                        )
-                    }
-                    onClear={() => setScoutTagFilter([])}
+                    onChange={setScoutTagFilter}
                 />
             )}
             {scoutOwnerOptions.length > 0 && (

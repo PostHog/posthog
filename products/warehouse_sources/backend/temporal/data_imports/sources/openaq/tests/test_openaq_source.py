@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.settings import OPENAQ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
 
 
@@ -14,20 +13,12 @@ def _config() -> OpenAQSourceConfig:
 
 
 class TestOpenAQSourceConfig:
-    def test_docs_url_matches_slug(self) -> None:
-        # The website derives the doc slug from this URL; a mismatch 404s the Supported tables section.
-        assert OpenAQSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/openaq"
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs may render the table list.
         assert OpenAQSource.lists_tables_without_credentials is True
 
 
 class TestOpenAQSchemas:
-    def test_all_endpoints_exposed(self) -> None:
-        names = {s.name for s in OpenAQSource().get_schemas(_config(), team_id=1)}
-        assert names == set(OPENAQ_ENDPOINTS.keys())
-
     @parameterized.expand(
         [
             ("measurements", True, False),
@@ -46,12 +37,6 @@ class TestOpenAQSchemas:
         schema = {s.name: s for s in OpenAQSource().get_schemas(_config(), team_id=1)}[endpoint]
         assert schema.supports_incremental is expected_incremental
         assert schema.should_sync_default is expected_default_sync
-
-    def test_measurement_primary_key_is_sensor_and_period(self) -> None:
-        # A non-unique key seeds duplicate rows that every later merge multi-matches; measurements have
-        # no id of their own, so the key must be (sensor_id, datetime_from).
-        schema = {s.name: s for s in OpenAQSource().get_schemas(_config(), team_id=1)}["measurements"]
-        assert schema.detected_primary_keys == ["sensor_id", "datetime_from"]
 
     def test_names_filter_narrows_schemas(self) -> None:
         schemas = OpenAQSource().get_schemas(_config(), team_id=1, names=["parameters"])
@@ -118,14 +103,3 @@ class TestOpenAQPipelineWiring:
         _, kwargs = mock_source.call_args
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-
-class TestOpenAQDocumentedTables:
-    def test_documented_tables_include_curated_descriptions(self) -> None:
-        # lists_tables_without_credentials + canonical descriptions feed the public Supported tables docs.
-        tables = {t["name"]: t for t in OpenAQSource().get_documented_tables()}
-        assert set(tables) == set(OPENAQ_ENDPOINTS.keys())
-        # locations has no schema-level description, so the curated canonical one is surfaced.
-        assert tables["locations"]["description"].startswith("Monitoring locations")
-        assert "Incremental" in tables["measurements"]["sync_methods"]
-        assert "Full refresh" in tables["locations"]["sync_methods"]

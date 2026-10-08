@@ -835,17 +835,18 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def count_soon_to_expire_sessions_query(
-        format: Optional[str] = None,
-    ):
+    def count_soon_to_expire_sessions_by_team_query() -> str:
+        """Count the sessions about to expire for every team in a [team_id_start, team_id_end) range.
+
+        Parameters: team_id_start, team_id_end, python_now, ttl_threshold.
+        Teams without expiring sessions return no row.
         """
-        Helper function to build a query for counting all sessions that are about to expire
-        """
-        query = """
+        return """
                 WITH
                     expiring_sessions
                 AS (
                     SELECT
+                        team_id,
                         session_id,
                         min(min_first_timestamp) as start_time,
                         max(retention_period_days) as retention_period_days,
@@ -854,24 +855,21 @@ class SessionReplayEvents:
                     FROM
                         session_replay_events
                     PREWHERE
-                        team_id = %(team_id)s
+                        team_id >= %(team_id_start)s
+                        AND team_id < %(team_id_end)s
                         AND min_first_timestamp <= %(python_now)s
                     GROUP BY
-                        session_id
+                        team_id, session_id
                     HAVING
                         expiry_time >= %(python_now)s
                         AND recording_ttl <= %(ttl_threshold)s
-                    ORDER BY recording_ttl ASC
                 )
                 SELECT
+                    team_id,
                     count(session_id) as recording_count
                 FROM expiring_sessions
-                {optional_format_clause}
+                GROUP BY team_id
                 """
-        query = query.format(
-            optional_format_clause=(f"FORMAT {format}" if format else ""),
-        )
-        return query
 
 
 def get_person_emails_for_session_ids(

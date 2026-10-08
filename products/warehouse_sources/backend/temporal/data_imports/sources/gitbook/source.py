@@ -52,7 +52,7 @@ class GitBookSource(ResumableSource[GitBookSourceConfig, GitBookResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your GitBook API token to pull your documentation workspace into the PostHog Data warehouse.
 
-You can create a personal access token under **Account settings → Developer** in [GitBook](https://app.gitbook.com/account/developer). The token inherits your account permissions and grants read access to your organizations, spaces, collections, sites, members, teams, change requests, and comments.
+You can create a personal access token under **Account settings → Developer** in [GitBook](https://app.gitbook.com/account/developer). The token inherits your account permissions and grants read access to your organizations, spaces, pages, collections, sites, site questions and answers, members, teams, team members, change requests, and comments.
 """,
             iconPath="/static/services/gitbook.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gitbook",
@@ -94,10 +94,8 @@ You can create a personal access token under **Account settings → Developer** 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — GitBook's list endpoints expose no server-side
-        # updated-after/since filter, so there is no timestamp cursor to advance an incremental sync.
-        # INCREMENTAL_FIELDS is empty, so build_endpoint_schemas yields supports_incremental=False,
-        # supports_append=False, incremental_fields=[] for every endpoint.
+        # Only `site_answers` has a server-side timestamp filter, so it is the only endpoint in
+        # INCREMENTAL_FIELDS; every other endpoint is full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -129,4 +127,7 @@ You can create a personal access token under **Account settings → Developer** 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )

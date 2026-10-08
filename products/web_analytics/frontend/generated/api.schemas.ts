@@ -395,10 +395,12 @@ export interface SavedHeatmapCaptureRequestApi {
      */
     widths?: number[]
     /**
-     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed.
      * @maxLength 2000
      */
     url: string
+    /** URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty. */
+    data_url?: string
     /**
      * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
      * @maxLength 400
@@ -561,6 +563,41 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
+/**
+ * * `ok` - OK
+ * * `no_web_sessions` - No web sessions
+ * * `no_sessions` - No sessions
+ * * `unknown` - Unknown
+ */
+export type DigestDataStatusEnumApi = (typeof DigestDataStatusEnumApi)[keyof typeof DigestDataStatusEnumApi]
+
+export const DigestDataStatusEnumApi = {
+    Ok: 'ok',
+    NoWebSessions: 'no_web_sessions',
+    NoSessions: 'no_sessions',
+    Unknown: 'unknown',
+} as const
+
+export interface DigestMetadataApi {
+    /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+     *
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown */
+    data_status: DigestDataStatusEnumApi
+    /** Start of the current period, in the project timezone. */
+    date_from: string
+    /** End of the current period, in the project timezone. */
+    date_to: string
+    /** Project timezone for the period boundaries. */
+    timezone: string
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    filter_test_accounts: boolean
+    /** Metric definitions to use when you compare the digest with a direct query. */
+    notes: string[]
+}
+
 export interface RecapPersonaApi {
     /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
     id: string
@@ -604,6 +641,8 @@ export interface WebAnalyticsRecapResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
     /** The single weekly persona assigned from this week's data. */
@@ -639,6 +678,8 @@ export interface WeeklyDigestResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
 }
@@ -800,82 +841,15 @@ export interface WebAnalyticsBotRuleApi {
     items: WebAnalyticsBotConditionApi[]
 }
 
-export interface ContentAutopilotSiteProfileApi {
-    readonly id: string
-    /**
-     * Name used to identify this site in the workspace.
-     * @maxLength 255
-     */
-    name?: string
-    /**
-     * Authorized site origin for this profile.
-     * @maxLength 2048
-     */
-    domain: string
-    /** Public sitemap and factual source URLs used to build the site profile. */
-    source_urls: string[]
-    /** Same-origin URL path prefixes allowed for research. */
-    content_boundaries: string[]
-    /** Brand, terminology, and editorial rules applied to every proposal. */
-    brand_rules: string[]
-    /** Whether to use connected Google Search Console data. */
-    search_console_enabled?: boolean
-    readonly created_at: string
-    readonly updated_at: string
-}
+/**
+ * * `ai_visibility_gap` - AI visibility gap
+ */
+export type ContentAutopilotOpportunityKindEnumApi =
+    (typeof ContentAutopilotOpportunityKindEnumApi)[keyof typeof ContentAutopilotOpportunityKindEnumApi]
 
-export interface PaginatedContentAutopilotSiteProfileListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ContentAutopilotSiteProfileApi[]
-}
-
-export interface PatchedContentAutopilotSiteProfileApi {
-    readonly id?: string
-    /**
-     * Name used to identify this site in the workspace.
-     * @maxLength 255
-     */
-    name?: string
-    /**
-     * Authorized site origin for this profile.
-     * @maxLength 2048
-     */
-    domain?: string
-    /** Public sitemap and factual source URLs used to build the site profile. */
-    source_urls?: string[]
-    /** Same-origin URL path prefixes allowed for research. */
-    content_boundaries?: string[]
-    /** Brand, terminology, and editorial rules applied to every proposal. */
-    brand_rules?: string[]
-    /** Whether to use connected Google Search Console data. */
-    search_console_enabled?: boolean
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-export interface ContentAutopilotSiteDiscoveryRequestApi {
-    /** Public site URL to inspect for onboarding defaults. */
-    domain: string
-}
-
-export interface ContentAutopilotSiteDiscoveryResponseApi {
-    /** Site name inferred from the homepage or hostname. */
-    name: string
-    /** Normalized site origin. */
-    domain: string
-    /** Detected sitemap URLs or an editable conventional suggestion. */
-    source_urls: string[]
-    /** Editable same-origin path boundaries. */
-    content_boundaries: string[]
-    /** Whether at least one sitemap was verified. */
-    sitemap_detected: boolean
-    /** Non-blocking discovery warnings. */
-    warnings: string[]
-}
+export const ContentAutopilotOpportunityKindEnumApi = {
+    AiVisibilityGap: 'ai_visibility_gap',
+} as const
 
 /**
  * * `new_content` - New content
@@ -887,24 +861,6 @@ export type ContentAutopilotProposalProposalTypeEnumApi =
 export const ContentAutopilotProposalProposalTypeEnumApi = {
     NewContent: 'new_content',
     PageImprovement: 'page_improvement',
-} as const
-
-/**
- * * `generating` - Generating
- * * `ready_for_review` - Ready for review
- * * `rejected` - Rejected
- * * `exported` - Exported
- * * `failed` - Failed
- */
-export type ContentAutopilotProposalLifecycleStatusEnumApi =
-    (typeof ContentAutopilotProposalLifecycleStatusEnumApi)[keyof typeof ContentAutopilotProposalLifecycleStatusEnumApi]
-
-export const ContentAutopilotProposalLifecycleStatusEnumApi = {
-    Generating: 'generating',
-    ReadyForReview: 'ready_for_review',
-    Rejected: 'rejected',
-    Exported: 'exported',
-    Failed: 'failed',
 } as const
 
 /**
@@ -941,130 +897,122 @@ export interface ContentAutopilotEvidenceApi {
     query?: string
 }
 
-export interface ContentAutopilotValidationCheckApi {
-    /** Stable identifier for the validation gate. */
-    check_key: string
-    /** Human-readable validation name. */
-    label: string
-    /** Whether the proposal passed this validation. */
-    passed: boolean
-    /** Validation result and any action needed. */
-    message: string
-    /** Whether failure prevents export. */
-    blocking: boolean
+export interface ContentAutopilotEngineAnswerApi {
+    /** Answer engine that gave the answer. */
+    engine: string
+    /** The engine's most recent answer. Third-party text. */
+    answer_text: string
+    /** When the answer was recorded, in ISO 8601. */
+    checked_at: string
 }
 
-export interface ContentAutopilotValidationReportApi {
-    /** Whether every blocking validation passed. */
-    passed: boolean
-    /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
-    checks: ContentAutopilotValidationCheckApi[]
+export interface ContentAutopilotCitationGapApi {
+    /** Successful citation checks in the lookback window. */
+    checks: number
+    /** Checks whose answer cited the site. */
+    cited_checks: number
+    /** Checks whose answer named the site's brand or cited the site. */
+    mentioned_checks?: number
+    /** Share of checks that cited the site, from 0 to 1. */
+    citation_rate: number
+    /** Engines that answered the prompt. */
+    engines: string[]
+    /** Engines that never cited the site in the window. */
+    engines_not_citing: string[]
+    /** Other sites' pages the engines cited, most frequent first. */
+    competitor_urls: string[]
+    /** Domains the engines cited instead, most frequent first. */
+    competitor_domains: string[]
+    /** Web searches the engines ran while answering. */
+    engine_search_queries: string[]
+    /** Site pages the engines cited when they did cite the site. */
+    our_cited_urls: string[]
+    /** Most recent answer per engine. */
+    latest_answers: ContentAutopilotEngineAnswerApi[]
+    /** When the prompt was last checked, in ISO 8601. */
+    last_checked_at: string
 }
 
-export interface ContentAutopilotProposalListApi {
+/**
+ * * `new` - New
+ * * `dismissed` - Dismissed
+ * * `queued` - Queued
+ * * `drafted` - Drafted
+ */
+export type ContentAutopilotOpportunityStatusEnumApi =
+    (typeof ContentAutopilotOpportunityStatusEnumApi)[keyof typeof ContentAutopilotOpportunityStatusEnumApi]
+
+export const ContentAutopilotOpportunityStatusEnumApi = {
+    New: 'new',
+    Dismissed: 'dismissed',
+    Queued: 'queued',
+    Drafted: 'drafted',
+} as const
+
+export interface ContentAutopilotOpportunityApi {
     readonly id: string
-    readonly run_id: string
-    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
-    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    /** Site profile this opportunity belongs to. */
+    readonly profile_id: string
+    /**
+     * Latest run that drafted this opportunity.
+     * @nullable
+     */
+    readonly run_id: string | null
+    /**
+     * Latest proposal drafted for this opportunity.
+     * @nullable
+     */
+    readonly proposal_id: string | null
+    /** Type of visibility gap.
+     *
+     * * `ai_visibility_gap` - AI visibility gap */
+    readonly kind: ContentAutopilotOpportunityKindEnumApi
+    /** The prompt the site isn't cited for. */
     readonly title: string
-    readonly target_query: string
-    /** Performance evidence for this proposal. */
+    /** Priority from 0 to 1. Higher means a clearer, more consistent gap. */
+    readonly score: number
+    /** `page_improvement` when the engines cited a site page for the prompt. Otherwise `new_content`, and drafting decides between a new page and an existing one.
+     *
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement */
+    readonly recommended_type: ContentAutopilotProposalProposalTypeEnumApi
+    /** Site page the engines cited for the prompt, to improve. Empty when no page was cited. */
+    readonly target_url: string
+    /** Why this opportunity was selected. */
     evidence: ContentAutopilotEvidenceApi[]
-    /** Blocking and advisory validation results. */
-    validation_report: ContentAutopilotValidationReportApi
-    /** Repository-relative export path. */
-    readonly file_path: string
+    /** Citation check results behind this opportunity. */
+    gap: ContentAutopilotCitationGapApi
+    /** Where the opportunity is in the drafting workflow.
+     *
+     * * `new` - New
+     * * `dismissed` - Dismissed
+     * * `queued` - Queued
+     * * `drafted` - Drafted */
+    readonly status: ContentAutopilotOpportunityStatusEnumApi
+    /** When the citation data was last read. */
+    readonly last_refreshed_at: string
     readonly created_at: string
     readonly updated_at: string
 }
 
-export interface PaginatedContentAutopilotProposalListListApi {
+export interface PaginatedContentAutopilotOpportunityListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ContentAutopilotProposalListApi[]
+    results: ContentAutopilotOpportunityApi[]
 }
 
-export interface ContentAutopilotFrontmatterEntryApi {
-    /** Frontmatter field name. */
-    key: string
-    /** Serialized frontmatter value. */
-    value: string
-}
-
-export interface ContentAutopilotPackageApi {
-    /** Repository-relative Markdown or MDX file path. */
-    file_path: string
-    /** Content title. */
-    title: string
-    /** Search description or summary. */
-    description: string
-    /** URL slug. */
-    slug: string
-    /** Ordered frontmatter entries. */
-    frontmatter: ContentAutopilotFrontmatterEntryApi[]
-    /** Validated same-origin internal links included in the content. */
-    internal_links: string[]
-    /** Portable source notes included with the export. */
-    source_notes: string[]
-}
-
-export interface ContentAutopilotProposalApi {
-    readonly id: string
-    /** Run that generated this proposal. */
-    readonly run_id: string
-    /** New article or bounded page improvement.
-     *
-     * * `new_content` - New content
-     * * `page_improvement` - Page improvement */
-    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
-    /** Review and export lifecycle status.
-     *
-     * * `generating` - Generating
-     * * `ready_for_review` - Ready for review
-     * * `rejected` - Rejected
-     * * `exported` - Exported
-     * * `failed` - Failed */
-    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
-    /** Review title for this proposal. */
-    readonly title: string
-    /** Primary query or topic targeted by this proposal. */
-    readonly target_query: string
-    /** Existing or intended public URL. */
-    readonly target_url: string
-    /** Performance evidence for this proposal. */
-    evidence: ContentAutopilotEvidenceApi[]
-    /** Blocking and advisory validation results. */
-    validation_report: ContentAutopilotValidationReportApi
-    /** Structured package that accompanies the exported Markdown. */
-    content_package: ContentAutopilotPackageApi
-    /** Existing content for page-improvement diffs. */
-    readonly original_markdown: string
-    /** Full proposed Markdown after edits. */
-    readonly proposed_markdown: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface ContentAutopilotProposalEditRequestApi {
+export interface ContentAutopilotOpportunityDraftRequestApi {
+    /** Site profile the opportunities belong to. */
+    profile_id: string
     /**
-     * Edited Markdown to save for review.
-     * @maxLength 500000
+     * Opportunities to draft, up to 5 at a time.
+     * @minItems 1
+     * @maxItems 5
      */
-    proposed_markdown: string
-    /** Updated structured package to save with the proposal. */
-    content_package: ContentAutopilotPackageApi
-}
-
-export interface ContentAutopilotExportResponseApi {
-    /** Suggested export filename. */
-    filename: string
-    /** Validated Markdown content. */
-    markdown: string
-    /** Structured JSON package for a CMS adapter. */
-    content_package: ContentAutopilotPackageApi
+    opportunity_ids: string[]
 }
 
 /**
@@ -1143,6 +1091,300 @@ export interface ContentAutopilotRunApi {
     readonly updated_at: string
     /** @nullable */
     readonly completed_at: string | null
+}
+
+export interface ContentAutopilotOpportunityRefreshRequestApi {
+    /** Site profile to refresh opportunities for. */
+    profile_id: string
+}
+
+export interface ContentAutopilotSiteProfileApi {
+    readonly id: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotSiteProfileListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotSiteProfileApi[]
+}
+
+export interface PatchedContentAutopilotSiteProfileApi {
+    readonly id?: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain?: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls?: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries?: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules?: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface ContentAutopilotSiteDiscoveryRequestApi {
+    /** Public site URL to inspect for onboarding defaults. */
+    domain: string
+}
+
+export interface ContentAutopilotSiteDiscoveryResponseApi {
+    /** Site name inferred from the homepage or hostname. */
+    name: string
+    /** Normalized site origin. */
+    domain: string
+    /** Detected sitemap URLs or an editable conventional suggestion. */
+    source_urls: string[]
+    /** Editable same-origin path boundaries. */
+    content_boundaries: string[]
+    /** Whether at least one sitemap was verified. */
+    sitemap_detected: boolean
+    /** Non-blocking discovery warnings. */
+    warnings: string[]
+}
+
+/**
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `rejected` - Rejected
+ * * `exported` - Exported
+ * * `failed` - Failed
+ */
+export type ContentAutopilotProposalLifecycleStatusEnumApi =
+    (typeof ContentAutopilotProposalLifecycleStatusEnumApi)[keyof typeof ContentAutopilotProposalLifecycleStatusEnumApi]
+
+export const ContentAutopilotProposalLifecycleStatusEnumApi = {
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Rejected: 'rejected',
+    Exported: 'exported',
+    Failed: 'failed',
+} as const
+
+export interface ContentAutopilotValidationCheckApi {
+    /** Stable identifier for the validation gate. */
+    check_key: string
+    /** Human-readable validation name. */
+    label: string
+    /** Whether the proposal passed this validation. */
+    passed: boolean
+    /** Validation result and any action needed. */
+    message: string
+    /** Whether failure prevents export. */
+    blocking: boolean
+}
+
+export interface ContentAutopilotValidationReportApi {
+    /** Whether every blocking validation passed. */
+    passed: boolean
+    /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+    checks: ContentAutopilotValidationCheckApi[]
+}
+
+export interface ContentAutopilotProposalListApi {
+    readonly id: string
+    readonly run_id: string
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    readonly title: string
+    readonly target_query: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Repository-relative export path. */
+    readonly file_path: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotProposalListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotProposalListApi[]
+}
+
+export interface ContentAutopilotFrontmatterEntryApi {
+    /** Frontmatter field name. */
+    key: string
+    /** Serialized frontmatter value. */
+    value: string
+}
+
+export interface ContentAutopilotPackageApi {
+    /** Repository-relative Markdown or MDX file path. */
+    file_path: string
+    /** Content title. */
+    title: string
+    /** Search description or summary. */
+    description: string
+    /** URL slug. */
+    slug: string
+    /** Ordered frontmatter entries. */
+    frontmatter: ContentAutopilotFrontmatterEntryApi[]
+    /** Validated same-origin internal links included in the content. */
+    internal_links: string[]
+    /** Portable source notes included with the export. */
+    source_notes: string[]
+    /** JSON-LD structured data to embed in the page, such as an FAQPage document. */
+    json_ld?: string
+    /** Suggested llms.txt entry for the page. */
+    llms_txt_line?: string
+}
+
+export interface ContentAutopilotBriefCompetitorApi {
+    /** Product to compare against. */
+    name: string
+    /** The product's own page to research. */
+    url: string
+}
+
+export interface ContentAutopilotBriefApi {
+    /** What the person asking wants to know or decide. */
+    intent?: string
+    /** Who the content is for. */
+    audience?: string
+    /** Whether the brief recommends new_content or page_improvement. */
+    recommended_type?: string
+    /** Site page the brief chose to improve. Empty for a new page. */
+    target_page?: string
+    /** Site pages the brief asked to read for facts. */
+    site_pages_to_read?: string[]
+    /** Products the brief asked to research for a comparison. */
+    competitors_to_research?: ContentAutopilotBriefCompetitorApi[]
+    /** Working title for the page. */
+    working_title?: string
+    /** Planned sections, in order. */
+    outline?: string[]
+    /** Questions the page must answer. */
+    questions_to_answer?: string[]
+    /** Topics the cited competitor pages cover that the site's pages don't. */
+    competitor_coverage?: string[]
+    /** What AI answer engines currently say, including what they get wrong. */
+    engine_answer_summary?: string
+    /** What the question means, when AI answer engines misread which product or company it asks about. */
+    disambiguation?: string
+}
+
+/**
+ * * `site` - site
+ * * `competitor` - competitor
+ */
+export type ContentAutopilotSourceLedgerEntryKindEnumApi =
+    (typeof ContentAutopilotSourceLedgerEntryKindEnumApi)[keyof typeof ContentAutopilotSourceLedgerEntryKindEnumApi]
+
+export const ContentAutopilotSourceLedgerEntryKindEnumApi = {
+    Site: 'site',
+    Competitor: 'competitor',
+} as const
+
+export interface ContentAutopilotSourceLedgerEntryApi {
+    /** Factual claim the draft makes. */
+    claim: string
+    /** Page that supports the claim. */
+    source_url: string
+    /** Short quote from the source page. */
+    quote: string
+    /** Whether the source is one of the site's pages or a competitor's own page.
+     *
+     * * `site` - site
+     * * `competitor` - competitor */
+    kind?: ContentAutopilotSourceLedgerEntryKindEnumApi
+}
+
+export interface ContentAutopilotProposalApi {
+    readonly id: string
+    /** Run that generated this proposal. */
+    readonly run_id: string
+    /** New article or bounded page improvement.
+     *
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement */
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    /** Review and export lifecycle status.
+     *
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `failed` - Failed */
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    /** Review title for this proposal. */
+    readonly title: string
+    /** Primary query or topic targeted by this proposal. */
+    readonly target_query: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Structured package that accompanies the exported Markdown. */
+    content_package: ContentAutopilotPackageApi
+    /** Existing content for page-improvement diffs. */
+    readonly original_markdown: string
+    /** Full proposed Markdown after edits. */
+    readonly proposed_markdown: string
+    /** Content brief the draft was written from. */
+    brief: ContentAutopilotBriefApi
+    /** Factual claims in the draft and the site pages that support them. */
+    source_ledger: ContentAutopilotSourceLedgerEntryApi[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface ContentAutopilotProposalEditRequestApi {
+    /**
+     * Edited Markdown to save for review.
+     * @maxLength 500000
+     */
+    proposed_markdown: string
+    /** Updated structured package to save with the proposal. */
+    content_package: ContentAutopilotPackageApi
+}
+
+export interface ContentAutopilotExportResponseApi {
+    /** Suggested export filename. */
+    filename: string
+    /** Validated Markdown content. */
+    markdown: string
+    /** Structured JSON package for a CMS adapter. */
+    content_package: ContentAutopilotPackageApi
 }
 
 export interface PaginatedContentAutopilotRunListApi {
@@ -1488,6 +1730,21 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
+}
+
+export type WebAnalyticsContentAutopilotOpportunitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Site profile to list opportunities for.
+     */
+    profile_id: string
 }
 
 export type WebAnalyticsContentAutopilotProfilesListParams = {

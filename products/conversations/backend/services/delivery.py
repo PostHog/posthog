@@ -28,7 +28,7 @@ from products.conversations.backend.models import (
     ConversationDeliveryPart,
     TeamConversationsSlackConfig,
 )
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.models.delivery import (
     DELIVERY_ERROR_MAX_LENGTH,
     DeliverySnapshotTooLargeError,
@@ -195,7 +195,10 @@ def _author_for_comment(comment: Comment, team: Team) -> CommentAuthor:
         return CommentAuthor(name=name, email=created_by.email or "")
     settings_dict = team.conversations_settings or {}
     bot_name = settings_dict.get("slack_bot_display_name")
-    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else "AI assistant", email="")
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    # A workflow reply is not the assistant. Fall back to Support when the team has no bot name.
+    fallback = "Support" if context.get("author_type") == WORKFLOW_AUTHOR_TYPE else "AI assistant"
+    return CommentAuthor(name=bot_name if isinstance(bot_name, str) and bot_name else fallback, email="")
 
 
 def _ticket_belongs_to_comment_team(ticket: Ticket, comment: Comment) -> bool:

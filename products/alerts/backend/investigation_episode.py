@@ -30,10 +30,6 @@ class EpisodeInvestigations:
     started: int
     first_check_id: str
     previous_verdict: str | None
-    # True when no earlier check of this episode fired, so this is the fire the user has not
-    # been told about yet. The count of started investigations cannot answer that: a check
-    # whose investigation the cooldown refused still sent its notification.
-    is_first_fire: bool
 
 
 def episode_investigations(alert: AlertConfiguration, alert_check: AlertCheck) -> EpisodeInvestigations:
@@ -64,5 +60,4 @@ def episode_investigations(alert: AlertConfiguration, alert_check: AlertCheck) -
         started=earlier.filter(investigation_status__in=_STARTED_INVESTIGATION_STATUSES).count(),
         first_check_id=str(first_check_id or alert_check.id),
         previous_verdict=previous_verdict,
-        is_first_fire=first_check_id is None,
     )

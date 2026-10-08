@@ -252,7 +252,7 @@ def _baseline_change_counts_by_key(repo_id: UUID) -> dict[SnapshotKey, int]:
     the new YAML baseline), so this count IS the number of times the YAML moved.
     "Ever" reaches back as far as retention keeps default-branch runs, which is
     `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`. Postgres uses the
-    `snapshot_run_result` index on (run_id, result) to bitmap-scan straight to
+    `snapshot_run_result_reason` index on (run_id, result) to bitmap-scan straight to
     the rare event rows (~1k of millions). No window function, no per-row LAG
     comparison.
     """

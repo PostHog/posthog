@@ -7,6 +7,7 @@ import math
 import logging
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
@@ -37,6 +38,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -64,7 +67,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.impersonation import is_impersonated
@@ -95,7 +98,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.approvals.backend.policies import PolicyEngine, lock_approval_policies
+from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.policies import lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -115,11 +119,7 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import (
-    DependencyConfigFormatError,
-    require_v1_config,
-    validate_dependency_formats,
-)
+from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -131,12 +131,21 @@ from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    ConfigV1,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+    require_v1_config,
+)
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
+    STALE_ACTIVE_PARAM_DESCRIPTION,
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
@@ -263,6 +272,12 @@ def _count_filters_write_success(serializer: serializers.Serializer, operation: 
     _count_filters_write(operation, outcome, request)
 
 
+def _cache_json_body(request: request.Request) -> None:
+    """Read the raw bytes before DRF consumes the stream, so validation can check them for duplicate keys."""
+    if request.content_type.startswith("application/json"):
+        _ = request.body
+
+
 def _mirror_stored_fields(source: FeatureFlag, target: FeatureFlag) -> None:
     """Bring a stale copy of a flag up to date with the row that was just written."""
     for field in source._meta.concrete_fields:
@@ -300,13 +315,14 @@ ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-
 
 ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
 
-# What an admitted config version 2 update may change, beside a full-document `filters`
-# replacement. Everything else on such a row — activation, archival, deletion, remote
-# config, payloads, aggregation, experiment and lifecycle fields — stays unsupported
-# until the task that owns it lands, so a permissive metadata route cannot stand in for
-# the emergency write path (PH-WRITE-SAFETY) or approval application (PH-WRITE-APPROVAL).
-V2_UPDATE_FIELDS = frozenset({"get_filters", "name", "key", "tags", "version"})
+# What a config version 2 write may change, in request-field names; everything else stays unsupported
+# until the task that owns it lands. Disabling and soft-deleting are incident controls and need no admission.
+V2_SAFETY_FIELDS = frozenset({"version", "active", "deleted"})
+V2_UPDATE_FIELDS = V2_SAFETY_FIELDS | {"filters", "name", "key", "tags"}
+V2_CREATE_FIELDS = V2_UPDATE_FIELDS - {"deleted"}
 V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+
+_MISSING: Any = object()
 
 
 def parse_created_by_ids(value: Any) -> list[int]:
@@ -919,6 +935,31 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
+def _reserved_variant_key(filters: dict) -> str | None:
+    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
+    "true" under, if any.
+
+    Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
+    rollout switch.
+    """
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return None
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return None
+    return next(
+        (
+            variant["key"]
+            for variant in variants
+            if isinstance(variant, dict)
+            and isinstance(variant.get("key"), str)
+            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
+        ),
+        None,
+    )
+
+
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
     """Whether a violation of `rule_id` rejects the write, per the #50084 staged rollout.
 
@@ -1276,7 +1317,13 @@ class FeatureFlagSerializer(
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+            "serving state. Read the `active` field for that. A disabled flag that is not archived or "
+            "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
+        )
+    )
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -1413,7 +1460,9 @@ class FeatureFlagSerializer(
 
         Treat them as omitted so enabling or restoring an active flag still checks its dependencies.
         """
-        if self.instance is None or self.initial_data.get("filters"):
+        # A v2 document cannot be walked as v1; enabling one validates the stored document
+        # strictly under the lock instead, and that validator admits no flag or cohort reference.
+        if self.instance is None or self.initial_data.get("filters") or self._v2_write:
             return
 
         enabling = attrs.get("active") is True and not self.instance.active
@@ -1432,16 +1481,22 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         # `filters` is declared with source="get_filters", so its absence means the request
         # omitted filters. A supplied-filters request runs the same check in _validate_filters_inner.
-        if self.instance is not None and "get_filters" not in attrs:
+        if self.instance is not None and "get_filters" not in attrs and not self._v2_write:
             try:
                 self._validate_stored_config_format()
             except serializers.ValidationError as exc:
                 raise serializers.ValidationError({"filters": exc.detail}) from exc
         attrs = super().validate(attrs)
 
-        if self._v2_update_limits is not None:
+        if self._v2_write:
             self._reject_lossy_v2_request_json()
-            self._reject_unsupported_v2_operations(attrs)
+            if self.instance is None:
+                self._validate_v2_create(attrs)
+            else:
+                echoed = self._drop_echoed_v2_fields(attrs)
+                self._reject_unsupported_v2_operations(attrs, echoed)
+                if attrs.get("deleted") is True:
+                    attrs["active"] = False  # soft-deleting disables in the same write; no second step to forget
 
         # Run universal validations before any early returns so they always apply,
         # regardless of creation_context (surveys, etc.) or evaluation contexts.
@@ -1470,6 +1525,11 @@ class FeatureFlagSerializer(
 
         team = get_team()
         if not team:
+            return attrs
+
+        # A copy between projects carries the source flag's fields only, so the target's own
+        # requirements cannot be met by the payload. The copy endpoint has always skipped them.
+        if self.context.get("skip_team_flag_requirements"):
             return attrs
 
         self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
@@ -1550,7 +1610,6 @@ class FeatureFlagSerializer(
         # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
         # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
         # and validate against the stale instance value.
-        _MISSING: Any = object()
         bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
         ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
 
@@ -1671,9 +1730,7 @@ class FeatureFlagSerializer(
         This avoids a potentially expensive feature_enabled() call for flags that don't
         reference any cohort properties.
         """
-        get_team = self.context.get("get_team")
-        team = get_team() if get_team else Team.objects.get(pk=self.context["team_id"])
-        return is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
+        return is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=self._write_team)
 
     def validate_filters(self, filters):
         # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated
@@ -1692,7 +1749,7 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_stored_config_format(self) -> None:
-        if self.instance is None or self._v2_update_limits is not None:
+        if self.instance is None:
             return
         if detect_config_format(self.instance.filters).kind != "v1":
             raise serializers.ValidationError(
@@ -1701,39 +1758,136 @@ class FeatureFlagSerializer(
             )
 
     @functools.cached_property
-    def _v2_update_limits(self) -> ValidationLimits | None:
-        """Trusted limits when this write is an admitted config version 2 update, else None.
+    def _v2_write(self) -> bool:
+        """Whether this write takes the config version 2 path.
 
-        `config_writes.v2_update_limits` is closed in every deployed configuration, so this is
-        None on every production path — creates, v1 rows, unsupported stored formats and v2
-        rows alike — and the unchanged v1/closed handling applies. Admission never reads the
-        request: it needs an existing row whose stored config is v2 and a family this
-        milestone can own, so a request that merely contains numeric 2 cannot reach it.
+        Every stored v2 row in the admitted family takes it (no encrypted payloads, no remote
+        config), whatever its team: disabling and soft-deleting are the pilot's incident controls
+        and must not depend on a writer flag. A create takes it only when its team is admitted with
+        creation enabled and the request document says version 2, so a request that merely
+        contains numeric 2 cannot reach it elsewhere. Which operations the path then accepts
+        is decided by `_v2_limits`.
         """
-        limits = config_writes.v2_update_limits()
-        if limits is None or self.instance is None:
-            return None
-        assert isinstance(self.instance, FeatureFlag)
-        if detect_config_format(self.instance.filters).kind != "v2":
-            return None
-        # Encrypted payloads and remote config are v1-only features; a row carrying either is
-        # not in the admitted family, whatever its discriminator says.
-        if self.instance.has_encrypted_payloads or self.instance.is_remote_configuration:
-            return None
-        return limits
-
-    def _reject_unsupported_v2_operations(self, attrs: dict) -> None:
-        """Deny everything about an admitted v2 update that this milestone does not own."""
-        submitted_fields = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
-        # DRF drops unknown and read-only input fields. original_flag remains an ignored
-        # v1 compatibility field; the required row-version token still forbids merging.
-        allowed_input_fields = (V2_UPDATE_FIELDS - {"get_filters"}) | {"filters", "original_flag"}
-        unsupported = sorted((set(attrs) - V2_UPDATE_FIELDS) | (submitted_fields - allowed_input_fields))
-        if unsupported:
-            names = ", ".join("filters" if field == "get_filters" else field for field in unsupported)
-            raise serializers.ValidationError(
-                f"These fields cannot be updated on this flag: {names}.", code="unsupported_config_version"
+        if self.instance is None:
+            filters = self.initial_data.get("filters") if isinstance(self.initial_data, Mapping) else None
+            team_id = self.context.get("team_id")
+            return (
+                isinstance(filters, Mapping)
+                and team_id is not None
+                and detect_config_format(filters).kind == "v2"
+                and config_writes.v2_creation_enabled(team_id)
             )
+        assert isinstance(self.instance, FeatureFlag)
+        return (
+            detect_config_format(self.instance.filters).kind == "v2"
+            and not self.instance.has_encrypted_payloads
+            and not self.instance.is_remote_configuration
+        )
+
+    @functools.cached_property
+    def _v2_limits(self) -> ValidationLimits | None:
+        """Trusted limits when this v2 write's team is admitted, else None.
+
+        None on a stored v2 row means only the safety fields are open; None on a create means
+        the v1 path and its reserved-discriminator rejection apply. Admission is the project's
+        internal writes flag, evaluated once per serializer.
+        """
+        if not self._v2_write:
+            return None
+        team_id = self.instance.team_id if self.instance is not None else self.context["team_id"]
+        return config_writes.v2_write_limits(team_id)
+
+    @functools.cached_property
+    def _write_team(self) -> Team:
+        # Derived like the approval gate, instance fallback included, so a caller with no get_team context cannot skip the policy check.
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is not None:
+            return team
+        if self.instance is not None:
+            return self.instance.team
+        return Team.objects.get(pk=self.context["team_id"])
+
+    def _unsupported_v2_fields(self, attrs: dict, allowed: frozenset[str]) -> set[str]:
+        submitted = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        names = {"filters" if field == "get_filters" else field for field in attrs} | submitted
+        # DRF drops unknown and read-only input fields; original_flag stays an ignored v1 compatibility field.
+        return names - allowed - {"original_flag"}
+
+    def _resolve_v2_document(self, submitted: object, *, stored: Mapping[str, Any], flag_id: int | None) -> dict:
+        """Resolve server-owned identity against ``stored`` and validate; the result is the exact document persisted."""
+        limits = self._v2_limits
+        assert limits is not None  # the caller admitted this write
+        try:
+            document = config_writes.resolve_identity(submitted, stored=stored)
+            warnings = config_writes.review_update(document, stored=stored, limits=limits)
+        except ConfigValidationError as exc:
+            raise self._v2_validation_error(exc) from exc
+        if warnings:
+            # No response field carries these yet; the editor preview (PH-UI-FLAG) owns
+            # surfacing them. Recording the codes keeps the detectors exercised meanwhile.
+            logger.info(
+                "feature_flag_v2_write_warnings",
+                extra={"flag_id": flag_id, "codes": [warning.code for warning in warnings]},
+            )
+        return document
+
+    def _validate_v2_create(self, attrs: dict) -> None:
+        """Resolve and validate an admitted v2 create. The row is born disabled."""
+        if attrs.get("active") is True:
+            raise serializers.ValidationError(
+                {
+                    "active": "A flag with this configuration format is created disabled. Enable it in a separate request."
+                },
+                code="unsupported_config_version",
+            )
+        unsupported = self._unsupported_v2_fields(attrs, V2_CREATE_FIELDS)
+        if unsupported:
+            raise serializers.ValidationError(
+                f"These fields cannot be set when creating this flag: {', '.join(sorted(unsupported))}.",
+                code="unsupported_config_version",
+            )
+        self._reject_v2_approval_operations()
+        attrs["active"] = False
+        attrs["get_filters"] = self._resolve_v2_document(attrs["get_filters"], stored={}, flag_id=None)
+
+    def _drop_echoed_v2_fields(self, attrs: dict) -> set[str]:
+        """Remove every submitted value equal to the stored one and return their names.
+
+        An echo is neither judged nor written: PUT must repeat `key`, and a soft delete from outside
+        this serializer (the file-system trash) does not bump `version`, so a written
+        `deleted: false` could undo one.
+        """
+        assert isinstance(self.instance, FeatureFlag)
+        echoed = {
+            field
+            for field in attrs
+            if field != "get_filters" and attrs[field] == getattr(self.instance, field, _MISSING)
+        }
+        for field in echoed:
+            del attrs[field]
+        return echoed
+
+    def _reject_unsupported_v2_operations(self, attrs: dict, echoed: set[str]) -> None:
+        """Deny everything about a v2 update that this milestone does not own.
+
+        Disabling and soft-deleting need no admission; every other change needs the project's writes flag.
+        Restoring a deleted row stays closed until a later task owns it.
+        """
+        admitted = self._v2_limits is not None
+        unsupported = self._unsupported_v2_fields(attrs, V2_UPDATE_FIELDS if admitted else V2_SAFETY_FIELDS) - echoed
+        if attrs.get("deleted") is False:
+            unsupported.add("deleted")
+        if attrs.get("active") is True and not admitted:
+            unsupported.add("active")
+        if unsupported:
+            raise serializers.ValidationError(
+                f"These fields cannot be updated on this flag: {', '.join(sorted(unsupported))}.",
+                code="unsupported_config_version",
+            )
+        self._reject_v2_approval_operations()
+
+    def _reject_v2_approval_operations(self) -> None:
         # PH-WRITE-APPROVAL owns approval application for v2. Until it exists, reject the
         # operation outright rather than let the gate create a pending request whose apply
         # path (replayed through this serializer with approval_apply set) is unsupported.
@@ -1741,24 +1895,20 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError(
                 "Approved changes cannot be applied to this flag.", code="unsupported_config_version"
             )
-        # Derived the way the approval gate derives it, including its instance fallback: a
-        # caller that builds no get_team context (internal service paths, organization copy)
-        # must not skip this check, or an enabled policy would be bypassed rather than denied.
-        get_team = self.context.get("get_team")
-        assert isinstance(self.instance, FeatureFlag)
-        team = (get_team() if get_team else None) or self.instance.team
-        self._reject_v2_approval_policy(team)
+        self._reject_v2_approval_policy(self._write_team)
 
     def _reject_v2_approval_policy(self, team: Team) -> None:
-        engine = PolicyEngine()
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
-        # this team denies the write, because a v2 change that needs approval has nowhere to go.
-        if any(
-            engine.get_policy(action_key=action, team=team, organization=team.organization) is not None
-            for action in V2_APPROVAL_ACTIONS
+        # this team or its organization denies the write, because a v2 change that needs
+        # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
+        if (
+            ApprovalPolicy.objects.enabled()
+            .filter(organization_id=team.organization_id, action_key__in=V2_APPROVAL_ACTIONS)
+            .filter(Q(team=team) | Q(team__isnull=True))
+            .exists()
         ):
             raise serializers.ValidationError(
-                "This flag cannot be updated while an approval policy is enabled.",
+                "This flag cannot be written while an approval policy is enabled.",
                 code="unsupported_config_version",
             )
 
@@ -1798,9 +1948,7 @@ class FeatureFlagSerializer(
             [ErrorDetail(f"{error.attr}: {error.detail}", code=error.code) for error in exc.errors]
         )
 
-    def _apply_v2_update(
-        self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int, limits: ValidationLimits
-    ) -> None:
+    def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:
         """Enforce the v2 row-version token and resolve the final document under the lock.
 
         `FeatureFlag.version` is the row's concurrency counter, unrelated to
@@ -1817,28 +1965,30 @@ class FeatureFlagSerializer(
             raise serializers.ValidationError({"version": "Must be an integer."})
         if token != locked_version:
             raise Conflict(flag_version_conflict_message(token, locked_version))
-        if "filters" not in validated_data:
-            return  # a metadata update; the stored config is not rewritten or normalized
         stored = locked_instance.filters or {}
-        try:
-            document = config_writes.resolve_identity(validated_data["filters"], stored=stored)
-            warnings = config_writes.review_update(document, stored=stored, limits=limits)
-        except ConfigValidationError as exc:
-            raise self._v2_validation_error(exc) from exc
-        if warnings:
-            # No response field carries these yet; the editor preview (PH-UI-FLAG) owns
-            # surfacing them. Recording the codes keeps the detectors exercised meanwhile.
-            logger.info(
-                "feature_flag_v2_update_warnings",
-                extra={"flag_id": locked_instance.pk, "codes": [warning.code for warning in warnings]},
+        if "filters" in validated_data:
+            validated_data["filters"] = self._resolve_v2_document(
+                validated_data["filters"], stored=stored, flag_id=locked_instance.pk
             )
-        validated_data["filters"] = document
+        elif validated_data.get("active") is True and not locked_instance.active:
+            limits = self._v2_limits
+            assert limits is not None  # enabling was admitted in validate()
+            try:
+                config_writes.validate_stored(stored, limits=limits)
+            except ConfigValidationError as exc:
+                raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        if self._v2_update_limits is not None:
-            # An admitted v2 replacement passes through untouched — no v1 merge, no
-            # normalization. It is resolved and validated in update(), against the locked
-            # state it actually replaces; nothing this side of the lock can decide it.
+        reserved_variant_key = _reserved_variant_key(filters)
+        if reserved_variant_key is not None:
+            raise serializers.ValidationError(
+                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
+                code="reserved_variant_key",
+            )
+
+        if self._v2_limits is not None:
+            # An admitted v2 document passes through untouched (no v1 merge or normalization): a
+            # create resolves and validates it in validate(), an update in update() under the lock.
             return filters
 
         # Unknown keys survive normalization during the validation rollout. Reserve the
@@ -2397,9 +2547,13 @@ class FeatureFlagSerializer(
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         try:
-            self._free_key_held_by_soft_deleted_flags(validated_data["key"])
-
-            with ImpersonatedContext(request):
+            with ImpersonatedContext(request), transaction.atomic() if self._v2_write else nullcontext():
+                if self._v2_write:
+                    # Same lock as update(): a policy enabled after validate() must still deny the write.
+                    lock_approval_policies(self._write_team.organization_id, shared=True)
+                    self._reject_v2_approval_policy(self._write_team)
+                # After the policy check, so a denied v2 create does not leave a tombstone renamed or removed.
+                self._free_key_held_by_soft_deleted_flags(validated_data["key"])
                 instance: FeatureFlag = super().create(validated_data)
         except IntegrityError as e:
             self._reraise_duplicate_key_violation(e)
@@ -2514,9 +2668,8 @@ class FeatureFlagSerializer(
 
         try:
             with transaction.atomic():
-                v2_limits = self._v2_update_limits
-                if v2_limits is not None:
-                    lock_approval_policies(instance.team.organization_id, shared=True)
+                if self._v2_write:
+                    lock_approval_policies(self._write_team.organization_id, shared=True)
                 # select_for_update locks the database row so we ensure version updates are atomic.
                 # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
                 # (setting deleted=False) can acquire the lock.
@@ -2524,13 +2677,13 @@ class FeatureFlagSerializer(
                 locked_version = locked_instance.version or 0
 
                 # V1 cleanup must not strip unknown keys from a v2 document before validation.
-                if v2_limits is None:
+                if not self._v2_write:
                     self._apply_stored_filter_rules(validated_data, locked_instance, request)
 
                 # NOW check for conflicts after all transformations
-                if v2_limits is not None:
-                    self._reject_v2_approval_policy(locked_instance.team)
-                    self._apply_v2_update(locked_instance, validated_data, locked_version, v2_limits)
+                if self._v2_write:
+                    self._reject_v2_approval_policy(self._write_team)
+                    self._apply_v2_update(locked_instance, validated_data, locked_version)
                 elif version != -1 and version != locked_version:
                     if getattr(request, "strict_version_precondition", False):
                         # The default check below needs the caller's `original_flag` and only
@@ -2560,8 +2713,9 @@ class FeatureFlagSerializer(
                 # Every read and the save below use the locked row, not the instance loaded
                 # before the lock. `save()` writes every field, so applying this request to the
                 # stale copy would restore whatever another writer changed in the meantime for
-                # a field this request never sent. A bulk delete leaves `version` untouched, so
-                # the version check above cannot catch it and the flag came back undeleted.
+                # a field this request never sent. A soft delete from outside this serializer (the
+                # file-system trash, or a bulk delete of a config version 1 flag) leaves `version`
+                # untouched, so the version check above cannot catch it and the flag came back undeleted.
                 old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
@@ -2607,7 +2761,8 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
-            if instance.has_feature_enrollment:
+            # Enrollment lives in the v1 document; a v2 flag cannot back an early access feature.
+            if detect_config_format(instance.filters).kind == "v1" and instance.has_feature_enrollment:
                 from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
 
                 migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
@@ -2682,15 +2837,15 @@ class FeatureFlagSerializer(
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
-        dependency_ids = []
-
-        # Extract flag dependencies from filters
-        filters = flag_to_check.filters or {}
-        for group in filters.get("groups", []):
-            for prop in group.get("properties", []):
-                if prop.get("type") == "flag":
-                    dependency_ids.append(int(prop.get("key")))
-
+        config = decode_config(flag_to_check.filters)
+        if isinstance(config, UnsupportedConfig):
+            # validate() rejected every other unsupported format, so this is a v2 document parse_v2_config
+            # cannot read. Under the row lock _apply_v2_update rejects it through config_writes.validate_stored,
+            # or, when the request also sends filters, _resolve_v2_document validates the replacement.
+            return []
+        # A non-integer flag id raises in v1, as it always did; v2 skips it and leaves the 400 to the validator.
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
+        dependency_ids = references(config, invalid_flag_ids=invalid_ids).flag_ids
         if not dependency_ids:
             return []
 
@@ -3083,9 +3238,11 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving "
+            "state, and this response carries no serving-state field: read the `active` field of the flag "
+            "itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted "
+            "reports 'active', because disabled flags are not evaluated for staleness. 'active' also does "
+            "NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
@@ -3132,6 +3289,11 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
         help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
     )
 
+    def validate_groups(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("groups must be a JSON object")
+        return value
+
     def validate(self, attrs):
         distinct_id = attrs.get("distinct_id")
         person_id = attrs.get("person_id")
@@ -3177,7 +3339,11 @@ class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
     rollout_excluded = serializers.BooleanField(
         help_text="Whether this condition matched properties but was excluded due to rollout"
     )
-    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    variant = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Variant associated with this condition. Empty or null when the condition has no variant override.",
+    )
     properties = FeatureFlagConditionPropertyAnalysisSerializer(
         many=True, help_text="Analysis of each property in this condition"
     )
@@ -3390,7 +3556,7 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     active = serializers.ChoiceField(
         choices=["true", "false", "STALE"],
         required=False,
-        help_text="Filter by active state.",
+        help_text=STALE_ACTIVE_PARAM_DESCRIPTION,
     )
     created_by_id = serializers.IntegerField(
         required=False,
@@ -3798,6 +3964,7 @@ class FeatureFlagViewSet(
         # The facade is imported inside the method because it imports this module's serializer.
         from products.feature_flags.backend.facade.api import create_flag
 
+        _cache_json_body(request)
         flag = create_flag(
             request.data,
             team=self.team,
@@ -3818,14 +3985,7 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import update_flag
 
         instance = self.get_object()
-        if (
-            config_writes.v2_update_limits() is not None
-            and detect_config_format(instance.filters).kind == "v2"
-            and request.content_type.startswith("application/json")
-        ):
-            # Cache the bytes before DRF consumes the stream, so validation can detect
-            # duplicate keys even when middleware has not already read the body.
-            _ = request.body
+        _cache_json_body(request)
         flag = update_flag(
             instance,
             request.data,
@@ -3941,6 +4101,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
+                description=STALE_ACTIVE_PARAM_DESCRIPTION,
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -4445,6 +4606,12 @@ class FeatureFlagViewSet(
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
+        # A format change bumps `version`, so the locked precondition refuses one landing after this.
+        if detect_config_format(feature_flag.filters).kind != "v1":
+            raise exceptions.ValidationError(
+                "This flag uses a configuration format that rollout actions cannot modify yet.",
+                code="unsupported_config_version",
+            )
 
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.
@@ -4915,8 +5082,9 @@ class FeatureFlagViewSet(
 
         Returns same format as bulk_delete for UI compatibility.
 
-        Uses bulk operations for efficiency: database updates are batched and cache
-        invalidation happens once at the end rather than per-flag.
+        Config version 1 flags are deleted with batched updates, and cache invalidation
+        runs once at the end. Config version 2 flags are deleted one at a time through
+        ``update_flag``. Each one bumps its ``version`` and commits on its own.
         """
         from django.utils import timezone
 
@@ -5033,6 +5201,7 @@ class FeatureFlagViewSet(
         # Also track which need key renames (have deleted experiments)
         flags_to_delete_normal: list[FeatureFlag] = []
         flags_to_delete_with_rename: list[FeatureFlag] = []
+        v2_flags: list[tuple[FeatureFlag, dict]] = []
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
@@ -5098,6 +5267,11 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
+            entry = {"id": flag_id, "key": old_key, **rollout_info}
+
+            if detect_config_format(flag.filters).kind == "v2":
+                v2_flags.append((flag, entry))
+                continue
 
             # Rename the key if the flag is linked to any experiment, to free it up.
             # Use the prefetched experiment_set cache (see queryset above) rather than
@@ -5122,7 +5296,7 @@ class FeatureFlagViewSet(
                 )
             )
 
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+            deleted.append(entry)
 
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
@@ -5167,6 +5341,26 @@ class FeatureFlagViewSet(
                     update_team_remote_config.delay(team_id)
 
                 transaction.on_commit(invalidate_caches)
+
+        # Outside the transaction above: the facade requires gated writes like `update_flag` to run
+        # outside any transaction, so each config version 2 flag commits on its own.
+        if v2_flags:
+            from products.feature_flags.backend.facade.api import update_flag
+
+            for flag, entry in v2_flags:
+                try:
+                    update_flag(
+                        flag,
+                        {"deleted": True, "version": flag.version or 0},
+                        team=flag.team,
+                        user=request.user,
+                        request=FlagLifecycleWriteRequest(request),
+                        serializer_context=self.get_serializer_context(),
+                    )
+                except exceptions.APIException as exc:
+                    errors.append({"id": flag.id, "key": flag.key, "reason": first_error_message(exc.detail)})
+                else:
+                    deleted.append(entry)
 
         return Response(
             {
@@ -5597,7 +5791,7 @@ class FeatureFlagViewSet(
                 if feature_flag.created_at:
                     lower_bound = min(max(lower_bound, feature_flag.created_at), timestamp)
                 person_properties = build_person_properties_at_time(
-                    team_id=self.team_id,
+                    team=self.team,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids,
                     include_set_once=True,
@@ -5714,6 +5908,9 @@ class FeatureFlagViewSet(
                 flag_keys=[feature_flag.key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
+                # A pooled connection that the service closed fails once with a reset, so retry it.
+                # The retry also covers a timeout, which doubles the worst-case wait to about 2x the proxy timeout.
+                max_retries=1,
             )
 
             # Extract the flag result from the Rust response
@@ -5808,9 +6005,75 @@ class FeatureFlagViewSet(
             }
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
-            response_serializer.is_valid(raise_exception=True)
+            if not response_serializer.is_valid():
+                logger.error(
+                    "Flag evaluation service response failed validation in test_evaluation",
+                    extra={**log_context, "flag_key": feature_flag.key, "errors": response_serializer.errors},
+                )
+                capture_exception(serializers.ValidationError(response_serializer.errors))
+                return Response(
+                    {"error": "Unexpected response format from flag evaluation service"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             return Response(response_serializer.data)
 
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            logger.warning(
+                "Flag evaluation service unreachable for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except requests.exceptions.HTTPError as e:
+            service_status = e.response.status_code if e.response is not None else None
+            if service_status in (
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ):
+                # The service sends these statuses when it is overloaded or a dependency is down.
+                # They clear on retry like a connection error, so they are not captured as exceptions.
+                logger.warning(
+                    "Flag evaluation service busy for flag %s: HTTP %s",
+                    feature_flag.key,
+                    service_status,
+                    extra=log_context,
+                )
+                return Response(
+                    {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            # Django builds the request body and the request serializer validates the user input,
+            # so any other error status, a 400 included, is a fault on our side or in the service.
+            logger.exception(
+                "Flag evaluation service returned an error for flag %s", feature_flag.key, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": f"Flag evaluation service returned HTTP {service_status}. Please retry."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.JSONDecodeError as e:
+            logger.exception(
+                "Flag evaluation service returned a body that is not JSON for flag %s",
+                feature_flag.key,
+                extra=log_context,
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Unexpected response format from flag evaluation service"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "Flag evaluation service call failed for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             logger.exception(
                 "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",

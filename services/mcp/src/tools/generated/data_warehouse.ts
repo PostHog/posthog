@@ -277,15 +277,14 @@ const ViewDeleteSchema = () => {
     return WarehouseSavedQueriesDestroyParams.omit({ project_id: true })
 }
 
-const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, Schemas.DataWarehouseSavedQuery> => ({
+const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, unknown> => ({
     name: 'view-delete',
     schema: ViewDeleteSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
-            method: 'PATCH',
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -436,9 +435,6 @@ const viewUnmaterialize = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewUnmaterializeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }

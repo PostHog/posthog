@@ -20,7 +20,12 @@ export function FlatNavProductAnalyticsMenuItems(): JSX.Element {
                 <DropdownMenuItem disabled>No insight types available</DropdownMenuItem>
             ) : (
                 insightTypes.map((insightType) => (
-                    <FlatNavMenuLinkItem key={insightType.id} to={insightType.record?.href} icon={insightType.icon}>
+                    <FlatNavMenuLinkItem
+                        key={insightType.id}
+                        to={insightType.record?.href}
+                        icon={insightType.icon}
+                        data-attr="flat-nav-insight-menu-new-insight"
+                    >
                         {insightType.name}
                     </FlatNavMenuLinkItem>
                 ))

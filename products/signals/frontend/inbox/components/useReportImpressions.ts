@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import { captureInboxReportsImpressed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { reportListLogic, sectionListLogicProps } from '../logics/reportListLogic'
+import { ReportListRequestContext, reportListLogic, sectionListLogicProps } from '../logics/reportListLogic'
 import { InboxReportSectionKey } from '../types'
 import type { MergedReportRow } from '../utils/flatReportList'
 
@@ -13,7 +13,7 @@ interface SectionImpressionState {
     reportsResponseLoading: boolean
     totalCount: number | null
     loadedQueryKey: string | null
-    loadedContext: { scope: string; hasActiveFilters: boolean } | null
+    loadedContext: ReportListRequestContext | null
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
@@ -100,6 +100,9 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 totalCount: sections[sectionKey].totalCount,
                 hasActiveFilters: context.hasActiveFilters,
                 scope: context.scope,
+                sortField: context.sortField,
+                sortDirection: context.sortDirection,
+                createdWindow: context.createdWindow,
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

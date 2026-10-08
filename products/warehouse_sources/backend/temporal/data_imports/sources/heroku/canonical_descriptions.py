@@ -53,6 +53,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "web_url": "URL for logging into web interface of add-on (e.g. a dashboard).",
         },
     },
+    "addon_attachments": {
+        "description": "An add-on attachment represents a connection between an app and an add-on that it has been given access to.",
+        "docs_url": "https://devcenter.heroku.com/articles/platform-api-reference#add-on-attachment",
+        "columns": {
+            "addon": "Identity of add-on.",
+            "app": "Application that is attached to add-on.",
+            "created_at": "When the add-on attachment was created.",
+            "id": "Unique identifier of this add-on attachment.",
+            "log_input_url": "Always null: the add-on log input URL embeds a write token, so PostHog does not sync it.",
+            "name": "Unique name for this add-on attachment to this app.",
+            "namespace": "Attachment namespace.",
+            "updated_at": "When the add-on attachment was updated.",
+            "web_url": "URL for logging into web interface of add-on in attached app context.",
+        },
+    },
     "builds": {
         "description": "A build represents the process of transforming a code tarball into build artifacts.",
         "docs_url": "https://devcenter.heroku.com/articles/platform-api-reference#build",
@@ -162,6 +177,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "When the pipeline was updated.",
         },
     },
+    "pipeline_couplings": {
+        "description": "Information about an app's coupling to a pipeline.",
+        "docs_url": "https://devcenter.heroku.com/articles/platform-api-reference#pipeline-coupling",
+        "columns": {
+            "app": "App involved in the pipeline coupling.",
+            "created_at": "When the pipeline coupling was created.",
+            "id": "Unique identifier of pipeline coupling.",
+            "pipeline": "Pipeline involved in the coupling.",
+            "stage": "Target pipeline stage (test, review, development, staging or production).",
+            "updated_at": "When the pipeline coupling was updated.",
+        },
+    },
     "releases": {
         "description": "A release represents a combination of code, config vars and add-ons for an app on Heroku.",
         "docs_url": "https://devcenter.heroku.com/articles/platform-api-reference#release",
@@ -198,6 +225,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "role": "Role in the team.",
             "type": "Type of team.",
             "updated_at": "When the team was updated.",
+        },
+    },
+    "team_monthly_usage": {
+        "description": "Usage for an enterprise team at a monthly resolution.",
+        "docs_url": "https://devcenter.heroku.com/articles/platform-api-reference#team-monthly-usage",
+        "columns": {
+            "addons": "Total add-on credits used.",
+            "apps": "App usage in the team.",
+            "connect": "Max Connect rows synced.",
+            "data": "Total add-on credits used for first party add-ons.",
+            "dynos": "Dynos used.",
+            "id": "Team identifier.",
+            "month": "Year and month of the usage (YYYY-MM).",
+            "name": "Name of the team.",
+            "partner": "Total add-on credits used for third party add-ons.",
+            "space": "Space credits used.",
         },
     },
 }

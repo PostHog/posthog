@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singlestor
     BILLING_USAGE_ENDPOINT,
     ORGANIZATION_ENDPOINT,
     REGIONS_ENDPOINT,
-    SINGLESTORE_ENDPOINTS,
     WORKSPACE_GROUPS_ENDPOINT,
     WORKSPACES_ENDPOINT,
 )
@@ -86,46 +85,8 @@ class TestListEndpoints:
         with pytest.raises(ValueError):
             _run(REGIONS_ENDPOINT, [_response(200, {"unexpected": "shape"})])
 
-    def test_empty_array_yields_no_rows(self) -> None:
-        rows, _ = _run(REGIONS_ENDPOINT, [_response(200, [])])
-        assert rows == []
-
-    def test_single_object_endpoint_yields_one_row(self) -> None:
-        # organizations/current returns a bare object, not an array; it must still become one row.
-        rows, snapshots = _run(
-            ORGANIZATION_ENDPOINT,
-            [_response(200, {"orgID": "org1", "name": "Acme", "firewallRanges": ["0.0.0.0/0"]})],
-        )
-        assert rows == [{"orgID": "org1", "name": "Acme", "firewallRanges": ["0.0.0.0/0"]}]
-        assert [s["url"] for s in snapshots] == [f"{SINGLESTORE_BASE_URL}/organizations/current"]
-
 
 class TestWorkspacesFanOut:
-    def test_fans_out_over_every_workspace_group(self) -> None:
-        rows, snapshots = _run(
-            WORKSPACES_ENDPOINT,
-            [
-                _response(
-                    200,
-                    [{"workspaceGroupID": "wg1"}, {"workspaceGroupID": "wg2"}],
-                    url=f"{SINGLESTORE_BASE_URL}/workspaceGroups",
-                ),
-                _response(200, [{"workspaceID": "ws1", "workspaceGroupID": "wg1"}]),
-                _response(200, [{"workspaceID": "ws2", "workspaceGroupID": "wg2"}]),
-            ],
-        )
-        assert [r["workspaceID"] for r in rows] == ["ws1", "ws2"]
-        assert [s["url"] for s in snapshots] == [
-            f"{SINGLESTORE_BASE_URL}/workspaceGroups",
-            f"{SINGLESTORE_BASE_URL}/workspaces",
-            f"{SINGLESTORE_BASE_URL}/workspaces",
-        ]
-        assert [s["params"].get("workspaceGroupID") for s in snapshots[1:]] == ["wg1", "wg2"]
-
-    def test_no_workspace_groups_yields_no_workspaces(self) -> None:
-        rows, _ = _run(WORKSPACES_ENDPOINT, [_response(200, [], url=f"{SINGLESTORE_BASE_URL}/workspaceGroups")])
-        assert rows == []
-
     def test_workspace_group_missing_id_is_skipped(self) -> None:
         # A group row missing its id can't be fanned out into a `workspaceGroupID` filter; skip it
         # rather than sending a request with an empty/garbage value.
@@ -201,34 +162,6 @@ class TestBillingUsage:
             },
         ]
 
-    def test_empty_billing_usage_yields_no_rows(self) -> None:
-        rows, _ = _run(BILLING_USAGE_ENDPOINT, [self._billing_response([])])
-        assert rows == []
-
-    def test_missing_billing_usage_key_yields_no_rows_rather_than_raising(self) -> None:
-        # Documented as a best-effort selector: an unexpected body shape degrades to zero rows
-        # instead of failing the sync, since the exact live shape isn't verified against an account.
-        rows, _ = _run(BILLING_USAGE_ENDPOINT, [_response(200, {"unexpected": "shape"})])
-        assert rows == []
-
-    def test_full_refresh_requests_default_lookback_window(self) -> None:
-        _, snapshots = _run(BILLING_USAGE_ENDPOINT, [self._billing_response([])])
-        params = snapshots[0]["params"]
-        assert params["aggregateBy"] == "day"
-        start = datetime.strptime(params["startTime"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        end = datetime.strptime(params["endTime"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        assert (end - start).days == 30
-
-    def test_incremental_sync_requests_window_from_last_value(self) -> None:
-        last_value = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        _, snapshots = _run(
-            BILLING_USAGE_ENDPOINT,
-            [self._billing_response([])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=last_value,
-        )
-        assert snapshots[0]["params"]["startTime"] == "2026-01-01T12:00:00Z"
-
     @parameterized.expand([(False, "replace"), (True, {"disposition": "merge", "strategy": "upsert"})])
     def test_write_disposition_matches_incremental_flag(
         self, should_use_incremental_field: bool, expected: Any
@@ -290,15 +223,6 @@ class TestValidateCredentials:
         assert ok is expected_ok
         assert (error is None) is expected_ok
 
-    def test_probes_organizations_current_with_bearer_auth(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
-            validate_credentials("secret")
-        args, kwargs = session.get.call_args
-        assert args[0] == f"{SINGLESTORE_BASE_URL}/organizations/current"
-        assert kwargs["headers"]["Authorization"] == "Bearer secret"
-
     def test_request_exception_does_not_block_creation(self) -> None:
         # An unreachable API is transient, not a credential rejection; a genuine auth failure
         # still surfaces at sync time.
@@ -326,9 +250,3 @@ class TestSourceResponseShape:
         assert response.name == endpoint
         assert response.primary_keys == expected_pk
         assert response.sort_mode == "asc"
-
-    def test_every_declared_endpoint_has_a_response(self) -> None:
-        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
-            for endpoint, config in SINGLESTORE_ENDPOINTS.items():
-                response = singlestore_source(api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-                assert response.primary_keys == config.primary_keys

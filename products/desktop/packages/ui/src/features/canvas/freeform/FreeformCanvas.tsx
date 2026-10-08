@@ -2,9 +2,10 @@ import {
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
   type CanvasNavIntent,
-  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -16,7 +17,10 @@ import {
   useRef,
 } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
-import { translateCanvasTextSelection } from "./canvasSelection";
+import {
+  type HostCanvasTextSelection,
+  translateCanvasTextSelection,
+} from "./canvasSelection";
 import { buildSandboxDocument } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
@@ -42,7 +46,7 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onTextSelection?: (selection: HostCanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   clearTextSelectionKey?: number;
@@ -172,6 +176,13 @@ export function FreeformCanvas({
         onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
+      onDataRequestRejected: (reason, method) => {
+        track(ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED, {
+          surface: "freeform",
+          reason,
+          method,
+        });
+      },
       openExternal: openExternalUrl,
       // This host's policy is to log dropped opens rather than drop silently.
       onExternalOpenBlocked: (url, reason) => {

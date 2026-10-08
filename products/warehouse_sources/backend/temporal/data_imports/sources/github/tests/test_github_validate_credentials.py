@@ -76,6 +76,7 @@ def test_malformed_repository_gets_format_guidance(repository):
         "git@github.com:owner/repo.git",
         "https://github.com/owner/repo.GIT",
         "github.com/owner/repo",
+        "owner/repo.git",  # the tail of a clone URL, pasted without the host
     ],
 )
 def test_repository_url_is_read_as_owner_repo(repository):

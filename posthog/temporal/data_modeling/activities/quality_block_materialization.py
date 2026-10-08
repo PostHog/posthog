@@ -34,22 +34,43 @@ class QualityBlockMaterializationInputs:
             "dag_id": self.dag_id,
             "job_id": self.job_id,
             "blocking_failures": self.blocking_failures,
+            "suite_run_id": self.suite_run_id,
         }
 
 
-def _quality_error(inputs: QualityBlockMaterializationInputs) -> str:
-    checks = "check" if inputs.blocking_failures == 1 else "checks"
+def _quality_error(inputs: QualityBlockMaterializationInputs, saved_query_id: str | None) -> str:
+    details = None
+    if inputs.suite_run_id is not None and saved_query_id is not None:
+        try:
+            details = data_quality_facade.materialization_failure_summary(
+                inputs.team_id,
+                suite_run_id=inputs.suite_run_id,
+                data_modeling_job_id=inputs.job_id,
+                saved_query_id=saved_query_id,
+                blocking_failures=inputs.blocking_failures,
+            )
+        except Exception:
+            LOGGER.exception("Could not summarize materialization data quality failures")
+
+    if details is None:
+        checks = "check" if inputs.blocking_failures == 1 else "checks"
+        return (
+            f"{QUALITY_BLOCKED_ERROR_PREFIX} {inputs.blocking_failures} data quality {checks} failed. "
+            "The previous version keeps serving until the checks pass."
+        )
+    if inputs.blocking_failures == 1:
+        return f"{QUALITY_BLOCKED_ERROR_PREFIX} {details}. The previous version keeps serving until the checks pass."
     return (
-        f"{QUALITY_BLOCKED_ERROR_PREFIX} {inputs.blocking_failures} data quality {checks} failed. "
+        f"{QUALITY_BLOCKED_ERROR_PREFIX} {inputs.blocking_failures} data quality checks failed: {details}. "
         "The previous version keeps serving until the checks pass."
     )
 
 
 @database_sync_to_async_pool
 def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
-    error = _quality_error(inputs)
     with transaction.atomic():
         node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+        error = _quality_error(inputs, str(node.saved_query_id) if node.saved_query_id else None)
         update_node_system_properties(
             node,
             status=DataModelingJobStatus.FAILED,

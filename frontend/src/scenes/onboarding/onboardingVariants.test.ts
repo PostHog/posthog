@@ -45,8 +45,8 @@ describe('onboardingVariants', () => {
     })
 
     describe('onboardingVariantChrome', () => {
-        it('legacy keeps the minimal top bar', () => {
-            expect(onboardingVariantChrome('legacy')).toBe('minimal')
+        it('legacy owns the whole viewport (no chrome)', () => {
+            expect(onboardingVariantChrome('legacy')).toBe('none')
         })
 
         it('self-driving owns the whole viewport (no chrome)', () => {

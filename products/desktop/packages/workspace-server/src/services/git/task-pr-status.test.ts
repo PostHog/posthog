@@ -212,6 +212,61 @@ describe("TaskPrStatusService revalidation PR detection", () => {
       }
     },
   );
+
+  const PR_A = "https://github.com/acme/repo/pull/7";
+  const PR_B = "https://github.com/acme/repo/pull/8";
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  it.each([
+    {
+      name: "skips a repeat check inside the TTL",
+      url: PR_A,
+      laterMs: 1_000,
+      calls: 1,
+    },
+    {
+      name: "checks again once the TTL passes",
+      url: PR_A,
+      laterMs: 30_000,
+      calls: 2,
+    },
+    {
+      name: "checks a new cloud PR url at once",
+      url: PR_B,
+      laterMs: 1_000,
+      calls: 2,
+    },
+  ])("$name", async ({ url, laterMs, calls }) => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    workspaceService.getWorkspace.mockResolvedValue({ mode: "cloud" });
+    gitService.getPrDetailsByUrl.mockResolvedValue(null);
+
+    await service.getTaskPrStatus("task-cloud", PR_A);
+    await flush();
+    now.mockReturnValue(laterMs);
+    await service.getTaskPrStatus("task-cloud", url);
+    await flush();
+
+    expect(gitService.getPrDetailsByUrl).toHaveBeenCalledTimes(calls);
+  });
+
+  it("runs at most four checks at a time", async () => {
+    workspaceService.getWorkspace.mockResolvedValue({ mode: "cloud" });
+    const pending: Array<() => void> = [];
+    gitService.getPrDetailsByUrl.mockImplementation(
+      () => new Promise((resolve) => pending.push(() => resolve(null))),
+    );
+
+    for (let i = 0; i < 6; i++) {
+      await service.getTaskPrStatus(`task-${i}`, PR_A);
+    }
+    await flush();
+    expect(gitService.getPrDetailsByUrl).toHaveBeenCalledTimes(4);
+
+    for (const release of pending.splice(0)) release();
+    await flush();
+    expect(gitService.getPrDetailsByUrl).toHaveBeenCalledTimes(6);
+  });
 });
 
 describe("TaskPrStatusService.setPrimaryPrUrl", () => {

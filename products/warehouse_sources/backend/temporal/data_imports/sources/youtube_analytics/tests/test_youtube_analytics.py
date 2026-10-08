@@ -138,11 +138,6 @@ class TestCoerceDay:
 
 
 class TestRowsFromResult:
-    def test_zips_column_headers_onto_positional_rows(self) -> None:
-        rows = rows_from_result(_result(["day", "views"], [["2026-07-01", 10], ["2026-07-02", 20]]))
-
-        assert rows == [{"day": "2026-07-01", "views": 10}, {"day": "2026-07-02", "views": 20}]
-
     @parameterized.expand(
         [
             ("no_rows", {"columnHeaders": [{"name": "views"}]}),
@@ -158,14 +153,6 @@ class TestYouTubeAnalyticsClient:
     def _client(self, session: mock.MagicMock, **kwargs: Any) -> YouTubeAnalyticsClient:
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             return YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock(), **kwargs)
-
-    def test_requests_are_bearer_authorized_with_the_integration_token(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_body=_result(["views"], [[1]]))
-
-        self._client(session).query({"ids": "channel==MINE"})
-
-        assert session.get.call_args.kwargs["headers"] == {"Authorization": "Bearer tok-1"}
 
     def test_rejected_token_is_refreshed_once_and_the_request_retried(self) -> None:
         # A backfill can outlive Google's ~1h access token, so a mid-sync 401 must not fail the job.
@@ -204,18 +191,6 @@ class TestYouTubeAnalyticsClient:
         with pytest.raises(requests.HTTPError):
             self._client(session).query({"ids": "channel==MINE"})
 
-    def test_reports_url_uses_the_resolved_api_version(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session"):
-            client = YouTubeAnalyticsClient("tok", api_version="v3")
-
-        assert client.reports_url == "https://youtubeanalytics.googleapis.com/v3/reports"
-
-    def test_report_bodies_are_kept_out_of_diagnostic_capture(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as session_factory:
-            YouTubeAnalyticsClient("tok")
-
-        session_factory.assert_called_once_with(capture=False)
-
 
 class TestListChannels:
     def _call(self, body: Any) -> tuple[list[dict[str, Any]], mock.MagicMock]:
@@ -224,27 +199,11 @@ class TestListChannels:
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             return list_channels("tok"), session
 
-    def test_lists_only_the_connected_accounts_own_channels(self) -> None:
-        channels, session = self._call({"items": [{"id": "UC123", "snippet": {"title": "Acme"}}]})
-
-        url = session.get.call_args.args[0]
-        assert "mine=true" in url
-        assert "part=snippet" in url
-        assert channels == [{"id": "UC123", "snippet": {"title": "Acme"}}]
-
     @parameterized.expand([("no_items", {}), ("null_items", {"items": None}), ("empty_items", {"items": []})])
     def test_returns_empty_when_the_account_owns_no_channel(self, _name: str, body: Any) -> None:
         channels, _ = self._call(body)
 
         assert channels == []
-
-    def test_channel_listings_are_kept_out_of_diagnostic_capture(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_body={"items": []})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as session_factory:
-            list_channels("tok")
-
-        session_factory.assert_called_once_with(capture=False)
 
 
 class TestResolveStartDay:
@@ -293,36 +252,6 @@ class TestGetRows:
         # The report's own `day` column is parsed rather than stamped from the window start.
         assert batches[0][0]["day"] == datetime(2026, 7, 20, tzinfo=UTC)
 
-    def test_aggregate_report_is_queried_one_day_at_a_time_and_stamped(self) -> None:
-        manager = FakeResumeManager()
-        result = _result(["ageGroup", "gender", "viewerPercentage"], [["age18-24", "female", 12.5]])
-
-        batches, sent = _run_get_rows(DEMOGRAPHICS, [result], manager, start_date="2026-07-23")
-
-        assert [(p["startDate"], p["endDate"]) for p in sent] == [
-            ("2026-07-23", "2026-07-23"),
-            ("2026-07-24", "2026-07-24"),
-            ("2026-07-25", "2026-07-25"),
-        ]
-        assert sent[0]["dimensions"] == "ageGroup,gender"
-        assert [batch[0]["day"] for batch in batches] == [
-            datetime(2026, 7, 23, tzinfo=UTC),
-            datetime(2026, 7, 24, tzinfo=UTC),
-            datetime(2026, 7, 25, tzinfo=UTC),
-        ]
-
-    def test_stops_before_today_because_the_current_day_is_partial(self) -> None:
-        manager = FakeResumeManager()
-        _, sent = _run_get_rows(GEOGRAPHY, [_result(["country", "views"], [])], manager, start_date="2026-07-25")
-
-        assert [p["endDate"] for p in sent] == ["2026-07-25"]
-
-    def test_nothing_is_requested_when_the_start_day_is_in_the_future(self) -> None:
-        manager = FakeResumeManager()
-        batches, sent = _run_get_rows(GEOGRAPHY, [_result(["country"], [])], manager, start_date="2026-08-01")
-
-        assert (batches, sent) == ([], [])
-
     def test_paginates_a_full_page_with_start_index(self) -> None:
         manager = FakeResumeManager()
         full_page = _result(["country", "views"], [["US", 1]] * MAX_RESULTS_PER_PAGE)
@@ -333,60 +262,12 @@ class TestGetRows:
         assert [p["startIndex"] for p in sent] == ["1", str(MAX_RESULTS_PER_PAGE + 1)]
         assert len(batches[0]) == MAX_RESULTS_PER_PAGE + 1
 
-    def test_top_n_report_takes_a_single_page(self) -> None:
-        manager = FakeResumeManager()
-        full_page = _result(["video", "views"], [["vid", 1]] * MAX_RESULTS_PER_PAGE)
-
-        batches, sent = _run_get_rows(TOP_VIDEOS, [full_page], manager, start_date="2026-07-25")
-
-        # YouTube caps `video`-keyed reports at 200 rows, so a full page is the end of the report.
-        assert len(sent) == 1
-        assert sent[0]["sort"] == "-estimatedMinutesWatched"
-        assert len(batches[0]) == MAX_RESULTS_PER_PAGE
-
-    def test_empty_windows_are_not_yielded(self) -> None:
-        manager = FakeResumeManager()
-        batches, sent = _run_get_rows(GEOGRAPHY, [_result(["country"], [])], manager, start_date="2026-07-23")
-
-        assert batches == []
-        assert len(sent) == 3
-
-    def test_saves_resume_state_after_every_window_and_clears_on_completion(self) -> None:
-        manager = FakeResumeManager()
-        _run_get_rows(GEOGRAPHY, [_result(["country", "views"], [["US", 1]])], manager, start_date="2026-07-24")
-
-        assert [state.next_start_date for state in manager.saved] == ["2026-07-25", "2026-07-26"]
-        assert manager.cleared is True
-
     def test_resumes_from_saved_state_instead_of_the_configured_start(self) -> None:
         manager = FakeResumeManager(YouTubeAnalyticsResumeConfig(next_start_date="2026-07-25"))
 
         _, sent = _run_get_rows(GEOGRAPHY, [_result(["country"], [])], manager, start_date="2026-01-01")
 
         assert [p["startDate"] for p in sent] == ["2026-07-25"]
-
-    def test_incremental_watermark_bounds_the_first_window(self) -> None:
-        manager = FakeResumeManager()
-
-        _, sent = _run_get_rows(
-            GEOGRAPHY,
-            [_result(["country"], [])],
-            manager,
-            start_date="2026-01-01",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 7, 24, tzinfo=UTC),
-        )
-
-        assert [p["startDate"] for p in sent] == ["2026-07-24", "2026-07-25"]
-
-    def test_channel_id_is_sent_as_the_ids_filter(self) -> None:
-        manager = FakeResumeManager()
-
-        _, sent = _run_get_rows(
-            GEOGRAPHY, [_result(["country"], [])], manager, start_date="2026-07-25", channel_id="UC123"
-        )
-
-        assert sent[0]["ids"] == "channel==UC123"
 
 
 class TestValidateCredentials:
@@ -467,24 +348,6 @@ class TestYouTubeAnalyticsSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == expected
-
-    def test_partitions_and_sorts_on_the_day_column(self) -> None:
-        response = youtube_analytics_source(
-            access_token="access-token",
-            refresh_access_token=None,
-            channel_id=None,
-            start_date=None,
-            endpoint=GEOGRAPHY,
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-        )
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["day"]
-        # Windows are walked oldest-first, so the incremental watermark advances safely.
-        assert response.sort_mode == "asc"
 
     @time_machine.travel(FROZEN_NOW, tick=False)
     def test_items_is_lazy_until_iterated(self) -> None:

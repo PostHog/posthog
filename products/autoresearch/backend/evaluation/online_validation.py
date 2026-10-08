@@ -2,8 +2,9 @@
 Online validation: join autoresearch_prediction events to realized target outcomes
 after the prediction horizon has elapsed.
 
-Computes per model: realized AUC, Brier score, expected calibration error (ECE),
-and lift@k, for every model that emitted predictions on a date.
+Computes per model: realized AUC with a 95% interval, Brier score, expected calibration
+error (ECE), quantile calibration bins, mean predicted probability, and lift@k, for every
+model that emitted predictions on a date.
 
 Architecture:
 - Pure activity functions called by AutoresearchValidationWorkflow (Temporal)
@@ -42,13 +43,13 @@ from products.autoresearch.backend.dataset.labeling import (
 )
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult, run_hogql
+from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does two bounded queries and a scoring run is bounded by its sandbox
-# timeouts, so a RUNNING row older than this belongs to a worker that died mid-run and the
-# exception handler never ran. Neither kind may hold a date forever.
+# A validation run does one bounded query per model plus the labels query, and a scoring run
+# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
+# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
 STALE_RUN_AFTER = timedelta(hours=6)
 
 # An outcome event timestamped just before the window closes can still be in the ingestion
@@ -107,13 +108,23 @@ class _ModelPredictions:
 
 
 @frozen
+class _AucInterval:
+    low: float
+    high: float
+
+
+@frozen
 class _ModelValidation:
     emitted_role: str
     metrics: dict[str, Any]
 
 
 def run_online_validation_for_pipeline(
-    pipeline: AutoresearchPipeline, *, user: User | None = None
+    pipeline: AutoresearchPipeline,
+    *,
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+    claim_deadline: datetime | None = None,
 ) -> list[AutoresearchRun]:
     """
     Validate every matured prediction date that has no completed validation yet.
@@ -125,6 +136,13 @@ def run_online_validation_for_pipeline(
     ``calibration_error`` on each model that emitted predictions.
 
     ``user`` is who HogQL applies access control for; it defaults to the pipeline's creator.
+    ``query_context`` is the ClickHouse budget of every query. The Temporal activity passes
+    ``BATCH_QUERY``, and the API request path keeps the interactive limit.
+
+    After ``claim_deadline`` the pass claims no more dates, but it always claims at least one,
+    so a pass makes progress whatever the deadline. The dates it does not reach stay pending
+    for the next pass. The Temporal activity sets the deadline so that the last date it claims
+    still finishes inside the attempt timeout.
     """
     team = pipeline.team
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
@@ -134,11 +152,22 @@ def run_online_validation_for_pipeline(
         return []
 
     results: list[AutoresearchRun] = []
-    for item in pending:
+    for index, item in enumerate(pending):
+        if results and claim_deadline is not None and django_timezone.now() >= claim_deadline:
+            logger.info(
+                "autoresearch_validation_dates_deferred",
+                pipeline_id=str(pipeline.pk),
+                dates_deferred=len(pending) - index,
+            )
+            break
         run = _claim_date(pipeline, item)
         if run is None:
             continue
-        results.append(_validate_claimed_date(team=team, pipeline=pipeline, run=run, pending=item, user=acting_user))
+        results.append(
+            _validate_claimed_date(
+                team=team, pipeline=pipeline, run=run, pending=item, user=acting_user, query_context=query_context
+            )
+        )
     return results
 
 
@@ -293,6 +322,7 @@ def _validate_claimed_date(
     run: AutoresearchRun,
     pending: PendingValidationDate,
     user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> AutoresearchRun:
     """
     Compute realized metrics for every model that emitted predictions on the date, then
@@ -302,15 +332,24 @@ def _validate_claimed_date(
     eligible for the next pass and the other dates in this pass are unaffected.
     """
     try:
-        predictions = _fetch_predictions(team=team, pipeline=pipeline, pending=pending, user=user)
+        predictions = _fetch_predictions(
+            team=team, pipeline=pipeline, pending=pending, user=user, query_context=query_context
+        )
         n_predicted = sum(len(model.p_y_by_person) for model in predictions.values())
         realized = _fetch_realized_labels(
-            team=team, pipeline=pipeline, pending=pending, n_predicted=n_predicted, user=user
+            team=team,
+            pipeline=pipeline,
+            pending=pending,
+            n_predicted=n_predicted,
+            user=user,
+            query_context=query_context,
         )
         per_model = {
             model_id: _ModelValidation(
                 emitted_role=model.emitted_role,
-                metrics=_compute_validation_metrics(model.p_y_by_person, realized),
+                metrics=_compute_validation_metrics(
+                    model.p_y_by_person, realized, prediction_date=pending.prediction_date
+                ),
             )
             for model_id, model in predictions.items()
         }
@@ -417,7 +456,12 @@ def _prediction_values(pipeline: AutoresearchPipeline, pending: PendingValidatio
 
 
 def _fetch_predictions(
-    *, team: Team, pipeline: AutoresearchPipeline, pending: PendingValidationDate, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    pending: PendingValidationDate,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> dict[str, _ModelPredictions]:
     """
     ``{model_id: predictions}`` for every model the inference runs say scored the date.
@@ -428,6 +472,10 @@ def _fetch_predictions(
     ``rows_scored``: fewer means ingestion has not caught up with a backfill yet, more
     means events the run did not emit. Either way the metrics would be wrong, so the date
     fails and is retried.
+
+    Each model is fetched in its own query. HogQL returns at most 50,000 rows whatever
+    LIMIT the query asks for. One run scores fewer people than that, but the champion and
+    its shadow models together can score more.
     """
     # argMax picks the latest emission per (model, person). Backfills stamp every event of
     # a date at the same instant, so the event UUID breaks those ties rather than leaving
@@ -442,27 +490,27 @@ def _fetch_predictions(
         f" WHERE{_prediction_filter()}"
         " GROUP BY model_id, person_id"
     )
-    result = _query(
-        team=team,
-        sql=sql,
-        values=_prediction_values(pipeline, pending),
-        user=user,
-        limit=pending.expected_rows + 1,
-        what="Predictions",
-    )
-
     roles: dict[str, str] = {}
     scores: dict[str, dict[str, float]] = {}
-    for model_id, person_id, p_y, emitted_role in result.rows:
-        if p_y is None:
-            raise OnlineValidationError(
-                f"Prediction for person {person_id} of model {model_id} carries a non-numeric $autoresearch_p_y; "
-                "refusing to compute metrics from it"
-            )
-        scores.setdefault(str(model_id), {})[str(person_id)] = float(p_y)
-        roles.setdefault(str(model_id), str(emitted_role or ""))
-
     for model_id, expected in pending.expected_rows_by_model.items():
+        result = _query(
+            team=team,
+            sql=sql,
+            values={**_prediction_values(pipeline, pending), "model_ids": (model_id,)},
+            user=user,
+            limit=expected + 1,
+            what="Predictions",
+            query_context=query_context,
+        )
+        for row_model_id, person_id, p_y, emitted_role in result.rows:
+            if p_y is None:
+                raise OnlineValidationError(
+                    f"Prediction for person {person_id} of model {row_model_id} carries a non-numeric "
+                    "$autoresearch_p_y; refusing to compute metrics from it"
+                )
+            scores.setdefault(str(row_model_id), {})[str(person_id)] = float(p_y)
+            roles.setdefault(str(row_model_id), str(emitted_role or ""))
+
         found = len(scores.get(model_id, {}))
         if found < expected:
             raise OnlineValidationError(
@@ -481,7 +529,13 @@ def _fetch_predictions(
 
 
 def _fetch_realized_labels(
-    *, team: Team, pipeline: AutoresearchPipeline, pending: PendingValidationDate, n_predicted: int, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    pending: PendingValidationDate,
+    n_predicted: int,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> frozenset[str]:
     """
     The predicted persons who performed the pipeline's target inside the outcome window.
@@ -512,11 +566,28 @@ def _fetch_realized_labels(
         "window_start": pending.window_start,
         "window_end": pending.window_end,
     }
-    result = _query(team=team, sql=sql, values=values, user=user, limit=n_predicted + 1, what="Realized labels")
+    result = _query(
+        team=team,
+        sql=sql,
+        values=values,
+        user=user,
+        limit=n_predicted + 1,
+        what="Realized labels",
+        query_context=query_context,
+    )
     return frozenset(str(row[0]) for row in result.rows if row[0])
 
 
-def _query(*, team: Team, sql: str, values: dict[str, Any], user: User, limit: int, what: str) -> HogQLResult:
+def _query(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User,
+    limit: int,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> HogQLResult:
     """
     Run a query as the acting user, fresh, with an explicit bound.
 
@@ -534,6 +605,7 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User, limit: i
             query=HogQLQuery(query=bounded_sql, values={**values, "limit": limit}, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         logger.exception("autoresearch_validation_query_failed", team_id=team.pk, what=what)
@@ -552,13 +624,16 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User, limit: i
 def _compute_validation_metrics(
     predictions: dict[str, float],
     realized_labels: frozenset[str],
+    *,
+    prediction_date: date,
 ) -> dict[str, Any]:
     """
-    AUC, Brier score, ECE, and lift@k from scored predictions against realized labels.
+    AUC with its 95% interval, Brier score, ECE, quantile calibration bins, and lift@k
+    from scored predictions against realized labels.
 
-    Only the AUC needs both classes. The other metrics are computed for a single-class
-    date too, because an all-negative day is exactly where calibration matters for a rare
-    target.
+    Only the AUC and its interval need both classes. The other metrics are computed for a
+    single-class date too, because an all-negative day is exactly where calibration
+    matters for a rare target.
     """
     person_ids = list(predictions.keys())
     y_score = np.array([predictions[pid] for pid in person_ids], dtype=np.float64)
@@ -573,9 +648,11 @@ def _compute_validation_metrics(
         "n_positive": n_pos,
         "n_negative": n_neg,
         "base_rate": round(n_pos / n, 4) if n > 0 else 0.0,
+        "weekday": prediction_date.isoweekday(),
     }
     if n == 0:
         return metrics
+    metrics["mean_p_y"] = round(float(y_score.mean()), 4)
 
     # Deferred to keep the heavy dependency off the import path.
     from sklearn.metrics import brier_score_loss, roc_auc_score  # noqa: PLC0415
@@ -583,9 +660,14 @@ def _compute_validation_metrics(
     if n_pos == 0 or n_neg == 0:
         metrics["warning"] = "single_class_no_auc"
     else:
-        metrics["realized_auc"] = round(float(roc_auc_score(y_true, y_score)), 4)
+        auc = float(roc_auc_score(y_true, y_score))
+        interval = _auc_confidence_interval(auc, n_pos=n_pos, n_neg=n_neg)
+        metrics["realized_auc"] = round(auc, 4)
+        metrics["realized_auc_ci_low"] = round(interval.low, 4)
+        metrics["realized_auc_ci_high"] = round(interval.high, 4)
     metrics["brier_score"] = round(float(brier_score_loss(y_true, y_score)), 4)
     metrics["calibration_error"] = round(_expected_calibration_error(y_true, y_score), 4)
+    metrics["calibration_bins"] = _quantile_calibration_bins(y_true, y_score)
     metrics["lift_at_10"] = round(_lift_at_k(y_true, y_score, k=0.10), 4)
     metrics["lift_at_20"] = round(_lift_at_k(y_true, y_score, k=0.20), 4)
     return metrics
@@ -609,6 +691,44 @@ def _expected_calibration_error(y_true: np.ndarray, y_score: np.ndarray, n_bins:
         actual_rate = float(y_true[mask].mean())
         ece += (bin_n / n) * abs(avg_pred - actual_rate)
     return ece
+
+
+def _auc_confidence_interval(auc: float, *, n_pos: int, n_neg: int, z: float = 1.96) -> _AucInterval:
+    """
+    95% interval for an AUC from the Hanley-McNeil (1982) standard error.
+
+    The width depends on the class counts, so a date with a few dozen positives gets a
+    wide interval and a date with thousands gets a narrow one.
+    """
+    q1 = auc / (2 - auc)
+    q2 = 2 * auc**2 / (1 + auc)
+    variance = (auc * (1 - auc) + (n_pos - 1) * (q1 - auc**2) + (n_neg - 1) * (q2 - auc**2)) / (n_pos * n_neg)
+    se = math.sqrt(max(variance, 0.0))
+    return _AucInterval(low=max(0.0, auc - z * se), high=min(1.0, auc + z * se))
+
+
+def _quantile_calibration_bins(y_true: np.ndarray, y_score: np.ndarray, n_bins: int = 10) -> list[dict[str, Any]]:
+    """
+    Calibration table with up to ``n_bins`` bins cut at score quantiles, lowest scores first.
+
+    Equal-width bins put almost every person in the first bin for a rare target; quantile
+    bins hold roughly equal counts. Equal scores always share a bin, so heavy ties give
+    fewer bins rather than a split that depends on row order.
+    """
+    # A score's bin comes from how many scores sit below it, so every user with that score shares it.
+    rank = np.searchsorted(np.sort(y_score), y_score, side="left")
+    bin_index = rank * n_bins // len(y_score)
+    bins: list[dict[str, Any]] = []
+    for i in np.unique(bin_index):
+        mask = bin_index == i
+        bins.append(
+            {
+                "n": int(mask.sum()),
+                "mean_p_y": round(float(y_score[mask].mean()), 4),
+                "positive_rate": round(float(y_true[mask].mean()), 4),
+            }
+        )
+    return bins
 
 
 def _lift_at_k(y_true: np.ndarray, y_score: np.ndarray, k: float) -> float:

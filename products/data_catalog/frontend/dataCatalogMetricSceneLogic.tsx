@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingNode } from '~/types'
 
-import { validateMetricName } from './common'
+import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -43,7 +43,7 @@ export interface DataCatalogMetricSceneLogicProps {
     name: string
 }
 
-export type MetricSceneTab = 'definition' | 'tests' | 'lineage'
+export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage'
 
 /** What stopped the lineage load, in the terms the tab has a screen for. */
 export type LineageLoadProblem = 'not_ready' | 'no_warehouse_access' | 'failed'
@@ -453,14 +453,14 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 visitedTabs.includes(activeTab) ? visitedTabs : [...visitedTabs, activeTab],
         ],
         // The metric check endpoints are gated on the same flag, so a project outside the rollout
-        // must not reach the Tests tab: every request it makes is rejected.
+        // must not reach the data quality tab: every request it makes is rejected.
         metricChecksEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         ],
         supportsMetricChecks: [
             (s) => [s.metric],
-            (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === 'HogQLQuery',
+            (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === HOGQL_METRIC_DEFINITION_KIND,
         ],
         breadcrumbs: [
             (s) => [s.metric, (_, props) => props.name],
@@ -677,10 +677,13 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             if (name !== props.name) {
                 return
             }
+            // `tests` is the old key for the data quality tab; links in sent notifications still use it.
+            const tabParam = searchParams.tab === 'tests' ? 'data-quality' : searchParams.tab
             const requestedTab: MetricSceneTab =
-                searchParams.tab === 'tests' || searchParams.tab === 'lineage' ? searchParams.tab : 'definition'
-            const activeTab = requestedTab === 'tests' && !values.metricChecksEnabled ? 'definition' : requestedTab
-            if (activeTab !== requestedTab) {
+                tabParam === 'data-quality' || tabParam === 'lineage' ? tabParam : 'definition'
+            const activeTab =
+                requestedTab === 'data-quality' && !values.metricChecksEnabled ? 'definition' : requestedTab
+            if (activeTab !== searchParams.tab && searchParams.tab !== undefined) {
                 // Drop the param so a refresh or a back navigation does not ask for the tab again.
                 router.actions.replace(urls.dataCatalogMetric(props.name, activeTab))
             }

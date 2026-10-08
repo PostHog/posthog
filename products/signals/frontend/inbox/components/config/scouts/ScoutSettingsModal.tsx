@@ -31,6 +31,7 @@ export function ScoutSettingsModal({
 }): JSX.Element {
     const { updatingScoutIds, deletingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
+    const [hasUnsavedInput, setHasUnsavedInput] = useState(false)
 
     return (
         <LemonModal
@@ -39,6 +40,7 @@ export function ScoutSettingsModal({
             title={`${scoutDisplayName(config)} settings`}
             description="Changes take effect on this scout's next run."
             width={560}
+            hasUnsavedInput={hasUnsavedInput}
         >
             <ScoutConfigForm
                 config={config}
@@ -46,6 +48,7 @@ export function ScoutSettingsModal({
                 onDelete={(configId) => deleteScout(configId, surface)}
                 deleting={deletingScoutIds.includes(config.id)}
                 updating={updatingScoutIds.includes(config.id)}
+                onUnsavedChange={setHasUnsavedInput}
             />
         </LemonModal>
     )

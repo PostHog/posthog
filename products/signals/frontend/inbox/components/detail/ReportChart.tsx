@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -15,46 +15,9 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { chartOpenTarget } from '../../utils/chartOpenTarget'
-
-/**
- * Strip the chrome a query node carries for the insight scene (filter bar, header, results table)
- * so the report shows the chart alone. A scout writes the query against the insight schema, so it
- * can arrive with any of these turned on. Mirrors what `NotebookNodeQuery` does for the same reason.
- */
-function asEmbeddedChart(query: Record<string, any>): Node {
-    const node = { ...query, full: false } as any
-    if (isInsightVizNode(node) || isSavedInsightNode(node)) {
-        node.showFilters = false
-        node.showHeader = false
-        node.showTable = false
-        node.showCorrelationTable = false
-        node.embedded = true
-        // Forced on rather than left alone: an explicit `false` (which the notebook query node sets,
-        // and a scout can copy from one) makes `InsightVizDisplay` omit the result body entirely, so
-        // the report would draw a titled card with nothing in it.
-        node.showResults = true
-    }
-    return node as Node
-}
-
-/**
- * A SQL node draws a table unless it was given a graphical display, and only a graph needs a box.
- *
- * `Auto` is not one: it defers to the data visualization, which reads the result and draws a table
- * for nonnumeric columns or a bold number for a single numeric one. Neither wants a graph's fixed
- * height — the table ends up clipped into a scrolling region and the number sits in an oversized
- * card — and nothing here can tell which it will be before the query returns. So it sizes to its
- * content, like the table an absent display already produces.
- */
-function isGraphicalSqlNode(query: Node): boolean {
-    if (!isDataVisualizationNode(query)) {
-        return false
-    }
-    const { display } = query as DataVisualizationNode
-    return !!display && display !== ChartDisplayType.ActionsTable && display !== ChartDisplayType.Auto
-}
+import { asEmbeddedChart, isGraphicalSqlNode } from '../../utils/reportChartQuery'
+import { ReportChartsContext } from './reportChartsContext'
 
 // Written out per size rather than built from one map: Tailwind only emits classes it can read
 // literally in the source, so a height assembled at runtime would compile to nothing.
@@ -154,11 +117,10 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
-/** Looks the chart up on the open report. Replay Vision reads reports through its own
- * scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
+/** Looks the chart up on the report being shown (`ReportChartsContext`). Replay Vision reads reports
+ * through its own scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
 export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {
-    const { chartsById } = useValues(inboxReportDetailLogic)
-    const chart = chartsById.get(chartId)
+    const chart = useContext(ReportChartsContext).get(chartId)
     return chart ? <ReportChartCard chart={chart} /> : null
 }
 

@@ -1,12 +1,16 @@
 """Evals for the code-cleanup half of the ``cleaning-up-stale-feature-flags`` skill.
 
-Five sandboxed cases: a generic cleanup ask, an unrelated task that mentions a flag
+Seven sandboxed cases: a generic cleanup ask, an unrelated task that mentions a flag
 in passing (the skill must stay quiet, and the agent must still edit a file — the
 stale-premise guard borrowed from ``eval_instrument_flags``), a direct removal ask
-for a key with no repository references, the same ask for a 40%-rollout flag, and a
-direct request to archive the flag, which the skill must refuse: it never changes
-the flag in PostHog, and without that case the two mutation scorers only ever see
-prompts that could not produce a flag write.
+for a key with no repository references — also grading whether the response waits
+on product-tour usage, since no MCP tool reports it and the same fixture already
+covers the scenario — the same removal ask for a 40%-rollout flag, and a direct
+request to archive the flag, which the skill must refuse: it never changes the flag
+in PostHog, and without that case the two mutation scorers only ever see prompts
+that could not produce a flag write. Two more cover response-wording regressions:
+a flag stale on every other signal but updated two days ago, and an explicit
+assess-only request.
 
 What the suite cannot grade: the sandbox always clones ``posthog/hedgebox`` and
 seeders cannot write files into it, so retained-path correctness (does a diff keep
@@ -15,8 +19,36 @@ No scorer reads repo files, branches, or PR state, and the key-named cases canno
 be told apart by refusal reason. What each case does grade is its ``expected``
 dict below; the scorer mechanics live in the ``scorers.py`` docstrings.
 
-All scorers are deterministic — no LLM judge — so the suite is cheap to rerun while
-iterating on the skill text. ``SandboxedPrivateEval`` runs without a Braintrust key.
+Two regressions have no case here for the same reason: a fixture repo with real
+call sites for the seeded flag, so the skill actually edits code and a required
+check can fail against it, is exactly what no seeder here can build.
+``SandboxedEvalCase.repo_fixture`` names this gap but only tracks it; there is no
+seeding path that lands files in the cloned repo. The skipped-pre-edit-read
+regression is covered instead by deterministic scorer unit tests against
+synthesized call sequences: see ``FreshReadsBeforeEdit`` in ``scorers.py`` and
+``TestFreshReadsBeforeEdit`` in
+``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``.
+
+Three more regressions are ungraded, and nothing here would catch them:
+
+- The failed/unavailable-check refusal wording has no scorer.
+- Nothing requires the skill's "Check whether the cleanup already exists" search.
+  No registered scorer reads a Bash command, so a run that skips that step and goes
+  straight to the call-site search passes every scorer here. The cases cannot require
+  it either, because the suite accepts a run that stops to ask about product tours
+  before it reaches the step. Grading it needs a case whose prompt already answers the
+  tour question, and a scorer that matches the ``git log -S`` call by command text.
+- Nothing checks the pre-publish read. ``FreshReadsBeforeEdit`` grades the pre-edit
+  reads only, and no case reaches a publish.
+``FreshReadsBeforeEdit`` is deliberately left out of the suite's scorer list below.
+No case here can seed call sites, so it would add a ``None`` row to every case on
+every run, and its divider would stay unmeasured against a real agent trace. The
+pull request that adds the first fixture case registers it.
+
+Most scorers are deterministic; the three wording cases use one LLM judge each
+(``FinalMessageJudge``), which costs a model call per case but is what the "does the
+message avoid X" question needs. ``SandboxedPrivateEval`` runs without a Braintrust
+key.
 
 **Claude runtime only.** The edit-direction scorer matches Claude's named file tools,
 which codex does not carry, so the seeders refuse ``--agent-runtime codex`` as an infra
@@ -29,18 +61,24 @@ To run:
 from __future__ import annotations
 
 from products.feature_flags.evals.scorers import (
+    ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION,
     DEPENDENTS_READ_TOOLS,
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
+    RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION,
     SCHEDULE_READ_TOOLS,
+    TOUR_UNKNOWN_WAITS_QUESTION,
+    FinalMessageJudge,
     FlagStateUnchanged,
     ToolGroupDirection,
 )
 from products.feature_flags.evals.seeders import (
     STALE_FULL_ROLLOUT_FLAG_KEY,
+    STALE_LOOKING_RECENT_UPDATE_FLAG_KEY,
     STALE_PARTIAL_ROLLOUT_FLAG_KEY,
     guard_claude_runtime,
+    seed_recently_updated_flag,
     seed_stale_full_rollout_flag,
     seed_stale_partial_rollout_flag,
 )
@@ -56,6 +94,9 @@ EDIT_SCORER_NAME = "code_edit_direction"
 LOOKUP_SCORER_NAME = "flag_lookup_direction"
 DEPENDENTS_SCORER_NAME = "dependents_check_direction"
 SCHEDULE_SCORER_NAME = "schedule_check_direction"
+RECENCY_REFUSAL_SCORER_NAME = "recency_refusal_without_override"
+TOUR_UNKNOWN_SCORER_NAME = "tour_unknown_waits"
+ASSESSMENT_ONLY_SCORER_NAME = "assessment_only_no_edit_claim"
 
 # should_edit is False in both constants below, for two different reasons that the
 # repo_fixture follow-up will pull apart: these cases expect no edit because hedgebox
@@ -108,12 +149,20 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="no_references_is_noop",
+            # Also the tour-unknown case: no MCP tool reports tour usage, so the agent
+            # must ask before it recommends removal. Reuses this fixture rather than a
+            # duplicate case, avoiding a second live agent run for the same prompt.
+            # hedgebox holds no call site for the seeded key, so the correct answer here
+            # is a no-op report and no case in this suite can reach a removal
+            # recommendation. The tour judge therefore grades the claim, not the
+            # question: a report that stops at "nothing to change" passes, and one that
+            # calls the flag safe to remove without asking about tours fails.
             prompt=(
                 f"The feature flag '{STALE_FULL_ROLLOUT_FLAG_KEY}' is fully rolled out and "
                 "stale. Remove it from this repository."
             ),
             setup=seed_stale_full_rollout_flag,
-            expected=_NO_CALL_SITES,
+            expected={**_NO_CALL_SITES, TOUR_UNKNOWN_SCORER_NAME: {"required": True}},
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
         SandboxedEvalCase(
@@ -139,6 +188,41 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             expected=_NO_CALL_SITES,
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
+        SandboxedEvalCase(
+            name="recent_update_excluded_without_override",
+            # Stale on every other signal — only `updated_at` inside the last 30 days
+            # blocks this one. Grades the response wording, not just the inaction.
+            # This case does not spread _NO_CALL_SITES: the by-key lookup already returns
+            # updated_at, and the skill drops a candidate with a recent update before
+            # assessing it, so a run that refuses after one read is following the skill.
+            # Requiring the dependents and schedule reads here would fail that run. The
+            # other cases still require both reads, so the coverage stays.
+            prompt=(f"Remove the feature flag '{STALE_LOOKING_RECENT_UPDATE_FLAG_KEY}' from this repository."),
+            setup=seed_recently_updated_flag,
+            expected={
+                TRIGGER_SCORER_NAME: {"should_load": True},
+                EDIT_SCORER_NAME: {"should_edit": False},
+                LOOKUP_SCORER_NAME: {"should_look_up": True},
+                RECENCY_REFUSAL_SCORER_NAME: {"required": True},
+            },
+            metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
+        ),
+        SandboxedEvalCase(
+            name="assessment_only_reports_no_edit_claimed",
+            # The tool-based scorers pass on every case here regardless (hedgebox holds
+            # no call site), so this grades whether the final message itself frames the
+            # answer as an assessment rather than a completed change.
+            prompt=(
+                f"Assess whether '{STALE_FULL_ROLLOUT_FLAG_KEY}' is ready for cleanup. "
+                "Don't remove anything yet — I just want the findings."
+            ),
+            setup=seed_stale_full_rollout_flag,
+            expected={
+                **_NO_CALL_SITES,
+                ASSESSMENT_ONLY_SCORER_NAME: {"required": True},
+            },
+            metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
+        ),
     ]
 
     await SandboxedPrivateEval(
@@ -152,6 +236,9 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
             ToolGroupDirection(DEPENDENTS_READ_TOOLS, name=DEPENDENTS_SCORER_NAME, key="should_check_dependents"),
             ToolGroupDirection(SCHEDULE_READ_TOOLS, name=SCHEDULE_SCORER_NAME, key="should_check_schedules"),
+            FinalMessageJudge(name=RECENCY_REFUSAL_SCORER_NAME, question=RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION),
+            FinalMessageJudge(name=TOUR_UNKNOWN_SCORER_NAME, question=TOUR_UNKNOWN_WAITS_QUESTION),
+            FinalMessageJudge(name=ASSESSMENT_ONLY_SCORER_NAME, question=ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION),
         ],
         ctx=ctx,
     )

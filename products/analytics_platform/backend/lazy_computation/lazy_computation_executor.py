@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from django.db import DEFAULT_DB_ALIAS
@@ -49,6 +50,9 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     subscribe_to_jobs,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -250,6 +254,10 @@ class TtlSchedule:
     non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
     still settling. `None` disables the check.
 
+    `invalidate_at_window_start` rejects jobs computed before their window starts once
+    that start is reached, even within stale grace. A future window can be warmed in
+    advance, but its snapshot must not hide new data after the window begins.
+
     `empty_result_ttl_seconds` caps the TTL of a job that wrote no rows. A zero-row insert is
     indistinguishable from a productive one at the SQL level, but it leaves the window only
     *provisionally* computed: either the source genuinely had no activity, or it hadn't been
@@ -290,6 +298,7 @@ class TtlSchedule:
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
     default_ttl_jitter_seconds: int | None = None
+    invalidate_at_window_start: bool = False
 
     def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
         """TTL for a window. `jittered=True` adds the default-band jitter offset.
@@ -347,6 +356,7 @@ def parse_ttl_schedule(
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
     default_ttl_jitter_seconds: int | None = None,
+    invalidate_at_window_start: bool = False,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -384,6 +394,7 @@ def parse_ttl_schedule(
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
             default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+            invalidate_at_window_start=invalidate_at_window_start,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -415,6 +426,7 @@ def parse_ttl_schedule(
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
         default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+        invalidate_at_window_start=invalidate_at_window_start,
     )
 
 
@@ -608,6 +620,16 @@ class LazyComputationResult:
     # be cached. Serving live once and letting the next request use the jobs is the
     # intended reaction.
     freshly_built: bool = False
+    # Oldest `computed_at` across the served jobs — the moment the stalest window in the
+    # range was last materialized. None when nothing was served (not ready) or a served
+    # job predates the column. Callers surface it as "data as of X".
+    computed_at: datetime | None = None
+
+
+def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
+    """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
+    stamps = [j.computed_at for j in jobs if j.computed_at is not None]
+    return min(stamps) if stamps else None
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1206,6 +1228,7 @@ class LazyComputationExecutor:
                             ready=True,
                             job_ids=[j.id for j in covering],
                             stale=True,
+                            computed_at=_oldest_computed_at(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1448,6 +1471,7 @@ class LazyComputationExecutor:
             ready=True,
             job_ids=[j.id for j in final_ready],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
+            computed_at=_oldest_computed_at(final_ready),
         )
         _log_execution("success", result)
         return result
@@ -1542,6 +1566,9 @@ class LazyComputationExecutor:
         TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
         caps uniformly.
 
+        `invalidate_at_window_start` is a hard boundary: stale grace cannot make a
+        snapshot taken before the window began cover data arriving after it began.
+
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
@@ -1551,6 +1578,8 @@ class LazyComputationExecutor:
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
+                continue
+            if self.ttl_schedule.invalidate_at_window_start and job.created_at < job.time_range_start <= now:
                 continue
             desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
@@ -1587,6 +1616,7 @@ def ensure_precomputed(
     end_is_data_horizon: bool = False,
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
+    database: "Database | None" = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1666,6 +1696,11 @@ def ensure_precomputed(
                       newest parts until replication catches up — usually fast, but
                       with no guaranteed bound. The post-build settle wait covers the
                       builder's own read-back; later readers accept the residual risk.
+        database: A prebuilt HogQL database to print the INSERT against. Without it, every
+                      INSERT builds the team's database from scratch, which costs Postgres reads
+                      and CPU per job. A caller that ensures many windows for one team should
+                      build it once, userless with warehouse access control bypassed and with
+                      the same `modifiers`, and pass it here.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1728,6 +1763,7 @@ def ensure_precomputed(
     )
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
+        print_start = time.monotonic()
         insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
@@ -1735,7 +1771,9 @@ def ensure_precomputed(
             table=table,
             base_placeholders=base_placeholders,
             modifiers=modifiers,
+            database=database,
         )
+        print_end = time.monotonic()
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
             "client_query_id": str(job.id),
@@ -1745,14 +1783,27 @@ def ensure_precomputed(
         }
         if query_type:
             tag_kwargs["query_type"] = query_type
+        execute_start = time.monotonic()
         with tags_context(**tag_kwargs):
-            return _written_rows(
+            rows_written = _written_rows(
                 sync_execute(
                     insert_sql,
                     values,
                     settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
                 )
             )
+        # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
+        # as much as the ClickHouse INSERT itself.
+        logger.info(
+            "lazy_computation.insert_phases",
+            team_id=t.id,
+            job_id=str(job.id),
+            table=str(table),
+            print_ms=round((print_end - print_start) * 1000),
+            setup_ms=round((execute_start - print_end) * 1000),
+            execute_ms=round((time.monotonic() - execute_start) * 1000),
+        )
+        return rows_written
 
     # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
     # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
@@ -1811,6 +1862,7 @@ def _build_manual_insert_sql(
     table: LazyComputationTable,
     base_placeholders: dict[str, ast.Expr] | None = None,
     modifiers: HogQLQueryModifiers | None = None,
+    database: "Database | None" = None,
 ) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
@@ -1862,6 +1914,7 @@ def _build_manual_insert_sql(
         limit_top_select=False,
         modifiers=modifiers if modifiers is not None else create_default_modifiers_for_team(team),
         bypass_warehouse_access_control=True,
+        database=database,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

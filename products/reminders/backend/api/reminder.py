@@ -412,7 +412,7 @@ class ReminderViewSet(viewsets.ModelViewSet):
         queryset = (
             Reminder.objects.filter(created_by=cast(User, self.request.user), deleted=False)
             .select_related("created_by", "team", "organization")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
         queryset = queryset.filter(organization_id__in=readable_organization_ids(self))
         scoped_organizations, scoped_teams = token_scope_restrictions(self.request)

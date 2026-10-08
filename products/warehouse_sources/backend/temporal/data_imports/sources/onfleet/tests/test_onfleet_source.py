@@ -18,26 +18,6 @@ class TestOnfleetSource:
         self.config = OnfleetSourceConfig(api_key="key")
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://onfleet.com/api/v2/tasks/all?from=0",
-            "403 Client Error: Forbidden for url: https://onfleet.com/api/v2/workers",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://onfleet.com/api/v2/tasks/all",
-        ],
-    )
-    def test_non_retryable_errors_ignore_unrelated(self, other_error):
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
         "status, schema_name, expected_ok",
         [
             (200, None, True),

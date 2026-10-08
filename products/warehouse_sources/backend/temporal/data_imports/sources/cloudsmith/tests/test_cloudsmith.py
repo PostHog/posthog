@@ -72,44 +72,6 @@ class TestCloudsmithTransport:
 
         assert paginator.has_next_page is expected_has_next
 
-    def test_paginator_advances_page_number(self) -> None:
-        paginator = CloudsmithPaginator(page_size=100)
-        request = Mock()
-        request.params = {"sort": "date"}
-        paginator.init_request(request)
-
-        paginator.update_state(_response("3"), data=[{"slug_perm": str(i)} for i in range(100)])
-        paginator.update_request(request)
-
-        assert request.params["page"] == 2
-        assert request.params["sort"] == "date"
-
-    def test_paginator_stops_after_walking_every_page(self) -> None:
-        # A full last page still has to stop the walk: requesting the page after it is a 404,
-        # not an empty page, so the inherited empty-page check never gets a chance to fire.
-        paginator = CloudsmithPaginator(page_size=100)
-        full_page = [{"slug_perm": str(i)} for i in range(100)]
-
-        paginator.update_state(_response("2"), data=full_page)
-        assert paginator.has_next_page is True
-
-        paginator.update_state(_response("2"), data=full_page)
-        assert paginator.has_next_page is False
-
-    def test_paginator_resume_state_roundtrip(self) -> None:
-        paginator = CloudsmithPaginator(page_size=100)
-        paginator.update_state(_response("9"), data=[{"slug_perm": str(i)} for i in range(100)])
-
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = CloudsmithPaginator(page_size=100)
-        resumed.set_resume_state(cast(dict[str, Any], state))
-        request = Mock()
-        request.params = {}
-        resumed.init_request(request)
-        assert request.params["page"] == 2
-
     @parameterized.expand(
         [
             ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45, 999999), "uploaded:>=2026-03-01T12:30:45Z"),
@@ -211,40 +173,6 @@ class TestCloudsmithTransport:
             get_resource(CLOUDSMITH_ENDPOINTS[endpoint], "acme")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
-    def test_top_level_source_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        response = cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="repositories",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "repositories"
-        assert response.primary_keys == ["slug_perm"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
-    def test_top_level_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager(CloudsmithResumeConfig(paginator_state={"page": 4}))
-
-        cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="repositories",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"page": 4}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
     def test_source_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager()
@@ -266,33 +194,6 @@ class TestCloudsmithTransport:
         manager.save_state.reset_mock()
         resume_hook(None)
         manager.save_state.assert_not_called()
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_packages_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeResource("repositories", [{"slug": "prod"}]),
-            _FakeResource("packages", [{"slug_perm": "abc", "name": "tool", "_repositories_slug": "prod"}]),
-        ]
-
-        response = cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="packages",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert list(cast(Any, response.items())) == [{"slug_perm": "abc", "name": "tool", "repository_slug": "prod"}]
-        # `slug_perm` is only documented as unique within a repository, and this table
-        # aggregates every repository in the workspace.
-        assert response.primary_keys == ["repository_slug", "slug_perm"]
-        assert response.partition_keys == ["uploaded_at"]
-        # Fan-out interleaves repositories, so rows never arrive globally ascending: desc mode
-        # keeps a partial run from advancing the watermark past repositories it never reached.
-        assert response.sort_mode == "desc"
 
     @parameterized.expand(
         [

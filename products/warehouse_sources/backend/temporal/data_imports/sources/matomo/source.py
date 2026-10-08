@@ -95,7 +95,7 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
 Works with Matomo Cloud and self-hosted instances. Enter your instance URL (e.g. `https://myorg.matomo.cloud`), the numeric site ID, and an API token created under Administration > Personal > Security > Auth tokens.""",
             iconPath="/static/services/matomo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/matomo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

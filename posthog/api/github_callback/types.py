@@ -4,6 +4,7 @@ import re
 from enum import StrEnum
 from typing import Any, Literal, Self
 from urllib.parse import parse_qsl, urlencode, urlparse
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
@@ -90,6 +91,8 @@ class GitHubAuthorizeState(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     token: str
+    flow_id: UUID = Field(default_factory=uuid4)
+    originating_organization_id: UUID | None = None
     flow: FlowKind
     user_id: int
     team_id: int | None = None

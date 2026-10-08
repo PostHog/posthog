@@ -6,7 +6,7 @@ return serialized responses. No business logic here.
 """
 
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -53,6 +53,9 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    StamphogAddRepositorySerializer,
+    StamphogAvailableRepositoriesQuerySerializer,
+    StamphogAvailableRepositoriesSerializer,
     StamphogInstallInfoSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
@@ -69,8 +72,25 @@ logger = structlog.get_logger(__name__)
 _INSTALL_STATE_SALT = "stamphog-install-state"
 _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 
-# These decide whether a pull request gets reviewed, so writing any of them takes the manager level.
-REVIEW_GATE_FIELDS = ("enabled", "review_mode", "trigger_label")
+# These decide when a pull request gets reviewed, so writing either of them takes the manager level.
+# `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
+REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
+
+ReviewLevel = Literal["editor", "manager"]
+
+
+def _required_review_level(validated_data: dict[str, Any]) -> ReviewLevel | None:
+    """The stamphog level a write needs because of the review fields it names, or None for none.
+
+    A supplied value counts even when it matches the stored one: the view reads the row before the
+    facade refetches and saves it, so a value that looks unchanged can still overwrite a manager's
+    decision made in between. That is why a supplied `enabled=False` always takes manager.
+    """
+    if validated_data.get("enabled") is False or any(field in validated_data for field in REVIEW_POLICY_FIELDS):
+        return "manager"
+    if validated_data.get("enabled") is True:
+        return "editor"
+    return None
 
 
 class StamphogCanonicalTeamAccessPermission(BasePermission):
@@ -196,21 +216,28 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             raise NotFound()
         return config
 
-    def _require_review_gate_manager(self, request: Request) -> None:
-        """Refuse a review-gating write below the manager level on the stamphog resource.
+    def _require_review_level(self, request: Request, level: ReviewLevel | None) -> None:
+        """Refuse a review-gating write below `level` on the stamphog resource.
 
         Service credentials (project secret keys, team secret tokens) are synthetic users the RBAC
-        layer cannot resolve, and a key is never a manager, so they are refused here rather than
-        silently passed through by AccessControlPermission's service-auth shortcut.
+        layer cannot resolve, so they are refused here rather than silently passed through by
+        AccessControlPermission's service-auth shortcut. A review decision needs a person.
         """
-        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource(
-            "stamphog", "manager"
-        ):
+        if level is None:
             return
+        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource("stamphog", level):
+            return
+        if level == "manager":
+            raise PermissionDenied(
+                "Only a Stamphog manager can turn reviews off or change when they run. "
+                "Ask an organization admin for manager access."
+            )
         raise PermissionDenied(
-            "Only a Stamphog manager can change whether this repository is reviewed. "
-            "Ask an organization admin for manager access."
+            "Only a Stamphog editor can turn reviews on. Ask an organization admin for editor access."
         )
+
+    def _available_count(self) -> int:
+        return facade_api.list_available_repositories(self.canonical_team_id, limit=0).total_count
 
     def list(self, request: Request, **kwargs) -> Response:
         configs = facade_api.list_repo_configs(self.canonical_team_id)
@@ -222,15 +249,14 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={201: StamphogRepoConfigSerializer})
     def create(self, request: Request, **kwargs) -> Response:
-        # Naming a gate field takes manager here for the same reason it does on update: a caller
-        # spelling out a review policy is making the review decision, whichever verb carries it.
-        # Leaving them out stays at editor. The row is created without an installation, which binds
-        # it disabled at sync time and keeps it out of the digest candidates, so the defaults reach
-        # nothing on their own.
+        # Naming a review field takes the same level here as it does on update: a caller spelling out
+        # a review policy is making the review decision, whichever verb carries it. Leaving them out
+        # stays at editor. The row is created without an installation, which binds it disabled at
+        # sync time and keeps it out of the digest candidates, so the defaults reach nothing on their
+        # own. add_repository is the path that binds a repository from a connected installation.
         serializer = StamphogRepoConfigWriteSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        if any(field in serializer.validated_data for field in REVIEW_GATE_FIELDS):
-            self._require_review_gate_manager(request)
+        self._require_review_level(request, _required_review_level(serializer.validated_data))
         try:
             config = facade_api.create_repo_config(self.canonical_team_id, **serializer.validated_data)
         except contracts.RepoAlreadyClaimedError:
@@ -250,11 +276,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             context=self.get_serializer_context(),
         )
         serializer.is_valid(raise_exception=True)
-        # A supplied gate field always takes manager, even when it matches what `current` holds:
-        # that snapshot was read before the facade refetches and saves, so a value that looks
-        # unchanged can still overwrite a manager's decision made in between.
-        if any(field in serializer.validated_data for field in REVIEW_GATE_FIELDS):
-            self._require_review_gate_manager(request)
+        self._require_review_level(request, _required_review_level(serializer.validated_data))
         config = facade_api.update_repo_config(self.canonical_team_id, str(pk), **serializer.validated_data)
         return Response(self.get_serializer(config).data)
 
@@ -264,10 +286,59 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         self._get_or_404(pk)
-        # A soft delete flips `enabled`, so it is a review-gating write like the PATCH above.
-        self._require_review_gate_manager(request)
+        # A soft delete turns reviews off, so it takes manager like a PATCH to enabled=False.
+        self._require_review_level(request, "manager")
         facade_api.disable_repo_config(self.canonical_team_id, str(pk))
         return Response(status=204)
+
+    @extend_schema(
+        description=(
+            "List repositories from the project's connected GitHub installations that are not added to "
+            "stamphog yet, so they can be added with add_repository."
+        ),
+        parameters=[StamphogAvailableRepositoriesQuerySerializer],
+        responses={200: StamphogAvailableRepositoriesSerializer},
+    )
+    @action(detail=False, methods=["GET"], url_path="available_repositories", required_scopes=["stamphog:read"])
+    def available_repositories(self, request: Request, **kwargs) -> Response:
+        # Reads the snapshots a sync stored and makes no GitHub call, so the page can load it on every visit.
+        query = StamphogAvailableRepositoriesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        available = facade_api.list_available_repositories(
+            self.canonical_team_id, search=query.validated_data["search"], limit=query.validated_data["limit"]
+        )
+        return Response(StamphogAvailableRepositoriesSerializer(available).data)
+
+    @extend_schema(
+        description=(
+            "Turn reviews on for a repository from the project's connected GitHub installations. Creates "
+            "the repo config, or turns an existing one back on. Needs the editor level on stamphog."
+        ),
+        request=StamphogAddRepositorySerializer,
+        responses={200: StamphogRepoConfigSerializer, 201: StamphogRepoConfigSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="add_repository", required_scopes=["stamphog:write"])
+    def add_repository(self, request: Request, **kwargs) -> Response:
+        # Turning reviews on takes editor. The installation and the connecting user come from the
+        # team's snapshot, never from the request, so an editor can only bind what a member proved.
+        serializer = StamphogAddRepositorySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self._require_review_level(request, "editor")
+        repository = serializer.validated_data["repository"]
+        try:
+            result = facade_api.add_repository(self.canonical_team_id, repository)
+        except contracts.RepositoryNotInstalledError:
+            raise ValidationError(
+                {
+                    "repository": "This repository is not in a connected GitHub installation. "
+                    "Connect GitHub or refresh the repository list, then try again."
+                }
+            )
+        except contracts.RepoAlreadyClaimedError:
+            raise ValidationError(
+                {"repository": "This repository is already configured under this GitHub installation by another team."}
+            )
+        return Response(self.get_serializer(result.config).data, status=201 if result.created else 200)
 
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
     @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["stamphog:read"])
@@ -396,7 +467,13 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
                 # to the GitHub install page (install_url) off app_not_installed.
                 data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []},
+                    {
+                        "synced": [],
+                        "skipped": [],
+                        "available_count": self._available_count(),
+                        "app_not_installed": True,
+                        "installations": [],
+                    },
                     context=self.get_serializer_context(),
                 ).data
                 return Response(data)
@@ -407,7 +484,13 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
                 # (which the explicit path above verifies).
                 data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered},
+                    {
+                        "synced": [],
+                        "skipped": [],
+                        "available_count": self._available_count(),
+                        "app_not_installed": False,
+                        "installations": discovered,
+                    },
                     context=self.get_serializer_context(),
                 ).data
                 return Response(data)
@@ -436,7 +519,13 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         # The nested repo config serializer reads user_access_level off the view, and DRF hands the
         # root's context down to it. Without the context every synced row reports a null level.
         data = StamphogSyncInstallationResponseSerializer(
-            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []},
+            {
+                "synced": synced,
+                "skipped": skipped,
+                "available_count": self._available_count(),
+                "app_not_installed": False,
+                "installations": [],
+            },
             context=self.get_serializer_context(),
         ).data
         return Response(data)
@@ -535,7 +624,13 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 OpenApiParameter.QUERY,
                 required=False,
                 enum=[t.value for t in ReviewTrigger],
-                description="Filter by what caused the run: self_driving, manual, label, or all.",
+                description=(
+                    "Filter by what caused the run. Leave it unset to include runs from every trigger. "
+                    "'all' is not a wildcard: it matches only runs in repos that review every pull request "
+                    "event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' "
+                    "(someone requested the review through the API or MCP), and 'self_driving' (stamphog "
+                    "reviewed a bot-authored PR from the inbox)."
+                ),
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},

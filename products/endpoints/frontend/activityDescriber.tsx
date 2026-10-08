@@ -102,6 +102,29 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (
+        (logItem.activity === 'materialization_enabled' || logItem.activity === 'materialization_disabled') &&
+        version !== undefined
+    ) {
+        const verb = logItem.activity === 'materialization_enabled' ? 'Turned on' : 'Turned off'
+        return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    {verb} materialization for <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> {verb.toLowerCase()} materialization for{' '}
+                    <VersionLink name={endpointName} version={version} /> of endpoint{' '}
+                    <EndpointLink name={endpointName} />.
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'updated') {
         return {
             summary: activityLogSummary(logItem, 'Updated the endpoint', <EndpointLink name={endpointName} />),

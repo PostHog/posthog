@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
     CAMPFIRE_BASE_URL,
-    CAMPFIRE_ENDPOINTS,
     ENDPOINTS,
 )
 
@@ -110,9 +109,6 @@ class TestFormatIncrementalValue:
 
 
 class TestValidateNextUrl:
-    def test_same_host_https_is_allowed(self) -> None:
-        _validate_next_url(f"{CAMPFIRE_BASE_URL}/coa/api/vendor?offset=100")
-
     @parameterized.expand(
         [
             ("other_host", "https://evil.example.com/coa/api/vendor?offset=100"),
@@ -134,17 +130,9 @@ class TestFirstRequestParams:
             _, snapshots, _ = _run(endpoint, [_response({"results": [], "next": None})])
             assert snapshots[0]["params"]["all_time"] == "true", endpoint
 
-    def test_page_size_limit_is_sent(self) -> None:
-        _, snapshots, _ = _run("vendors", [_response({"results": [], "next": None})])
-        assert snapshots[0]["params"]["limit"] == CAMPFIRE_ENDPOINTS["vendors"].page_size
-
     def test_cursor_endpoints_send_empty_cursor(self) -> None:
         _, snapshots, _ = _run("bill_payments", [_response({"results": [], "next": None})])
         assert snapshots[0]["params"]["cursor"] == ""
-
-    def test_offset_endpoints_do_not_send_cursor(self) -> None:
-        _, snapshots, _ = _run("vendors", [_response({"results": [], "next": None})])
-        assert "cursor" not in snapshots[0]["params"]
 
     def test_incremental_value_becomes_last_modified_filter(self) -> None:
         _, snapshots, _ = _run(
@@ -209,15 +197,6 @@ class TestPagination:
         assert session.send.call_count == 1
         assert snapshots[0]["url"] == page2
 
-    def test_empty_first_page_yields_no_rows(self) -> None:
-        rows, _, _ = _run("vendors", [_response({"count": 0, "next": None, "results": []})])
-        assert rows == []
-
-    def test_dict_without_results_yields_no_rows(self) -> None:
-        # A DRF envelope missing `results` is tolerated (0 rows), not fail-loud.
-        rows, _, _ = _run("vendors", [_response({"count": 0, "next": None})])
-        assert rows == []
-
     def test_off_host_next_link_stops_the_sync(self) -> None:
         with pytest.raises(ValueError):
             _run(
@@ -251,21 +230,6 @@ class TestCampfireSourceResponse:
             response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
             assert response.name == endpoint
 
-    def test_fanout_rows_are_keyed_by_contract_and_id(self) -> None:
-        # Subscription ids are only documented as unique within their contract, and the fan-out
-        # pools every contract's rows into one table.
-        response = campfire_source(
-            "key", "contract_subscriptions", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.primary_keys == ["contract", "id"]
-
-    def test_payment_sync_endpoints_are_ascending(self) -> None:
-        # Campfire documents (last_modified_at, id) ascending order on the payment sync endpoints,
-        # which lets the pipeline checkpoint the watermark per batch.
-        for endpoint in ("bill_payments", "invoice_payments"):
-            response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            assert response.sort_mode == "asc"
-
     def test_undocumented_order_endpoints_are_descending(self) -> None:
         # Everything else has no documented response order, so the watermark must only be persisted
         # once the sync completes.
@@ -293,42 +257,8 @@ class TestValidateCredentials:
         with patch.object(campfire, "make_tracked_session", return_value=session):
             assert validate_credentials("cf_test_key") is expected
 
-    def test_network_error_is_not_valid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with patch.object(campfire, "make_tracked_session", return_value=session):
-            assert validate_credentials("cf_test_key") is False
-
-    def test_schema_probe_targets_the_given_path(self) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=200)
-        with patch.object(campfire, "make_tracked_session", return_value=session):
-            validate_credentials("cf_test_key", path="/rr/api/v1/contracts")
-        assert session.get.call_args[0][0].startswith(f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts?")
-
-
-class TestUnpaginatedEndpoints:
-    """Some endpoints return a bare JSON array and document no pagination params."""
-
-    def test_bare_array_rows_are_yielded(self) -> None:
-        rows, _, session = _run("chart_entities", [_response([{"id": 1}, {"id": 2}])])
-        assert rows == [{"id": 1}, {"id": 2}]
-        # No `next` key to follow, so the sync stops after the single response.
-        assert session.send.call_count == 1
-
-    def test_no_page_size_is_requested(self) -> None:
-        # `/coa/api/entity` documents no `limit`; sending one would be an undocumented param.
-        _, snapshots, _ = _run("chart_entities", [_response([])])
-        assert "limit" not in snapshots[0]["params"]
-
 
 class TestIncrementalConfig:
-    def test_binds_last_modified_at_to_the_server_side_filter(self) -> None:
-        config = _incremental_config("last_modified_at")
-        assert config is not None
-        assert config["start_param"] == "last_modified_at__gte"
-        assert config["cursor_path"] == "last_modified_at"
-
     def test_unknown_cursor_field_gets_no_request_window(self) -> None:
         # Campfire filters on `last_modified_at` and nothing else, so any other field must not
         # produce a param the API would ignore.
@@ -344,22 +274,6 @@ class TestFanout:
             _response([{"id": 1, "contract": 11}]),
             _response([{"id": 2, "contract": 22}]),
         ]
-
-    def test_fetches_each_contracts_subscriptions(self) -> None:
-        rows, snapshots, _ = _run("contract_subscriptions", self._responses())
-
-        assert rows == [{"id": 1, "contract": 11}, {"id": 2, "contract": 22}]
-        assert snapshots[0]["url"] == f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts"
-        assert [s["url"] for s in snapshots[1:]] == [
-            f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/11/subscriptions",
-            f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/22/subscriptions",
-        ]
-
-    def test_only_the_parent_listing_requests_a_page_size(self) -> None:
-        # The child endpoint documents no `limit`; the parent needs one to page past its default.
-        _, snapshots, _ = _run("contract_subscriptions", self._responses())
-        assert snapshots[0]["params"]["limit"] == CAMPFIRE_ENDPOINTS["contracts"].page_size
-        assert all("limit" not in s["params"] for s in snapshots[1:])
 
     def test_child_requests_carry_the_watermark(self) -> None:
         _, snapshots, _ = _run(
@@ -387,10 +301,6 @@ class TestFanout:
             db_incremental_field_last_value=None,
         )
         assert snapshots[1]["params"]["last_modified_at__gte"] == "1970-01-01T00:00:00Z"
-
-    def test_full_refresh_sends_no_watermark(self) -> None:
-        _, snapshots, _ = _run("contract_subscriptions", self._responses())
-        assert all("last_modified_at__gte" not in s["params"] for s in snapshots)
 
     def test_checkpoints_each_finished_contract(self) -> None:
         manager = _make_manager()

@@ -1,10 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
+# Loops caps `perPage` at 50 (allowed range 10-50, default 20) on cursor-paginated
+# list endpoints.
+PAGE_SIZE = 50
 
-@dataclass
+
+@dataclass(frozen=True)
 class LoopsEndpointConfig:
     name: str
     # Path under https://app.loops.so/api (e.g. "/v1/campaigns").
@@ -19,6 +26,12 @@ class LoopsEndpointConfig:
     paginated: bool = True
     # Extra query params merged into every request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Set for per-object endpoints fetched once per row of a parent list endpoint.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Unused by Loops' full-refresh endpoints; kept so the config satisfies FanoutEndpointLike.
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
+    page_size: int = PAGE_SIZE
 
 
 LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
@@ -72,6 +85,42 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
     "components": LoopsEndpointConfig(
         name="components",
         path="/v1/components",
+    ),
+    # The metrics bodies carry no id, so the parent's id is injected as the primary key.
+    "campaign_metrics": LoopsEndpointConfig(
+        name="campaign_metrics",
+        path="/v1/campaigns/{campaignId}/metrics",
+        primary_key="campaignId",
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="campaigns",
+            resolve_param="campaignId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "campaignId"},
+            parent_params={"perPage": PAGE_SIZE},
+            # Loops answers 400 for a campaign that has not been sent yet or has no email
+            # message, and 404 for one deleted after the parent listing. Neither has metrics.
+            child_response_actions=[
+                {"status_code": 400, "action": "ignore"},
+                {"status_code": 404, "action": "ignore"},
+            ],
+        ),
+    ),
+    "transactional_email_metrics": LoopsEndpointConfig(
+        name="transactional_email_metrics",
+        path="/v1/transactional-emails/{transactionalId}/metrics",
+        primary_key="transactionalId",
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="transactional_emails",
+            resolve_param="transactionalId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "transactionalId"},
+            parent_params={"perPage": PAGE_SIZE},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

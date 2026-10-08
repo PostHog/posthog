@@ -13,13 +13,22 @@ import { welcomeDialogLogic } from './welcomeDialogLogic'
 
 jest.mock('posthog-js')
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const RECENTLY_JOINED_ORGANIZATION = {
+    ...MOCK_DEFAULT_USER.organization!,
+    membership_joined_at: new Date().toISOString(),
+}
+
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     is_organization_first_user: false,
 }
 
 const ORG_CREATOR_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     is_organization_first_user: true,
 }
 
@@ -27,6 +36,7 @@ const ORG_CREATOR_USER: UserType = {
 // 'provisioned'. Should still get the welcome dialog even though it isn't an invitee.
 const PROVISIONED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     is_organization_first_user: true,
     onboarding_skipped_reason: 'provisioned',
 }
@@ -64,10 +74,9 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
-        // The dialog persists dismissal in localStorage and "looked around" in sessionStorage —
-        // clear both so a prior test doesn't carry over and suppress the dialog.
+        // The dialog persists dismissals and closes in localStorage, so clear it to stop a prior
+        // test from suppressing the dialog.
         window.localStorage.clear()
-        window.sessionStorage.clear()
         ;(posthog.capture as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -106,32 +115,20 @@ describe('welcomeDialogLogic', () => {
         expect(logic.values.shouldShowDialog).toBe(true)
     })
 
-    it('does not reopen for a user who has already dismissed', async () => {
-        window.localStorage.setItem(
-            `posthog_welcome_dismissed:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`,
-            '1'
-        )
-        userLogic.actions.loadUserSuccess(INVITED_USER)
-        logic = welcomeDialogLogic()
-        logic.mount()
-
-        expect(logic.values.shouldShowDialog).toBe(false)
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
-    })
-
-    it('persists dismissal to localStorage so the dialog does not reopen', async () => {
+    it('does not reopen in a new tab after "Don\'t show again"', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
         logic.actions.dismissWelcome()
-        expect(
-            window.localStorage.getItem(
-                `posthog_welcome_dismissed:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`
-            )
-        ).toBe('1')
         expect(logic.values.shouldShowDialog).toBe(false)
+
+        logic.unmount()
+        logic = welcomeDialogLogic()
+        logic.mount()
+        expect(logic.values.shouldShowDialog).toBe(false)
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
     })
 
     it.each(['start_exploring', 'modal_close', 'ask_max_card'] as const)(
@@ -150,6 +147,23 @@ describe('welcomeDialogLogic', () => {
             ).toEqual([['welcome_screen_closed', expect.objectContaining({ source })]])
         }
     )
+
+    it.each([
+        { control: 'closeDialog', close: (): void => logic.actions.closeDialog('start_exploring') },
+        { control: 'trackCardClick', close: (): void => logic.actions.trackCardClick('dashboards', '/dashboard/42') },
+    ])('stays closed in a new tab after $control', async ({ close }) => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        close()
+
+        logic.unmount()
+        logic = welcomeDialogLogic()
+        logic.mount()
+        expect(logic.values.shouldShowDialog).toBe(false)
+    })
 
     it('tracks card interactions', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)
@@ -177,5 +191,29 @@ describe('welcomeDialogLogic', () => {
         // Title must follow the user's current org even before the refetch lands.
         expect(logic.values.organizationName).toBe('Beta Corp')
         await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
+    })
+
+    it.each([
+        { case: 'in the first week', joinedDaysAgo: 1, closedOnDay: null, expected: true },
+        { case: 'on the last day of the window', joinedDaysAgo: 13, closedOnDay: null, expected: true },
+        { case: 'once two weeks have passed', joinedDaysAgo: 14, closedOnDay: null, expected: false },
+        { case: 'long after joining', joinedDaysAgo: 30, closedOnDay: null, expected: false },
+        { case: 'after a close in the same week', joinedDaysAgo: 6, closedOnDay: 1, expected: false },
+        { case: 'in the week after a close', joinedDaysAgo: 7, closedOnDay: 1, expected: true },
+        { case: 'after a close in the second week', joinedDaysAgo: 13, closedOnDay: 8, expected: false },
+    ])('shouldShowDialog is $expected $case', ({ joinedDaysAgo, closedOnDay, expected }) => {
+        const joinedAt = Date.now() - joinedDaysAgo * DAY_MS
+        const user: UserType = {
+            ...INVITED_USER,
+            organization: { ...RECENTLY_JOINED_ORGANIZATION, membership_joined_at: new Date(joinedAt).toISOString() },
+        }
+        userLogic.actions.loadUserSuccess(user)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        if (closedOnDay !== null) {
+            logic.actions.markClosed(logic.values.membershipKey!, joinedAt + closedOnDay * DAY_MS)
+        }
+
+        expect(logic.values.shouldShowDialog).toBe(expected)
     })
 })

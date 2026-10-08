@@ -133,6 +133,12 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             selected_test.parent.mkdir(parents=True)
             selected_test.write_text("def test_feature_flags():\n    pass\n")
             deleted_test = selection.REPO_ROOT / "posthog" / "api" / "test" / "test_deleted.py"
+            (selection.REPO_ROOT / "pytest.ini").write_text(
+                "[pytest]\naddopts = --reuse-db --ignore=posthog/user_scripts\n"
+            )
+            pytest_ignored_file = selection.REPO_ROOT / "posthog" / "user_scripts" / "aggregate_funnel_test.py"
+            pytest_ignored_file.parent.mkdir(parents=True)
+            pytest_ignored_file.write_text("")
 
             seen_changed_files: list[list[str]] = []
 
@@ -140,7 +146,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
             def get_tests(changed_files: list[str]) -> set[str]:
                 seen_changed_files.append(changed_files)
-                return {str(selected_test), str(deleted_test)}
+                return {str(selected_test), str(deleted_test), str(pytest_ignored_file)}
 
             fake_snob.get_tests = get_tests  # type: ignore[attr-defined]
             previous_snob = sys.modules.get("snob_lib")

@@ -21,6 +21,7 @@ class PosthogJwtAudience(Enum):
     HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    REPLAY_PROXY = "posthog:replay_proxy"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"

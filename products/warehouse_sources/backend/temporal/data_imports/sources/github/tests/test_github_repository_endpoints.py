@@ -555,9 +555,22 @@ class TestMergeCommitSha:
 
         assert github_request.call_count == 5
 
-    @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
+    @parameterized.expand(
+        [
+            ("advertised reset", 900, 900, {"type": "RATE_LIMITED", "message": "API rate limit exceeded"}),
+            ("no reset header", None, 60, {"type": "RATE_LIMITED", "message": "API rate limit exceeded"}),
+            # GitHub has also been observed reporting the primary rate limit under this spelling,
+            # with the reason nested under "code" rather than "type".
+            (
+                "RATE_LIMIT spelling",
+                900,
+                900,
+                {"type": "RATE_LIMIT", "code": "graphql_rate_limit", "message": "API rate limit already exceeded"},
+            ),
+        ]
+    )
     def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
-        self, _name: str, reset_in: int | None, expected_retry_after: int
+        self, _name: str, reset_in: int | None, expected_retry_after: int, error: dict[str, Any]
     ) -> None:
         now = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
         rate_limited = mock.Mock()
@@ -567,10 +580,7 @@ class TestMergeCommitSha:
             if reset_in is not None
             else {}
         )
-        rate_limited.json.return_value = {
-            "data": None,
-            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
-        }
+        rate_limited.json.return_value = {"data": None, "errors": [error]}
 
         with (
             time_machine.travel(now, tick=False),

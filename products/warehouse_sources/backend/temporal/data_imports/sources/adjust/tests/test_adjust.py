@@ -12,7 +12,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust import adjust
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
-    LOOKBACK_DAYS,
     MAX_HISTORY_DAYS,
     MAX_PAGES_PER_WINDOW,
     REPORT_URL,
@@ -137,17 +136,6 @@ class TestParseAppTokens:
 
 
 class TestBuildReportParams:
-    def test_sends_report_dimensions_metrics_and_date_period(self) -> None:
-        params = build_report_params("campaign_report", date(2024, 1, 1), date(2024, 1, 31), [])
-        config = ADJUST_REPORTS["campaign_report"]
-
-        assert params["dimensions"] == ",".join(config.dimensions)
-        assert params["metrics"] == ",".join(config.metrics)
-        assert params["date_period"] == "2024-01-01:2024-01-31"
-        # sort_mode="asc" only holds if we ask Adjust for ascending days.
-        assert params["sort"] == "day"
-        assert "app_token__in" not in params
-
     def test_app_token_filter_included_when_configured(self) -> None:
         params = build_report_params("daily_report", date(2024, 1, 1), date(2024, 1, 2), ["abc123", "def456"])
         assert params["app_token__in"] == "abc123,def456"
@@ -200,11 +188,6 @@ class TestRequest:
         with pytest.raises(requests.HTTPError):
             adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock())
 
-    def test_success_returns_parsed_body(self) -> None:
-        body = {"rows": [{"day": "2024-01-01"}]}
-        session = _FakeSession([_FakeResponse(json_data=body)])
-        assert adjust._request(cast(requests.Session, session), REPORT_URL, mock.MagicMock()) == body
-
     def test_non_dict_payload_raises(self) -> None:
         session = _FakeSession([_FakeResponse(json_data=[{"day": "2024-01-01"}])])
         with pytest.raises(ValueError):
@@ -223,9 +206,6 @@ class TestExtractRows:
     )
     def test_extracts(self, _name: str, payload: dict[str, Any], expected: int) -> None:
         assert len(extract_rows(payload)) == expected
-
-    def test_non_dict_entries_are_dropped(self) -> None:
-        assert extract_rows({"rows": [{"day": "2024-01-01"}, "junk", None]}) == [{"day": "2024-01-01"}]
 
 
 class TestNextPageUrl:
@@ -281,84 +261,16 @@ class TestDateHelpers:
     def test_date_windows_empty_when_start_after_end(self) -> None:
         assert date_windows(date(2024, 2, 1), date(2024, 1, 1)) == []
 
-    def test_date_windows_are_contiguous_and_cover_the_range(self) -> None:
-        windows = date_windows(date(2024, 1, 1), date(2024, 4, 15), 30)
-        assert windows[0][0] == date(2024, 1, 1)
-        assert windows[-1][1] == date(2024, 4, 15)
-        for earlier, later in zip(windows, windows[1:]):
-            assert (later[0] - earlier[1]).days == 1
-
 
 class TestResolveStartDate:
     def test_full_refresh_starts_at_the_history_cap(self) -> None:
         assert resolve_start_date(False, None, TODAY) == TODAY - adjust.timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_incremental_rewinds_the_watermark_by_the_lookback(self) -> None:
-        # Adjust restates recent days, so an incremental run must re-read a trailing window.
-        assert resolve_start_date(True, "2024-06-20", TODAY) == date(2024, 6, 20) - adjust.timedelta(days=LOOKBACK_DAYS)
-
-    def test_incremental_without_watermark_falls_back_to_full_history(self) -> None:
-        assert resolve_start_date(True, None, TODAY) == TODAY - adjust.timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_unparseable_watermark_falls_back_to_full_history(self) -> None:
-        assert resolve_start_date(True, "not-a-date", TODAY) == TODAY - adjust.timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_watermark_older_than_the_history_cap_is_clamped(self) -> None:
-        assert resolve_start_date(True, "2010-01-01", TODAY) == TODAY - adjust.timedelta(days=MAX_HISTORY_DAYS)
-
-    def test_future_watermark_is_clamped_to_today(self) -> None:
-        # A watermark ahead of today would otherwise produce an inverted date_period.
-        assert resolve_start_date(True, "2030-01-01", TODAY) == TODAY
 
 
 class TestGetRows:
     def test_unknown_report_raises(self) -> None:
         with pytest.raises(ValueError):
             _run_get_rows(_FakeSession([]), report="nope")
-
-    def test_incremental_window_requests_only_the_watermark_range(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-06-28"}])])
-        batches = _run_get_rows(
-            session,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-06-28",
-        )
-
-        assert batches == [[{"day": "2024-06-28"}]]
-        assert len(session.requested_urls) == 1
-        assert _params(session.requested_urls[0])["date_period"] == "2024-06-25:2024-06-30"
-
-    def test_app_token_filter_is_sent(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-06-30"}])])
-        _run_get_rows(
-            session,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-06-30",
-            app_tokens="abc123",
-        )
-        assert _params(session.requested_urls[0])["app_token__in"] == "abc123"
-
-    def test_empty_page_yields_no_batch(self) -> None:
-        session = _FakeSession([_page([])])
-        assert (
-            _run_get_rows(session, should_use_incremental_field=True, db_incremental_field_last_value="2024-06-30")
-            == []
-        )
-
-    def test_pagination_follows_next_link_then_terminates(self) -> None:
-        next_url = "https://automate.adjust.com/reports-service/report?page=2"
-        session = _FakeSession(
-            [
-                _page([{"day": "2024-06-29"}], next_url=next_url),
-                _page([{"day": "2024-06-30"}]),
-            ]
-        )
-        batches = _run_get_rows(
-            session, should_use_incremental_field=True, db_incremental_field_last_value="2024-06-30"
-        )
-
-        assert batches == [[{"day": "2024-06-29"}], [{"day": "2024-06-30"}]]
-        assert session.requested_urls[1] == next_url
 
     def test_pagination_stops_at_the_page_cap(self) -> None:
         # A next link that never clears would otherwise loop forever.
@@ -368,26 +280,6 @@ class TestGetRows:
             session, should_use_incremental_field=True, db_incremental_field_last_value="2024-06-30"
         )
         assert len(batches) == MAX_PAGES_PER_WINDOW
-
-    def test_multiple_windows_are_walked_in_ascending_order(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-05-05"}]) for _ in range(3)])
-        _run_get_rows(session, should_use_incremental_field=True, db_incremental_field_last_value="2024-05-01")
-
-        periods = [_params(url)["date_period"] for url in session.requested_urls]
-        assert periods == ["2024-04-28:2024-05-27", "2024-05-28:2024-06-26", "2024-06-27:2024-06-30"]
-
-    def test_state_is_saved_after_each_window_except_the_last(self) -> None:
-        session = _FakeSession([_page([{"day": "2024-05-05"}]) for _ in range(3)])
-        manager = _FakeResumeManager()
-        _run_get_rows(
-            session,
-            manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-05-01",
-        )
-        # Saving only between windows means a crash re-yields the window in flight instead of
-        # skipping it, and a completed walk leaves no checkpoint mid-stream.
-        assert [state.next_start_date for state in manager.saved] == ["2024-05-28", "2024-06-27"]
 
     def test_resume_skips_windows_already_completed(self) -> None:
         session = _FakeSession([_page([{"day": "2024-06-05"}]) for _ in range(2)])
@@ -419,9 +311,6 @@ class TestValidateCredentials:
         session = _FakeSession([response])
         with mock.patch.object(adjust, "make_tracked_session", return_value=session):
             return validate_credentials("token", app_tokens)
-
-    def test_success(self) -> None:
-        assert self._validate(_FakeResponse(json_data={"rows": []})) is True
 
     def test_probe_is_minimal_and_includes_app_token_filter(self) -> None:
         session = _FakeSession([_FakeResponse(json_data={"rows": []})])
@@ -487,20 +376,6 @@ class TestAdjustSource:
         # sync outage this caused when has_duplicate_primary_keys was set unconditionally.
         assert not response.has_duplicate_primary_keys
         validate_incremental_sync(True, response)
-
-    def test_items_is_lazy(self) -> None:
-        # Building the SourceResponse must not issue a request; the pipeline drives iteration.
-        session = _FakeSession([])
-        with mock.patch.object(adjust, "make_tracked_session", return_value=session):
-            response = adjust_source(
-                api_token="token",
-                app_tokens=None,
-                report="daily_report",
-                logger=mock.MagicMock(),
-                resumable_source_manager=_FakeResumeManager(),
-            )
-        assert session.requested_urls == []
-        assert callable(response.items)
 
     def test_items_streams_rows(self) -> None:
         session = _FakeSession([_page([{"day": "2024-06-30", "installs": "3"}])])

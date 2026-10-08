@@ -30,6 +30,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 logger = structlog.get_logger(__name__)
@@ -60,8 +61,29 @@ def handle_installation_event(payload: dict) -> HttpResponse:
     integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
     _pause_loops_referencing_integrations(integrations, installation_id)
 
-    team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
-    user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
+    project_audits = [GitHubAudit.project(row) for row in integrations]
+    personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
+    personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
+    try:
+        # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
+        team_deleted, _ = Integration.objects.filter(
+            kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations]
+        ).delete()
+    except Exception as exc:
+        for audit in project_audits:
+            audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
+        raise
+    for audit in project_audits:
+        audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
+        audit.record("webhook_cleanup", after_commit=True, outcome="already_absent", completed_deletion=True)
+    try:
+        user_deleted, _ = UserIntegration.objects.filter(pk__in=[row.pk for row in personal_rows]).delete()
+    except Exception as exc:
+        for audit in personal_audits:
+            audit.record("webhook_cleanup_failed", stage="personal_deletion", failure_type=type(exc).__name__)
+        raise
+    for audit in personal_audits:
+        audit.record("credential_deleted", after_commit=True, reason="installation_deleted_webhook")
 
     logger.info(
         "github_installation_webhook_uninstalled",

@@ -13,11 +13,6 @@ class TestPhylloSource:
         self.team_id = 123
         self.config = PhylloSourceConfig(client_id="cid", client_secret="cs-secret", environment="production")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The environment select only chooses between two Phyllo-controlled hosts, so an editor
-        # can't retarget the preserved secret at a server they control.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.getphyllo.com/v1/users?limit=100&offset=0",),

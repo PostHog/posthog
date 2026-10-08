@@ -7,9 +7,8 @@ MCP CLI's ``info <tool>`` command), (2) call ``read-data-schema`` to
 verify the event exists in the team's data, and (3) only then invoke
 ``query-trends`` to build the insight.
 
-Correctness of the produced trends query itself is not scored here — that
-is ``ee/hogai/eval/ci/eval_trends.py``'s job. This eval grades ordering
-and discovery hygiene.
+The ``eval_trends`` suite scores query correctness.
+This suite scores tool order and schema discovery.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_schema_discovery"

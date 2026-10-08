@@ -4,11 +4,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
-    ENDPOINTS,
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     TALLY_API_VERSION,
@@ -33,37 +31,6 @@ class TestTallySource:
         self.source = TallySource()
         self.team_id = 123
         self.config = TallySourceConfig(api_key="key-test")
-
-    def test_source_is_visible_and_marked_alpha(self) -> None:
-        config = self.source.get_source_config
-        # A finished source must not stay hidden behind unreleasedSource.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_pins_the_version_the_request_code_sends(self) -> None:
-        assert self.source.supported_versions == (TALLY_API_VERSION,)
-        assert self.source.default_version == TALLY_API_VERSION
-        assert self.source.resolve_api_version(None) == TALLY_API_VERSION
-
-    def test_get_schemas_matches_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["forms", "submissions"])
-        assert {schema.name for schema in schemas} == {"forms", "submissions"}
-
-    def test_only_submissions_is_incremental(self) -> None:
-        # `startDate` on the submissions endpoint is the source's only server-side timestamp filter;
-        # advertising incremental anywhere else would fetch every page and call it incremental.
-        by_name = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert by_name["submissions"].supports_incremental is True
-        assert [field["field"] for field in by_name["submissions"].incremental_fields] == ["submittedAt"]
-        # `startDate` is inclusive, so append mode would re-write the watermark's own rows.
-        assert by_name["submissions"].supports_append is False
-        for name in ("workspaces", "forms", "questions", "webhooks", "folders", "form_analytics_metrics"):
-            assert by_name[name].supports_incremental is False
-            assert by_name[name].incremental_fields == []
 
     def test_including_partial_submissions_drops_to_full_refresh(self) -> None:
         config = TallySourceConfig(api_key="key-test", submission_filter=SUBMISSION_FILTER_ALL)

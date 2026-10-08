@@ -19,8 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
     snapshot_registered_writers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load import delivery
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
+    ensure_builtin_destination_writers_registered,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (
     destination_table_name,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -30,6 +37,7 @@ class RecordingWriter:
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
     fail_for: set[str] = set()
+    configuration_error_for: set[str] = set()
 
     def __init__(self, ctx) -> None:
         self._ctx = ctx
@@ -40,6 +48,8 @@ class RecordingWriter:
     async def write_batch(self, batches, batch_ctx) -> BatchWriteOutcome:
         if self._ctx.destination_name in RecordingWriter.fail_for:
             raise RuntimeError("destination unreachable")
+        if self._ctx.destination_name in RecordingWriter.configuration_error_for:
+            raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
         return BatchWriteOutcome(rows_written=1)
 
@@ -55,7 +65,11 @@ class DeliveryTestCase(BaseTest):
         super().setUp()
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
+        RecordingWriter.configuration_error_for = set()
 
+        # Registered before the snapshot, so the first delivery in the process cannot replace the
+        # fakes below, and the cleanup puts the real writers back.
+        ensure_builtin_destination_writers_registered()
         # The registry is process-global, so these fakes have to come back out or every later
         # test sees destination types this deployment cannot really write.
         self.addCleanup(restore_registered_writers, snapshot_registered_writers())
@@ -190,18 +204,31 @@ class TestDelivery(DeliveryTestCase):
 
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
+        RecordingWriter.configuration_error_for = set()
         delivery.deliver_batch_to_destinations(signal)
 
         assert self._writes() == [last.name]
 
-    def test_the_error_names_the_destination_that_stopped_the_sync(self) -> None:
+    @parameterized.expand(
+        [
+            ("transient", "fail_for", "customer redshift: destination unreachable"),
+            (
+                "configuration",
+                "configuration_error_for",
+                f"customer redshift: {DESTINATION_CONFIGURATION_ERROR_MARKER}. The host name does not exist.",
+            ),
+        ]
+    )
+    def test_the_error_names_the_destination_that_stopped_the_sync(
+        self, _name: str, failure_attribute: str, expected_message: str
+    ) -> None:
         a = self._destination("customer redshift")
-        RecordingWriter.fail_for = {"customer redshift"}
+        setattr(RecordingWriter, failure_attribute, {"customer redshift"})
 
         with self.assertRaises(delivery.DestinationDeliveryError) as caught:
             delivery.deliver_batch_to_destinations(self._signal([str(a.id)]))
 
-        assert "customer redshift" in str(caught.exception)
+        assert str(caught.exception) == expected_message
 
     def test_the_final_batch_publishes_each_destination(self) -> None:
         a = self._destination("warehouse a")
@@ -250,6 +277,36 @@ class TestDelivery(DeliveryTestCase):
             delivery.deliver_batch_to_destinations(self._signal([str(a.id), str(b.id)]))
 
         assert not self._writes()
+
+
+class TestAbortDestinations(DeliveryTestCase):
+    @parameterized.expand(
+        [
+            ("no_reason", "", ["Prod", "My Prod"]),
+            ("unrelated_failure", "max retries exceeded: Prod: destination unreachable", ["Prod", "My Prod"]),
+            ("configuration_error_of_one", f"Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.", ["My Prod"]),
+            (
+                "configuration_error_of_the_other",
+                f"My Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.",
+                ["Prod"],
+            ),
+            (
+                "wrapped_configuration_error",
+                f"permanent apply error: Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.",
+                ["My Prod"],
+            ),
+        ]
+    )
+    def test_skips_only_the_destination_that_failed_on_its_configuration(
+        self, _name: str, failure_reason: str, expected_aborted: list[str]
+    ) -> None:
+        a = self._destination("Prod")
+        b = self._destination("My Prod", ExternalDataDestination.Type.SNOWFLAKE)
+
+        delivery.abort_destinations(self._signal([str(a.id), str(b.id)]), failure_reason=failure_reason)
+
+        aborted = [name for kind, name, _ in RecordingWriter.calls if kind == "abort"]
+        assert sorted(aborted) == sorted(expected_aborted)
 
 
 class TestDestinationTableName(DeliveryTestCase):

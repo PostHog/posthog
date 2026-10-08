@@ -123,6 +123,7 @@ describe("task response normalization", () => {
           github_user_integration: null,
           json_schema: null,
           signal_report: null,
+          origin_key: "desktop_onboarding_session:42",
           channel: null,
           latest_run: {
             id: "run-1",
@@ -148,6 +149,7 @@ describe("task response normalization", () => {
       github_user_integration: null,
       json_schema: null,
       signal_report: null,
+      origin_key: "desktop_onboarding_session:42",
       channel: null,
       latest_run: {
         id: "run-1",

@@ -1,6 +1,6 @@
 import type { ExternalDataSourceSyncSchema } from '~/types'
 
-import { getDirectQuerySelectionDescription } from './SchemaForm'
+import { getDirectQuerySelectionDescription, getSyncFieldPlaceholder } from './SchemaForm'
 import { getDefaultExpandedSchemaKeys, groupTablesBySchema, splitQualifiedTableName } from './schemaGroupingUtils'
 
 const makeSchema = (table: string): ExternalDataSourceSyncSchema => ({
@@ -31,6 +31,16 @@ describe('SchemaForm', () => {
         expect(getDirectQuerySelectionDescription(' public ')).toEqual(
             `Query selected Postgres tables from within PostHog. Tables stay in the source database and are not synced into the data warehouse. You can't join data from these tables with other data in the PostHog warehouse. Choose which tables from the "public" schema should be queryable.`
         )
+    })
+
+    it.each([
+        ['full_refresh', 'Not needed for this sync method'],
+        ['cdc', 'Not needed for this sync method'],
+        ['incremental', 'No sync field selected'],
+        ['append', 'No sync field selected'],
+        [null, 'No sync field selected'],
+    ] as const)('labels the sync field cell for a %s table', (syncType, expected) => {
+        expect(getSyncFieldPlaceholder(syncType)).toEqual(expected)
     })
 
     it('splits fully qualified table names into schema and table labels', () => {

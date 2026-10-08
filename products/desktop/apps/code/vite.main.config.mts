@@ -27,7 +27,7 @@ import {
   claudeExecutableCandidates as sdkClaudeExecutableCandidates,
   targetArch,
   targetPlatform,
-} from "../../packages/agent/build/native-binary.mjs";
+} from "../../../../packages/agent/packages/agent/build/native-binary.mjs";
 import {
   createForceDevModeDefine,
   createPosthogPlugin,
@@ -189,7 +189,11 @@ function copyClaudeExecutable(): Plugin {
           "../../node_modules/@posthog/agent/dist/claude-cli",
           binName,
         ),
-        join(__dirname, "../../packages/agent/dist/claude-cli", binName),
+        join(
+          __dirname,
+          "../../../../packages/agent/packages/agent/dist/claude-cli",
+          binName,
+        ),
         ...sdkClaudeExecutableCandidates(join(__dirname, "node_modules")),
         ...sdkClaudeExecutableCandidates(join(__dirname, "../../node_modules")),
       ];
@@ -552,7 +556,10 @@ function copyEnricherGrammars(): Plugin {
       const candidates = [
         join(__dirname, "node_modules/@posthog/enricher/grammars"),
         join(__dirname, "../../node_modules/@posthog/enricher/grammars"),
-        join(__dirname, "../../packages/enricher/grammars"),
+        join(
+          __dirname,
+          "../../../../packages/agent/packages/enricher/grammars",
+        ),
       ];
 
       const sourceDir = candidates.find((p) => existsSync(p));

@@ -72,8 +72,13 @@ describe('wizardRunCanCancel', () => {
         ['no cancel once the run is terminal', 'completed', 7, 7, false],
         ['runs without a creator hide cancel from everyone', 'running', null, 7, false],
         ['unknown current user hides cancel', 'running', 7, null, false],
-    ])('%s', (_label, status, createdById, currentUserId, expected) => {
-        const run = makeRun({ status: status as WizardRunApi['status'], created_by_id: createdById })
+        ['local runs cannot be stopped from the browser', 'running', 7, 7, false, 'local'],
+    ])('%s', (_label, status, createdById, currentUserId, expected, environment = 'cloud') => {
+        const run = makeRun({
+            status: status as WizardRunApi['status'],
+            created_by_id: createdById,
+            environment: environment as WizardRunApi['environment'],
+        })
 
         expect(wizardRunCanCancel(run, currentUserId)).toBe(expected)
     })

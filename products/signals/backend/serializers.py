@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from django.db.models import TextChoices
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -39,6 +40,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
     CheckConfigValidationError,
+    MetricThresholdConfig,
     parse_check_config,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -48,7 +50,8 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -68,8 +71,9 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
-from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
+from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
 from .report_metric_refresh import MAX_REPORT_METRIC_REFRESH_REPORTS
 from .report_metrics import (
@@ -84,6 +88,8 @@ from .report_metrics import (
     REPORT_METRIC_VALUE_FORMATS,
 )
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -1045,6 +1051,41 @@ class ReportMetricSerializer(serializers.Serializer):
             "caveat on the data. Omit it rather than restate the title, unit, or window."
         ),
     )
+    goal_value = _MetricFloatField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Proposed threshold after release. Informational only; does not schedule a check.",
+    )
+    goal_direction = serializers.ChoiceField(
+        choices=("at_most", "at_least"),
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Whether success means at most or at least goal_value.",
+    )
+    goal_grain = serializers.ChoiceField(
+        choices=("whole_window", "per_interval"),
+        required=False,
+        default="whole_window",
+        help_text="Whether the goal compares with the whole query window or each chart bucket.",
+    )
+    decision_window_days = serializers.IntegerField(
+        min_value=1,
+        max_value=30,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Suggested days after release before assessing impact, not a monitoring schedule.",
+    )
+    minimum_data_points = serializers.IntegerField(
+        min_value=1,
+        max_value=1000,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Optional number of qualifying observations before assessing impact.",
+    )
 
     def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
         representation = dict(super().to_representation(instance))
@@ -1074,6 +1115,22 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
+    # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
+    goal_value = None  # type: ignore[assignment]
+    goal_direction = None  # type: ignore[assignment]
+    goal_grain = None  # type: ignore[assignment]
+    decision_window_days = None  # type: ignore[assignment]
+    minimum_data_points = None  # type: ignore[assignment]
+
+    def to_internal_value(self, data: object) -> dict[str, object]:
+        # DRF ignores undeclared keys, so check the raw payload to keep the rejection explicit.
+        # `goal_grain` stays out of this check: an older client fills its schema default on every metric.
+        if isinstance(data, Mapping) and any(
+            data.get(field) is not None
+            for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
+        ):
+            raise serializers.ValidationError("Write proposed goals as follow-up checks, not report metrics.")
+        return super().to_internal_value(data)
 
 
 class ReportMetricListSerializer(ReportMetricSerializer):
@@ -1083,6 +1140,37 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     """
 
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+
+
+class ReportRankingSerializer(serializers.Serializer):
+    served_key = serializers.CharField(
+        help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
+    )
+    model_name = serializers.CharField(help_text="Feature family of the served model.")
+    model_version = serializers.CharField(help_text="Training partition of the served model, as `YYYY-MM-DD`.")
+    manifest_version = serializers.CharField(help_text="Version of the serving manifest that chose the model.")
+    scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
+    scores = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+    )
+    lifts = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text=(
+            "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means "
+            "2.7x as likely as the average report. A head without a saved base rate has no entry."
+        ),
+    )
+    readable_heads = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+    )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the report's title or summary was edited after the text this score read. The score "
+            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+        ),
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -1116,6 +1204,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
             "would be accepted (see the field's schema for the reason values)."
+        ),
+    )
+    summary_lead = serializers.SerializerMethodField(
+        help_text=(
+            "The opening of `summary` as plain text on one line: the text before its first section heading, "
+            f"with chart links removed and other links reduced to their text. At most {SUMMARY_LEAD_LIMIT} characters."
         ),
     )
     priority = serializers.SerializerMethodField(
@@ -1201,6 +1295,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "The general view lists every report regardless of this value."
         ),
     )
+    ranking = serializers.SerializerMethodField(
+        help_text=(
+            "The served model's score from the latest ranking score artefact. Staff only: null for "
+            "other users, and null when the report has no score."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1215,6 +1315,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "summary",
+            "summary_lead",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
@@ -1248,6 +1349,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund_ineligibility_reason",
             "billing_exempt_reason",
             "channel_id",
+            "ranking",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1278,6 +1380,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         return data if isinstance(data, dict) else None
 
+    def get_summary_lead(self, obj: SignalReport) -> str:
+        return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
+
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
         if prefetched is not None:
@@ -1290,14 +1395,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
-        try:
-            data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        p = data.get("priority")
-        return p if isinstance(p, str) else None
+        return priority_from_judgment(art.content)
 
     def get_actionability(self, obj: SignalReport) -> str | None:
         data = self._get_actionability_artefact_data(obj)
@@ -1366,6 +1464,62 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(ReportRankingSerializer(allow_null=True))
+    def get_ranking(self, obj: SignalReport) -> dict | None:
+        request = self.context.get("request")
+        if request is None or not request.user.is_staff:
+            return None
+
+        from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
+            head_lifts,
+            readable_head_names,
+        )
+
+        prefetched = getattr(obj, "prefetched_ranking_score_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.RANKING_SCORE)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
+        if prefetched_edits is not None:
+            latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
+        else:
+            latest_edit_at = (
+                obj.artefacts.filter(type__in=EDIT_ARTEFACT_TYPES)
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
+        try:
+            score = RankingScore.model_validate_json(art.content)
+            served = score.results[score.served_key]
+            heads = readable_head_names(served.metadata)
+            if not all(isinstance(head, str) and head for head in heads):
+                raise ValueError("readable head names must be non-empty strings")
+            readable_heads = sorted(heads)
+            # A score written before lifts were stored carries the metadata to compute them.
+            lifts = served.lifts or head_lifts(served.scores, served.metadata)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+            return None
+        return {
+            "served_key": score.served_key,
+            "model_name": served.model_name,
+            "model_version": served.model_version,
+            "manifest_version": score.manifest_version,
+            "scored_at": score.scored_at,
+            "scores": served.scores,
+            "lifts": lifts,
+            "readable_heads": readable_heads,
+            "stale": is_stale_score(score, latest_edit_at),
+        }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
@@ -1532,6 +1686,106 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
 
 
+class SignalReportListQuerySerializer(serializers.Serializer):
+    count_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return the filtered total with an empty results page. Skips report ordering, "
+            "serialization, and decorative metadata lookups. Defaults to false."
+        ),
+    )
+    include_source_metadata = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass "
+            "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
+            "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
+            "Defaults to true."
+        ),
+    )
+
+
+MAX_FOR_YOU_REPORTS = 20
+
+
+class SignalReportsForYouQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_FOR_YOU_REPORTS,
+        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
+    )
+    include_unowned = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
+            "one person, and they rank above everything else, so a surface that only shows a person's own "
+            "work passes false. Defaults to true."
+        ),
+    )
+
+
+class SignalReportsForYouResponseSerializer(serializers.Serializer):
+    results = SignalReportListSerializer(
+        many=True,
+        help_text=(
+            "The open, actionable reports that matter most to the current user, best first: reports "
+            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
+            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "reports the same way."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "How many open reports are for the current user: the reports in `results`, plus the other "
+            "open, actionable reports that name them as a reviewer. Counted over the same set as "
+            "`results`, so it follows `include_unowned` too."
+        ),
+    )
+
+
+# One list page, with room for a next page's ids that have not loaded yet.
+MAX_SOURCE_METADATA_REPORTS = 100
+
+
+class SignalReportSourceMetadataRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_SOURCE_METADATA_REPORTS,
+        help_text=f"Reports to describe. At most {MAX_SOURCE_METADATA_REPORTS} ids per call.",
+    )
+
+
+class SignalReportSourceMetadataSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    source_products = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Distinct source products contributing signals to this report. Empty when it has none yet.",
+    )
+    scout_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="skill_name slug of the scout that authored this report, when scout-authored; null otherwise.",
+    )
+
+
+class SignalReportSourceMetadataResponseSerializer(serializers.Serializer):
+    reports = SignalReportSourceMetadataSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested id, in request order, duplicates removed. An id with no signals in "
+            "this project, including one that is not a report here, gets empty values."
+        ),
+    )
+
+
 class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):
     report_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1652,10 +1906,15 @@ class SignalNodeSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(SignalReportSerializer)
+class SerializedSignalReportField(serializers.JSONField):
+    pass
+
+
 class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
-    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    report = SerializedSignalReportField(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
@@ -1689,6 +1948,11 @@ class SignalReportCheckConfigField(serializers.JSONField):
     """Kind-specific check configuration, validated against its kind's schema on every write."""
 
 
+@extend_schema_field(MetricThresholdConfig)  # type: ignore[arg-type]
+class MetricThresholdCheckConfigField(serializers.JSONField):
+    """Metric threshold check configuration, for requests that accept no other kind."""
+
+
 def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccessPolicy) -> dict[str, object]:
     """Hide the data-bearing fields of a check config this viewer may not read.
 
@@ -1716,6 +1980,22 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         config = representation.get("config")
         if isinstance(config, Mapping):
+            config = dict(config)
+            if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+                metric = next(
+                    (
+                        metric
+                        for metric in instance.report.metrics or []
+                        if isinstance(metric, Mapping)
+                        and metric.get("metric_id") == config.get("metric_id")
+                        and metric.get("query") == config.get("query")
+                    ),
+                    None,
+                )
+                if metric is not None:
+                    for field, source in (("metric_kind", "kind"), ("value_format", "value_format"), ("unit", "unit")):
+                        if config.get(field) is None:
+                            config[field] = metric.get(source)
             representation["config"] = redact_check_config(config, report_metric_access_policy(self.context))
         return representation
 
@@ -1728,6 +2008,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "kind",
             "status",
             "config",
+            "approved_at",
             "next_run_at",
             "soak_minutes",
             "run_interval_minutes",
@@ -1759,8 +2040,8 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "soak_minutes": {
                 "help_text": (
-                    "How long after the report resolves a `pending` check waits before its first run. "
-                    "Null on a check that named its own `next_run_at`."
+                    "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution "
+                    "query window. Null on legacy checks that did not record a soak."
                 )
             },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
@@ -1778,6 +2059,23 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "consecutive_errors": {"help_text": "Runs that could not be measured since the last clean one."},
         }
+
+
+class SignalReportCheckReplacementSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_CHECK_TITLE_LENGTH, help_text="Label for the new metric check.")
+    rationale = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_CHECK_RATIONALE_LENGTH, help_text="Why this check is better."
+    )
+    config = MetricThresholdCheckConfigField(
+        help_text="Metric threshold configuration, including a bounded query and comparison."
+    )
+
+    def validate_config(self, value: dict) -> dict:
+        try:
+            parse_check_config(SignalReportCheck.Kind.METRIC_THRESHOLD, value)
+        except CheckConfigValidationError as error:
+            raise serializers.ValidationError(str(error))
+        return value
 
 
 class SignalReportCheckWriteSerializer(serializers.Serializer):
@@ -1965,10 +2263,24 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 login_to_user=reviewer_login_map,
                 uuid_to_user=reviewer_uuid_map,
                 scout_display_names=scout_display_names,
+                manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if obj.type == SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN and isinstance(parsed, dict):
+            policy = report_metric_access_policy(self.context)
+            if not policy.may_read_query(parsed) or (
+                parsed.get("eligibility_query") is not None
+                and not policy.may_read_query({"query": parsed["eligibility_query"]})
+            ):
+                return {
+                    "metric_id": parsed.get("metric_id"),
+                    "title": parsed.get("title"),
+                    "activated": parsed.get("activated", False),
+                    "retired": parsed.get("retired", False),
+                }
 
         return parsed
 
@@ -2221,13 +2533,11 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
 
 
 class CommitDiffResponseSerializer(serializers.Serializer):
-    """Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
-    repository default branch."""
+    """Response for the `commit` artefact diff endpoint."""
 
     diff = serializers.CharField(
         read_only=True,
-        help_text="Unified diff (patch) text of the branch against the repository default branch, "
-        "from the GitHub compare API.",
+        help_text="Unified diff (patch) text from the linked pull request or branch comparison.",
     )
     truncated = serializers.BooleanField(
         read_only=True,

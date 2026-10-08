@@ -111,7 +111,7 @@ describe('toolRegistry', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
-        expect(entry?.keepVisible ?? false).toBe(['ExitPlanMode', 'AskUserQuestion'].includes(key))
+        expect(entry?.pinned ?? false).toBe(['ExitPlanMode', 'AskUserQuestion'].includes(key))
         expect(lookupToolRenderer(key, false).displayName).toEqual(displayName)
     })
 

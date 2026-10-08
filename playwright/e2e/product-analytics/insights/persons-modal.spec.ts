@@ -39,7 +39,7 @@ test.describe('Persons modal', () => {
             const popupPromise = page.context().waitForEvent('page')
             await insight.personsModalViewEventsButton.click()
             const eventsTab = await popupPromise
-            await expect(eventsTab).toHaveURL(/\/activity\/explore/)
+            await expect(eventsTab).toHaveURL(/\/activity\/events/)
         })
     })
 })

@@ -13,7 +13,7 @@ keeps ``Dashboard.RestrictionLevel`` / ``Dashboard.PrivilegeLevel`` as aliases o
 
 from enum import StrEnum
 
-from django.db import models
+from posthog.enums import LabeledIntEnum
 
 
 class DashboardAccessMethod(StrEnum):
@@ -23,7 +23,7 @@ class DashboardAccessMethod(StrEnum):
     API = "api"
 
 
-class RestrictionLevel(models.IntegerChoices):
+class RestrictionLevel(LabeledIntEnum):
     """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
 
     EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
@@ -33,7 +33,7 @@ class RestrictionLevel(models.IntegerChoices):
     )
 
 
-class PrivilegeLevel(models.IntegerChoices):
+class PrivilegeLevel(LabeledIntEnum):
     """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
 
     CAN_VIEW = 21, "Can view dashboard"

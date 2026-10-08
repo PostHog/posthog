@@ -244,6 +244,20 @@ class HealthCheck:
         raise NotImplementedError
 
     @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        """Narrow a batch before detection runs. The default keeps every team.
+
+        A team left out here is never considered by the run, so it keeps whatever issues it
+        already holds. That is the difference between this and returning nothing from `detect`:
+        the framework reads a team missing from a detector's result as healthy and resolves its
+        issues, while a team removed here is simply not part of the run.
+
+        Use it to gate a check on something the framework cannot know, such as a feature flag.
+        Keep it cheap and side-effect free, because it runs once per batch.
+        """
+        return team_ids
+
+    @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         """Build the alert content surfaced to HogFunction destinations.
 

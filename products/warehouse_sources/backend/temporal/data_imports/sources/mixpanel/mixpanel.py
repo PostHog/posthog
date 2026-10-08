@@ -196,15 +196,14 @@ def validate_credentials(
     if response.status_code == 402:
         return (
             False,
-            "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
-            "plan that includes the data export API, and the account must be in good standing. Check your "
-            "Mixpanel plan and billing, then try again.",
+            "Your Mixpanel plan does not include data export, or its billing is overdue. Upgrade your "
+            "Mixpanel plan or settle its billing, then try again.",
         )
     if response.status_code == 400:
         return (
             False,
-            "Mixpanel rejected the request (400). This usually means the project ID isn't valid for the "
-            "selected region. Check your project ID and region, then try again.",
+            "Mixpanel did not find that project ID in the selected region. Check your project ID and "
+            "region, then try again.",
         )
 
     return (

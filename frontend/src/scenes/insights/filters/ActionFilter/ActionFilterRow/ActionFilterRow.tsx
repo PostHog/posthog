@@ -30,7 +30,6 @@ import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -38,7 +37,6 @@ import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-g
 import {
     AnyPropertyFilter,
     BaseMathType,
-    EntityTypes,
     InsightShortId,
     PropertyFilterType,
     PropertyFilterValue,
@@ -52,8 +50,16 @@ import {
     mathsLogic,
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
+import {
+    isActionsSeriesNode,
+    isAllEventsSeriesNode,
+    isEventsSeriesNode,
+    isWarehouseSeriesNode,
+    isWarehouseSeriesNodeKind,
+    seriesNodeKey,
+} from '../seriesNode'
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
-import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { getValue, taxonomicGroupTypeToSeriesNodeKind } from './actionFilterRowUtils'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
 import { getDefaultMathHogQLExpression } from './mathUtils'
@@ -89,7 +95,8 @@ const DATA_WAREHOUSE_GROUP_TYPE_BY_TYPE_KEY: Record<string, TaxonomicFilterGroup
 
 export function ActionFilterRow({
     logic,
-    filter,
+    node,
+    uuid,
     index,
     typeKey,
     mathAvailability,
@@ -119,6 +126,7 @@ export function ActionFilterRow({
     showNumericalPropsOnly,
     allowedMathTypes,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    dataWarehouseNodeKind,
     filtersLeftPadding = false,
     addFilterDocLink,
     excludedProperties,
@@ -138,25 +146,26 @@ export function ActionFilterRow({
     const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
     const {
-        updateFilter,
-        selectFilter,
-        updateFilterOptional,
-        updateFilterMath,
-        removeLocalFilter,
-        updateFilterProperty,
+        updateSeriesEntity,
+        selectSeries,
+        updateSeriesOptional,
+        updateSeriesMath,
+        removeSeries,
+        updateSeriesProperties,
         setEntityFilterVisibility,
-        duplicateFilter,
-        convertFilterToGroup,
+        duplicateSeries,
+        convertToGroup,
     } = useActions(logic)
-    const { actions } = useValues(actionsModel({ shouldLoad: filter.type === EntityTypes.ACTIONS }))
+    const { actions } = useValues(actionsModel({ shouldLoad: isActionsSeriesNode(node) }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    const isDataWarehouseFilter = isWarehouseSeriesNode(node)
     useEffect(() => {
-        if (filter.type === 'data_warehouse') {
+        if (isDataWarehouseFilter) {
             ensureAllTableFields()
         }
-    }, [filter.type, ensureAllTableFields])
+    }, [isDataWarehouseFilter, ensureAllTableFields])
     const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
@@ -186,9 +195,9 @@ export function ActionFilterRow({
         transition,
         listeners,
         isDragging,
-    } = useSortable({ id: filter.uuid })
+    } = useSortable({ id: uuid })
 
-    const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const propertyFiltersVisible = entityFilterVisible[index]
 
     let name: string | null | undefined, value: PropertyFilterValue
     const {
@@ -197,16 +206,16 @@ export function ActionFilterRow({
         math_property_type: mathPropertyType,
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
-    } = filter
+    } = node
     const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     const onClose = (): void => {
-        removeLocalFilter({ ...filter, index })
+        removeSeries(index)
     }
 
     const onPropertyChange = useCallback(
-        (properties: AnyPropertyFilter[]) => updateFilterProperty({ properties, index }),
-        [updateFilterProperty, index]
+        (properties: AnyPropertyFilter[]) => updateSeriesProperties(index, properties),
+        [updateSeriesProperties, index]
     )
 
     /**
@@ -225,77 +234,65 @@ export function ActionFilterRow({
         ): void => {
             if (isQuickFilterItem(item)) {
                 if (item.eventName) {
-                    updateFilter({ type: EntityTypes.EVENTS, id: item.eventName, name: item.eventName, index })
+                    updateSeriesEntity(index, { kind: NodeKind.EventsNode, key: item.eventName, name: item.eventName })
                 }
-                updateFilterProperty({ index, properties: quickFilterToPropertyFilters(item) })
+                updateSeriesProperties(index, quickFilterToPropertyFilters(item))
                 return
             }
             if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
-                updateFilter({ type: EntityTypes.EVENTS, id: '$pageview', name: '$pageview', index })
-                updateFilterProperty({
-                    index,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: changedValue ? String(changedValue) : '',
-                            operator: PropertyOperator.IContains,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                })
+                updateSeriesEntity(index, { kind: NodeKind.EventsNode, key: '$pageview', name: '$pageview' })
+                updateSeriesProperties(index, [
+                    {
+                        key: '$current_url',
+                        value: changedValue ? String(changedValue) : '',
+                        operator: PropertyOperator.IContains,
+                        type: PropertyFilterType.Event,
+                    },
+                ])
                 return
             }
             if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
-                updateFilter({ type: EntityTypes.EVENTS, id: '$screen', name: '$screen', index })
-                updateFilterProperty({
-                    index,
-                    properties: [
-                        {
-                            key: '$screen_name',
-                            value: changedValue ? String(changedValue) : '',
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                })
+                updateSeriesEntity(index, { kind: NodeKind.EventsNode, key: '$screen', name: '$screen' })
+                updateSeriesProperties(index, [
+                    {
+                        key: '$screen_name',
+                        value: changedValue ? String(changedValue) : '',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ])
                 return
             }
             if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
-                updateFilter({ type: EntityTypes.EVENTS, id: '$autocapture', name: '$autocapture', index })
-                updateFilterProperty({
-                    index,
-                    properties: [
-                        {
-                            key: '$el_text',
-                            value: changedValue ? String(changedValue) : '',
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                    ],
-                })
+                updateSeriesEntity(index, { kind: NodeKind.EventsNode, key: '$autocapture', name: '$autocapture' })
+                updateSeriesProperties(index, [
+                    {
+                        key: '$el_text',
+                        value: changedValue ? String(changedValue) : '',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ])
                 return
             }
-            const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
-            if (groupType === EntityTypes.DATA_WAREHOUSE) {
+            const kind = taxonomicGroupTypeToSeriesNodeKind(taxonomicGroupType, dataWarehouseNodeKind)
+            if (isWarehouseSeriesNodeKind(kind)) {
                 const extraValues = Object.fromEntries(dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]]))
-                updateFilter({
-                    type: groupType,
-                    id: changedValue ? String(changedValue) : null,
+                updateSeriesEntity(index, {
+                    kind,
+                    key: item?.name ?? (changedValue ? String(changedValue) : null),
                     name: item?.name ?? '',
-                    table_name: item?.name,
-                    index,
                     ...extraValues,
                 })
             } else {
-                updateFilter({
-                    type: groupType || undefined,
-                    id: changedValue ? String(changedValue) : null,
+                updateSeriesEntity(index, {
+                    kind,
+                    key: changedValue ?? null,
                     name: item?.name ?? '',
-                    index,
                 })
             }
         },
-        [updateFilter, updateFilterProperty, index, dataWarehousePopoverFields]
+        [updateSeriesEntity, updateSeriesProperties, index, dataWarehousePopoverFields, dataWarehouseNodeKind]
     )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
@@ -325,42 +322,39 @@ export function ActionFilterRow({
             }
         }
 
-        updateFilterMath({
-            index,
-            type: filter.type,
-            ...mathProperties,
-        })
+        updateSeriesMath(index, mathProperties)
     }
 
     const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
-        updateFilterMath({
-            ...filter,
+        updateSeriesMath(index, {
+            math,
             math_hogql: undefined,
             math_property: property,
             math_property_type: groupType,
-            index,
+            math_group_type_index: mathGroupTypeIndex,
         })
     }
 
     const onMathHogQLSelect = (_: unknown, hogql: string): void => {
-        updateFilterMath({
-            ...filter,
+        updateSeriesMath(index, {
+            math,
             math_property: undefined,
             math_property_type: undefined,
             math_hogql: hogql,
-            index,
+            math_group_type_index: mathGroupTypeIndex,
         })
     }
 
-    if (filter.type === EntityTypes.ACTIONS) {
-        const action = actions.find((action) => action.id === filter.id)
-        name = action?.name || filter.name
-        value = action?.id || filter.id
+    const nodeKey = seriesNodeKey(node)
+    if (isActionsSeriesNode(node)) {
+        const action = actions.find((action) => action.id === node.id)
+        name = action?.name || node.name
+        value = action?.id || node.id
     } else {
-        name = filter.name || String(filter.id)
-        // `id` is the event actually queried — `name` can be a rename (e.g. set via the API),
-        // and committing it as the taxonomic value would select a non-existent event.
-        value = filter.id != null && filter.id !== '' ? filter.id : (filter.name ?? null)
+        name = node.name || String(nodeKey)
+        // The node's own key is the event actually queried — `name` can be a rename (e.g. set via
+        // the API), and committing it as the taxonomic value would select a non-existent event.
+        value = nodeKey != null && nodeKey !== '' ? nodeKey : (node.name ?? null)
     }
 
     const seriesIndicator =
@@ -370,7 +364,6 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
 
-    const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
     // A behavioral filter compiles to a person_id subquery over the events table, which a warehouse series has no key for
     const behavioralFiltersEnabled =
         allowBehavioralPropertyFilter &&
@@ -386,12 +379,9 @@ export function ActionFilterRow({
     // and inline-group series have no single committed row to promote.
     const initialGroupType = isDataWarehouseFilter
         ? dataWarehouseGroupType
-        : filter.type === EntityTypes.ACTIONS
+        : isActionsSeriesNode(node)
           ? TaxonomicFilterGroupType.Actions
-          : filter.type === EntityTypes.EVENTS &&
-              !isAllEventsEntityFilter(filter) &&
-              filter.id != null &&
-              filter.id !== ''
+          : isEventsSeriesNode(node) && !isAllEventsSeriesNode(node) && nodeKey != null && nodeKey !== ''
             ? TaxonomicFilterGroupType.Events
             : TaxonomicFilterGroupType.SuggestedFilters
 
@@ -404,8 +394,8 @@ export function ActionFilterRow({
             fullWidth
             truncate
             groupType={initialGroupType}
-            value={getValue(value, filter)}
-            filter={filter}
+            value={getValue(value, node)}
+            filter={node}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts
             promoteSelectedItemToFirstPosition
@@ -413,7 +403,7 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
             }
-            renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
+            renderValue={() => <EntityFilterInfo filter={node} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
@@ -429,10 +419,10 @@ export function ActionFilterRow({
         />
     )
 
-    const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
+    const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ node, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
+        <IconWithCount key="property-filter" count={node.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={<IconFilter />}
                 title="Show filters"
@@ -440,11 +430,9 @@ export function ActionFilterRow({
                 noPadding
                 active={propertyFiltersVisible}
                 onClick={() => {
-                    typeof filter.order === 'number'
-                        ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
-                        : undefined
+                    setEntityFilterVisibility(index, !propertyFiltersVisible)
                 }}
-                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
+                disabledReason={nodeKey === 'empty' ? 'Please select an event first' : undefined}
                 tooltip="Show filters"
                 tooltipDocLink={addFilterDocLink}
             />
@@ -462,7 +450,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-rename-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                selectFilter(filter)
+                selectSeries(index, node, uuid)
                 onRenameClick()
             }}
             fullWidth={enablePopup}
@@ -479,7 +467,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-duplicate-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                duplicateFilter(filter)
+                duplicateSeries(index)
             }}
             fullWidth={enablePopup}
         >
@@ -494,7 +482,7 @@ export function ActionFilterRow({
             data-attr={`show-prop-combine-${index}`}
             noPadding={!enablePopup}
             onClick={() => {
-                convertFilterToGroup(index)
+                convertToGroup(index)
                 posthog.capture('combine_events', {
                     insight_type: insightType,
                     team_id: currentTeamId,
@@ -621,7 +609,7 @@ export function ActionFilterRow({
                                                     // event series can leave a stale non-warehouse group on the filter.
                                                     isDataWarehouseFilter
                                                         ? TaxonomicFilterGroupType.DataWarehouseProperties
-                                                        : mathPropertyType ||
+                                                        : (mathPropertyType as TaxonomicFilterGroupType) ||
                                                           TaxonomicFilterGroupType.NumericalEventProperties
                                                 }
                                                 mathPropertyTypes={
@@ -640,9 +628,9 @@ export function ActionFilterRow({
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 showNumericalPropsOnly={isBoxPlotContext || showNumericalPropsOnly}
                                                 schemaColumns={
-                                                    isDataWarehouseFilter && filter.name
+                                                    isDataWarehouseFilter && node.name
                                                         ? Object.values(
-                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                              dataWarehouseTablesMap[node.name]?.fields ?? []
                                                           ).filter(
                                                               (field) =>
                                                                   !(isBoxPlotContext || showNumericalPropsOnly) ||
@@ -687,18 +675,14 @@ export function ActionFilterRow({
                                             trendsDisplayCategory={trendsDisplayCategory}
                                             readOnly={readOnly}
                                             query={query || {}}
-                                            filter={filter}
+                                            filter={node}
                                             hideRename={!!hideRename}
                                             hideDuplicate={hideDuplicate}
                                             hideDeleteBtn={hideDeleteBtn}
                                             singleFilter={!!singleFilter}
                                             onMathSelect={onMathSelect}
                                             onUpdateOptional={(checked) => {
-                                                updateFilterOptional({
-                                                    ...filter,
-                                                    optionalInFunnel: checked,
-                                                    index,
-                                                })
+                                                updateSeriesOptional(index, checked)
                                             }}
                                             renameRowButton={renameRowButton}
                                             duplicateRowButton={duplicateRowButton}
@@ -719,15 +703,17 @@ export function ActionFilterRow({
                 <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
-                        propertyFilters={filter.properties}
+                        propertyFilters={node.properties}
                         onChange={onPropertyChange}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
-                            isDataWarehouseFilter
+                            isWarehouseSeriesNode(node)
                                 ? {
                                       kind: NodeKind.HogQLQuery,
-                                      query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
+                                      query: `select ${
+                                          (node as { aggregation_target_field?: string }).aggregation_target_field
+                                      } from ${node.table_name}`,
                                   }
                                 : undefined
                         }
@@ -740,18 +726,18 @@ export function ActionFilterRow({
                                 : propertiesTaxonomicGroupTypes
                         }
                         eventNames={
-                            filter.type === TaxonomicFilterGroupType.Events && filter.id
-                                ? [String(filter.id)]
-                                : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                  ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                            isEventsSeriesNode(node) && node.event
+                                ? [String(node.event)]
+                                : isActionsSeriesNode(node) && node.id
+                                  ? getEventNamesForAction(node.id, actions)
                                   : []
                         }
                         schemaColumns={
-                            isDataWarehouseFilter && filter.name
-                                ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
+                            isDataWarehouseFilter && node.name
+                                ? Object.values(dataWarehouseTablesMap[node.name]?.fields ?? [])
                                 : []
                         }
-                        dataWarehouseTableName={isDataWarehouseFilter ? (filter.name ?? undefined) : undefined}
+                        dataWarehouseTableName={isDataWarehouseFilter ? (node.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
@@ -770,7 +756,7 @@ export function ActionFilterRow({
                                 : null
                         }
                     />
-                    <SaveAsActionBanner filter={filter} />
+                    <SaveAsActionBanner node={node} />
                 </div>
             )}
         </li>

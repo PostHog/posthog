@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { performQuery } from '~/queries/query'
@@ -115,11 +115,11 @@ export const funnelPathsExpansionLogic = kea<funnelPathsExpansionLogicType>([
 
     listeners(({ actions, values }) => ({
         expandPath: async ({ expansion }, breakpoint) => {
-            eventUsageLogic.actions.reportCustomerJourneyPathExpanded(
-                expansion.pathType,
-                expansion.dropOff,
-                expansion.stepIndex
-            )
+            posthog.capture('customer journey path expanded', {
+                path_type: expansion.pathType,
+                drop_off: expansion.dropOff,
+                step_index: expansion.stepIndex,
+            })
             if (values.expandedPathCacheKey && values.expandedPathResults) {
                 actions.setPathsResults(values.expandedPathCacheKey, values.expandedPathResults)
                 return

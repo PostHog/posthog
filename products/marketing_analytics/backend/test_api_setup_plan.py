@@ -6,7 +6,9 @@ from django.core.cache import cache
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.models.user import User
 
 from products.marketing_analytics.backend.services.setup_types import (
@@ -202,6 +204,9 @@ class TestSetupPlanCaching(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan"
+        # Team.marketing_analytics_config caches the config object process-wide. Without a row here,
+        # apply_setup_ops locks a row that an earlier test created and rolled back, and the request fails.
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         # locmem persists across tests in a process; a leaked entry would make these
         # pass or fail depending on ordering.
         cache.clear()

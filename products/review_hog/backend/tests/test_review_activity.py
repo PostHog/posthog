@@ -1,3 +1,6 @@
+import asyncio
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import replace
 
 import pytest
@@ -15,6 +18,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_ARM,
     REVIEW_MODE_FLASH,
     ReviewArm,
+    review_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -22,20 +26,27 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
     PerspectiveSelection,
 )
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
 )
+from products.review_hog.backend.temporal.heartbeat import REPORT_HEARTBEAT_INTERVAL, ReviewActivityHeartbeater
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 _MODULE = "products.review_hog.backend.temporal.activities"
+_HEARTBEAT_MODULE = "products.review_hog.backend.temporal.heartbeat"
 
 
 def _review_input(**overrides: object) -> ReviewChunkInput:
@@ -92,6 +103,71 @@ def _snapshot(pr_files: list[PRFile] | None = None) -> PRSnapshotArtefact:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+async def test_activity_report_heartbeat_repeats_and_stops_with_the_activity(outcome: str) -> None:
+    pulses: asyncio.Queue[None] = asyncio.Queue()
+    timers: asyncio.Queue[asyncio.Future[None]] = asyncio.Queue()
+    finish = asyncio.Event()
+    attempts = 0
+
+    async def refresh_report() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database unavailable")
+        await pulses.put(None)
+
+    async def advanceable_sleep(delay: float) -> None:
+        assert delay == REPORT_HEARTBEAT_INTERVAL.total_seconds()
+        timer = asyncio.get_running_loop().create_future()
+        await timers.put(timer)
+        await timer
+
+    async def run_activity() -> None:
+        async with ReviewActivityHeartbeater(team_id=1, report_id="report", head_sha="head"):
+            await finish.wait()
+            if outcome == "failed":
+                raise RuntimeError("review failed")
+
+    with (
+        patch(f"{_HEARTBEAT_MODULE}.Heartbeater.__aenter__", new=AsyncMock()),
+        patch(f"{_HEARTBEAT_MODULE}.Heartbeater.__aexit__", new=AsyncMock()),
+        patch(f"{_HEARTBEAT_MODULE}.database_sync_to_async", return_value=refresh_report),
+        patch(f"{_HEARTBEAT_MODULE}.asyncio.sleep", side_effect=advanceable_sleep),
+    ):
+        task = asyncio.create_task(run_activity())
+        try:
+            async with asyncio.timeout(10):
+                first_timer = await timers.get()
+                first_timer.set_result(None)
+                await pulses.get()
+                second_timer = await timers.get()
+                second_timer.set_result(None)
+                await pulses.get()
+                last_timer = await timers.get()
+
+                if outcome == "cancelled":
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                elif outcome == "failed":
+                    finish.set()
+                    with pytest.raises(RuntimeError, match="review failed"):
+                        await task
+                else:
+                    finish.set()
+                    await task
+
+                assert attempts == 3
+                assert last_timer.cancelled()
+                assert pulses.empty()
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError, RuntimeError):
+                await task
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "additions,expects_oneshot",
     [
@@ -107,7 +183,7 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
     mock_oneshot = AsyncMock(return_value=plan)
     mock_sandbox = AsyncMock(return_value=plan)
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_chunk_set", return_value=None),
         patch(
             f"{_MODULE}.load_pr_snapshot",
@@ -158,7 +234,7 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
     mock_prepare = MagicMock(return_value="review-prompt")
     env = ActivityEnvironment()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
@@ -210,7 +286,7 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     mock_prepare = MagicMock(return_value="review-prompt")
     env = ActivityEnvironment()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=arm),
         patch(f"{_MODULE}.persist_perspective_results"),
@@ -242,7 +318,7 @@ async def test_blind_spot_unit_scopes_wave_findings_to_its_chunk_and_steps_as_bl
     }
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.load_perspective_results", return_value=done),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
@@ -311,7 +387,7 @@ async def test_select_perspectives_activity_persists_the_normalized_plan() -> No
     mock_oneshot = AsyncMock(return_value=raw)
     mock_persist = MagicMock()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_perspective_selection", return_value=None),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
         patch(
@@ -371,3 +447,96 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert result is None
     assert mock_oneshot.called is False
     assert mock_load.called is False
+
+
+def _single_agent_stage(**extra: object) -> dict:
+    return {
+        "team_id": 1,
+        "user_id": 2,
+        "report_id": "rep-1",
+        "head_sha": "sha1",
+        "repository": "o/r",
+        "branch": "feat",
+        "run_index": 1,
+        "review_mode": REVIEW_MODE_FLASH,
+        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
+        **extra,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,activity_input,expected_key,expected_source",
+    [
+        pytest.param(
+            single_agent_review_activity,
+            SandboxStageInput(**_single_agent_stage()),
+            (2000, 1),
+            "flash-single-agent",
+            id="main_session",
+        ),
+        pytest.param(
+            lens_review_activity,
+            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            (2002, 2),
+            "flash-lens-contracts-security",
+            id="lens_session",
+        ),
+    ],
+)
+async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup_reads(
+    activity_fn: Callable[..., Awaitable[None]],
+    activity_input: SandboxStageInput,
+    expected_key: tuple[int, int],
+    expected_source: str,
+) -> None:
+    # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
+    # dedup asks for drops every finding of that session without an error.
+    review = SingleAgentReview(
+        findings=[
+            SingleAgentFinding(
+                title="Rename the counter", priority="P3", file="a.py", line_start=9, line_end=9, body="b"
+            ),
+            SingleAgentFinding(
+                title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b", suggestion_code="x"
+            ),
+            SingleAgentFinding(
+                title="Close the file",
+                priority="P2",
+                file="a.py",
+                line_start=12,
+                line_end=7,
+                body="b",
+                suggestion_code="y",
+            ),
+        ]
+    )
+    mock_review = AsyncMock(return_value=review)
+    mock_persist = MagicMock()
+    env = ActivityEnvironment()
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        await env.run(activity_fn, activity_input)
+
+    dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+    assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
+    assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
+        "gpt-6.1-sol",
+        ReasoningEffort.MEDIUM,
+    )
+    [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
+    assert key == expected_key
+    # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost. GitHub
+    # rejects a reversed line range, so that finding keeps its start line and loses its suggestion.
+    assert [
+        (i.priority, i.reported_priority, i.lines, i.suggestion_code, i.source_perspective) for i in persisted.issues
+    ] == [
+        (IssuePriority.MUST_FIX, "P1", [LineRange(start=4)], "x", expected_source),
+        (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
+        (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
+    ]

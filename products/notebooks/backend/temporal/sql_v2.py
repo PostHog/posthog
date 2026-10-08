@@ -27,6 +27,7 @@ from products.notebooks.backend.sql_v2_runs import (
     KERNEL_RUN_RESULT_GRACE_SECONDS,
     expire_stale_kernel_run,
     finish_node_run,
+    seconds_until_kernel_run_is_stale,
 )
 
 # Margin on top of the run budget before the workflow applies the watchdog. The budget is
@@ -109,13 +110,15 @@ def mark_sql_v2_run_failed_activity(input: SQLV2RunInput) -> None:
 
 
 @activity.defn(name="notebook-sandbox-cmd-expire")
-def expire_sql_v2_run_activity(input: SQLV2RunInput) -> None:
+def expire_sql_v2_run_activity(input: SQLV2RunInput) -> float | None:
+    """Fail the run if it went quiet; return the seconds until the next check, or None when the watch is over."""
     # The watchdog for a run the kernel accepted but never reported on. Guarded inside
     # expire_stale_kernel_run on both status and elapsed time, so a run whose callback
     # landed keeps its real outcome and this call does nothing.
     run = NotebookNodeRun.objects.for_team(input.team_id).filter(id=input.run_id).first()
-    if run is not None:
-        expire_stale_kernel_run(run)
+    if run is None or expire_stale_kernel_run(run):
+        return None
+    return seconds_until_kernel_run_is_stale(run)
 
 
 @workflow.defn(name="notebook-sandbox-cmd-run")
@@ -150,15 +153,19 @@ class NotebookSQLV2RunWorkflow(PostHogWorkflow):
         # finished agent means nobody is. Waiting here is a Temporal timer rather than a
         # worker slot, and this workflow already exists one-per-kernel-run, so the cost is a
         # longer-lived execution rather than a new one.
-        await workflow.sleep(timedelta(seconds=KERNEL_RUN_RESULT_GRACE_SECONDS + _EXPIRY_MARGIN_SECONDS))
-        # The watchdog is the run's last resort. A brief database outage while it fires must
-        # not burn a three-attempt budget and leave the row RUNNING with nothing left to move
-        # it. The activity is idempotent (guarded on status and elapsed time), so retry until
-        # it lands, bounded by schedule_to_close rather than a fixed attempt count.
-        await workflow.execute_activity(
-            expire_sql_v2_run_activity,
-            input,
-            start_to_close_timeout=timedelta(seconds=30),
-            schedule_to_close_timeout=timedelta(hours=1),
-            retry_policy=common.RetryPolicy(maximum_attempts=0),
-        )
+        # A long cell keeps sending heartbeats, so the watch repeats until the run settles or
+        # goes quiet. A history from before the loop returns None and ends it after one check.
+        wait_seconds: float | None = KERNEL_RUN_RESULT_GRACE_SECONDS
+        while wait_seconds is not None:
+            await workflow.sleep(timedelta(seconds=wait_seconds + _EXPIRY_MARGIN_SECONDS))
+            # The watchdog is the run's last resort. A brief database outage while it fires must
+            # not burn a three-attempt budget and leave the row RUNNING with nothing left to move
+            # it. The activity is idempotent (guarded on status and elapsed time), so retry until
+            # it lands, bounded by schedule_to_close rather than a fixed attempt count.
+            wait_seconds = await workflow.execute_activity(
+                expire_sql_v2_run_activity,
+                input,
+                start_to_close_timeout=timedelta(seconds=30),
+                schedule_to_close_timeout=timedelta(hours=1),
+                retry_policy=common.RetryPolicy(maximum_attempts=0),
+            )

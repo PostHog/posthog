@@ -51,7 +51,7 @@ class CoassembleSource(ResumableSource[CoassembleSourceConfig, CoassembleResumeC
             label="Coassemble",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["lms", "training", "courses"],
-            caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, and learner progress into the PostHog Data warehouse.
+            caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, learner progress, and client usage into the PostHog Data warehouse.
 
 You can generate an API key from your workspace API settings in [Coassemble](https://coassemble.com). API access must be enabled on your workspace plan.
 """,

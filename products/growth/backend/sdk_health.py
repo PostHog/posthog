@@ -492,7 +492,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
     # these four characters but DOES encode everything else (including space, `/`, `?`, `#`).
     encoded_q = quote(json_dumps(query, separators=(",", ":")), safe="!*'()")
     prefix = f"/project/{project_id}" if project_id is not None else ""
-    return f"{prefix}/activity/explore#q={encoded_q}"
+    return f"{prefix}/activity/events#q={encoded_q}"
 
 
 def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:

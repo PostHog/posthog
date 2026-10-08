@@ -158,6 +158,14 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 4
         assert result.total == 5
 
+    def test_dedupe_count_is_zero_when_no_person_matches(self):
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"subscribed": "false", "email": "a@x.com"})
+        flush_persons_and_events()
+
+        result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
+
+        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 0
+
     def test_sampled_dedupe_count_extrapolates_by_modulus(self):
         for i in range(3):
             _create_person(

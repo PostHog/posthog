@@ -17,6 +17,7 @@ import { ChartDisplayType } from '~/types'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartTooltip } from './SqlChartTooltip'
 import {
     type SqlBarGraphConfig,
     type SqlLineSeriesMeta,
@@ -68,6 +69,18 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         theme={model.theme}
                         config={model.config}
                         onPointClick={onPointClickProp ? onPointClick : undefined}
+                        tooltip={
+                            onPointClickProp
+                                ? (context) => (
+                                      <SqlChartTooltip
+                                          context={context}
+                                          config={model.config.tooltip}
+                                          onPointClick={onPointClickProp}
+                                          hint={props.pointClickHint}
+                                      />
+                                  )
+                                : undefined
+                        }
                         onError={handleChartError}
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
@@ -80,6 +93,18 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         theme={model.theme}
                         config={model.config}
                         onPointClick={onPointClickProp ? onPointClick : undefined}
+                        tooltip={
+                            onPointClickProp
+                                ? (context) => (
+                                      <SqlChartTooltip
+                                          context={context}
+                                          config={model.config.tooltip}
+                                          onPointClick={onPointClickProp}
+                                          hint={props.pointClickHint}
+                                      />
+                                  )
+                                : undefined
+                        }
                         onError={handleChartError}
                     >
                         {props.showAnnotations && props.insightNumericId && (

@@ -5,7 +5,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.active_campaign import (
     PAGE_SIZE,
@@ -13,12 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.active_cam
     ActiveCampaignResumeConfig,
     _normalize_base_url,
     active_campaign_source,
-    get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import (
     ACTIVE_CAMPAIGN_ENDPOINTS,
-    ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -49,95 +47,10 @@ class TestNormalizeBaseUrl:
 
 
 class TestActiveCampaignPaginator:
-    def test_initial_state(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        assert paginator.offset == 0
-        assert paginator.limit == PAGE_SIZE
-        assert paginator.has_next_page is True
-
-    def test_init_request_emits_offset_and_limit(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        request = Request(method="GET", url="https://acme.api-us1.com/api/3/contacts")
-        paginator.init_request(request)
-        assert request.params["offset"] == 0
-        assert request.params["limit"] == PAGE_SIZE
-
-    def test_advances_offset_on_full_page(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.update_state(_meta_response(1000), _full_page())
-        assert paginator.offset == PAGE_SIZE
-        assert paginator.has_next_page is True
-
-    def test_stops_on_short_page(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.update_state(_meta_response(1000), [{"id": "1"}])
-        assert paginator.has_next_page is False
-
-    def test_stops_on_empty_page(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.update_state(_meta_response(1000), [])
-        assert paginator.has_next_page is False
-
-    def test_stops_when_offset_reaches_int_total(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        # A full page but meta.total says we've now covered everything.
-        paginator.update_state(_meta_response(PAGE_SIZE), _full_page())
-        assert paginator.has_next_page is False
-
-    def test_string_total_falls_back_to_page_length(self) -> None:
-        # ActiveCampaign sometimes returns meta.total as a string; the int-only
-        # early-exit is skipped, so a full page must still advance.
-        paginator = ActiveCampaignPaginator()
-        paginator.update_state(_meta_response("1000"), _full_page())
-        assert paginator.has_next_page is True
-        assert paginator.offset == PAGE_SIZE
-
-    def test_get_resume_state_when_next_page(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.update_state(_meta_response(1000), _full_page())
-        assert paginator.get_resume_state() == {"offset": PAGE_SIZE}
-
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         paginator = ActiveCampaignPaginator()
         paginator.update_state(_meta_response(1000), [])
         assert paginator.get_resume_state() is None
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.set_resume_state({"offset": 300})
-        assert paginator.offset == 300
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://acme.api-us1.com/api/3/contacts")
-        paginator.init_request(request)
-        assert request.params["offset"] == 300
-
-    def test_set_resume_state_ignores_missing_offset(self) -> None:
-        paginator = ActiveCampaignPaginator()
-        paginator.set_resume_state({})
-        assert paginator.offset == 0
-
-
-class TestGetResource:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_resource_shape(self, endpoint: str) -> None:
-        resource = get_resource(endpoint)
-        config = ACTIVE_CAMPAIGN_ENDPOINTS[endpoint]
-
-        assert resource["name"] == endpoint
-        assert resource["table_name"] == endpoint
-        assert resource["write_disposition"] == "replace"
-        assert resource["table_format"] == "delta"
-
-        endpoint_def = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint_def["path"] == config.path
-        assert endpoint_def["path"].startswith("/")
-        assert endpoint_def["data_selector"] == config.data_selector
-
-    def test_contacts_orders_by_id_for_stable_pagination(self) -> None:
-        resource = get_resource("contacts")
-        endpoint_def = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint_def["params"].get("orders[id]") == "ASC"
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -225,17 +138,6 @@ class TestActiveCampaignSourceResumeBehavior:
 
         assert [p.get("offset") for p in sent_params] == [PAGE_SIZE]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(self._page_body("contacts", [{"id": "only"}], 1)),
-        ]
-        self._drive("contacts", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

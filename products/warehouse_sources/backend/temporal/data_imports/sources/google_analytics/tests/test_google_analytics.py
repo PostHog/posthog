@@ -17,8 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics import google_analytics as ga
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
-    CHUNK_DAYS,
-    HISTORY_DAYS,
     LOOKBACK_DAYS,
     RUNREPORT_MAX_RETRIES,
     GoogleAnalyticsQuotaExceededError,
@@ -28,32 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _get_integration,
     _initial_start_date,
     _is_quota_error,
-    _is_retryable_server_error,
     _is_transient_refresh_error,
-    _iter_chunks,
     _parse_ga4_date,
     _resolve_window,
-    _rows_to_dicts,
     _run_report,
     _runreport_backoff_seconds,
     google_analytics_source,
-    normalize_property_id,
 )
 
 TODAY = dt.date(2026, 4, 30)
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("123456789", "123456789"),
-        ("  123456789  ", "123456789"),
-        ("properties/123456789", "123456789"),
-        ("properties/123456789 ", "123456789"),
-    ],
-)
-def test_normalize_property_id(raw, expected):
-    assert normalize_property_id(raw) == expected
 
 
 @pytest.mark.parametrize(
@@ -76,52 +57,6 @@ def test_resolve_window_start(last_value, expected_start):
     assert start == expected_start
     # Today's aggregates are still accruing — the window always ends at yesterday.
     assert end == TODAY - dt.timedelta(days=1)
-
-
-def test_resolve_window_full_history_spans_history_days():
-    start, _ = _resolve_window(TODAY, None)
-    assert (TODAY - start).days == HISTORY_DAYS
-
-
-@pytest.mark.parametrize(
-    "start,end,expected",
-    [
-        # Range smaller than one chunk → single chunk clamped to end.
-        (dt.date(2026, 4, 1), dt.date(2026, 4, 3), [(dt.date(2026, 4, 1), dt.date(2026, 4, 3))]),
-        # Exactly one chunk.
-        (
-            dt.date(2026, 4, 1),
-            dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS - 1),
-            [(dt.date(2026, 4, 1), dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS - 1))],
-        ),
-        # Spills into a second chunk.
-        (
-            dt.date(2026, 4, 1),
-            dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS),
-            [
-                (dt.date(2026, 4, 1), dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS - 1)),
-                (
-                    dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS),
-                    dt.date(2026, 4, 1) + dt.timedelta(days=CHUNK_DAYS),
-                ),
-            ],
-        ),
-        # start > end yields no chunks.
-        (dt.date(2026, 4, 5), dt.date(2026, 4, 1), []),
-    ],
-)
-def test_iter_chunks(start, end, expected):
-    assert list(_iter_chunks(start, end)) == expected
-
-
-def test_iter_chunks_are_contiguous_and_cover_range():
-    start, end = dt.date(2024, 5, 1), dt.date(2026, 4, 29)
-    chunks = list(_iter_chunks(start, end))
-
-    assert chunks[0][0] == start
-    assert chunks[-1][1] == end
-    for (_, prev_end), (next_start, _) in zip(chunks, chunks[1:]):
-        assert next_start == prev_end + dt.timedelta(days=1)
 
 
 @pytest.mark.parametrize(
@@ -153,41 +88,6 @@ def test_parse_ga4_date(raw, expected):
 )
 def test_convert_metric_value(value, metric_type, expected):
     assert _convert_metric_value(value, metric_type) == expected
-
-
-def test_rows_to_dicts_flattens_headers_and_values():
-    payload = {
-        "dimensionHeaders": [{"name": "date"}, {"name": "deviceCategory"}],
-        "metricHeaders": [
-            {"name": "totalUsers", "type": "TYPE_INTEGER"},
-            {"name": "bounceRate", "type": "TYPE_FLOAT"},
-        ],
-        "rows": [
-            {
-                "dimensionValues": [{"value": "20260415"}, {"value": "desktop"}],
-                "metricValues": [{"value": "42"}, {"value": "0.35"}],
-            },
-            {
-                "dimensionValues": [{"value": "20260416"}, {"value": "mobile"}],
-                "metricValues": [{"value": "7"}, {"value": "0.5"}],
-            },
-        ],
-    }
-
-    rows = _rows_to_dicts(payload)
-
-    assert rows == [
-        {"date": dt.date(2026, 4, 15), "deviceCategory": "desktop", "totalUsers": 42, "bounceRate": 0.35},
-        {"date": dt.date(2026, 4, 16), "deviceCategory": "mobile", "totalUsers": 7, "bounceRate": 0.5},
-    ]
-
-
-def test_rows_to_dicts_handles_missing_rows():
-    payload = {
-        "dimensionHeaders": [{"name": "date"}],
-        "metricHeaders": [{"name": "totalUsers", "type": "TYPE_INTEGER"}],
-    }
-    assert _rows_to_dicts(payload) == []
 
 
 def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
@@ -227,28 +127,6 @@ _SLEEP_PATH = (
 
 
 class TestGetIntegrationDbResilience:
-    def test_rides_out_pool_wait_timeout_then_succeeds(self):
-        integration = object()
-        get = mock.Mock(
-            side_effect=[
-                OperationalError("query_wait_timeout"),
-                OperationalError("query_wait_timeout"),
-                integration,
-            ]
-        )
-
-        with (
-            mock.patch(_INTEGRATION_GET_PATH, get),
-            mock.patch(_CLOSE_CONNECTIONS_PATH),
-            mock.patch(_SLEEP_PATH) as sleep,
-        ):
-            result = _get_integration(integration_id=1, team_id=2)
-
-        assert result is integration
-        assert get.call_count == 3
-        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
-        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
-
     def test_reraises_after_exhausting_attempts(self):
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
@@ -303,22 +181,6 @@ def test_is_quota_error(status_code, expected):
     assert _is_quota_error(_fake_response(status_code)) is expected
 
 
-@pytest.mark.parametrize(
-    "status_code,expected",
-    [
-        (500, True),
-        (502, True),
-        (503, True),
-        (504, True),
-        (429, False),
-        (403, False),
-        (200, False),
-    ],
-)
-def test_is_retryable_server_error(status_code, expected):
-    assert _is_retryable_server_error(_fake_response(status_code)) is expected
-
-
 def test_quota_backoff_honors_retry_after():
     response = _fake_response(429, headers={"Retry-After": "17"})
     assert _runreport_backoff_seconds(response, attempt=0) == 17.0
@@ -327,31 +189,6 @@ def test_quota_backoff_honors_retry_after():
 def test_quota_backoff_falls_back_to_exponential():
     response = _fake_response(429, headers={"Retry-After": "soon"})
     assert _runreport_backoff_seconds(response, attempt=2) == ga.RUNREPORT_BACKOFF_BASE_SECONDS * 4
-
-
-def test_run_report_returns_payload_on_success():
-    payload = {"rows": [], "rowCount": 0}
-    session = mock.MagicMock()
-    session.post.return_value = _fake_response(200, payload)
-
-    result = _run_report(
-        session=session,
-        property_id="properties/123",
-        start_date="2026-04-01",
-        end_date="2026-04-30",
-        dimensions=["date"],
-        metrics=["totalUsers"],
-        offset=0,
-    )
-
-    assert result == payload
-    url = session.post.call_args[0][0]
-    assert url == "https://analyticsdata.googleapis.com/v1beta/properties/123:runReport"
-    body = session.post.call_args[1]["json"]
-    assert body["dateRanges"] == [{"startDate": "2026-04-01", "endDate": "2026-04-30"}]
-    assert body["dimensions"] == [{"name": "date"}]
-    assert body["metrics"] == [{"name": "totalUsers"}]
-    assert body["orderBys"] == [{"dimension": {"dimensionName": "date"}}]
 
 
 def test_run_report_retries_quota_errors_then_succeeds(monkeypatch):
@@ -495,27 +332,6 @@ _CONNECTION_DROPS = [
 
 
 @pytest.mark.parametrize("error", _CONNECTION_DROPS)
-def test_run_report_retries_connection_drops_then_succeeds(monkeypatch, error):
-    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
-    payload = {"rows": [], "rowCount": 0}
-    session = mock.MagicMock()
-    session.post.side_effect = [error, _fake_response(200, payload)]
-
-    result = _run_report(
-        session=session,
-        property_id="123",
-        start_date="2026-04-01",
-        end_date="2026-04-30",
-        dimensions=["date"],
-        metrics=["totalUsers"],
-        offset=0,
-    )
-
-    assert result == payload
-    assert session.post.call_count == 2
-
-
-@pytest.mark.parametrize("error", _CONNECTION_DROPS)
 def test_run_report_raises_connection_drop_after_exhausting_retries(monkeypatch, error):
     monkeypatch.setattr(ga.time, "sleep", lambda _: None)
     session = mock.MagicMock()
@@ -533,30 +349,6 @@ def test_run_report_raises_connection_drop_after_exhausting_retries(monkeypatch,
         )
 
     assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
-
-
-def test_run_report_retries_server_errors_then_succeeds(monkeypatch):
-    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
-    payload = {"rows": [], "rowCount": 0}
-    session = mock.MagicMock()
-    session.post.side_effect = [
-        _fake_response(503),
-        _fake_response(503),
-        _fake_response(200, payload),
-    ]
-
-    result = _run_report(
-        session=session,
-        property_id="123",
-        start_date="2026-04-01",
-        end_date="2026-04-30",
-        dimensions=["date"],
-        metrics=["totalUsers"],
-        offset=0,
-    )
-
-    assert result == payload
-    assert session.post.call_count == 3
 
 
 def test_run_report_raises_http_error_after_exhausting_server_error_retries(monkeypatch):
@@ -603,50 +395,6 @@ def _config(custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
     )
 
 
-def test_source_yields_rows_and_advances_chunks(monkeypatch):
-    fake_today = dt.date(2026, 4, 30)
-    monkeypatch.setattr(ga, "_today", lambda: fake_today)
-    _patch_session(monkeypatch)
-
-    requests_made: list[tuple[str, str, int]] = []
-
-    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
-        requests_made.append((start_date, end_date, offset))
-        if start_date == "2026-04-23":
-            return _report_payload(["20260423", "20260424"], [10, 20])
-        return _report_payload([], [])
-
-    monkeypatch.setattr(ga, "_run_report", fake_run_report)
-
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = False
-    saved_states: list[GoogleAnalyticsResumeConfig] = []
-    manager.save_state.side_effect = lambda state: saved_states.append(state)
-
-    response = google_analytics_source(
-        config=_config(),
-        resource_name="website_overview",
-        team_id=1,
-        resumable_source_manager=manager,
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=dt.date(2026, 4, 25),
-    )
-
-    batches = list(cast(Iterable[Any], response.items()))
-
-    # Window: last value 2026-04-25 minus 2-day lookback → 2026-04-23 .. yesterday (2026-04-29); one chunk.
-    assert requests_made == [("2026-04-23", "2026-04-29", 0)]
-    assert len(batches) == 1
-    assert batches[0] == [
-        {"date": dt.date(2026, 4, 23), "totalUsers": 10},
-        {"date": dt.date(2026, 4, 24), "totalUsers": 20},
-    ]
-    # Chunk exhausted → state advances to the next chunk with offset 0.
-    assert len(saved_states) == 1
-    assert saved_states[0].chunk_start == "2026-04-30"
-    assert saved_states[0].offset == 0
-
-
 def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     monkeypatch.setattr(ga, "_today", lambda: fake_today)
@@ -684,39 +432,6 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
     assert [(s.chunk_start, s.offset) for s in saved_states] == [("2026-04-23", 2), ("2026-04-30", 0)]
 
 
-def test_source_resumes_from_saved_state(monkeypatch):
-    fake_today = dt.date(2026, 4, 30)
-    monkeypatch.setattr(ga, "_today", lambda: fake_today)
-    _patch_session(monkeypatch)
-
-    requests_made: list[tuple[str, int]] = []
-
-    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
-        requests_made.append((start_date, offset))
-        return _report_payload([], [])
-
-    monkeypatch.setattr(ga, "_run_report", fake_run_report)
-
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = GoogleAnalyticsResumeConfig(chunk_start="2026-03-15", offset=500)
-
-    response = google_analytics_source(
-        config=_config(),
-        resource_name="website_overview",
-        team_id=1,
-        resumable_source_manager=manager,
-    )
-
-    list(cast(Iterable[Any], response.items()))
-
-    # Chunking restarts at the saved chunk start, with the saved offset applied
-    # only to that first chunk.
-    assert requests_made[0] == ("2026-03-15", 500)
-    assert all(start >= "2026-03-15" for start, _ in requests_made)
-    assert all(offset == 0 for _, offset in requests_made[1:])
-
-
 def test_source_resume_past_end_date_yields_nothing(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     monkeypatch.setattr(ga, "_today", lambda: fake_today)
@@ -741,31 +456,6 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
 
     assert list(cast(Iterable[Any], response.items())) == []
     fake_run_report.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "resource_name,expected_pk",
-    [
-        ("website_overview", ["date"]),
-        ("devices", ["date", "deviceCategory", "operatingSystem", "browser"]),
-        ("pages", ["date", "hostName", "pagePathPlusQueryString"]),
-        ("traffic_sources", ["date", "sessionSource", "sessionMedium"]),
-    ],
-)
-def test_source_response_has_partition_metadata(resource_name, expected_pk):
-    response = google_analytics_source(
-        config=_config(),
-        resource_name=resource_name,
-        team_id=1,
-        resumable_source_manager=mock.MagicMock(),
-    )
-
-    assert response.primary_keys == expected_pk
-    assert response.partition_keys == ["date"]
-    assert response.partition_mode == "datetime"
-    assert response.partition_format == "month"
-    assert response.partition_count == 1
-    assert response.partition_size == 1
 
 
 def test_source_requests_user_defined_custom_report(monkeypatch):

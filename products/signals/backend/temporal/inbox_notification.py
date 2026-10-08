@@ -28,9 +28,9 @@ from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.github_writeback import post_report_link_to_github_issues
 from products.signals.backend.models import SignalReport, SignalTeamConfig
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
-from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)

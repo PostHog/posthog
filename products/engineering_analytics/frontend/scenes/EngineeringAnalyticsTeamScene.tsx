@@ -29,6 +29,7 @@ import { withCurrentScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDeliveryPanel } from './TeamDeliveryPanel'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
+import { TeamFrictionSection } from './TeamFrictionSection'
 import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM } from './teamsLogic'
 
 export const scene: SceneExport<TeamDetailLogicProps> = {
@@ -230,6 +231,10 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 <ConnectGitHubSource />
             ) : (
                 <>
+                    {/* Friction reads a fixed window, so it sits above the panel the date picker governs, as on the
+                        author page. */}
+                    {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
+
                     {deliveryScope ? (
                         <TeamDeliveryPanel
                             scope={deliveryScope}

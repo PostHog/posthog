@@ -74,7 +74,7 @@ pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop"
 /// on the AI lane. Same tag as the `misrouted_event` ingestion warning it emits.
 pub(super) const DETAIL_MISROUTED_EVENT: &str = "misrouted_event";
 
-/// Detail tag for events dropped due to uncoercible options fields.
+/// Detail tag for events dropped because an expected option's value is unreadable.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 
 /// Detail tag for AI-lane events dropped because the project is over its

@@ -301,6 +301,7 @@ export class SessionBatchRecorder {
                     replayIndexEntries,
                     replayIndexTruncated,
                     batchId,
+                    earliestCapturedAtMs,
                 } = built[index]
 
                 const features = featureRecorder.end()
@@ -358,6 +359,7 @@ export class SessionBatchRecorder {
                     eventCount,
                     retentionPeriodDays,
                     isDeleted: false,
+                    ...(earliestCapturedAtMs === undefined ? {} : { earliestCapturedAtMs }),
                 })
 
                 totalEvents += eventCount

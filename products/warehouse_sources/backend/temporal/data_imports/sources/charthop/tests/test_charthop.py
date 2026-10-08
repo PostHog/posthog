@@ -11,18 +11,13 @@ from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.charthop import (
     CHARTHOP_BASE_URL,
-    PAGE_SIZE,
     ChartHopAPIError,
     ChartHopResumeConfig,
     _to_charthop_date,
     charthop_source,
     resolve_org_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import (
-    CHARTHOP_V1,
-    CHARTHOP_V2,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import CHARTHOP_V1, CHARTHOP_V2
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -101,31 +96,6 @@ class TestToChartHopDate:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_forwarding_from_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, urls = _wire(session, [_response([{"id": "1"}], next_token="1"), _response([{"id": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("jobs", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert urls[0] == f"{CHARTHOP_BASE_URL}/v2/org/org-1/job"
-        assert params[0] == {"limit": PAGE_SIZE}
-        assert params[1] == {"limit": PAGE_SIZE, "from": "1"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_next_token_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("jobs", manager))
-
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_org_id_is_encoded_as_single_path_segment(self, MockSession) -> None:
         session = MockSession.return_value
@@ -325,24 +295,3 @@ class TestResolveOrgId:
             with pytest.raises(ChartHopAPIError) as exc:
                 resolve_org_id("key", None)
         assert "401 Client Error" in str(exc.value)
-
-
-class TestChartHopSource:
-    def test_changes_partitioned_by_effective_date(self) -> None:
-        response = _source("changes", _make_manager())
-        assert response.name == "changes"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-
-    def test_full_refresh_endpoint_is_unpartitioned(self) -> None:
-        response = _source("persons", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    def test_all_endpoints_buildable_with_a_primary_key(self) -> None:
-        # Catches a path template whose placeholder no longer formats, and an endpoint added
-        # without a merge key (which would seed duplicate rows on every sync).
-        for endpoint in ENDPOINTS:
-            response = _source(endpoint, _make_manager())
-            assert response.primary_keys

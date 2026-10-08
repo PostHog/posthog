@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use capture_apm_metrics::histogram_assembly::{fold_classic_histograms, normalize_float_label};
+use capture_apm_metrics::histogram_assembly::{
+    fingerprint_with_bounds, fold_classic_histograms, normalize_float_label,
+};
 use capture_logs::endpoints::prometheus::write_request_to_kafka_rows;
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
 use chrono::{Duration, Utc};
@@ -200,7 +202,14 @@ fn folded_histogram_shares_identity_with_the_otlp_path() {
     let (otlp_rows, _) = flatten_metric(metric, Some(&resource), None).expect("flatten_metric ok");
 
     assert_eq!(otlp_rows.len(), 1);
-    assert_eq!(rows[0].series_fingerprint, otlp_rows[0].series_fingerprint);
+    assert_eq!(
+        rows[0].series_fingerprint,
+        fingerprint_with_bounds(
+            otlp_rows[0].series_fingerprint,
+            &otlp_rows[0].histogram_bounds
+        ),
+        "a folded row hashes the OTLP label fingerprint with its bound set"
+    );
     assert_eq!(rows[0].attributes, otlp_rows[0].attributes);
     assert_eq!(
         rows[0].resource_attributes,
@@ -269,6 +278,45 @@ fn folds_partial_bucket_sets_when_inf_and_sum_are_present() {
     assert_eq!(rows[0].histogram_bounds, vec![0.5]);
     assert_eq!(rows[0].histogram_counts, vec![2, 8]);
     assert_eq!(rows[0].count, 10);
+}
+
+#[test]
+fn bound_sets_get_their_own_series() {
+    let timestamp = now_ms();
+    let route = &[("route", "/cart")];
+    let partial = |timestamp: i64| {
+        fold(WriteRequest {
+            timeseries: vec![
+                bucket("d", route, "0.5", vec![sample(2.0, timestamp)]),
+                bucket("d", route, "+Inf", vec![sample(10.0, timestamp)]),
+                labelled("d_sum", route, vec![sample(12.5, timestamp)]),
+            ],
+            metadata: vec![],
+        })
+    };
+    let complete = fold(WriteRequest {
+        timeseries: vec![
+            bucket("d", route, "0.5", vec![sample(2.0, timestamp)]),
+            bucket("d", route, "1", vec![sample(5.0, timestamp)]),
+            bucket("d", route, "+Inf", vec![sample(10.0, timestamp)]),
+            labelled("d_sum", route, vec![sample(12.5, timestamp)]),
+        ],
+        metadata: vec![],
+    });
+    let first = partial(timestamp);
+    let second = partial(timestamp + 60_000);
+
+    assert_eq!(first[0].histogram_bounds, vec![0.5]);
+    assert_eq!(complete[0].histogram_bounds, vec![0.5, 1.0]);
+    assert_eq!(first[0].attributes, complete[0].attributes);
+    assert_ne!(
+        first[0].series_fingerprint, complete[0].series_fingerprint,
+        "a partial bound set must not share a series with the complete set"
+    );
+    assert_eq!(
+        first[0].series_fingerprint, second[0].series_fingerprint,
+        "the same bound set keeps one series over time"
+    );
 }
 
 #[test]

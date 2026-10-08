@@ -1,7 +1,7 @@
 """Dispatch a scout run from a workflow's "Run scout" step.
 
 The third way a scout run starts, after the coordinator's schedule and the manual `run` endpoint.
-`products/workflows/backend/api/workflow_scout_runs.py` has already proved *which* workflow is
+`products/workflows/backend/presentation/views/workflow_scout_runs.py` has already proved *which* workflow is
 firing; this module decides whether that fire may spend a run, and dispatches it if so.
 
 Two deliberate properties. A trigger is additive to the schedule: it never stamps `last_run_at`, so

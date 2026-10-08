@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews import gnews
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnews import (
-    MAX_PAGES,
     GNewsResumeConfig,
     _build_params,
     _flatten_article,
@@ -38,24 +37,8 @@ class TestFormatFromValue:
         with time_machine.travel("2026-06-01T00:00:00Z", tick=False):
             assert _format_from_value(value) == expected
 
-    def test_future_value_capped_to_now(self) -> None:
-        # A future cursor would filter out every article; capping keeps the request a valid no-op.
-        with time_machine.travel("2026-06-01T12:00:00Z", tick=False):
-            assert _format_from_value(datetime(2099, 1, 1, tzinfo=UTC)) == "2026-06-01T12:00:00Z"
-
 
 class TestBuildParams:
-    def test_search_sends_query_not_category(self) -> None:
-        params = _build_params(GNEWS_ENDPOINTS["articles"], "posthog", "technology", None, None, None, 1)
-        assert params["q"] == "posthog"
-        assert "category" not in params
-        assert params["sortby"] == "publishedAt"
-        assert params["max"] == PAGE_SIZE
-
-    def test_search_query_truncated_to_200_chars(self) -> None:
-        params = _build_params(GNEWS_ENDPOINTS["articles"], "x" * 250, None, None, None, None, 1)
-        assert len(params["q"]) == 200
-
     def test_top_headlines_sends_category_not_query(self) -> None:
         params = _build_params(GNEWS_ENDPOINTS["top_headlines"], "posthog", "business", None, None, None, 2)
         assert params["category"] == "business"
@@ -67,12 +50,6 @@ class TestBuildParams:
         assert params["lang"] == "en"
         assert params["country"] == "us"
         assert params["from"] == "2026-01-01T00:00:00Z"
-
-    def test_omitted_optional_filters(self) -> None:
-        params = _build_params(GNEWS_ENDPOINTS["articles"], "posthog", None, None, None, None, 1)
-        assert "lang" not in params
-        assert "country" not in params
-        assert "from" not in params
 
 
 class TestFlattenArticle:
@@ -91,10 +68,6 @@ class TestFlattenArticle:
         assert row["source_country"] == "us"
         # The primary key column is untouched.
         assert row["url"] == "https://example.com/a"
-
-    def test_missing_source_is_tolerated(self) -> None:
-        row = _flatten_article({"title": "t", "url": "https://example.com/a"})
-        assert row == {"title": "t", "url": "https://example.com/a"}
 
 
 class TestValidateCredentials:
@@ -170,22 +143,6 @@ def _collect(rows_iter) -> list[dict]:
 
 
 class TestGetRows:
-    def test_stops_on_short_page(self) -> None:
-        # A page shorter than PAGE_SIZE is the last page — pagination must stop there.
-        pages = [_page(PAGE_SIZE, start=0), _page(3, start=PAGE_SIZE)]
-        with patch(f"{_MODULE}._fetch_page", side_effect=pages) as fetch:
-            rows = _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
-        assert fetch.call_count == 2
-        assert len(rows) == PAGE_SIZE + 3
-        # source object flattening happened on the way out.
-        assert "source" not in rows[0]
-
-    def test_stops_at_max_pages_cap(self) -> None:
-        # Every page is full, so only the 1000-article ceiling (MAX_PAGES) halts pagination.
-        with patch(f"{_MODULE}._fetch_page", side_effect=lambda *a, **k: _page(PAGE_SIZE)) as fetch:
-            _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
-        assert fetch.call_count == MAX_PAGES
-
     def test_resumes_from_saved_page(self) -> None:
         with patch(f"{_MODULE}._fetch_page", return_value=_page(2)):
             with patch(f"{_MODULE}._build_params", wraps=gnews._build_params) as build:

@@ -21,6 +21,11 @@ from products.signals.dags.inbox_ranking.training.calibration import (
     calibration_buckets,
     expected_calibration_error,
 )
+from products.signals.dags.inbox_ranking.training.classification import (
+    UNKNOWN_THRESHOLD,
+    ClassificationMetrics,
+    classification_metrics,
+)
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
 
@@ -64,13 +69,18 @@ class HeadMetrics:
     holdout_logloss: float | None = None
     holdout_positive_rate: float | None = None
     # The mean predicted score next to `holdout_positive_rate`, the rate it was predicting, and the
-    # decile error between them. Both read the rows the head was capped to, and `cap_examples` keeps
-    # every positive, so a family under a row budget reports its sample's raised rate. Read per family.
-    # Both also read the train-only fit, while the candidate that ships and the unseen side grades is
+    # decile error between them. Both read the rows the head was capped to. `cap_examples` keeps whole
+    # days, so the rate is the population rate of the kept window. Both also read the train-only fit, while the candidate that ships and the unseen side grades is
     # the refit on every row. A refit moves the predicted probabilities without moving their rank, so
     # part of a gap to the unseen numbers is the refit rather than holdout optimism.
     holdout_mean_score: float | None = None
     holdout_expected_calibration_error: float | None = None
+    # The holdout graded at the positive rate of the train-only rows, the threshold fixed before the
+    # holdout outcomes are read.
+    holdout_classification: ClassificationMetrics = UNKNOWN_THRESHOLD
+    # The positive rate of every row the refit that ships was fit on. The unseen grades of this
+    # model read it as their threshold, so it is saved here rather than derived from the unseen rows.
+    refit_classification_threshold: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +100,8 @@ class HeadMetrics:
             "holdout_positive_rate": self.holdout_positive_rate,
             "holdout_mean_score": self.holdout_mean_score,
             "holdout_expected_calibration_error": self.holdout_expected_calibration_error,
+            **self.holdout_classification.as_dict(prefix="holdout_"),
+            "refit_classification_threshold": self.refit_classification_threshold,
         }
 
 
@@ -142,7 +154,8 @@ def train_head(
     if rows.empty:
         return None
     test = holdout_mask(rows, holdout_days).to_numpy()
-    x = rows[list(feature_names)].astype(float)
+    # float32 is what XGBoost bins internally, and it halves the largest allocation of a wide set.
+    x = rows[list(feature_names)].astype(np.float32)
     y = rows["label"].to_numpy(dtype=int)
     x_train, y_train, x_test, y_test = x[~test], y[~test], x[test], y[test]
     if len(y_train) == 0 or y_train.sum() == 0 or y_train.sum() == len(y_train):
@@ -188,6 +201,8 @@ def train_head(
         holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
         holdout_mean_score=float(holdout_scores.mean()) if len(y_test) else None,
         holdout_expected_calibration_error=expected_calibration_error(calibration),
+        holdout_classification=classification_metrics(y_test, holdout_scores, float(y_train.mean())),
+        refit_classification_threshold=float(y.mean()),
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)
@@ -206,11 +221,18 @@ def holdout_calibration_rows(trained: Sequence[TrainedHead]) -> list[dict[str, o
     return [row for model in trained for row in bucket_rows(model.calibration, {"head": model.head})]
 
 
-def booster_holdout_auc(
+@frozen
+class HoldoutGrade:
+    auc: float | None
+    expected_calibration_error: float | None
+    positives: int
+
+
+def booster_holdout_grade(
     booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int
-) -> float | None:
-    """AUC of a saved booster on `head`'s holdout rows of `examples`: the same rows `train_head`
-    grades a candidate on, so a champion and a candidate can be compared on one set."""
+) -> HoldoutGrade | None:
+    """AUC and calibration error of a saved booster on `head`'s holdout rows of `examples`: the same
+    rows `train_head` grades a candidate on, so a champion and a candidate can be compared on one set."""
     rows = examples[examples["head"] == head.name]
     if rows.empty:
         return None
@@ -225,6 +247,11 @@ def booster_holdout_auc(
     names = list(booster.feature_names or feature_names)
     if any(name not in rows for name in names):
         return None
-    x = rows.loc[test, names].astype(float)
+    x = rows.loc[test, names].astype(np.float32)
     y = rows.loc[test, "label"].to_numpy(dtype=int)
-    return _auc(y, booster.predict(xgb.DMatrix(x, feature_names=names)))
+    scores = booster.predict(xgb.DMatrix(x, feature_names=names))
+    return HoldoutGrade(
+        auc=_auc(y, scores),
+        expected_calibration_error=expected_calibration_error(calibration_buckets(y.astype(bool), scores)),
+        positives=int(y.sum()),
+    )

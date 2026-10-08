@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
@@ -76,6 +77,12 @@ pub struct Config {
     /// Timeout for a keepalive ping ack before considering the connection dead
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
 
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
@@ -777,6 +784,13 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {

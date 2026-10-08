@@ -2,7 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -10,9 +10,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PropertyOperator
+from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
 
 from posthog.models.utils import uuid7
+from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation, mcp_harness
@@ -26,6 +27,10 @@ TEST_ACCOUNT_FILTERS = [{"key": "$mcp_client_name", "value": [INTERNAL_CLIENT], 
 
 def _tool_name_filter(tool: str) -> list[AnyPropertyFilterDiscriminated]:
     return [EventPropertyFilter(key="$mcp_tool_name", value=[tool], operator=PropertyOperator.EXACT)]
+
+
+def _person_email_filter(email: str) -> list[AnyPropertyFilterDiscriminated]:
+    return [PersonPropertyFilter(key="email", value=[email], operator=PropertyOperator.EXACT)]
 
 
 def _sorted_uuid7s(n: int) -> list[str]:
@@ -106,6 +111,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         distinct_id: str = "anon_seed",
         session_start: datetime | None = None,
         session_end: datetime | None = None,
+        is_error: bool = False,
     ) -> None:
         """Seed one $mcp_tool_call event per element of ``tool_sequence``.
 
@@ -128,12 +134,63 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                     "$session_id": session_id,
                     "$mcp_tool_name": tool,
                     "$mcp_client_name": client_name,
+                    "$mcp_is_error": is_error,
                 },
             )
 
     @parameterized.expand(
         [
+            (
+                "all_sessions",
+                None,
+                None,
+                {"clean": (2, 0), "partial": (2, 1), "all_fail": (1, 1), "docs_fail": (2, 1)},
+            ),
+            ("with_errors", True, None, {"partial": (2, 1), "all_fail": (1, 1), "docs_fail": (2, 1)}),
+            ("without_errors", False, None, {"clean": (2, 0)}),
+            (
+                "with_errors_among_filtered_calls",
+                True,
+                _tool_name_filter("query_run"),
+                {"partial": (2, 1), "all_fail": (1, 1)},
+            ),
+            (
+                "without_errors_among_filtered_calls",
+                False,
+                _tool_name_filter("query_run"),
+                {"clean": (2, 0), "docs_fail": (1, 0)},
+            ),
+        ]
+    )
+    def test_has_errors_filters_by_session_outcome(
+        self,
+        _name: str,
+        has_errors: bool | None,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        expected: dict[str, tuple[int, int]],
+    ) -> None:
+        by_name = {name: str(uuid7()) for name in ("clean", "partial", "all_fail", "docs_fail")}
+        self._seed_session(by_name["clean"], ["query_run", "query_run"])
+        self._seed_session(by_name["partial"], ["query_run"])
+        self._seed_session(by_name["partial"], ["query_run"], is_error=True)
+        self._seed_session(by_name["all_fail"], ["query_run"], is_error=True)
+        self._seed_session(by_name["docs_fail"], ["query_run"])
+        self._seed_session(by_name["docs_fail"], ["docs_search"], is_error=True)
+        flush_persons_and_events()
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0, has_errors=has_errors, properties=properties)
+
+        assert {
+            name: (s.tool_calls, s.error_calls)
+            for name, sid in by_name.items()
+            for s in page.results
+            if s.session_id == sid
+        } == expected
+
+    @parameterized.expand(
+        [
             ("property_filter", _tool_name_filter("query_run"), False, {"kept"}),
+            ("person_property_filter", _person_email_filter("kept@example.com"), False, {"kept"}),
             ("test_accounts", None, True, {"kept"}),
             ("both_together", _tool_name_filter("query_run"), True, {"kept"}),
             ("neither", None, False, {"kept", "dropped"}),
@@ -148,9 +205,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
     ) -> None:
         self.team.test_account_filters = TEST_ACCOUNT_FILTERS
         self.team.save()
+        create_person(team=self.team, distinct_ids=["kept_user"], properties={"email": "kept@example.com"})
+        create_person(team=self.team, distinct_ids=["dropped_user"], properties={"email": "dropped@example.com"})
         by_name = {"kept": str(uuid7()), "dropped": str(uuid7())}
-        self._seed_session(by_name["kept"], ["query_run"])
-        self._seed_session(by_name["dropped"], ["docs_search"], client_name=INTERNAL_CLIENT)
+        self._seed_session(by_name["kept"], ["query_run"], distinct_id="kept_user")
+        self._seed_session(by_name["dropped"], ["docs_search"], client_name=INTERNAL_CLIENT, distinct_id="dropped_user")
+        flush_persons_and_events()
 
         def listed(props: list[AnyPropertyFilterDiscriminated] | None, test_accounts: bool) -> set[str]:
             page = api.list_mcp_sessions(

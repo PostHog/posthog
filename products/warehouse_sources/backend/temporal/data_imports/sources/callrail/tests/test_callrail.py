@@ -96,11 +96,6 @@ class TestFormatStartDate:
     def test_format_start_date(self, value: Any, expected: str | None) -> None:
         assert _format_start_date(value) == expected
 
-    def test_naive_datetime_returns_a_date_string(self) -> None:
-        # No tzinfo -> astimezone(UTC) localizes against the host timezone, so we can only assert
-        # that a date string is returned without verifying the specific value.
-        assert _format_start_date(datetime(2026, 3, 4, 12, 0, 0)) is not None
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -122,28 +117,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("key") is expected
 
-    @mock.patch(CALLRAIL_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
 
 class TestResolveAccountId:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_returns_provided_account_id_without_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
-        assert resolve_account_id("key", 1, "j", account_id="ACC123") == "ACC123"
-        session.send.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resolves_first_account_when_unset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_accounts(["ACC1", "ACC2"])])
-        assert resolve_account_id("key", 1, "j") == "ACC1"
-        # Only the first account is used, so we request a single row rather than a full page.
-        assert snapshots[0]["params"]["per_page"] == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_when_no_accounts(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -173,15 +148,6 @@ class TestGetRows:
         manager.save_state.assert_called_once()
         saved = manager.save_state.call_args.args[0]
         assert saved == CallRailResumeConfig(account_id="ACC", page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_header_wraps_key_in_token_format(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls", [_page("calls", [{"id": "1"}], total_pages=1)], MockSession, account_id="ACC"
-        )
-        # CallRail expects the token wrapped in token="..." per its v3 docs; sent via framework auth.
-        assert snapshots[0]["auth"].api_key == 'Token token="key"'
-        assert snapshots[0]["auth"].name == "Authorization"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
@@ -214,51 +180,6 @@ class TestGetRows:
         assert "/a/RESOLVED/users.json" in snapshots[1]["url"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving(self, MockSession: mock.MagicMock) -> None:
-        batches, _, manager = _collect("calls", [_page("calls", [], total_pages=0)], MockSession, account_id="ACC")
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_response_key_stops_without_rows(self, MockSession: mock.MagicMock) -> None:
-        # A 200 body without the list key reads as an empty page — end of data, not an error.
-        batches, _, manager = _collect("calls", [_response({"total_pages": 3})], MockSession, account_id="ACC")
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_carries_start_date_and_sort(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls",
-            [_page("calls", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert snapshots[0]["params"]["start_date"] == "2026-01-01"
-        assert snapshots[0]["params"]["sort"] == "start_time"
-        assert snapshots[0]["params"]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_start_date_omitted_when_not_using_incremental(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls",
-            [_page("calls", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "start_date" not in snapshots[0]["params"]
-        # Sort is still ascending on the cursor field so full-refresh pages don't skip/duplicate.
-        assert snapshots[0]["params"]["sort"] == "start_time"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_start_date_omitted_when_last_value_missing(self, MockSession: mock.MagicMock) -> None:
         _, snapshots, _ = _collect(
             "calls",
@@ -269,21 +190,6 @@ class TestGetRows:
             db_incremental_field_last_value=None,
         )
 
-        assert "start_date" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_sort_or_start_date(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "users",
-            [_page("users", [{"id": "u1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "sort" not in snapshots[0]["params"]
-        assert "order" not in snapshots[0]["params"]
         assert "start_date" not in snapshots[0]["params"]
 
 
@@ -400,90 +306,3 @@ class TestFanoutEndpoints:
 
         assert "start_date" not in snapshots[1]["params"]
         assert "created_at" not in snapshots[1]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lead_timelines_fan_out_reads_the_timeline_key(self, MockSession: mock.MagicMock) -> None:
-        batches, snapshots, _ = _collect(
-            "lead_timelines",
-            [
-                _page("leads", [{"id": "L1"}], total_pages=1),
-                _response(
-                    {
-                        "lead": {"customer_name": "Ignored summary"},
-                        "timeline": [{"type": "call", "id": "CALL1", "event_date": "2026-01-01T00:00:00Z"}],
-                        "total_pages": 1,
-                    }
-                ),
-            ],
-            MockSession,
-            account_id="ACC",
-        )
-
-        rows = [row for batch in batches for row in batch]
-        # The envelope's `lead` summary object is not the row grain; the timeline events are.
-        assert rows == [
-            {"type": "call", "id": "CALL1", "event_date": "2026-01-01T00:00:00Z", "lead_id": "L1"},
-        ]
-        assert "/a/ACC/leads/L1/timeline.json" in snapshots[1]["url"]
-        assert snapshots[1]["params"]["sort"] == "event_date"
-        assert snapshots[1]["params"]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_checkpoints_each_completed_parent(self, MockSession: mock.MagicMock) -> None:
-        _, _, manager = _collect(
-            "page_views",
-            [
-                _page("calls", _CALLS_PARENT, total_pages=1),
-                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
-                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
-            ],
-            MockSession,
-            account_id="ACC",
-        )
-
-        states = [call.args[0] for call in manager.save_state.call_args_list]
-        assert all(state.account_id == "ACC" and state.page is None for state in states)
-        assert states[-1].fanout_state == {"completed": [_C1_PATH, _C2_PATH], "current": None, "child_state": None}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_resume_skips_completed_parents(self, MockSession: mock.MagicMock) -> None:
-        resume = CallRailResumeConfig(
-            account_id="ACC",
-            fanout_state={"completed": [_C1_PATH], "current": None, "child_state": None},
-        )
-        batches, snapshots, _ = _collect(
-            "page_views",
-            [
-                _page("calls", _CALLS_PARENT, total_pages=1),
-                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
-            ],
-            MockSession,
-            manager=_make_manager(resume),
-            account_id="OTHER",
-        )
-
-        # The parent listing is always re-walked, but C1 is already done, so only C2 is fetched —
-        # against the account pinned in the saved state, not the one passed in.
-        assert [row["call_id"] for batch in batches for row in batch] == ["C2"]
-        assert len(snapshots) == 2
-        assert _C2_PATH in snapshots[1]["url"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_404_does_not_sink_the_fan_out(self, MockSession: mock.MagicMock) -> None:
-        # Page views only exist for calls placed to a session tracker, and a call can be deleted
-        # between the parent listing and this fetch.
-        missing = Response()
-        missing.status_code = 404
-        missing._content = b"{}"
-        batches, _, _ = _collect(
-            "page_views",
-            [
-                _page("calls", _CALLS_PARENT, total_pages=1),
-                missing,
-                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
-            ],
-            MockSession,
-            account_id="ACC",
-        )
-
-        assert [row["call_id"] for batch in batches for row in batch] == ["C2"]

@@ -195,6 +195,48 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(payload[0]["data"], {"taskId": "t1", "taskRunId": "r1"})
 
     @patch("posthog.push_notifications.requests.post")
+    def test_send_push_retries_mixed_expo_projects_per_device(self, mock_post):
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[a]", platform="ios")
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[b]", platform="ios")
+
+        class _MixedProjectResponse:
+            status_code = 400
+
+            def json(self_inner):
+                return {"errors": [{"code": "PUSH_TOO_MANY_EXPERIENCE_IDS"}]}
+
+        mock_post.side_effect = [
+            _MixedProjectResponse(),
+            self._stub_response(ok=["a"]),
+            self._stub_response(ok=["b"]),
+        ]
+
+        accepted = send_push_to_user(self.user, title="posthog", body="task finished")
+
+        self.assertEqual(accepted, 2)
+        self.assertEqual([len(call.kwargs["json"]) for call in mock_post.call_args_list], [2, 1, 1])
+        self.assertEqual(
+            {call.kwargs["json"][0]["to"] for call in mock_post.call_args_list[1:]},
+            {"ExponentPushToken[a]", "ExponentPushToken[b]"},
+        )
+
+    @patch("posthog.push_notifications.logger.warning")
+    @patch("posthog.push_notifications.requests.post")
+    def test_send_push_does_not_log_rejected_token(self, mock_post, mock_warning):
+        UserPushToken.objects.create(user=self.user, token="ExponentPushToken[private]", platform="ios")
+
+        class _RejectedResponse:
+            status_code = 400
+
+            def json(self_inner):
+                return {"errors": [{"code": "INVALID_PUSH_TOKEN", "details": "ExponentPushToken[private]"}]}
+
+        mock_post.return_value = _RejectedResponse()
+
+        self.assertEqual(send_push_to_user(self.user, title="t", body="b"), 0)
+        self.assertNotIn("ExponentPushToken[private]", str(mock_warning.call_args_list))
+
+    @patch("posthog.push_notifications.requests.post")
     def test_send_push_prunes_invalid_tokens(self, mock_post):
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[a]", platform="ios")
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[b]", platform="android")

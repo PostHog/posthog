@@ -3,11 +3,13 @@ owners: []
 rules:
     - match:
           - '/detach_distinct_id.py'
-          - '/fix_missing_person_overrides.py'
           - '/fix_person_id_overrides.py'
           - '/person_property_reconciliation.py'
           - '/tests/test_person_property_reconciliation.py'
-          - '/tests/test_person_property_reconciliation_restore.py'
       owners: team-ingestion
     - match: '/sessions.py'
       owners: team-analytics-platform
+    - match:
+          - '/flag_evaluations_backfill.py'
+          - '/tests/test_flag_evaluations_backfill.py'
+      owners: team-feature-flags

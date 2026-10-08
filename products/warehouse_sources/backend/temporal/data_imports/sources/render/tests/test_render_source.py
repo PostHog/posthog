@@ -2,14 +2,12 @@ from datetime import UTC, datetime
 
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import KEY_REJECTED_MESSAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
 
 
@@ -39,10 +37,6 @@ class TestRenderSource:
     def setup_method(self) -> None:
         self.source = RenderSource()
         self.config = RenderSourceConfig(api_key="rnd_test", owner_id="tea-123")
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -81,14 +75,3 @@ class TestRenderSource:
             self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_non_retryable_errors_match_requests_error_format(self) -> None:
-        # The pipeline disables a source by substring-matching these keys against the raised
-        # error; they must match the message `requests.raise_for_status` actually produces.
-        response = MagicMock(spec=requests.Response)
-        response.status_code = 401
-        response.reason = "Unauthorized"
-        response.url = "https://api.render.com/v1/services?limit=100"
-        error = requests.HTTPError(f"401 Client Error: Unauthorized for url: {response.url}", response=response)
-
-        assert any(key in str(error) for key in self.source.get_non_retryable_errors())

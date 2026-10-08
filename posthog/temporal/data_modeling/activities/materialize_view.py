@@ -15,16 +15,20 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
+from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -36,6 +40,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -68,7 +73,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -122,8 +127,35 @@ class _DescribedColumn:
     ch_type: str
 
 
+def _plan_prompt_jev(
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    context: HogQLContext,
+    resolver_factory: ResolverFactory,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Run the model's jev calls up front, so the query that materializes reads their results
+    from external tables registered on ``context``. The printer refuses a jev call it meets.
+
+    Planning types the query before any model call, so it resolves the view tree too and needs
+    the same cycle, depth and deadline bounds the printing pass gets."""
+    planned, tables = HogQLQueryExecutor(
+        query=query_node,
+        team=team,
+        context=context,
+        modifiers=context.modifiers,
+        limit_context=LimitContext.SAVED_QUERY,
+        resolver_factory=resolver_factory,
+    ).plan_prompt_jev()
+    for table in tables:
+        table.register(context)
+    return planned
+
+
 async def _describe_columns(
-    printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
+    printed: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str] | None,
+    external_tables: list[ClickHouseExternalTable],
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
@@ -133,6 +165,7 @@ async def _describe_columns(
             query_parameters=query_parameters,
             query_id=str(uuid.uuid4()),
             settings=query_settings,
+            external_tables=external_tables,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
     columns: list[_DescribedColumn] = []
@@ -417,6 +450,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -664,6 +698,13 @@ async def hogql_table(
         allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
     )
 
+    if PromptJevFinder.contains(query_node):
+        # A factory of its own: the deadline is wall clock, and the jev calls between the two
+        # passes would otherwise spend the printing pass's budget.
+        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(
+            query_node, team, context, bounded_resolver_factory_for_view(view_name)
+        )
+
     factory = bounded_resolver_factory_for_view(view_name)
     prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
@@ -703,7 +744,9 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(printed, context.values, DESCRIBE_QUERY_SETTINGS)
+        described_columns = await _describe_columns(
+            printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
+        )
     except ClickHouseError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
@@ -711,7 +754,9 @@ async def hogql_table(
             "DESCRIBE with local subqueries failed, retrying with the untouched query", error=str(error)
         )
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
-        described_columns = await _describe_columns(untouched, context.values, None)
+        described_columns = await _describe_columns(
+            untouched, context.values, None, list(context.external_tables.values())
+        )
 
     _reject_duplicate_output_columns(described_columns)
 
@@ -780,20 +825,24 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        async for batch in client.astream_query_as_arrow(
-            arrow_printed,
-            query_parameters=context.values,
-            on_schema=capture_arrow_schema,
-        ):
-            batches_size = batches_size + batch.nbytes
-            batches.append(batch)
+        with tags_context(**context.read_tags()):
+            async for batch in client.astream_query_as_arrow(
+                arrow_printed,
+                query_parameters=context.values,
+                on_schema=capture_arrow_schema,
+                external_tables=list(context.external_tables.values()),
+            ):
+                batches_size = batches_size + batch.nbytes
+                batches.append(batch)
 
-            if batches_size >= MB_100_IN_BYTES:
-                await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-                yield (_combine_batches(batches), ch_typings_pairs)
-                yielded_results = True
-                batches_size = 0
-                batches = []
+                if batches_size >= MB_100_IN_BYTES:
+                    await logger.adebug(
+                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                    )
+                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yielded_results = True
+                    batches_size = 0
+                    batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -873,7 +922,8 @@ async def _build_person_property_sink(
         return sink if await sink.should_run() else None
     except Exception as e:
         await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return None
 
 
@@ -890,7 +940,8 @@ async def _account_property_sync_enabled(
         return await sink.should_run()
     except Exception as error:
         await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
-        capture_exception(error)
+        if not is_transient_db_error(error):
+            capture_exception(error)
         return False
 
 
@@ -1222,6 +1273,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     objects = await _get_matview_input_objects(inputs)
     bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)

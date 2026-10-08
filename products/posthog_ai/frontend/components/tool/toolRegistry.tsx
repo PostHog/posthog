@@ -45,8 +45,10 @@ export interface ToolRendererProps {
 type ToolRendererComponent = ComponentType<ToolRendererProps> | LazyExoticComponent<ComponentType<ToolRendererProps>>
 
 export interface ToolRegistryEntry {
-    /** Keep results such as charts, plans and questions outside collapsed activity groups. */
+    /** Keep results such as charts outside collapsed activity groups. Quill keeps only a closed run's last one. */
     keepVisible?: boolean
+    /** Never fold into an activity group, because the user acts on it, like a plan or a question. */
+    pinned?: boolean
     /**
      * Registry key. For single-exec PostHog tools, this is the **inner** tool name parsed from
      * `rawInput.command` (e.g. "execute-sql", "insight-create"); for `exec`'s discovery verbs,
@@ -158,7 +160,7 @@ const POSTHOG_CODE_TOOLS: { name: string; displayName: string; icon: JSX.Element
 const entries = new Map<string, ToolRegistryEntry>(
     [
         ...BUILTIN_TOOLS.flatMap(({ keys, ...entry }) =>
-            keys.map((key) => ({ key, ...entry, Renderer: BuiltinToolRenderer, keepVisible: key === 'ExitPlanMode' }))
+            keys.map((key) => ({ key, ...entry, Renderer: BuiltinToolRenderer, pinned: key === 'ExitPlanMode' }))
         ),
         ...['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].map((key) => ({
             key,
@@ -179,7 +181,7 @@ const entries = new Map<string, ToolRegistryEntry>(
             displayName: 'Question',
             icon: <IconAI />,
             Renderer: QuestionRenderer,
-            keepVisible: true,
+            pinned: true,
         },
         ...posthogAiToolRenderers,
     ].map((entry) => [entry.key, entry])

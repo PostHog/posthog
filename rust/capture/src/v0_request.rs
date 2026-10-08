@@ -153,9 +153,6 @@ pub struct ProcessingContext {
     /// `AI_MAX_EVENT_BYTES`. `0` disables the ceiling. See
     /// [`exceeds_max_ai_event_bytes`].
     pub ai_max_event_bytes: u64,
-    /// How this deployment decides an event name is on the AI lane, from
-    /// `CAPTURE_AI_LANE_PREDICATE`. See [`AiLanePredicate`].
-    pub ai_lane_predicate: AiLanePredicate,
     /// SDK identity snapshotted from the batch's first event, for ingestion
     /// warning attribution. Captured at batch construction because the events
     /// are typed there; downstream stages hold serialized payloads and would
@@ -185,72 +182,18 @@ pub enum DataType {
     ExceptionErrorTracking,
     SnapshotMain,
     /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
-    /// kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, so every
+    /// kafka sink maps it to `CAPTURE_OUTPUT_AI_MAIN_TOPIC`, so every
     /// deployment that accepts AI traffic must configure that topic. Like
     /// heatmaps and exceptions, AI events never reroute historical.
     AiEvents,
 }
 
-/// AI lane membership under [`AiLanePredicate::Prefix`]. The ingestion AI pipeline
-/// admits by the same prefix (`isAiEventName` in `nodejs/src/ingestion/common/ai-event-types.ts`).
 pub const AI_LANE_NAME_PREFIX: &str = "$ai_";
 
-/// AI lane membership under [`AiLanePredicate::Allowlist`]. Remove once every
-/// environment runs [`AiLanePredicate::Prefix`].
-pub const AI_EVENT_NAMES: &[&str] = &[
-    "$ai_generation",
-    "$ai_embedding",
-    "$ai_evaluation",
-    "$ai_span",
-    "$ai_trace",
-    "$ai_metric",
-    "$ai_feedback",
-    "$ai_tag",
-    "$ai_generation_summary",
-    "$ai_trace_summary",
-    "$ai_evaluation_report",
-];
-
-/// How a deployment decides an event name is on the AI lane (`CAPTURE_AI_LANE_PREDICATE`).
-/// Every "is this an AI event" check goes through [`AiLanePredicate::is_ai_event`] so
-/// one deployment never mixes the two answers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum AiLanePredicate {
-    /// Exact membership in [`AI_EVENT_NAMES`].
-    #[default]
-    Allowlist,
-    /// Any name starting with [`AI_LANE_NAME_PREFIX`].
-    Prefix,
-}
-
-impl AiLanePredicate {
-    pub fn is_ai_event(self, name: &str) -> bool {
-        match self {
-            Self::Allowlist => AI_EVENT_NAMES.contains(&name),
-            Self::Prefix => name.starts_with(AI_LANE_NAME_PREFIX),
-        }
-    }
-
-    pub fn as_tag(self) -> &'static str {
-        match self {
-            Self::Allowlist => "allowlist",
-            Self::Prefix => "prefix",
-        }
-    }
-}
-
-impl std::str::FromStr for AiLanePredicate {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_ref() {
-            "allowlist" => Ok(Self::Allowlist),
-            "prefix" => Ok(Self::Prefix),
-            _ => Err(format!(
-                "Unknown AI lane predicate: {s} (expected `allowlist` or `prefix`)"
-            )),
-        }
-    }
+/// The single AI-lane membership rule; the ingestion AI pipeline admits by the
+/// same prefix (`isAiEventName` in `nodejs/src/ingestion/common/ai-event-types.ts`).
+pub fn is_ai_event(name: &str) -> bool {
+    name.starts_with(AI_LANE_NAME_PREFIX)
 }
 
 /// Whether an AI-lane event's body exceeds the deployment's per-event ceiling.
@@ -276,23 +219,19 @@ impl DataType {
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
-    /// AI events (per [`AiLanePredicate::is_ai_event`]) divert to `AiEvents`
+    /// AI events (per [`is_ai_event`]) divert to `AiEvents`
     /// on every deployment, winning over historical (in v1 the historical
     /// reroute only applies to the analytics-main destination). Mirrors v1's
     /// `destination_for_event_name`.
     ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
     /// separate endpoint and never flow through analytics processing.
-    pub fn from_event_name(
-        event_name: &str,
-        historical_migration: bool,
-        ai_lane_predicate: AiLanePredicate,
-    ) -> Self {
+    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
         match event_name {
             "$$client_ingestion_warning" => Self::ClientIngestionWarning,
             "$exception" => Self::ExceptionErrorTracking,
             "$$heatmap" => Self::HeatmapMain,
-            _ if ai_lane_predicate.is_ai_event(event_name) => Self::AiEvents,
+            _ if is_ai_event(event_name) => Self::AiEvents,
             _ if historical_migration => Self::AnalyticsHistorical,
             _ => Self::AnalyticsMain,
         }
@@ -412,127 +351,48 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
-    use super::{AiLanePredicate, CaptureError, Compression, DataType, RawRequest};
+    use super::{CaptureError, Compression, DataType, RawRequest};
 
     /// Mirrors v1's `destination_for_event_name` mapping tests: the
     /// dedicated-name lanes always win, an AI name diverts on every deployment
     /// (beating historical), and everything else falls through to
-    /// main/historical per the batch flag. The AI lane membership differs by
-    /// predicate only for `$ai_`-prefixed names outside the allowlist.
+    /// main/historical per the batch flag.
     #[rstest::rstest]
-    // Dedicated-name lanes are unaffected by the historical flag or predicate.
-    #[case(
-        "$exception",
-        false,
-        DataType::ExceptionErrorTracking,
-        DataType::ExceptionErrorTracking
-    )]
-    #[case(
-        "$exception",
-        true,
-        DataType::ExceptionErrorTracking,
-        DataType::ExceptionErrorTracking
-    )]
-    #[case("$$heatmap", false, DataType::HeatmapMain, DataType::HeatmapMain)]
-    #[case("$$heatmap", true, DataType::HeatmapMain, DataType::HeatmapMain)]
-    #[case(
-        "$$client_ingestion_warning",
-        false,
-        DataType::ClientIngestionWarning,
-        DataType::ClientIngestionWarning
-    )]
-    #[case(
-        "$$client_ingestion_warning",
-        true,
-        DataType::ClientIngestionWarning,
-        DataType::ClientIngestionWarning
-    )]
+    // Dedicated-name lanes are unaffected by the historical flag.
+    #[case("$exception", false, DataType::ExceptionErrorTracking)]
+    #[case("$exception", true, DataType::ExceptionErrorTracking)]
+    #[case("$$heatmap", false, DataType::HeatmapMain)]
+    #[case("$$heatmap", true, DataType::HeatmapMain)]
+    #[case("$$client_ingestion_warning", false, DataType::ClientIngestionWarning)]
+    #[case("$$client_ingestion_warning", true, DataType::ClientIngestionWarning)]
     // Non-AI events keep the main/historical split.
-    #[case("$pageview", false, DataType::AnalyticsMain, DataType::AnalyticsMain)]
-    #[case(
-        "custom_event",
-        false,
-        DataType::AnalyticsMain,
-        DataType::AnalyticsMain
-    )]
-    #[case(
-        "$pageview",
-        true,
-        DataType::AnalyticsHistorical,
-        DataType::AnalyticsHistorical
-    )]
+    #[case("$pageview", false, DataType::AnalyticsMain)]
+    #[case("custom_event", false, DataType::AnalyticsMain)]
+    #[case("$pageview", true, DataType::AnalyticsHistorical)]
     // Names that only look like the prefix never divert.
-    #[case(
-        "ai_generation",
-        false,
-        DataType::AnalyticsMain,
-        DataType::AnalyticsMain
-    )]
-    #[case(
-        "$AI_generation",
-        false,
-        DataType::AnalyticsMain,
-        DataType::AnalyticsMain
-    )]
-    #[case("$ai", false, DataType::AnalyticsMain, DataType::AnalyticsMain)]
-    // Allowlisted AI events divert under both predicates, and win over historical.
-    #[case("$ai_generation", false, DataType::AiEvents, DataType::AiEvents)]
-    #[case("$ai_span", false, DataType::AiEvents, DataType::AiEvents)]
-    #[case("$ai_trace", false, DataType::AiEvents, DataType::AiEvents)]
-    #[case(
-        "$ai_generation_summary",
-        false,
-        DataType::AiEvents,
-        DataType::AiEvents
-    )]
-    #[case("$ai_generation", true, DataType::AiEvents, DataType::AiEvents)]
-    // Prefixed-but-unlisted names divert only under the prefix predicate.
-    #[case("$ai_call", false, DataType::AnalyticsMain, DataType::AiEvents)]
-    #[case(
-        "$ai_generation_enriched",
-        false,
-        DataType::AnalyticsMain,
-        DataType::AiEvents
-    )]
-    #[case(
-        "$ai_model_failover",
-        false,
-        DataType::AnalyticsMain,
-        DataType::AiEvents
-    )]
-    #[case(
-        "$ai_model_failover",
-        true,
-        DataType::AnalyticsHistorical,
-        DataType::AiEvents
-    )]
-    #[case("$ai_", false, DataType::AnalyticsMain, DataType::AiEvents)]
+    #[case("ai_generation", false, DataType::AnalyticsMain)]
+    #[case("$AI_generation", false, DataType::AnalyticsMain)]
+    #[case("$ai", false, DataType::AnalyticsMain)]
+    // Every `$ai_` name diverts, and wins over historical.
+    #[case("$ai_generation", false, DataType::AiEvents)]
+    #[case("$ai_span", false, DataType::AiEvents)]
+    #[case("$ai_trace", false, DataType::AiEvents)]
+    #[case("$ai_generation_summary", false, DataType::AiEvents)]
+    #[case("$ai_generation", true, DataType::AiEvents)]
+    #[case("$ai_call", false, DataType::AiEvents)]
+    #[case("$ai_generation_enriched", false, DataType::AiEvents)]
+    #[case("$ai_model_failover", false, DataType::AiEvents)]
+    #[case("$ai_model_failover", true, DataType::AiEvents)]
+    #[case("$ai_", false, DataType::AiEvents)]
     fn from_event_name_mapping(
         #[case] event_name: &str,
         #[case] historical_migration: bool,
-        #[case] expected_allowlist: DataType,
-        #[case] expected_prefix: DataType,
+        #[case] expected: DataType,
     ) {
         assert_eq!(
-            DataType::from_event_name(event_name, historical_migration, AiLanePredicate::Allowlist),
-            expected_allowlist
+            DataType::from_event_name(event_name, historical_migration),
+            expected
         );
-        assert_eq!(
-            DataType::from_event_name(event_name, historical_migration, AiLanePredicate::Prefix),
-            expected_prefix
-        );
-    }
-
-    #[rstest::rstest]
-    #[case("allowlist", Ok(AiLanePredicate::Allowlist))]
-    #[case(" Prefix ", Ok(AiLanePredicate::Prefix))]
-    #[case("regex", Err(()))]
-    #[case("", Err(()))]
-    fn ai_lane_predicate_from_str(
-        #[case] raw: &str,
-        #[case] expected: Result<AiLanePredicate, ()>,
-    ) {
-        assert_eq!(raw.parse::<AiLanePredicate>().map_err(|_| ()), expected);
     }
 
     #[test]

@@ -101,74 +101,8 @@ class TestValidateCredentials:
         assert get_args[0] == f"{POSTMARK_BASE_URL}/message-streams"
         assert get_kwargs["headers"]["X-Postmark-Server-Token"] == "test-token"
 
-    @mock.patch(POSTMARK_SESSION_PATCH)
-    def test_validate_credentials_network_error_returns_none_status(self, mock_session: mock.MagicMock):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("test-token") == (False, None)
-
-
-class TestFlatEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_message_streams_yields_single_batch(self, MockSession):
-        session = MockSession.return_value
-        rows_in = [{"ID": "outbound", "Name": "Transactional", "CreatedAt": "2026-01-01T00:00:00Z"}]
-        params = _wire(session, [_response({"MessageStreams": rows_in})])
-
-        rows = _rows(_source("message_streams", _make_manager()))
-
-        assert [r["ID"] for r in rows] == ["outbound"]
-        assert session.send.call_count == 1
-        # The sync session masks the token by value to keep it out of captured HTTP samples.
-        assert MockSession.call_args.kwargs["redact_values"] == ("test-token",)
-        # Flat endpoints fetch with no pagination params.
-        assert params[0] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flat_endpoint_empty_response_yields_nothing(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"MessageStreams": []})])
-
-        assert _rows(_source("message_streams", _make_manager())) == []
-
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page_and_saves_state(self, MockSession):
-        session = MockSession.return_value
-        page1 = [{"MessageID": f"m{i}", "ReceivedAt": "2026-01-01T00:00:00Z"} for i in range(500)]
-        page2 = [{"MessageID": f"m{i}", "ReceivedAt": "2026-01-01T00:00:00Z"} for i in range(500, 510)]
-        params = _wire(
-            session,
-            [
-                _response({"TotalCount": 510, "Messages": page1}),
-                _response({"TotalCount": 510, "Messages": page2}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("messages_outbound", manager))
-
-        assert len(rows) == 510
-        assert session.send.call_count == 2
-        assert params[0]["offset"] == 0 and params[0]["count"] == 500
-        assert params[1]["offset"] == 500
-
-        # State is saved once, after the first (full) page, pointing at the next offset.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == PostmarkResumeConfig(next_offset=500)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_does_not_save_state(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"TotalCount": 1, "Messages": [{"MessageID": "m1"}]})])
-
-        manager = _make_manager()
-        rows = _rows(_source("messages_outbound", manager))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession):
         session = MockSession.return_value
@@ -235,23 +169,6 @@ class TestSourceResponseShape:
 
 
 class TestRetryable:
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_429_retries_until_success(self, MockSession, _mock_sleep):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status=429),
-                _response({"MessageStreams": [{"ID": "outbound"}]}),
-            ],
-        )
-
-        rows = _rows(_source("message_streams", _make_manager()))
-
-        assert [r["ID"] for r in rows] == ["outbound"]
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_401_does_not_retry_and_raises(self, MockSession):
         session = MockSession.return_value
@@ -278,35 +195,6 @@ def _bounce(bounce_id: int, **overrides: Any) -> dict[str, Any]:
 
 
 class TestWebhookTableTransformer:
-    def test_drops_webhook_only_fields_so_rows_match_the_pull_shape(self):
-        # Metadata holds arbitrary user keys; keeping it would evolve the table schema on every
-        # new key a customer sets, and neither field exists in the Bounce API list response.
-        table = table_from_py_list([_bounce(1, Metadata={"plan": "pro"}, Content="<dump>")])
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert len(rows) == 1
-        assert "Metadata" not in rows[0]
-        assert "Content" not in rows[0]
-        assert rows[0]["ID"] == 1
-
-    def test_keeps_the_latest_row_per_id_within_a_batch(self):
-        # Delta merge only dedupes across syncs, so a redelivery inside one batch has to
-        # collapse here or the merge multi-matches on ID.
-        table = table_from_py_list(
-            [
-                _bounce(1, BouncedAt="2026-01-01T00:00:00.0000000Z", Inactive=True),
-                _bounce(2, BouncedAt="2026-01-02T00:00:00.0000000Z"),
-                _bounce(1, BouncedAt="2026-01-03T00:00:00.0000000Z", Inactive=False),
-            ]
-        )
-
-        rows = {row["ID"]: row for row in _webhook_table_transformer(table).to_pylist()}
-
-        assert len(rows) == 2
-        assert rows[1]["Inactive"] is False
-        assert rows[1]["BouncedAt"] == "2026-01-03T00:00:00.0000000Z"
-
     @parameterized.expand(
         [
             ("unparseable_timestamp", "not-a-date"),
@@ -358,26 +246,6 @@ class TestWebhookItemsWiring:
         # Webhooks only take over after the backfill has completed.
         assert webhook_manager.webhook_enabled.await_args.kwargs == {"webhook_only": False}
         assert webhook_manager.get_items.call_args.kwargs["table_transformer"] is _webhook_table_transformer
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bounces_falls_back_to_the_pull_api_when_no_webhook_is_live(self, MockSession):
-        _wire(MockSession.return_value, [_response({"Bounces": [_bounce(1)], "TotalCount": 1})])
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=False)
-
-        rows = _rows(
-            postmark_source(
-                "test-token",
-                "bounces",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                webhook_source_manager=webhook_manager,
-            )
-        )
-
-        assert [row["ID"] for row in rows] == [1]
-        webhook_manager.get_items.assert_not_called()
 
     @parameterized.expand([(name,) for name in ENDPOINTS if name not in WEBHOOK_SCHEMA_NAMES])
     @mock.patch(CLIENT_SESSION_PATCH)

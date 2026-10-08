@@ -106,21 +106,21 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
             [] as ClusteringJob[],
             {
                 loadJobs: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsList() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
                 createJob: async (payload: Partial<ClusteringJob>) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsCreate() from 'products/ai_observability/frontend/generated/api' instead.
                     await api.create(
                         `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`,
                         payload
                     )
                     lemonToast.success('Clustering job created')
                     // Reload to get server-assigned fields
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsList() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
@@ -128,13 +128,13 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
                 },
                 updateJob: async (payload: Partial<ClusteringJob> & { id: number }) => {
                     const { id, ...data } = payload
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsPartialUpdate() from 'products/ai_observability/frontend/generated/api' instead.
                     await api.update(
                         `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${id}/`,
                         data
                     )
                     lemonToast.success('Clustering job updated')
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringJobsList() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
@@ -167,7 +167,7 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
         },
         deleteJob: async ({ jobId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsClusteringJobsDestroy() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`)
                 lemonToast.success('Clustering job deleted')
                 posthog.capture('llma clustering job deleted', { job_id: jobId })

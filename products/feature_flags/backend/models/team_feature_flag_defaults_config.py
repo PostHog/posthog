@@ -1,10 +1,4 @@
-import logging
-
 from django.db import models
-
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamFeatureFlagDefaultsConfig(models.Model):
@@ -15,6 +9,3 @@ class TeamFeatureFlagDefaultsConfig(models.Model):
     # Matches FeatureFlag.filters["groups"] structure:
     # [{"properties": [...], "rollout_percentage": N, "variant": null}, ...]
     default_groups = models.JSONField(default=list)
-
-
-register_team_extension_signal(TeamFeatureFlagDefaultsConfig, logger=logger)

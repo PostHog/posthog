@@ -79,6 +79,57 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
+    @parameterized.expand(
+        [
+            ("select 1 as count, 'hello' as category", [("count", "Int64"), ("category", "String")]),
+            ("select 1 + 2", [("plus(1, 2)", "Int64")]),
+            ("select toNullable(1) as value", [("value", "Nullable(Int64)")]),
+            ("select * from (select 1 as count, 'hello' as category)", [("count", "Int64"), ("category", "String")]),
+            ("with totals as (select 1 as count) select count from totals", [("count", "Int64")]),
+            ("select 1 as value union all select 1.5 as value", [("value", "Float64")]),
+            (
+                "select toDate(timestamp) as day, count() as total from events group by day",
+                [("day", "Date"), ("total", "Int64")],
+            ),
+            ("select 1, 1", [("1", "Int64"), ("1", "Int64")]),
+            ("select throwIf(0, 'not reached') as value", [("value", "Nullable(Unknown)")]),
+        ]
+    )
+    def test_output_types(self, query: str, expected: list[tuple[str, str]]) -> None:
+        response = get_hogql_metadata(
+            HogQLMetadata(query=query, language=HogLanguage.HOG_QL, includeOutputTypes=True), self.team
+        )
+        self.assertTrue(response.isValid, response.errors)
+        self.assertIsNotNone(response.output_columns)
+        self.assertEqual([(column.name, column.type) for column in response.output_columns or []], expected)
+
+    @parameterized.expand([("select 1", True), ("select missing from events", False)])
+    def test_output_types_are_opt_in_and_invalid_queries_have_no_schema(self, query: str, valid: bool) -> None:
+        response = self._select(query)
+        self.assertEqual(response.isValid, valid)
+        self.assertIsNone(response.output_columns)
+        if not valid:
+            response = get_hogql_metadata(
+                HogQLMetadata(query=query, language=HogLanguage.HOG_QL, includeOutputTypes=True), self.team
+            )
+            self.assertFalse(response.isValid)
+            self.assertIsNone(response.output_columns)
+
+    def test_output_types_through_query_api(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLMetadata",
+                    "language": "hogQL",
+                    "query": "select toNullable(1) as total",
+                    "includeOutputTypes": True,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["output_columns"], [{"name": "total", "type": "Nullable(Int64)"}])
+
     def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(

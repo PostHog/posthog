@@ -10,8 +10,8 @@
 //! wrong deployment accepts traffic no restriction there governs, which is
 //! silent rather than loud, so the split is asserted directly here.
 //!
-//! The pipeline-level gates cover the other half — an event name off the AI
-//! allowlist arriving on a path that IS registered: `events::analytics` for the
+//! The pipeline-level gates cover the other half — an event name without the
+//! `$ai_` prefix arriving on a path that IS registered: `events::analytics` for the
 //! v0 paths, `v1::analytics::process` for `/i/v1/ai/events`.
 
 #[path = "common/integration_utils.rs"]

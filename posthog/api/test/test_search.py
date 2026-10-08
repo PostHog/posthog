@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
+from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
@@ -16,7 +16,7 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestSearch(APIBaseTest):
@@ -191,9 +191,9 @@ class TestSearch(APIBaseTest):
         self.assertEqual(results[0]["extra_fields"]["name"], "second feature")
 
     def test_hog_flows(self):
-        HogFlow.objects.create(name="first workflow", team=self.team)
-        HogFlow.objects.create(name="second workflow", team=self.team)
-        HogFlow.objects.create(name="third workflow", team=self.team)
+        create_workflow_for_test(team_id=self.team.id, name="first workflow")
+        create_workflow_for_test(team_id=self.team.id, name="second workflow")
+        create_workflow_for_test(team_id=self.team.id, name="third workflow")
 
         response = self.client.get("/api/projects/@current/search?q=sec&entities=hog_flow")
 
@@ -276,7 +276,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_with:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -286,7 +286,7 @@ class TestSearch(APIBaseTest):
 
         with CaptureQueriesContext(connection) as ctx_without:
             search_entities(
-                entities=set(ENTITY_MAP.keys()),
+                entities=set(SEARCHABLE_ENTITIES),
                 query="sec",
                 project_id=self.team.project_id,
                 view=mock_view,
@@ -295,7 +295,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        assert len(ctx_without) == 1
+        # One query for the unioned entities, one for the workflows merged in through the facade.
+        assert len(ctx_without) == 2
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

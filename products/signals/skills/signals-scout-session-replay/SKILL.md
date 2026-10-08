@@ -32,6 +32,12 @@ Two mechanical facts anchor everything. First, **recording capture is config-gat
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a corroborated capture cliff or friction cluster you'd stand behind as a standalone inbox item a human will act on. A cliff or cluster the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the session-replay-specific framing — do not restate the generic mechanics.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Replay SQL footguns (read first)
 
 Four mechanical traps that produce silently-wrong results — every replay query in this skill is shaped around them:
@@ -272,7 +278,7 @@ LIMIT 50
 Zero rows → the project doesn't use replay vision; skip this pattern without comment. Expect test/abandoned scanners in the tail — judge by `observations_7d`, and write a `noise:` entry for dead ones. Two angles on a live roster:
 
 - **Cross-session aggregation** — observations carry flattened `scanner_output_*` properties (`scanner_output_verdict`, `scanner_output_tags`, `scanner_output_friction_points`). The scanner judges one session at a time; nobody aggregates. A monitor's `'yes'` rate stepping up week-over-week, or the same friction point / tag recurring across many sessions with persons spread, is a finding the per-session scanner cannot surface.
-- **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-retrieve` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.
+- **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-get` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.
 - **Dedupe courtesy** — scanners with `emits_signals: true` already emit per-session signals into this same inbox: cite them, don't repeat them (check `inbox-reports-list` first).
 
 Don't create, update, or trigger scanners — your scopes are read-only there. If a friction cluster deserves continuous watching, _recommend_ a scanner (name the type, prompt sketch, and target query) as part of the finding and let the team decide.
@@ -342,7 +348,7 @@ Direct calls (read-only):
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
 - `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster.
-- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
+- `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-get` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
 - `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties exist before aggregating. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 

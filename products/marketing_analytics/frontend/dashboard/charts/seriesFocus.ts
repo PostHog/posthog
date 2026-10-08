@@ -27,7 +27,7 @@ export function focusedSeries(
     index: number,
     theme: ChartTheme
 ): { color: string } | null {
-    if (!focused) {
+    if (focused === null) {
         return null
     }
     const palette = theme.colors ?? []

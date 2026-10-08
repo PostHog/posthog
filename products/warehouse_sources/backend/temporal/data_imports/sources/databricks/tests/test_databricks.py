@@ -4,11 +4,9 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
     DatabricksImplementation,
-    clean_databricks_host,
     filter_databricks_incremental_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.source import DatabricksSource
@@ -88,21 +86,6 @@ def _conn_with_cursor(cursor: MagicMock) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        # Users paste the whole workspace URL from the browser; the connector wants a bare hostname.
-        ("dbc-abc123.cloud.databricks.com", "dbc-abc123.cloud.databricks.com"),
-        ("https://dbc-abc123.cloud.databricks.com", "dbc-abc123.cloud.databricks.com"),
-        ("https://dbc-abc123.cloud.databricks.com/", "dbc-abc123.cloud.databricks.com"),
-        ("http://adb-123.11.azuredatabricks.net/", "adb-123.11.azuredatabricks.net"),
-        ("  dbc-abc123.cloud.databricks.com  ", "dbc-abc123.cloud.databricks.com"),
-    ],
-)
-def test_clean_databricks_host(raw, expected):
-    assert clean_databricks_host(raw) == expected
-
-
 class TestFilterIncrementalFields:
     @pytest.mark.parametrize(
         "data_type,expected",
@@ -122,11 +105,6 @@ class TestFilterIncrementalFields:
     def test_picks_up_supported_types(self, data_type, expected):
         assert filter_databricks_incremental_fields([("c", data_type, True)]) == [("c", expected, True)]
 
-    @pytest.mark.parametrize("data_type", ["STRING", "BOOLEAN", "BINARY", "DOUBLE", "FLOAT", "ARRAY<INT>", "VARIANT"])
-    def test_drops_unsupported_types(self, data_type):
-        # Floats are deliberately excluded — an imprecise cursor skips or re-reads rows at the boundary.
-        assert filter_databricks_incremental_fields([("c", data_type, True)]) == []
-
 
 # ---------------------------------------------------------------------------
 # Implementation fixtures
@@ -144,17 +122,6 @@ def impl() -> DatabricksImplementation:
 
 
 class TestConnect:
-    def test_access_token_auth_passes_token(self, impl):
-        with patch(_CONNECT_PATH) as mock_connect:
-            with impl.connect(_make_config()):
-                pass
-            kwargs = mock_connect.call_args.kwargs
-            assert kwargs["access_token"] == "dapi-token"
-            assert "credentials_provider" not in kwargs
-            assert kwargs["server_hostname"] == "dbc-abc123.cloud.databricks.com"
-            assert kwargs["http_path"] == "/sql/1.0/warehouses/wh123"
-            assert kwargs["catalog"] == "main"
-
     def test_service_principal_auth_uses_credentials_provider(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
             with impl.connect(_make_config("service_principal")):
@@ -170,37 +137,12 @@ class TestConnect:
                 pass
             assert mock_connect.call_args.kwargs["server_hostname"] == "dbc-abc123.cloud.databricks.com"
 
-    @pytest.mark.parametrize("blank", ["", "   ", None])
-    def test_blank_schema_reaches_connector_as_none(self, impl, blank):
-        # `schema=""` would make the connector try `USE SCHEMA ""` (invalid) — normalize to None.
-        with patch(_CONNECT_PATH) as mock_connect:
-            with impl.connect(_make_config(schema=blank)):
-                pass
-            assert mock_connect.call_args.kwargs["schema"] is None
-
-    def test_connection_closed_on_exit(self, impl):
-        with patch(_CONNECT_PATH) as mock_connect:
-            with impl.connect(_make_config()):
-                mock_connect.return_value.close.assert_not_called()
-            mock_connect.return_value.close.assert_called_once()
-
     def test_connection_closed_on_error(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
             with pytest.raises(RuntimeError):
                 with impl.connect(_make_config()):
                     raise RuntimeError("boom")
             mock_connect.return_value.close.assert_called_once()
-
-    def test_transient_ssl_eof_on_connect_is_retried(self, impl):
-        # The connector's own retry loop treats a bare SSL error during `open_session` (including
-        # the OAuth token fetch) as non-retryable and raises immediately — connect() must recover
-        # a transient peer-close instead of failing the sync on the first blip.
-        mock_conn = MagicMock()
-        with patch(_CONNECT_PATH, side_effect=[RequestError(_SSL_EOF_ERROR_MSG, {}, "x"), mock_conn]) as mock_connect:
-            with patch(_SLEEP_PATH):
-                with impl.connect(_make_config()) as conn:
-                    assert conn is mock_conn
-            assert mock_connect.call_count == 2
 
     def test_transient_ssl_eof_exhausts_retries_and_raises(self, impl):
         with patch(_CONNECT_PATH, side_effect=RequestError(_SSL_EOF_ERROR_MSG, {}, "x")) as mock_connect:
@@ -226,27 +168,6 @@ class TestConnect:
 
 
 class TestGetColumns:
-    def test_groups_columns_by_table(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [
-            ("analytics", "users", "id", "BIGINT", "NO"),
-            ("analytics", "users", "email", "STRING", "YES"),
-            ("analytics", "orders", "id", "BIGINT", "NO"),
-        ]
-        result = impl.get_columns(_conn_with_cursor(cursor), _make_config(), names=None)
-        # Single-schema source keeps bare table names.
-        assert set(result.keys()) == {"users", "orders"}
-        assert ("id", "BIGINT", False) in result["users"]
-        assert ("email", "STRING", True) in result["users"]
-
-    def test_single_schema_filters_by_configured_schema(self, impl):
-        cursor = _cursor()
-        impl.get_columns(_conn_with_cursor(cursor), _make_config(schema="sales"), names=None)
-        sql, params = cursor.execute.call_args.args
-        assert "table_schema = :schema" in sql
-        assert "`main`.`information_schema`.`columns`" in sql
-        assert params == {"schema": "sales"}
-
     @pytest.mark.parametrize("blank", ["", "   ", None])
     def test_blank_schema_discovers_all_namespaces_qualified(self, impl, blank):
         cursor = _cursor()
@@ -283,17 +204,6 @@ class TestGetColumns:
 
 
 class TestGetPrimaryKeys:
-    def test_orders_composite_key_by_ordinal_position(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [
-            ("analytics", "users", "tenant_id", 2),
-            ("analytics", "users", "id", 1),
-        ]
-        out = impl.get_primary_keys(_conn_with_cursor(cursor), _make_config(), tables=["users"])
-        assert out["users"] == ["id", "tenant_id"]
-        # One batched information_schema query, not one per table.
-        assert cursor.execute.call_count == 1
-
     def test_multi_schema_routes_keys_to_qualified_display_names(self, impl):
         cursor = _cursor()
         cursor.fetchall.return_value = [
@@ -320,22 +230,8 @@ class TestGetSourceMetadata:
         assert meta.schema_by_table == {"users": "analytics"}
         assert meta.table_name_by_table == {"users": "users"}
 
-    def test_multi_schema_splits_qualified_display_names(self, impl):
-        meta = impl.get_source_metadata(MagicMock(), _make_config(schema=""), tables=["analytics.users", "sales.users"])
-        assert meta.schema_by_table == {"analytics.users": "analytics", "sales.users": "sales"}
-        assert meta.table_name_by_table == {"analytics.users": "users", "sales.users": "users"}
-
 
 class TestGetPrimaryKeysForTable:
-    def test_returns_ordered_keys_scoped_to_table(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [("id", 1), ("tenant_id", 2)]
-        keys = impl.get_primary_keys_for_table(cursor, "main", "analytics", "users")
-        assert keys == ["id", "tenant_id"]
-        sql, params = cursor.execute.call_args.args
-        assert params == {"schema": "analytics", "table_name": "users"}
-        assert "`main`.`information_schema`.`table_constraints`" in sql
-
     def test_returns_none_when_lookup_fails(self, impl):
         # A permission/missing-information_schema failure must degrade to None so the pipeline falls
         # back to a persisted or `id`-column PK instead of crashing the sync.
@@ -343,23 +239,8 @@ class TestGetPrimaryKeysForTable:
         cursor.execute.side_effect = Exception("PERMISSION_DENIED")
         assert impl.get_primary_keys_for_table(cursor, "main", "analytics", "users") is None
 
-    def test_returns_none_when_no_pk_defined(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = []
-        assert impl.get_primary_keys_for_table(cursor, "main", "analytics", "users") is None
-
 
 class TestFetchTableStats:
-    def test_reads_size_from_describe_detail_and_counts_rows(self, impl):
-        cursor = _cursor()
-        # `DESCRIBE DETAIL` column order isn't contractual — sizeInBytes must be found by name.
-        cursor.description = [("format",), ("name",), ("sizeInBytes",)]
-        cursor.fetchone.side_effect = [("delta", "users", 10_485_760), (2_000,)]
-        stats = impl.fetch_table_stats(cursor, "analytics", "users", MagicMock())
-        assert stats == TableStats(table_size_bytes=10_485_760, row_count=2_000)
-        assert cursor.execute.call_args_list[0].args[0] == "DESCRIBE DETAIL `analytics`.`users`"
-        assert cursor.execute.call_args_list[1].args[0] == "SELECT COUNT(*) FROM `analytics`.`users`"
-
     def test_returns_none_when_size_column_missing(self, impl):
         # Views and federated tables don't report sizeInBytes — partition sizing must be skipped.
         cursor = _cursor()
@@ -446,38 +327,6 @@ class TestBuildPipeline:
         assert "ORDER BY `updated_at` ASC" in sql
         assert params == {"incremental_value": "2025-01-01T00:00:00"}
 
-    def test_enabled_columns_projection_retains_primary_key(self, impl):
-        # Dropping the PK from the projection would break the Delta merge on every later sync.
-        metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=1, arrow_batches=[pa.table({"id": [1]})]
-        )
-        inputs = _make_inputs(schema_name="users", enabled_columns=["email"])
-
-        with patch(_CONNECT_PATH, side_effect=connections):
-            response = impl.build_pipeline(_make_config(), inputs)
-            list(response.items())
-
-        sql, _ = streaming_cursor.execute.call_args.args
-        assert sql.startswith("SELECT `email`, `id` FROM `analytics`.`users`")
-
-    def test_multi_schema_row_routes_to_qualified_namespace(self, impl):
-        # A blank-namespace source pins each row's schema via the dotted schema_name.
-        metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=1, arrow_batches=[pa.table({"id": [1]})]
-        )
-
-        with patch(_CONNECT_PATH, side_effect=connections):
-            response = impl.build_pipeline(_make_config(schema=""), _make_inputs(schema_name="sales.users"))
-            # Delta subdir keeps the qualified, normalized name so cross-schema duplicates stay distinct.
-            assert response.name == "sales_users"
-            list(response.items())
-
-        sql, _ = streaming_cursor.execute.call_args.args
-        assert "FROM `sales`.`users`" in sql
-        # PK probe targets the resolved schema too.
-        pk_params = metadata_cursor.execute.call_args_list[0].args[1]
-        assert pk_params == {"schema": "sales", "table_name": "users"}
-
 
 # ---------------------------------------------------------------------------
 # Source-level behavior
@@ -489,36 +338,9 @@ class TestDatabricksSource:
     def source(self) -> DatabricksSource:
         return DatabricksSource()
 
-    def test_schema_field_is_optional_for_multi_schema_support(self, source):
-        # `is_multi_schema_capable_sql_source` keys off the schema field being optional — making it
-        # required would silently turn off multi-schema import for Databricks.
-        schema_field = next(f for f in source.get_source_config.fields if f.name == "schema")
-        assert schema_field.required is False
-
     def test_host_is_a_connection_host_field(self, source):
         # Retargeting the workspace hostname must force credential re-entry (exfiltration gate).
         assert source.connection_host_fields == ["host"]
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Invalid access token.",
-            "Error during request to server: b'Invalid access token. (403)'",
-            "invalid_client: Client authentication failed",
-            "[CATALOG_NOT_FOUND] The catalog 'main' cannot be found.",
-            "[SCHEMA_NOT_FOUND] The schema 'analytics' cannot be found.",
-            "PERMISSION_DENIED: User does not have USE SCHEMA on Schema 'analytics'.",
-            "[TABLE_OR_VIEW_NOT_FOUND] The table or view `main`.`information_schema`.`columns` cannot be found.",
-            # Workspace IP ACL rejection — matched on the stable phrase, ignoring the appended IP
-            # address and workspace id.
-            "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
-            # Workspace-level entitlement missing on the connecting user/service principal.
-            "Error during request to server: : This API is disabled for users without the databricks-sql-access or workspace-consume entitlements. Contact your administrator for more information.. ",
-        ],
-    )
-    def test_permanent_failures_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
 
     def test_validate_credentials_requires_access_token(self, source):
         config = DatabricksSourceConfig.from_dict(

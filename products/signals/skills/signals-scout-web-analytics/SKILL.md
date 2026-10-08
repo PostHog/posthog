@@ -35,6 +35,7 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 Three mechanical facts anchor everything:
 
 1. **The `sessions` table is the workhorse.** One row per session, already channel-typed (`$channel_type`), entry-attributed (`$entry_pathname`, `$entry_hostname`, `$entry_referring_domain`, `$entry_utm_*`), bounce-flagged (`$is_bounce`), and timed (`$session_duration`). Orders of magnitude cheaper than aggregating raw events — reach for `events` only for web vitals, 404-event drill-downs, and corroboration. Window on `$start_timestamp`, always with a future-clock upper bound (`<= now() + INTERVAL 1 DAY`) — client clocks lie.
+   A **web session** is a session with `$pageview_count > 0 OR $screen_count > 0`. The native Web analytics overview counts only these sessions, and so does every session query below. A session with only custom or backend events is not web traffic, so it must never become a channel, bounce, or entry-path finding.
 2. **Web traffic is strongly day-of-week seasonal** (weekdays often run 2–3× weekends). Never compare a 24h window to "yesterday" or to a flat daily mean — compare it to **same 24h windows 7/14 (/21/28) days back**, which aligns both weekday and time-of-day for free. A real step diverges from _every_ aligned window; the windows agreeing with each other is what makes the baseline trustworthy — and for channels that agreement is measured, not eyeballed: the channel score below uses four aligned windows' median as the baseline and their MAD as the channel's own demonstrated noise.
 3. **`$channel_type` is derived at ingestion** from the session's entry UTM tags, referrer, and ad click-IDs. When tagging breaks, traffic doesn't disappear — it _reclassifies_: Paid Search drops while Unknown/Direct rises by a similar amount. Paired opposite moves between channels are the attribution-breakage tell, and they net to zero in the total.
 
@@ -49,10 +50,11 @@ SELECT uniqIf(session_id, $start_timestamp >= now() - INTERVAL 7 DAY) AS session
 FROM sessions
 WHERE $start_timestamp >= now() - INTERVAL 30 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 ```
 
-- **Zero sessions in 30d** — no web traffic to watch. Write `not-in-use:web-analytics:team{team_id}` ("checked at {timestamp}, no sessions in 30d") and close out empty — same-key re-runs idempotently refresh it.
-- **Sessions exist but `pageviews_7d` ≈ 0** — a mobile/screen-first project; the web analytics surface isn't meaningful here. Note it once (`pattern:web-analytics:screen-only-team{team_id}`) and close out.
+- **Zero web sessions in 30d** — no web traffic to watch. A project with only backend or custom-event sessions lands here too. Write `not-in-use:web-analytics:team{team_id}` ("checked at {timestamp}, no web sessions in 30d") and close out empty — same-key re-runs idempotently refresh it.
+- **Web sessions exist but `pageviews_7d` ≈ 0** — a mobile/screen-first project; the web analytics surface isn't meaningful here. Note it once (`pattern:web-analytics:screen-only-team{team_id}`) and close out.
 - **Traffic flowing** — proceed to a full run.
 
 ## How a run works
@@ -76,6 +78,7 @@ SELECT toStartOfDay($start_timestamp) AS day,
 FROM sessions
 WHERE $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 GROUP BY day ORDER BY day
 ```
 
@@ -95,11 +98,25 @@ WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
     OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp <  now() - INTERVAL 14 DAY))
   AND $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 GROUP BY channel ORDER BY sessions_24h DESC
 LIMIT 25
 ```
 
 Sum the three window columns as you read them — that's the aggregate check. If the _total_ moved ≳ 25% against both aligned windows, the site moved as a whole: that's context (and likely already visible to the team or another scout), not N per-channel findings — at most one whole-site finding, and only if extreme and unexplained. `web-analytics-weekly-digest` (`days=7`) is an optional cheap second opinion on the whole-site picture with period-over-period deltas and top pages/sources. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone — use `now() - INTERVAL N` arithmetic for recency windows, never hand-written timestamps.
+
+### Match the population before you compare with the native digest
+
+Your SQL and `web-analytics-weekly-digest` agree only when they count the same sessions. Before you put a SQL number next to a digest number, or say that Web analytics does or does not include some traffic, match all four of these:
+
+- **Eligibility** — keep the web-session filter (`$pageview_count > 0 OR $screen_count > 0`).
+- **Time window** — the digest starts at the start of a day in the project timezone (`-{days}d`) and runs to now. Use the period bounds that the digest returns, not a rolling `now() - INTERVAL` window.
+- **Host filter** — the digest applies no host filter, so compare it with SQL that has no host filter. A host-filtered Web analytics view filters events on `$host`, not sessions on `$entry_hostname`: it counts each session that has an in-period `$pageview` or `$screen` event on that host, so a session that starts on one host and moves to another counts for both. To match that view, keep only sessions with `session_id IN (SELECT $session_id FROM events WHERE event IN ('$pageview', '$screen') AND properties.$host = '<host>' AND <the same window>)`. Use `$entry_hostname` only when the native view filters that session property.
+- **Test accounts** — the digest excludes test accounts. Read the project's test-account filters and apply them, or say in the report that your number includes test accounts.
+
+If the numbers still differ, find the cause before you report either number. Split the window into all sessions and web sessions only to diagnose a changed denominator, and label each population in every number you quote (for example, "all sessions" and "web sessions"). A step that exists only in all sessions is event-only activity (a backend job, a preview environment, an SDK that sends no pageviews). It is not an acquisition change, so do not file it as a channel finding. Write a `noise:` entry instead.
+
+Example with synthetic data: session A has three custom events and no pageview, with `$channel_type = 'Direct'`. Session B has one `$pageview`, with `$channel_type = 'Direct'`. The all-sessions count is 2 and the web-sessions count is 1. The baseline and the channel score use 1, which is the number the native overview shows.
 
 ### Profile shape — what the combinations mean
 
@@ -142,13 +159,14 @@ WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
     OR ($start_timestamp >= now() - INTERVAL 29 DAY AND $start_timestamp <  now() - INTERVAL 28 DAY))
   AND $start_timestamp >= now() - INTERVAL 29 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 GROUP BY channel
 HAVING baseline >= 10
 ORDER BY abs(z) DESC
 LIMIT 25
 ```
 
-**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path query below is the exception, because its `bounce_prior` genuinely reads the whole range.
+**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path bounce query below is the exception, because its `bounce_prior` genuinely reads the whole range.
 
 If the scored query still exceeds memory on a very high-volume project, narrow in this order and record which step you took in the close-out: first scope to the site's own hosts (`$entry_hostname IN (...)`, minus whatever is already in `noise:`), then fall back to three windows (7/14/21 days back), where the median is `aligned[2]` and the MAD is `deviations[2]`. Three windows still scores, but the baseline is thinner — treat a borderline `|z|` as a `remember`, not a report.
 
@@ -164,6 +182,7 @@ FROM sessions
 WHERE $channel_type = '<channel>'
   AND $start_timestamp >= now() - INTERVAL 8 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 GROUP BY ref, utm_source ORDER BY aligned_1w_ago DESC
 LIMIT 25
 ```
@@ -174,7 +193,29 @@ A divergence concentrated in one referrer or one `utm_source`/`utm_campaign` nam
 
 #### Entry-path step
 
-Bounce and volume per landing page, against the path's own history. Group by host plus an **ID-normalized path** — raw paths shatter one surface into dozens of single-count rows:
+Bounce and volume per landing page, against the path's own history. Group by host plus an **ID-normalized path** — raw paths shatter one surface into dozens of single-count rows. Run two queries, because the two candidate shapes need opposite volume gates: a bounce step needs traffic now, a cliff needs traffic before.
+
+**Bounce step** — gate on current volume, since a bounce rate over a handful of sessions is noise:
+
+```sql
+SELECT $entry_hostname AS host,
+       replaceRegexpAll($entry_pathname, '[0-9]+', ':id') AS entry_path,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
+       round(avgIf($is_bounce, $start_timestamp >= now() - INTERVAL 1 DAY), 3) AS bounce_24h,
+       round(avgIf($is_bounce, $start_timestamp <  now() - INTERVAL 1 DAY), 3) AS bounce_prior
+FROM sessions
+WHERE $start_timestamp >= now() - INTERVAL 15 DAY
+  AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
+GROUP BY host, entry_path
+HAVING sessions_24h >= 100
+ORDER BY sessions_24h DESC
+LIMIT 30
+```
+
+A candidate is `bounce_24h` ≥ ~15 percentage points above `bounce_prior` (big paths hold their bounce rate within a point or two; a step is glaring). Either the page broke (slow, blank, erroring — cross-check the vitals pattern and median duration on those sessions) or its _inbound traffic_ changed (a new campaign or referrer dumping mismatched visitors — check the path's channel mix across the two windows before blaming the page).
+
+**Traffic cliff** — gate on baseline volume, never on current volume. A path that fell to zero has no sessions in the last 24h, so a `sessions_24h` gate removes exactly the outage this check exists to find. A path with zero current sessions still has rows in the aligned windows, so it stays in this result with `sessions_24h = 0`:
 
 ```sql
 SELECT $entry_hostname AS host,
@@ -182,21 +223,24 @@ SELECT $entry_hostname AS host,
        uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
        uniqIf(session_id, $start_timestamp >= now() - INTERVAL 8 DAY
                       AND $start_timestamp <  now() - INTERVAL 7 DAY) AS aligned_1w_ago,
-       round(avgIf($is_bounce, $start_timestamp >= now() - INTERVAL 1 DAY), 3) AS bounce_24h,
-       round(avgIf($is_bounce, $start_timestamp <  now() - INTERVAL 1 DAY), 3) AS bounce_prior
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 15 DAY
+                      AND $start_timestamp <  now() - INTERVAL 14 DAY) AS aligned_2w_ago
 FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 15 DAY
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp < now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp < now() - INTERVAL 14 DAY))
+  AND $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
+  AND ($pageview_count > 0 OR $screen_count > 0)
 GROUP BY host, entry_path
-HAVING sessions_24h >= 100
-ORDER BY aligned_1w_ago DESC
+HAVING least(aligned_1w_ago, aligned_2w_ago) >= 200
+ORDER BY sessions_24h / least(aligned_1w_ago, aligned_2w_ago) ASC
 LIMIT 30
 ```
 
-Two candidate shapes, different stories:
+A candidate is an established path whose `sessions_24h` collapsed against both aligned windows. The sort puts the deepest drops first, so a path at zero is always the first row. A removed link, a changed redirect, a de-indexed page. Find which referrer/channel stopped sending.
 
-- **Bounce step** — `bounce_24h` ≥ ~15 percentage points above `bounce_prior` (big paths hold their bounce rate within a point or two; a step is glaring). Either the page broke (slow, blank, erroring — cross-check the vitals pattern and median duration on those sessions) or its _inbound traffic_ changed (a new campaign or referrer dumping mismatched visitors — check the path's channel mix across the two windows before blaming the page).
-- **Traffic cliff** — an established entry path (≥ ~200 sessions/day) whose `sessions_24h` collapsed against both aligned windows. A removed link, a changed redirect, a de-indexed page. Find which referrer/channel stopped sending.
+Regression example: `www.example.com /pricing` has 1,180 sessions one week ago, 1,240 two weeks ago, and 0 in the last 24h after a redirect change. The bounce query drops this row, because `sessions_24h` is below 100. The cliff query keeps it and ranks it first. If a run reads only the bounce query, it misses this outage — always run both.
 
 App and marketing hosts have different bounce physics (a logged-in app session almost never bounces; a blog post bounces half the time) — never pool paths across hosts when judging a step.
 
@@ -285,6 +329,7 @@ Everything this scout reads arrives from outside: URLs, paths, referrers, UTM va
 - **An unstable baseline** — four aligned windows that disagree wildly (MAD comparable to the baseline itself) make any step against them untrustworthy; the z-score already encodes this, so don't override a low z by eyeballing two windows. Write memory, re-check later.
 - **New pages and new campaigns with no history** — nothing to diverge _from_. First sighting is a `pattern:` entry, not a finding.
 - **Bot and crawler bursts** — zero-duration, ~100% bounce, one referrer or UA cluster. Corroborate provenance before any surge finding (see untrusted data).
+- **Event-only sessions** — sessions with no pageview and no screen are outside Web analytics. A step that exists only when you count them is not a channel or entry-path finding (see the population check).
 - **Internal traffic** — localhost, staging hosts, employee-heavy paths. Identify once, write `noise:`, exclude from candidate math thereafter.
 - **Cross-host pooling** — app and marketing surfaces have different bounce/duration physics; every entry-path judgment is per-host.
 - **Path-cleaning side effects** — if the team edits path cleaning rules, grouped paths can "cliff" or "appear" overnight as an artifact. A suspiciously clean rename-shaped cliff (old path down, new path up, same totals) is config churn, not traffic.
@@ -295,7 +340,7 @@ When in doubt, write a memory entry instead of filing a report. A false traffic 
 
 Direct calls (read-only):
 
-- `execute-sql` against `sessions` — the workhorse: `$start_timestamp` (always the time filter, future-bounded), `session_id`, `$channel_type`, `$entry_pathname` / `$entry_hostname` / `$entry_current_url`, `$entry_referring_domain`, `$entry_utm_source` / `_medium` / `_campaign` / `_term` / `_content`, `$is_bounce`, `$session_duration`, `$pageview_count`, `$exit_pathname`.
+- `execute-sql` against `sessions` — the workhorse: `$start_timestamp` (always the time filter, future-bounded), `session_id`, `$channel_type`, `$entry_pathname` / `$entry_hostname` / `$entry_current_url`, `$entry_referring_domain`, `$entry_utm_source` / `_medium` / `_campaign` / `_term` / `_content`, `$is_bounce`, `$session_duration`, `$pageview_count`, `$screen_count`, `$exit_pathname`.
 - `execute-sql` against `events` — web vitals (`$web_vitals` with `$web_vitals_LCP_value` / `_INP_value` / `_CLS_value` / `_FCP_value` and `$pathname`), the project's 404 event, and provenance corroboration (`$lib`, `$device_type`, `$geoip_country_code`).
 - `web-analytics-weekly-digest` (`days`, `compare`) — optional whole-site second opinion: visitors, pageviews, bounce, top pages/sources with period-over-period deltas.
 - `read-data-schema` — confirm `$web_vitals` and any 404-event candidates exist before aggregating.

@@ -288,6 +288,11 @@ class DataDeletionRequest(UUIDModel):
         db_default={},
         help_text="Variables stored with the HogQL query snapshot.",
     )
+    submission_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Client-generated identifier used to deduplicate self-service submissions.",
+    )
     properties = ArrayField(
         models.CharField(max_length=1024),
         blank=True,
@@ -442,6 +447,13 @@ class DataDeletionRequest(UUIDModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["team_id", "-created_at"], name="ddr_team_created_at_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "submission_id"],
+                condition=models.Q(submission_id__isnull=False),
+                name="ddr_team_submission_id_uniq",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
@@ -802,8 +814,8 @@ def refresh_deletion_stats(request: "DataDeletionRequest", *, user_id: int | Non
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     """Count rows still matching an event-removal request's criteria in ClickHouse.
 
-    Counts across every registered read table that could hold the named events. A request is only
-    complete once its rows are gone from all of them.
+    Counts across every default deletion target that could hold the named events. A request is only
+    complete once its rows are gone from every table that the scheduled deletion job sweeps.
 
     A target that cannot take the compiled HogQL fragment is counted with the portable predicate
     instead, which matches a superset. That can only hold a request in QUEUED, never promote one
@@ -814,7 +826,11 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
-    from posthog.models.deletion_targets import resolve_read_targets_via_sync_execute, surviving_rows_sql
+    from posthog.models.deletion_targets import (
+        DEFAULT_DELETION_TARGETS,
+        resolve_read_targets_via_sync_execute,
+        surviving_rows_sql,
+    )
 
     events = [] if request.delete_all_events else request.events
     total = 0
@@ -825,7 +841,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        for target in resolve_read_targets_via_sync_execute():
+        for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if not target.may_hold_any_of(events):
                 continue
             if target.accepts_hogql_predicate:
@@ -853,16 +869,13 @@ def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
     return [f"`{name}` != ''" for name, _ in mat_cols]
 
 
-def discover_affected_mat_columns(properties: list[str], table_column: str) -> list[tuple[str, bool]]:
-    """DEFAULT-materialized columns on the distributed ``events`` table for the given properties.
+def discover_affected_mat_columns(properties: list[str], table_column: str, table: str) -> list[tuple[str, bool]]:
+    """DEFAULT-materialized columns on the Distributed read table ``table`` for the given properties.
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
     ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
     in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
     value left in a materialized column after its JSON key is gone still counts.
-
-    Scoped to ``events`` deliberately, matching the deletion job; see
-    docs/internal/clickhouse-deletion-coverage.md.
     """
     if not properties:
         return []
@@ -879,11 +892,11 @@ def discover_affected_mat_columns(properties: list[str], table_column: str) -> l
         SELECT name, comment, type LIKE 'Nullable(%%)'
         FROM system.columns
         WHERE database = %(database)s
-          AND table = 'events'
+          AND table = %(table)s
           AND comment LIKE '%%column_materializer::%%'
           AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
         """,
-        {"database": django_settings.CLICKHOUSE_DATABASE},
+        {"database": django_settings.CLICKHOUSE_DATABASE, "table": table},
         readonly=True,
         ch_user=ClickHouseUser.META,
     )
@@ -900,6 +913,9 @@ def _property_presence_where(
     request: "DataDeletionRequest",
     mat_cols: list[tuple[str, bool]] | None = None,
     person_mat_cols: list[tuple[str, bool]] | None = None,
+    *,
+    with_person_properties: bool = True,
+    with_hogql: bool = True,
 ) -> tuple[str, dict]:
     """WHERE predicate + params matching events that still carry any target (person_)property.
 
@@ -908,6 +924,9 @@ def _property_presence_where(
     property_removal request: once the property has been stripped from the JSON and its materialized
     column reset on every matching event, this count reaches zero. The presence set must match the
     deletion path (``_property_removal_where``) or a row it still considers dirty reads as clean here.
+
+    ``with_person_properties`` and ``with_hogql`` drop the parts a table without the events schema
+    cannot run: its ``person_properties`` column and the compiled HogQL fragment.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(request)]
     params = event_match_params(request)
@@ -919,7 +938,7 @@ def _property_presence_where(
             params[f"fp_{i}_{j}"] = part
     if mat_cols:
         presence.extend(_mat_col_presence_clauses(mat_cols))
-    for i, prop in enumerate(request.person_properties or []):
+    for i, prop in enumerate((request.person_properties or []) if with_person_properties else []):
         presence.append(jsonhas_expr(prop, f"pp_{i}", column="person_properties"))
         for j, part in enumerate(prop.split(".")):
             params[f"pp_{i}_{j}"] = part
@@ -928,7 +947,7 @@ def _property_presence_where(
     if presence:
         parts.append(f"AND ({' OR '.join(presence)})")
 
-    hogql_sql, hogql_values = compile_hogql_predicate(request)
+    hogql_sql, hogql_values = compile_hogql_predicate(request) if with_hogql else ("", {})
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
@@ -936,15 +955,28 @@ def _property_presence_where(
 
 
 def count_remaining_property_events(request: "DataDeletionRequest") -> int:
-    """Count events that still carry any of a property-removal request's target properties."""
+    """Count rows that still carry any of a property-removal request's target properties.
+
+    Counts across every default deletion target the property-removal job rewrites, because a request
+    is only complete once each of those tables is clean. A target without ``stores_person_properties``
+    is checked for the event ``properties`` only, and skipped when the request names only person
+    properties, as the job does. A target that cannot take the compiled HogQL fragment is counted
+    without it, which matches a superset. That can only hold a request open, never complete it early.
+    The presence predicate is built for the legacy schema, so the native-JSON table is left to the
+    job's own verification.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
+    from posthog.models.deletion_targets import (
+        DEFAULT_DELETION_TARGETS,
+        resolve_read_targets_via_sync_execute,
+        surviving_rows_sql,
+    )
 
-    mat_cols = discover_affected_mat_columns(request.properties or [], "properties")
-    person_mat_cols = discover_affected_mat_columns(request.person_properties or [], "person_properties")
-    predicate, params = _property_presence_where(request, mat_cols, person_mat_cols)
+    events = [] if request.delete_all_events else request.events
+    total = 0
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -952,22 +984,41 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_property",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
-        result = sync_execute(
-            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
+        for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
+            if (
+                not target.accepts_property_rewrite
+                or target.uses_new_events_schema
+                or not target.may_hold_any_of(events)
+            ):
+                continue
+            person_properties = (request.person_properties or []) if target.stores_person_properties else []
+            if not request.properties and not person_properties:
+                continue
+            mat_cols = discover_affected_mat_columns(request.properties or [], "properties", target.read_table)
+            person_mat_cols = discover_affected_mat_columns(person_properties, "person_properties", target.read_table)
+            predicate, params = _property_presence_where(
+                request,
+                mat_cols,
+                person_mat_cols,
+                with_person_properties=target.stores_person_properties,
+                with_hogql=target.accepts_hogql_predicate,
+            )
+            result = sync_execute(
+                surviving_rows_sql(target.read_table, predicate),
+                params,
+                team_id=request.team_id,
+                readonly=True,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.META,
+            )
+            total += int(result[0][0]) if result else 0
+    return total
 
 
 def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
     """Count rows still matching a deletion request's criteria in ClickHouse.
 
-    Dispatches on request type: matching events for event_removal, events still carrying the
+    Dispatches on request type: matching events for event_removal, rows still carrying the
     target property for property_removal. Returns ``None`` for person_removal, which has no
     automated remaining-count.
     """

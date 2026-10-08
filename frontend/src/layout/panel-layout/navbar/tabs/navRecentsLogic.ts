@@ -43,7 +43,7 @@ export const navRecentsLogic = kea<navRecentsLogicType>([
     })),
     actions({ setRecentsCollapsed: (collapsed: boolean) => ({ collapsed }) }),
     reducers({
-        recentsCollapsed: [false, { persist: true }, { setRecentsCollapsed: (_, { collapsed }) => collapsed }],
+        recentsCollapsed: [true, { persist: true }, { setRecentsCollapsed: (_, { collapsed }) => collapsed }],
     }),
     selectors({
         recentItems: [

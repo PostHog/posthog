@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
     marketstack_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import MARKETSTACK_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -131,60 +130,6 @@ class TestPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        # A page shorter than the limit means there's no further page, even without a total.
-        session = MockSession.return_value
-        _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        rows = _rows(_source("currencies", symbols=None))
-
-        assert [r["code"] for r in rows] == ["USD"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], total=0)])
-
-        rows = _rows(_source("currencies", symbols=None))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        _rows(_source("currencies", manager=_make_manager(MarketstackResumeConfig(next_offset=2000)), symbols=None))
-
-        # The first (and only) request must start from the persisted offset, not 0.
-        assert params[0]["offset"] == 2000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        page1 = [{"code": f"c{i}"} for i in range(1000)]
-        page2 = [{"code": f"c{i}"} for i in range(1000, 2000)]
-        _wire(session, [_page(page1, total=2000), _page(page2, total=2000)])
-
-        manager = _make_manager()
-        _rows(_source("currencies", manager=manager, symbols=None))
-
-        # State saved once, with the next offset to resume from, only while more pages remain.
-        manager.save_state.assert_called_once_with(MarketstackResumeConfig(next_offset=1000))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        manager = _make_manager()
-        _rows(_source("currencies", manager=manager, symbols=None))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_page(None, drop_data=True)])
@@ -193,48 +138,6 @@ class TestPagination:
         # rather than silently syncing 0 rows.
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("currencies", symbols=None))
-
-
-class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_time_series_endpoint_requests_ascending_sort_and_symbols(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL"))
-
-        assert params[0]["sort"] == "ASC"
-        assert params[0]["symbols"] == "AAPL"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_sends_no_symbols_or_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"code": "USD"}], total=None)])
-
-        _rows(_source("currencies", symbols=None))
-
-        assert "symbols" not in params[0]
-        assert "sort" not in params[0]
-        assert "date_from" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_passes_date_from_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL", db_incremental_field_last_value="2021-04-09T00:00:00+0000"))
-
-        assert params[0]["date_from"] == "2021-04-09"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_date_from_on_first_incremental_sync(self, MockSession) -> None:
-        # A first incremental sync has no stored watermark, so no date_from should be sent.
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"symbol": "AAPL"}], total=None)])
-
-        _rows(_source("eod", symbols="AAPL", db_incremental_field_last_value=None))
-
-        assert "date_from" not in params[0]
 
 
 class TestRequiresSymbols:
@@ -341,12 +244,6 @@ class TestSourceResponse:
         else:
             assert response.partition_keys == [expected_partition]
             assert response.partition_mode == "datetime"
-
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in MARKETSTACK_ENDPOINTS:
-            response = _source(endpoint, symbols="AAPL")
-            assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

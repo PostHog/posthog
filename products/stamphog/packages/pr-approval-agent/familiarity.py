@@ -1,7 +1,9 @@
 """Author-familiarity signal for the reviewer (judgment layer only).
 
 Computes how familiar a PR author is with the code their PR touches, from the
-trusted checkout's git history plus one `gh` call. The result feeds the LLM
+trusted checkout's git history plus one `gh` call, or, in the hosted runtime,
+from blame and history facts the server reads from GitHub (see
+familiarity_from_facts). The result feeds the LLM
 reviewer as TRUSTED facts so the ownership norms can treat strong familiarity
 like owning-team membership.
 
@@ -20,10 +22,12 @@ import re
 import json
 import time
 import subprocess
+from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from gates import _ALL_LOCKFILE_NAMES
 from policy import FamiliarityPolicy
 
 # Bounds - keep the work predictable on large PRs.
@@ -220,15 +224,27 @@ def _coalesce(lines: list[int]) -> list[tuple[int, int]]:
     return ranges
 
 
+def _is_lockfile(file_diff: _FileDiff) -> bool:
+    return PurePosixPath(file_diff.path).name.lower() in _ALL_LOCKFILE_NAMES
+
+
 def _select_considered_files(file_diffs: list[_FileDiff]) -> tuple[list[_FileDiff], bool]:
-    """Bound the blame work: drop binaries, skip huge files, cap at 30 (largest first).
+    """Bound the blame work: drop binaries and lockfiles, skip huge files, cap at 30 (largest first).
 
     Returns (considered, capped) where capped is True when work was dropped for
     a bound (an oversize file or the 30-file cap) - binaries don't count as
     capping, they carry no reviewable lines.
+
+    Lockfiles don't count either. A package manager writes their lines, so blame
+    names whoever last ran the install, which says nothing about the author's
+    familiarity. Their history is also the largest a blobless clone has to fetch.
+    The server mirrors this selection for its GitHub facts and its blame prefetch
+    (`LOCKFILE_NAMES` and `select_considered_files` in the backend's
+    logic/familiarity_facts.py). Keep the two in sync.
     """
-    eligible = [f for f in file_diffs if not f.is_binary and f.changed_lines <= _MAX_CHANGED_LINES_PER_FILE]
-    oversize = any(not f.is_binary and f.changed_lines > _MAX_CHANGED_LINES_PER_FILE for f in file_diffs)
+    blameable = [f for f in file_diffs if not f.is_binary and not _is_lockfile(f)]
+    eligible = [f for f in blameable if f.changed_lines <= _MAX_CHANGED_LINES_PER_FILE]
+    oversize = any(f.changed_lines > _MAX_CHANGED_LINES_PER_FILE for f in blameable)
     eligible.sort(key=lambda f: f.changed_lines, reverse=True)
     considered = eligible[:_MAX_BLAME_FILES]
     capped = oversize or len(eligible) > _MAX_BLAME_FILES
@@ -457,6 +473,125 @@ def _band(
     return "NONE"
 
 
+# ── Server-collected facts (hosted runtime) ──────────────────────
+#
+# The hosted server reads blame and path history from GitHub's GraphQL API, so the sandbox
+# checkout needs no history. The facts are raw: a commit table, the commit that last touched each
+# blamed base-side line range, and the author's commits in the changed paths. All matching,
+# counting and banding happens here, with the same bounds and thresholds as the git path.
+
+
+@dataclass(frozen=True)
+class _AuthorIdentity:
+    """Decides whether a commit from the server's facts belongs to the PR author.
+
+    GitHub's blame follows renames and copies, so it often names a different commit than
+    `git blame` for the same line, but it names the same person. The commit author's GitHub login
+    is therefore the primary match. The squash-merge `(#N)` subject is the fallback for a commit
+    whose author email links to no GitHub account.
+    """
+
+    login: str
+    pr_numbers: frozenset[int]
+
+    def owns(self, commit: dict) -> bool:
+        commit_login = commit.get("login")
+        if commit_login:
+            return str(commit_login).lower() == self.login.lower()
+        pr_number = _extract_pr_number(str(commit.get("subject") or ""))
+        return pr_number is not None and pr_number in self.pr_numbers
+
+
+def _commit_for_line(line: int, blame_ranges: list[dict], starts: list[int], commits: dict) -> dict | None:
+    """The commit of the range covering ``line``, by binary search over ranges sorted by start.
+
+    Blame ranges never overlap, so the last range that starts at or before the line is the only
+    candidate.
+    """
+    index = bisect_right(starts, line) - 1
+    if index < 0 or line > blame_ranges[index].get("end", -1):
+        return None
+    return commits.get(blame_ranges[index].get("oid"))
+
+
+def _blame_overlap_from_facts(considered: list[_FileDiff], facts: dict, identity: _AuthorIdentity) -> _BlameOverlap:
+    """_blame_overlap with the server's blame ranges in place of `git blame`.
+
+    A considered file that has no blame in the facts failed or was skipped on the server. Its
+    lines count as not owned, the same as a failed `git blame` on the git path.
+    """
+    blame = facts.get("blame") or {}
+    commits = facts.get("commits") or {}
+    owned = 0
+    total = 0
+    incomplete = 0
+    author_line_counts: Counter[str] = Counter()
+    for file_diff in considered:
+        blame_path = file_diff.old_path
+        if not blame_path:
+            continue
+        ranges = _coalesce(file_diff.base_modified_lines)
+        if not ranges:
+            continue
+        line_count = sum(end - start + 1 for start, end in ranges)
+        if blame_path not in blame:
+            total += line_count
+            incomplete += 1
+            continue
+        file_blame = sorted(blame[blame_path], key=lambda blame_range: blame_range.get("start", 0))
+        starts = [blame_range.get("start", 0) for blame_range in file_blame]
+        for start, end in ranges:
+            for line in range(start, end + 1):
+                total += 1
+                commit = _commit_for_line(line, file_blame, starts, commits)
+                if commit is None:
+                    continue
+                if identity.owns(commit):
+                    owned += 1
+                elif commit.get("name"):
+                    author_line_counts[str(commit["name"])] += 1
+    return _BlameOverlap(
+        owned_lines=owned,
+        total_lines=total,
+        incomplete_files=incomplete,
+        top_prior_authors=tuple(name for name, _ in author_line_counts.most_common(_TOP_PRIOR_AUTHORS)),
+    )
+
+
+def _prior_prs_from_facts(facts: dict, identity: _AuthorIdentity, now: float) -> tuple[int, int | None]:
+    """_prior_prs_in_paths over the server's path history. Only commits that name a PR count."""
+    commits = facts.get("commits") or {}
+    cutoff = now - _TWELVE_MONTHS_DAYS * _SECONDS_PER_DAY
+    prs_recent: set[int] = set()
+    last_touch: int | None = None
+    for oid in facts.get("path_history") or []:
+        commit = commits.get(oid)
+        if commit is None or not identity.owns(commit):
+            continue
+        pr_number = _extract_pr_number(str(commit.get("subject") or ""))
+        if pr_number is None:
+            continue
+        commit_time = int(commit.get("committed_at") or 0)
+        if last_touch is None or commit_time > last_touch:
+            last_touch = commit_time
+        if commit_time >= cutoff:
+            prs_recent.add(pr_number)
+    days_since = int((now - last_touch) // _SECONDS_PER_DAY) if last_touch is not None else None
+    return len(prs_recent), days_since
+
+
+def _files_previously_modified_from_facts(considered: list[_FileDiff], facts: dict, identity: _AuthorIdentity) -> int:
+    """_files_previously_modified over the server's per-file history, matched on old and new path."""
+    commits = facts.get("commits") or {}
+    file_history = facts.get("file_history") or {}
+    touched = {
+        path
+        for path, oids in file_history.items()
+        if any(oid in commits and identity.owns(commits[oid]) for oid in oids)
+    }
+    return sum(1 for f in considered if (f.old_path in touched) or (f.new_path in touched))
+
+
 # ── Orchestration ────────────────────────────────────────────────
 
 
@@ -504,6 +639,49 @@ def compute_familiarity(
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, repo_root, now)
     files_prev_count, files_total = _files_previously_modified(considered, author_prs, repo_root)
 
+    band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
+
+    return AuthorFamiliarity(
+        band=band,
+        blame_overlap_pct=blame_overlap_pct,
+        modified_lines_owned=overlap.owned_lines,
+        modified_lines_total=overlap.total_lines,
+        prior_prs_in_paths=prior_prs,
+        days_since_last_touch=days_since,
+        files_prev_count=files_prev_count,
+        files_total=files_total,
+        capped=capped,
+        blame_incomplete_files=overlap.incomplete_files,
+        top_prior_authors=overlap.top_prior_authors,
+    )
+
+
+def familiarity_from_facts(
+    facts: dict,
+    author_login: str,
+    author_prs: set[int],
+    diff_path: Path,
+    thresholds: FamiliarityPolicy,
+    *,
+    now: float | None = None,
+) -> AuthorFamiliarity:
+    """compute_familiarity with the server's GitHub facts in place of git history and `gh`.
+
+    File selection, line mapping, and the band come from the local diff and the same helpers as
+    the git path, so the two paths differ only in where blame and history come from. The band
+    thresholds were calibrated on `git blame`, which attributes lines differently from GitHub's
+    blame (see _AuthorIdentity).
+    """
+    now = time.time() if now is None else now
+    identity = _AuthorIdentity(login=author_login, pr_numbers=frozenset(author_prs))
+    file_diffs = _parse_diff(_read_diff(diff_path))
+    considered, capped = _select_considered_files(file_diffs)
+
+    overlap = _blame_overlap_from_facts(considered, facts, identity)
+    blame_overlap_pct = (100.0 * overlap.owned_lines / overlap.total_lines) if overlap.total_lines else 0.0
+    prior_prs, days_since = _prior_prs_from_facts(facts, identity, now)
+    files_prev_count = _files_previously_modified_from_facts(considered, facts, identity)
+    files_total = len(considered)
     band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
 
     return AuthorFamiliarity(

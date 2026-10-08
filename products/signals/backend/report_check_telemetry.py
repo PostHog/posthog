@@ -86,16 +86,26 @@ def capture_report_check_created(team: Team, check: SignalReportCheck) -> None:
         logger.exception("signals.report_check.created_capture_failed", check_id=str(check.id), team_id=check.team_id)
 
 
-def capture_report_check_evaluated(team: Team, check: SignalReportCheck, *, run_id: str | None = None) -> None:
+def capture_report_check_evaluated(
+    team: Team,
+    check: SignalReportCheck,
+    *,
+    run_id: str | None = None,
+    skill_name: str | None = None,
+    reason: str | None = None,
+) -> None:
     """`signals_report_check_evaluated`: a run recorded a verdict on a check.
 
     Emitted per verdict rather than per check, so a recurring check that keeps holding reports one
     event each time it is measured. `check_status` says what the row became, so "answered, and that
-    is it" (`passed`, `failed`, `errored`) reads apart from "answered, and we look again"
-    (`active`).
+    is it" (`passed`, `failed`, `errored`, `inconclusive`) reads apart from "answered, and we look
+    again" (`active`).
 
     `run_id` names the scout run that decided an `agent` check. The deterministic lane has none,
-    which is what tells the two lanes apart in the data. Requires `team.organization` to be loaded.
+    which is what tells the two lanes apart in the data. `reason` and `skill_name` are set when the
+    fleet refused to run an `agent` check, so an errored verdict can be traced to the gate that
+    refused it. `inconclusive_reason` says why an `inconclusive` verdict could not settle the claim,
+    so the inconclusive rate can be split by reason. Requires `team.organization` to be loaded.
     """
     try:
         posthoganalytics.capture(
@@ -104,11 +114,15 @@ def capture_report_check_evaluated(team: Team, check: SignalReportCheck, *, run_
             properties={
                 **_identity(team, check),
                 "outcome": check.last_outcome,
+                "inconclusive_reason": check.last_outcome_reason,
                 "check_status": check.status,
                 "runs_remaining": check.runs_remaining,
                 "consecutive_errors": check.consecutive_errors,
+                "consecutive_inconclusive": check.consecutive_inconclusive,
                 "hours_since_created": (timezone.now() - check.created_at).total_seconds() / 3600,
                 "run_id": run_id,
+                "skill_name": skill_name,
+                "reason": reason,
             },
             groups=groups(team.organization, team),
         )

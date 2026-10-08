@@ -4,6 +4,7 @@ pub mod cache_shadow;
 pub mod cache_writer;
 pub(crate) mod config_format;
 pub mod config_v2;
+pub mod evaluate_v2;
 pub mod feature_flag_list;
 pub mod flag_analytics;
 pub mod flag_definitions_cache;

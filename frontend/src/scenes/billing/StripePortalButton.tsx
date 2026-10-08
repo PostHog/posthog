@@ -5,13 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { billingLogic } from './billingLogic'
 
 export const StripePortalButton = (): JSX.Element | null => {
-    const { billing } = useValues(billingLogic)
+    const { billing, isExternallyBilled, isBillingManagedByPartner } = useValues(billingLogic)
 
-    if (!billing?.customer_id) {
+    if (!billing || isBillingManagedByPartner || (!isExternallyBilled && !billing.customer_id)) {
         return null
     }
 
-    const billingUrl = billing.external_billing_provider_invoices_url || billing.stripe_portal_url
+    const billingUrl = isExternallyBilled ? billing.external_billing_provider_invoices_url : billing.stripe_portal_url
 
     if (!billingUrl) {
         return null
@@ -28,7 +28,11 @@ export const StripePortalButton = (): JSX.Element | null => {
                 center
                 data-attr="manage-billing"
             >
-                {billing.has_active_subscription ? 'Manage card details and invoices' : 'View past invoices'}
+                {isExternallyBilled
+                    ? 'View invoices in Vercel'
+                    : billing.has_active_subscription
+                      ? 'Manage card details and invoices'
+                      : 'View past invoices'}
             </LemonButton>
         </div>
     )

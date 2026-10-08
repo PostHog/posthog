@@ -16,6 +16,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `TimeSeriesComboChart` | `ComboChart` plus the time-series chrome (date x-axis, goal lines, legend, value labels)                                                    |
 | `FunnelChart`          | Funnel steps as grouped bars over a hatched drop-off track — one band per step, one bar per variant, valued as percent of first step        |
 | `PieChart`             | Part of whole, one value per series; `innerRadiusRatio` for a donut                                                                         |
+| `ProportionBar`        | Part of whole as one flat 100% bar with no axes, legend rows show `share · value`; takes the same `series` as `PieChart`                    |
 | `ScatterChart`         | Two continuous numeric axes — one marker per `{ x, y }` point; takes `points`, not `labels`                                                 |
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |
@@ -38,6 +39,7 @@ const theme = useChartTheme() // reads CSS vars, tracks light/dark switches
 - Omit `color` on a series to get palette assignment by index (preferred). An explicit `color` must be a concrete color (hex, rgb): line, area, and bar series hand it to the canvas unresolved, so resolve `var(--...)` in the host first. Only `Heatmap` and `ScatterChart` resolve `var()` themselves.
 - The theme helpers carry the default chrome (faint dashed grid, stronger axis line, dashed crosshair), and `DEFAULT_CHART_CONFIG` carries the matching switches. Consumers opt out field by field (`showGrid: false`). Details: [docs/axes.md](./src/docs/axes.md).
 - `theme.skipDraw` mounts the canvas without painting, for deterministic visual snapshots.
+- The static canvas carries `data-hog-charts-paint`: `pending` from a wipe or an input change until the next paint, then `done`. The Storybook runner waits for no `pending` canvas before a snapshot.
 
 ## Series shape
 
@@ -104,7 +106,7 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` 
 | Doc                                                | Covers                                                                                                                 |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                             |
-| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, box plot, heatmap, sparkline, metric card                             |
+| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sparkline, metric card             |
 | [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis |
 | [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                 |
 | [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                         |

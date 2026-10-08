@@ -22,10 +22,12 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
+from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
@@ -50,6 +52,7 @@ from products.feature_flags.backend.flags_cache import (
     _serialize_cohort,
     _strip_null_values,
     clear_flags_cache,
+    coalesced_cohort_flags_cache_rebuilds,
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
@@ -576,7 +579,7 @@ class TestServiceFlagsCache(BaseTest):
         flag.refresh_from_db()
         assert flag.filters == stored_filters
 
-    def test_update_flags_cache_keeps_existing_entry_when_a_flag_has_unsupported_format(self):
+    def test_update_flags_cache_publishes_without_unsupported_flag_and_its_dependent(self):
         FeatureFlag.objects.create(
             team=self.team,
             key="v1-flag",
@@ -587,20 +590,235 @@ class TestServiceFlagsCache(BaseTest):
         etag_before = flags_hypercache.get_etag(self.team)
 
         # A v2 discriminator over v1-looking groups: reading it as v1 would publish the
-        # document into the service payload instead of failing this team's rebuild.
+        # document into the service payload, and failing the team would freeze v1-flag's
+        # cached targeting at whatever it was before the row arrived.
         unsupported_filters = {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]}
         unsupported = FeatureFlag.objects.create(
             team=self.team, key="unsupported-format", created_by=self.user, filters=unsupported_filters
         )
+        FeatureFlag.objects.create(
+            team=self.team, key="dependent", created_by=self.user, filters=_dependency_filters(unsupported.id)
+        )
 
-        assert update_flags_cache(self.team) is False
+        assert update_flags_cache(self.team) is True
 
         cached = get_flags_from_cache(self.team)
         assert cached is not None
         assert [f["key"] for f in cached] == ["v1-flag"]
+        # The published bytes are those of the v1-only team, so the content ETag is unchanged.
         assert flags_hypercache.get_etag(self.team) == etag_before
         unsupported.refresh_from_db()
         assert unsupported.filters == unsupported_filters
+
+
+def _insert_config_format_fixture(team: Team, user) -> tuple[dict, dict[str, FeatureFlag]]:
+    fixture = json.loads(
+        (_REPO_ROOT / "rust" / "feature-flags" / "tests" / "fixtures" / "flags_cache_config_formats.json").read_text()
+    )
+    flags = {
+        row["key"]: FeatureFlag.objects.create(
+            team=team,
+            key=row["key"],
+            created_by=user,
+            active=row["active"],
+            archived=row.get("archived", False),
+            filters={},
+        )
+        for row in fixture["flags"]
+    }
+    for row in fixture["flags"]:
+        filters = copy.deepcopy(row["filters"])
+        groups = filters.get("groups") if isinstance(filters, dict) else None
+        for group in groups if isinstance(groups, list) else []:
+            for prop in group.get("properties") or []:
+                if prop.get("type") == "flag":
+                    reference = prop["key"]
+                    prop["key"] = str(
+                        fixture["missing_dependency_id"] if reference == "$missing" else flags[reference].id
+                    )
+        flags[row["key"]].filters = filters
+        # Written like a stored row, past the model save hooks that assume a v1 document.
+        # A JSON null needs an expression, or the ORM writes SQL NULL and the column refuses it.
+        FeatureFlag.objects.filter(id=flags[row["key"]].id).update(
+            filters=Value(None, output_field=JSONField()) if filters is None else filters
+        )
+    return fixture, flags
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestOmitUnsupportedFlags(BaseTest):
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def _assert_fixture_payload(self, payload: dict, fixture: dict, flags: dict[str, FeatureFlag]) -> None:
+        published = {f["id"]: f for f in payload["flags"]}
+        assert {f["key"] for f in payload["flags"]} == {r["key"] for r in fixture["flags"] if r["expect"] == "kept"}
+        for row in fixture["flags"]:
+            if row["expect"] != "kept":
+                continue
+            filters = published[flags[row["key"]].id]["filters"]
+            if row.get("blanked"):
+                assert filters == {"groups": []}, row["key"]
+            else:
+                assert filters == flags[row["key"]].filters, row["key"]
+
+        metadata = payload["evaluation_metadata"]
+        expected_missing = sorted(flags[r["key"]].id for r in fixture["flags"] if r.get("missing_dependency"))
+        assert metadata["flags_with_missing_deps"] == expected_missing
+        staged = {flag_id for stage in metadata["dependency_stages"] for flag_id in stage}
+        assert staged == set(published) - {flags["cycle-a"].id, flags["cycle-b"].id}
+        assert metadata["transitive_deps"][str(flags["depends-true-on-v1-true"].id)] == [flags["v1-boolean-true"].id]
+
+    def test_single_and_batch_builders_omit_unsupported_configs_and_their_dependents(self):
+        fixture, flags = _insert_config_format_fixture(self.team, self.user)
+        stored = {key: copy.deepcopy(flag.filters) for key, flag in flags.items()}
+
+        with capture_logs() as log_events:
+            single = _get_feature_flags_for_service(self.team)
+            batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        self._assert_fixture_payload(single, fixture, flags)
+        assert {f["id"]: f for f in batch["flags"]} == {f["id"]: f for f in single["flags"]}
+        assert batch["evaluation_metadata"] == single["evaluation_metadata"]
+        assert batch["cohorts"] == single["cohorts"] == []
+        for key, flag in flags.items():
+            flag.refresh_from_db()
+            assert flag.filters == stored[key], key
+
+        # The warning is the only operator-visible record of what a team's cache left out.
+        def omitted_ids(expect: str) -> list[int]:
+            return sorted(flags[row["key"]].id for row in fixture["flags"] if row["expect"] == expect)
+
+        expected = {
+            "team_id": self.team.id,
+            "unsupported_flag_ids": omitted_ids("unsupported"),
+            "dependent_flag_ids": omitted_ids("dependent"),
+        }
+        omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
+        assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
+
+    def test_supported_v2_row_is_dropped_over_the_deployed_limit(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="v2-flag", created_by=self.user, filters={})
+        FeatureFlag.objects.filter(id=flag.id).update(
+            filters={"version": 2, "return_type": "boolean", "default_value": None, "rules": []}
+        )
+
+        assert [f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]] == ["v2-flag"]
+        with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=32):
+            assert _get_feature_flags_for_service(self.team)["flags"] == []
+
+    def test_rule_targeting_references_reach_the_builders(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="targeted",
+            filters={"properties": {"type": "OR", "values": [{"key": "email", "value": "a", "type": "person"}]}},
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 3}
+        )
+        rows = {
+            "rules-cohort": _rules_filters({"key": "id", "type": "cohort", "value": cohort.id}),
+            "rules-dependent": _rules_filters(
+                {"key": str(unsupported.id), "type": "flag", "operator": "flag_evaluates_to", "value": True}
+            ),
+        }
+        created: dict[str, FeatureFlag] = {}
+        for key, filters in rows.items():
+            created[key] = FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, filters={})
+            FeatureFlag.objects.filter(id=created[key].id).update(filters=filters)
+
+        # Admitted here because the validator does not admit cohort or flag targeting yet.
+        with (
+            patch("products.feature_flags.backend.flags_cache._validates_v2", return_value=True),
+            capture_logs() as log_events,
+        ):
+            single = _get_feature_flags_for_service(self.team)
+            batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        for payload in (single, batch):
+            assert [f["key"] for f in payload["flags"]] == ["rules-cohort"]
+            assert [c["id"] for c in payload["cohorts"]] == [cohort.id]
+        # Omitted as a dependent, which only a read of its flag reference can decide.
+        expected = {"unsupported_flag_ids": [unsupported.id], "dependent_flag_ids": [created["rules-dependent"].id]}
+        omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
+        assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
+
+    def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 2, "groups": "junk"}
+        )
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team, other_team])
+
+        assert result[self.team.id]["flags"] == []
+        assert [f["key"] for f in result[other_team.id]["flags"]] == ["v1-flag"]
+
+    def test_cohorts_are_collected_from_surviving_flags_only(self):
+        def cohort(name: str) -> Cohort:
+            return Cohort.objects.create(
+                team=self.team,
+                name=name,
+                filters={"properties": {"type": "OR", "values": [{"key": "email", "value": "a", "type": "person"}]}},
+            )
+
+        def cohort_filters(cohort_id: int, **extra) -> dict:
+            return {
+                **extra,
+                "groups": [{"properties": [{"type": "cohort", "value": cohort_id}], "rollout_percentage": 100}],
+            }
+
+        kept_cohort, unsupported_cohort, dependent_cohort = cohort("kept"), cohort("unsupported"), cohort("dependent")
+        FeatureFlag.objects.create(
+            team=self.team, key="v1-flag", created_by=self.user, filters=cohort_filters(kept_cohort.id)
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team,
+            key="unsupported",
+            created_by=self.user,
+            filters=cohort_filters(unsupported_cohort.id, version=2),
+        )
+        dependent_filters = _dependency_filters(unsupported.id)
+        dependent_filters["groups"][0]["properties"].append({"type": "cohort", "value": dependent_cohort.id})
+        FeatureFlag.objects.create(team=self.team, key="dependent", created_by=self.user, filters=dependent_filters)
+
+        single = _get_feature_flags_for_service(self.team)
+        batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        assert [c["id"] for c in single["cohorts"]] == [kept_cohort.id]
+        assert [c["id"] for c in batch["cohorts"]] == [kept_cohort.id]
+
+    @patch("products.feature_flags.backend.tasks.publish_shadow_invalidation")
+    def test_celery_task_publishes_the_omitted_payload(self, mock_publish_shadow_invalidation):
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 2, "rules": []}
+        )
+        FeatureFlag.objects.create(
+            team=self.team, key="dependent", created_by=self.user, filters=_dependency_filters(unsupported.id)
+        )
+
+        update_team_service_flags_cache(self.team.id)
+
+        cached = get_flags_from_cache(self.team)
+        assert cached is not None
+        assert [f["key"] for f in cached] == ["v1-flag"]
+        assert flags_hypercache.get_etag(self.team) is not None
+        mock_publish_shadow_invalidation.assert_called_once_with(self.team.id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -3577,6 +3795,23 @@ def _make_flag(id: int, key: str, deps: list[int] | None = None, active: bool = 
     }
 
 
+def _rules_filters(*properties: dict) -> dict:
+    # Cohort and flag targeting is written past the validator, which does not admit it yet.
+    return {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": False,
+        "rules": [
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "rule_type": "targeted_release",
+                "targeting": {"properties": list(properties)},
+                "value": True,
+            }
+        ],
+    }
+
+
 class TestExtractDirectDependencyIds:
     @parameterized.expand(
         [
@@ -3589,6 +3824,17 @@ class TestExtractDirectDependencyIds:
                 "inactive_unsupported_format_returns_empty",
                 {**_make_flag(1, "flag_a", active=False), "filters": {"version": 2, **_dependency_filters(2)}},
                 set(),
+            ),
+            (
+                "rule_targeting",
+                {
+                    **_make_flag(1, "flag_a"),
+                    "filters": _rules_filters(
+                        {"type": "cohort", "key": "id", "value": 9},
+                        {"type": "flag", "key": "2", "value": True, "operator": "flag_evaluates_to"},
+                    ),
+                },
+                {2},
             ),
             (
                 "non_flag_properties_ignored",
@@ -4090,6 +4336,18 @@ class TestExtractCohortIdsFromFlagFilters(BaseTest):
         ]
         assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
 
+    def test_extracts_cohort_ids_from_rule_targeting(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": _rules_filters(
+                    {"type": "cohort", "key": "id", "value": 42},
+                    {"type": "flag", "key": "7", "value": True, "operator": "flag_evaluates_to"},
+                ),
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
+
     def test_handles_string_cohort_value(self):
         flags_data = [
             {
@@ -4451,6 +4709,149 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.name = "updated"
         cohort.save()
         mock_task.delay.assert_not_called()
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+@patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+class TestCoalescedFlagsCacheRebuilds(BaseTest):
+    def _save_definition(self, cohort: Cohort) -> None:
+        cohort.filters = {"properties": {"type": "AND", "values": []}}
+        cohort.save(update_fields=["filters"])
+
+    def test_saves_inside_the_block_dispatch_once_on_exit(self, mock_service, mock_definitions):
+        cohort_one = Cohort.objects.create(team=self.team, name="one")
+        cohort_two = Cohort.objects.create(team=self.team, name="two")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
+            self._save_definition(cohort_one)
+            self._save_definition(cohort_two)
+            mock_service.delay.assert_not_called()
+            mock_definitions.delay.assert_not_called()
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+        assert stale_cache_teams == set()
+
+    def test_dispatches_once_per_team(self, mock_service, mock_definitions):
+        other_team = Team.objects.create(organization=self.organization)
+        cohort_here = Cohort.objects.create(team=self.team, name="here")
+        cohort_there = Cohort.objects.create(team=other_team, name="there")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_cohort_flags_cache_rebuilds():
+            self._save_definition(cohort_here)
+            self._save_definition(cohort_there)
+            self._save_definition(cohort_here)
+
+        assert sorted(call.args[0] for call in mock_service.delay.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
+        assert sorted(call.args[0] for call in mock_definitions.delay.call_args_list) == sorted(
+            [self.team.id, other_team.id]
+        )
+
+    def test_dispatches_recorded_teams_when_the_block_raises(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with pytest.raises(RuntimeError):
+            with coalesced_cohort_flags_cache_rebuilds():
+                self._save_definition(cohort)
+                raise RuntimeError("interrupted")
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    @override_settings(FLAGS_REDIS_URL=None)
+    def test_skips_the_service_cache_when_no_flags_redis_url(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with coalesced_cohort_flags_cache_rebuilds():
+            self._save_definition(cohort)
+            mock_definitions.delay.assert_not_called()
+
+        mock_service.delay.assert_not_called()
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    def test_receivers_enqueue_again_after_the_block_exits(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+
+        with coalesced_cohort_flags_cache_rebuilds():
+            self._save_definition(cohort)
+
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        self._save_definition(cohort)
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
+
+    def test_a_cohort_saved_while_dispatching_still_enqueues(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        saved_during_dispatch = Cohort.objects.create(team=self.team, name="two")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        def save_another_cohort(_team_id):
+            # Clear the side effect first: the nested save dispatches inline, which would
+            # otherwise call back into here forever.
+            mock_definitions.delay.side_effect = None
+            self._save_definition(saved_during_dispatch)
+
+        # Stands in for eager Celery, which runs the rebuild inline.
+        mock_definitions.delay.side_effect = save_another_cohort
+
+        with coalesced_cohort_flags_cache_rebuilds():
+            self._save_definition(cohort)
+
+        assert mock_definitions.delay.call_count == 2
+
+    @parameterized.expand([("definitions",), ("service",)])
+    def test_a_failed_publish_is_reported_and_does_not_drop_the_other_rebuild(
+        self, mock_service, mock_definitions, failing
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+        failing_mock, surviving_mock = (
+            (mock_definitions, mock_service) if failing == "definitions" else (mock_service, mock_definitions)
+        )
+        failing_mock.delay.side_effect = RuntimeError("broker unreachable")
+
+        with coalesced_cohort_flags_cache_rebuilds() as stale_cache_teams:
+            self._save_definition(cohort)
+
+        assert stale_cache_teams == {self.team.id}
+        surviving_mock.delay.assert_called_once_with(self.team.id)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestCoalescedRebuildsWaitForTheCommit(BaseTest):
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    def test_dispatch_is_deferred_to_the_commit(self, mock_service, mock_definitions):
+        cohort = Cohort.objects.create(team=self.team, name="one")
+        mock_service.reset_mock()
+        mock_definitions.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with coalesced_cohort_flags_cache_rebuilds():
+                cohort.filters = {"properties": {"type": "AND", "values": []}}
+                cohort.save(update_fields=["filters"])
+            # A worker started here would read the cohort rows before they commit.
+            mock_service.delay.assert_not_called()
+            mock_definitions.delay.assert_not_called()
+
+        mock_service.delay.assert_called_once_with(self.team.id)
+        mock_definitions.delay.assert_called_once_with(self.team.id)
 
 
 class TestStripNullValues(unittest.TestCase):

@@ -18,3 +18,9 @@ export { EmbeddedRunner, type TaskTrackerProps } from '../components/EmbeddedRun
 // its dynamic `import()`. `panelId` keys an embedded `taskTrackerSceneLogic` instance independent of the
 // `/tasks` scene's own singleton — submitting a task here never navigates the host.
 export { SidePanelRunner, type SidePanelRunnerProps } from '../components/SidePanelRunner'
+
+// `EmbeddedTaskComposer` (`<EmbeddedTaskComposer panelId />`) is the lazy, code-split new-task composer alone,
+// for a host page that lists tasks itself. It has the same LIGHT boundary and `panelId` keying as
+// `SidePanelRunner`. `channelId` files the created task in a tasks channel, `initialRepositoryConfig` sets the
+// starting repo, and `onTaskCreated` gives the new task id back, so the host decides what to open.
+export { EmbeddedTaskComposer, type EmbeddedTaskComposerProps } from '../components/EmbeddedTaskComposer'

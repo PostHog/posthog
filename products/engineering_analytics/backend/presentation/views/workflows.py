@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import CIEngine
 from products.engineering_analytics.backend.presentation.serializers.workflows import (
     CurrentBranchHealthSerializer,
     MasterFailureGroupSerializer,
@@ -32,8 +33,17 @@ from products.engineering_analytics.backend.presentation.views._base import (
     EngineeringAnalyticsViewSetBase,
     _bad_request,
     _bool_param,
+    _optional_enum_param,
     _optional_int_param,
     _require_int_param,
+)
+
+_CI_ENGINE = OpenApiParameter(
+    name="ci_engine",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    enum=CIEngine.values,
+    description="CI engine. Required when run_id exists in both engines.",
 )
 
 
@@ -102,14 +112,17 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="GitHub Actions run id to inspect.",
+                description="Integer run id to inspect; unique only together with ci_engine.",
             ),
+            _CI_ENGINE,
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: WorkflowRunDetailSerializer,
-            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+            400: OpenApiResponse(
+                description="Missing or non-integer run_id, ambiguous run identity, or invalid ci_engine/source_id."
+            ),
             404: OpenApiResponse(description="No workflow run with that id in the warehouse."),
         },
         description=(
@@ -123,6 +136,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             result = api.get_workflow_run(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
@@ -321,12 +335,15 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 description="Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an "
                 "explicit attempt to avoid mixing jobs across a re-run's attempts.",
             ),
+            _CI_ENGINE,
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: WorkflowJobSerializer(many=True),
-            400: OpenApiResponse(description="Missing or non-integer run_id/run_attempt, or invalid source_id."),
+            400: OpenApiResponse(
+                description="Missing or non-integer run_id/run_attempt, ambiguous run identity, or invalid ci_engine/source_id."
+            ),
         },
         description=(
             "Jobs of a single workflow run attempt, with per-job duration, runner tier, and estimated cost. "
@@ -340,6 +357,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             jobs = api.list_workflow_jobs(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 run_attempt=_optional_int_param(request, "run_attempt"),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
@@ -513,12 +531,15 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=True,
                 description="Workflow run id whose failure logs to fetch.",
             ),
+            _CI_ENGINE,
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: RunFailureLogsSerializer,
-            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+            400: OpenApiResponse(
+                description="Missing or non-integer run_id, ambiguous run identity, or invalid ci_engine/source_id."
+            ),
         },
         description=(
             "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of "
@@ -532,6 +553,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             result = api.get_run_failure_logs(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,

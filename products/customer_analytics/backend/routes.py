@@ -14,6 +14,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountRelationshipViewSet,
     AccountTrackRuleViewSet,
     AccountViewSet,
+    AccountViewTemplateViewSet,
     CalendarSyncViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
@@ -114,6 +115,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"user_customer_analytics_config",
         UserCustomerAnalyticsConfigViewSet,
         "project_user_customer_analytics_config",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"account_views",
+        AccountViewTemplateViewSet,
+        "project_account_views",
         ["team_id"],
     )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])

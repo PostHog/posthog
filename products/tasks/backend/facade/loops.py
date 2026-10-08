@@ -75,7 +75,7 @@ MAX_FIX_ITERATIONS_CEILING = 10
 DEFAULT_POSTHOG_MCP_SCOPES = "read_only"
 POSTHOG_MCP_SCOPES_CHOICES = ("read_only", "full")
 NOTIFICATION_CHANNELS = ("push", "email", "slack")
-NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "needs_attention")
+NOTIFICATION_EVENTS = ("run_completed", "run_failed", "pr_created", "pr_merged", "pr_closed", "needs_attention")
 ALLOWED_GITHUB_TRIGGER_EVENTS = ("issues", "issue_comment", "pull_request", "push")
 MAX_LOOP_REPOSITORIES = 1
 

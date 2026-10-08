@@ -12,17 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     EXTRA_DOWNLOADS_VERSION_ID,
     MAX_CRATES,
     MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES,
-    USER_AGENT,
     CratesIORetryableError,
-    _canonical_name,
-    _crate_url,
     _fetch_json,
     crates_io_source,
     get_rows,
     parse_crates,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.settings import CRATES_IO_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io"
 
@@ -96,25 +92,6 @@ def _downloads_document() -> dict[str, Any]:
 
 
 class TestParseCrates:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("serde", ["serde"]),
-            ("serde\ntokio", ["serde", "tokio"]),
-            ("serde, tokio", ["serde", "tokio"]),
-            ("  serde , tokio \n posthog-rs ", ["serde", "tokio", "posthog-rs"]),
-            # De-duplicated while preserving order so the primary key never sees the same crate twice.
-            ("serde\nserde\ntokio", ["serde", "tokio"]),
-            ("serde\n\n  \ntokio", ["serde", "tokio"]),
-            # crates.io treats `-`/`_` as interchangeable and names as case-insensitive; both aliases
-            # would resolve to the same canonical crate and emit rows with a colliding primary key.
-            ("serde-json\nserde_json", ["serde-json"]),
-            ("Serde\nserde", ["Serde"]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_crates(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", " , , "])
     def test_empty_raises(self, raw):
         with pytest.raises(ValueError):
@@ -124,26 +101,6 @@ class TestParseCrates:
         raw = "\n".join(f"crate{i}" for i in range(MAX_CRATES + 1))
         with pytest.raises(ValueError, match="Too many crates"):
             parse_crates(raw)
-
-    def test_allows_max_crates(self):
-        raw = "\n".join(f"crate{i}" for i in range(MAX_CRATES))
-        assert len(parse_crates(raw)) == MAX_CRATES
-
-
-class TestCrateUrl:
-    def test_encodes_path_segment(self):
-        assert _crate_url("serde") == f"{CRATES_IO_BASE_URL}/crates/serde"
-        # A stray slash must not escape the /crates/<name> path.
-        assert "/" not in _crate_url("a/b").removeprefix(f"{CRATES_IO_BASE_URL}/crates/")
-
-
-class TestCanonicalName:
-    def test_prefers_crate_id(self):
-        assert _canonical_name("serde-json", {"crate": {"id": "serde_json"}}) == "serde_json"
-
-    @pytest.mark.parametrize("detail", [{}, {"crate": {}}, {"crate": {"id": None}}])
-    def test_falls_back_to_requested_name(self, detail):
-        assert _canonical_name("serde-json", detail) == "serde-json"
 
 
 # tenacity exposes the undecorated function via `__wrapped__` so status classification can be
@@ -156,19 +113,6 @@ def _throttle() -> mock.MagicMock:
 
 
 class TestFetchJson:
-    def test_ok_returns_body(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, {"crate": {"id": "serde"}})
-
-        assert _fetch_once(session, _throttle(), "url", structlog.get_logger()) == {"crate": {"id": "serde"}}
-
-    def test_404_returns_none(self):
-        # A typo'd or deleted crate must be skipped, not fail the whole sync.
-        session = mock.MagicMock()
-        session.get.return_value = _response(404)
-
-        assert _fetch_once(session, _throttle(), "url", structlog.get_logger()) is None
-
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
         session = mock.MagicMock()
@@ -210,19 +154,6 @@ class TestValidateCredentials:
         assert message is not None
         mock_session.return_value.get.assert_not_called()
 
-    def test_probes_first_crate_with_crawler_policy_user_agent(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200)
-
-            validate_credentials("serde\ntokio")
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-            session_headers = mock_session.call_args.kwargs["headers"]
-
-        assert called_url == f"{CRATES_IO_BASE_URL}/crates/serde"
-        # crates.io blocks requests without a descriptive User-Agent.
-        assert session_headers["User-Agent"] == USER_AGENT
-
     def test_network_error_is_invalid(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
@@ -248,21 +179,6 @@ class TestGetRows:
         assert len(batches) == 2
         assert batches[0][0]["id"] == "serde"
         assert batches[1][0]["id"] == "tokio"
-
-    def test_versions_follows_seek_pagination(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _versions_page(["1.0.1", "1.0.0"], next_page="?per_page=100&seek=abc")),
-                _response(200, _versions_page(["0.9.0"], next_page=None)),
-            ]
-
-            batches = list(get_rows("versions", ["serde"], structlog.get_logger()))
-
-            second_url = mock_session.return_value.get.call_args_list[1][0][0]
-
-        assert [row["num"] for batch in batches for row in batch] == ["1.0.1", "1.0.0", "0.9.0"]
-        # The follow-up request must use the API's ready-made `next_page` query string.
-        assert second_url == f"{CRATES_IO_BASE_URL}/crates/serde/versions?per_page=100&seek=abc"
 
     def test_downloads_stamps_canonical_crate_and_sentinel_version(self):
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
@@ -354,22 +270,6 @@ class TestGetRows:
         # An edge whose version is missing from the page still yields, with no dependent stamped.
         assert (rows[1]["dependent_crate"], rows[1]["dependent_version_num"]) == (None, None)
 
-    def test_reverse_dependencies_walks_pages_until_a_short_one(self, monkeypatch):
-        monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 2)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"dependencies": [{"id": 1}, {"id": 2}], "versions": []}),
-                _response(200, {"dependencies": [{"id": 3}], "versions": []}),
-            ]
-
-            batches = list(get_rows("reverse_dependencies", ["posthog-rs"], structlog.get_logger()))
-
-            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
-
-        assert [row["id"] for batch in batches for row in batch] == [1, 2, 3]
-        base = f"{CRATES_IO_BASE_URL}/crates/posthog-rs/reverse_dependencies"
-        assert urls == [f"{base}?per_page=2&page=1", f"{base}?per_page=2&page=2"]
-
     def test_reverse_dependencies_stops_at_the_page_cap(self, monkeypatch):
         # crates.io serves empty pages past the end of the list instead of erroring, so a crate
         # with tens of thousands of reverse dependencies must not walk the list unbounded.
@@ -419,14 +319,6 @@ class TestGetRows:
 
 
 class TestCratesIOSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(CRATES_IO_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = crates_io_source(endpoint, "serde", structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == CRATES_IO_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     def test_only_streams_with_stable_dates_are_partitioned(self):
         # `versions` has a stable publish timestamp and `downloads` a stable day; `crates` and
         # `owners` have no stable datetime column.

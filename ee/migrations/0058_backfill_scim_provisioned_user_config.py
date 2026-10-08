@@ -10,23 +10,25 @@ logger = structlog.get_logger(__name__)
 CHUNK_SIZE = 1000
 
 
-def _ids_to_leave_on_their_domain_key(pending: Any) -> list[Any]:
+def _domain_config_field(OrganizationDomain: Any) -> str:
+    # posthog.1316 renames this field to `_identity_provider_config` in migration state. This
+    # backfill can run on either side of that rename, and no ordering edge can say which: 1316 and
+    # this migration sit inside the two squashes, so an edge between them closes a cycle between
+    # the squashes themselves.
+    names = {field.name for field in OrganizationDomain._meta.get_fields()}
+    return "identity_provider_config" if "identity_provider_config" in names else "_identity_provider_config"
+
+
+def _ids_to_leave_on_their_domain_key(pending: Any, config_path: str) -> list[Any]:
     # One user provisioned through two domains of one config holds two records for what is now a
     # single tenant. Keep the oldest on the config and leave the rest on their domain key, so the
     # unique constraint added in 0060 holds without this dropping anyone's record.
-    duplicate_groups = (
-        pending.values("user_id", "organization_domain__identity_provider_config")
-        .annotate(rows=Count("id"))
-        .filter(rows__gt=1)
-    )
+    duplicate_groups = pending.values("user_id", config_path).annotate(rows=Count("id")).filter(rows__gt=1)
 
     skipped: list[Any] = []
     for group in duplicate_groups:
         group_ids = list(
-            pending.filter(
-                user_id=group["user_id"],
-                organization_domain__identity_provider_config=group["organization_domain__identity_provider_config"],
-            )
+            pending.filter(user_id=group["user_id"], **{config_path: group[config_path]})
             .order_by("created_at", "id")
             .values_list("id", flat=True)
         )
@@ -34,7 +36,7 @@ def _ids_to_leave_on_their_domain_key(pending: Any) -> list[Any]:
             logger.warning(
                 "scim_provisioned_user_duplicate_for_identity_provider_config",
                 scim_provisioned_user_id=str(row_id),
-                identity_provider_config_id=str(group["organization_domain__identity_provider_config"]),
+                identity_provider_config_id=str(group[config_path]),
             )
         skipped.extend(group_ids[1:])
     return skipped
@@ -52,16 +54,19 @@ def backfill_scim_provisioned_user_config(apps: Any, schema_editor: Any) -> None
     OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
     db_alias = schema_editor.connection.alias
 
+    config_field = _domain_config_field(OrganizationDomain)
+    config_path = f"organization_domain__{config_field}"
+
     pending = SCIMProvisionedUser.objects.using(db_alias).filter(
         identity_provider_config__isnull=True,
-        organization_domain__identity_provider_config__isnull=False,
+        **{f"{config_path}__isnull": False},
     )
-    claimable = pending.exclude(id__in=_ids_to_leave_on_their_domain_key(pending))
+    claimable = pending.exclude(id__in=_ids_to_leave_on_their_domain_key(pending, config_path))
 
     config_of_domain = Subquery(
         OrganizationDomain.objects.using(db_alias)
         .filter(pk=OuterRef("organization_domain_id"))
-        .values("identity_provider_config_id")[:1]
+        .values(f"{config_field}_id")[:1]
     )
 
     # Walking the primary key keeps the scan forward-only and each statement small.
@@ -83,11 +88,6 @@ def backfill_scim_provisioned_user_config(apps: Any, schema_editor: Any) -> None
 
 class Migration(migrations.Migration):
     dependencies = [("ee", "0057_scim_records_identity_provider_config_indexes")]
-
-    # This backfill reads OrganizationDomain.identity_provider_config, which posthog.1316 renames in
-    # migration state. Without this edge the planner is free to apply 1316 first, and the backfill
-    # then fails on a fresh database with an unsupported-lookup FieldError.
-    run_before = []
 
     operations = [
         migrations.RunPython(

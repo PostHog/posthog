@@ -28,17 +28,36 @@ import {
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
+    ModelAccessEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
+import type { ThreadSkin } from '../quill/quillThreadContext'
+import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
 const STOP_SEPARATOR = '|'
+
+const BILLING_LABELS: Record<ModelAccessEnumApi, string> = {
+    [ModelAccessEnumApi.PosthogGateway]: 'PostHog credits',
+    [ModelAccessEnumApi.OwnSubscription]: 'OpenAI (ChatGPT plan)',
+}
+
+export interface ComposerCodexBilling {
+    value: ModelAccessEnumApi
+    /** The ChatGPT plan can only be picked once the user connected a ChatGPT account. */
+    planConnected: boolean
+    /** A live run keeps the billing it booted with. */
+    locked?: boolean
+    onChange: (value: ModelAccessEnumApi) => void
+    onConnectPlan: () => void
+}
 
 export interface ComposerModelEffortPickersProps {
     /** Models to offer, and the efforts each supports. Callers pass `modelCatalogueLogic`'s live catalogue. */
@@ -56,7 +75,8 @@ export interface ComposerModelEffortPickersProps {
      */
     lockedRuntimeAdapter?: string | null
     /** The selection shown is the resolved default (user/project preference), not an explicit pick for
-     * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
+     * this run — the lemon model trigger renders a "Default ·" prefix so that's visible at a glance. The quill
+     * trigger shows only the model, like PostHog Desktop. */
     isDefaultSelection?: boolean
     /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
      * configured default and the reset row falls back to the ladder's balanced notch. */
@@ -65,6 +85,9 @@ export interface ComposerModelEffortPickersProps {
      * the picker stays free of the app's routing, and an embedding host can send its own audience
      * somewhere else. Omit and the row is absent. */
     onOpenDefaultSettings?: () => void
+    /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
+    codexBilling?: ComposerCodexBilling
+    phoneSheet?: boolean
 }
 
 interface PickerSectionProps {
@@ -79,6 +102,14 @@ interface PickerSectionProps {
 }
 
 /** One `label … current ›` row of the cascade, opening a radio list. */
+const PICKER_CHROME: Record<
+    ThreadSkin,
+    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean }
+> = {
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false },
+}
+
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
     return (
         <DropdownMenuSub>
@@ -118,7 +149,10 @@ export function ComposerModelEffortPickers({
     isDefaultSelection = false,
     onResetToDefault,
     onOpenDefaultSettings,
+    codexBilling,
+    phoneSheet = false,
 }: ComposerModelEffortPickersProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
     // Frozen when the Advanced view is entered rather than derived from the ladder: a model pick that steps off a
@@ -179,6 +213,8 @@ export function ComposerModelEffortPickers({
         }
     }
 
+    const billing = selectedAdapter === RuntimeAdapterEnumApi.Codex ? codexBilling : undefined
+
     // With neither a configured default to fall back to nor a ladder to land on, there is nothing to reset to.
     const showReset = Boolean(onResetToDefault) || stops.length > 0
 
@@ -187,6 +223,36 @@ export function ComposerModelEffortPickers({
     const selectAndClose = (apply: () => void): void => {
         pendingChangeRef.current = apply
         setOpen(false)
+    }
+
+    if (phoneSheet) {
+        return (
+            <ComposerModelEffortSheet
+                modelLabel={modelLabel}
+                selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
+                selectedAdapter={selectedAdapter}
+                adapters={adapters}
+                adapterModels={adapterModels}
+                effortOptions={effortOptions}
+                showsAnyCost={showsAnyCost}
+                harnessDisabled={(adapter) =>
+                    isDefaultModelLoading || (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
+                }
+                billing={billing}
+                billingLabels={BILLING_LABELS}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                onAdapterChange={selectAdapter}
+                resetDisabled={Boolean(onResetToDefault) && isDefaultSelection}
+                onReset={
+                    showReset
+                        ? (onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)])))
+                        : undefined
+                }
+                onOpenDefaultSettings={onOpenDefaultSettings}
+            />
+        )
     }
 
     return (
@@ -212,12 +278,15 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant="outline" size="sm">
-                        {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
+                    <Button variant={chrome.triggerVariant} size="sm">
+                        {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
-                        <IconChevronDown />
+                        {billing?.value === ModelAccessEnumApi.OwnSubscription && (
+                            <span className="text-muted">ChatGPT plan</span>
+                        )}
+                        {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
             />
@@ -253,6 +322,46 @@ export function ComposerModelEffortPickers({
                                         {getHarnessLabel(adapter)}
                                     </DropdownMenuRadioItem>
                                 ))}
+                            </PickerSection>
+                        )}
+
+                        {billing && (
+                            <PickerSection
+                                title="Billing"
+                                current={BILLING_LABELS[billing.value]}
+                                value={billing.value}
+                                onValueChange={(value) => {
+                                    billing.onChange(value as ModelAccessEnumApi)
+                                    setOpen(false)
+                                }}
+                                footer={
+                                    billing.planConnected || billing.locked ? undefined : (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                onClick={() => selectAndClose(billing.onConnectPlan)}
+                                                data-attr="composer-codex-connect-plan"
+                                            >
+                                                Connect your ChatGPT account
+                                            </DropdownMenuItem>
+                                        </>
+                                    )
+                                }
+                            >
+                                {[ModelAccessEnumApi.PosthogGateway, ModelAccessEnumApi.OwnSubscription].map(
+                                    (value) => (
+                                        <DropdownMenuRadioItem
+                                            key={value}
+                                            value={value}
+                                            disabled={
+                                                billing.locked ||
+                                                (value === ModelAccessEnumApi.OwnSubscription && !billing.planConnected)
+                                            }
+                                        >
+                                            {BILLING_LABELS[value]}
+                                        </DropdownMenuRadioItem>
+                                    )
+                                )}
                             </PickerSection>
                         )}
 
@@ -321,7 +430,7 @@ export function ComposerModelEffortPickers({
                             )
                         }
                     >
-                        <IconRevert />
+                        {chrome.icons && <IconRevert />}
                         Reset to default
                     </DropdownMenuItem>
                 )}
@@ -330,7 +439,7 @@ export function ComposerModelEffortPickers({
                     you disagree with is the moment you want to change it. */}
                 {onOpenDefaultSettings && (
                     <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
-                        <IconGear />
+                        {chrome.icons && <IconGear />}
                         Change default
                     </DropdownMenuItem>
                 )}

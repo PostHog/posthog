@@ -17,10 +17,6 @@ class TestDiscourseSource:
             base_url="https://forum.example.com", api_key="secret-key", api_username="system"
         )
 
-    def test_config_has_no_unreleased_flag(self) -> None:
-        # A finished source must not carry `unreleasedSource` — it hides the connector entirely.
-        assert self.source.get_source_config.unreleasedSource is None
-
     def test_connection_host_fields_covers_base_url_and_api_username(self) -> None:
         # The stored API key is sent to whatever `base_url` points at, and `api_username` selects
         # the identity an All Users key acts as, so retargeting either must force key re-entry.

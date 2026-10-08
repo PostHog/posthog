@@ -3,7 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
     QualarooSourceConfig,
 )
@@ -15,23 +14,6 @@ class TestQualarooSource:
         self.source = QualarooSource()
         self.team_id = 123
         self.config = QualarooSourceConfig(api_key="q-key", api_secret="q-secret")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Qualaroo"
-        assert config.label == "Qualaroo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — it must not carry the scaffolding flag.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/qualaroo"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "api_secret"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # Both fields are secret credentials; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved secret against another account.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [

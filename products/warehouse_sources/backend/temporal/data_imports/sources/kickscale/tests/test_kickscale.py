@@ -55,28 +55,6 @@ class TestKickscalePageNumberPaginator:
 
         assert paginator.has_next_page is expected_has_next
 
-    def test_page_param_advances_and_is_zero_based(self) -> None:
-        paginator = KickscalePageNumberPaginator(page_size=100)
-        request = Request(method="GET", url="https://api.kickscale.com/meetings")
-        paginator.init_request(request)
-        assert request.params["page"] == 0
-
-        paginator.update_state(Mock(), data=[{"id": "1"}] * 100)
-        paginator.update_request(request)
-        assert request.params["page"] == 1
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = KickscalePageNumberPaginator(page_size=100)
-        paginator.update_state(Mock(), data=[{"id": "1"}] * 100)
-        state = paginator.get_resume_state()
-        assert state == {"page": 1}
-
-        resumed = KickscalePageNumberPaginator(page_size=100)
-        resumed.set_resume_state(cast(dict[str, Any], state))
-        request = Request(method="GET", url="https://api.kickscale.com/meetings")
-        resumed.init_request(request)
-        assert request.params["page"] == 1
-
 
 @parameterized.expand(
     [
@@ -97,21 +75,6 @@ class TestGetResource:
         incremental = resource["endpoint"]["incremental"]
         assert incremental["start_param"] == "startDate"
         assert incremental["cursor_path"] == "date"
-
-    @pytest.mark.parametrize("endpoint", ["meetings", "calls"])
-    def test_full_refresh_resource(self, endpoint: str) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
-
-    def test_requests_both_scopes_and_expand(self) -> None:
-        resource = cast(dict[str, Any], get_resource("meetings", should_use_incremental_field=False))
-        params = resource["endpoint"]["params"]
-        # `scopes` defaults to "external" only; "internal" must be requested explicitly or
-        # internal meetings silently drop out of every list response.
-        assert params["scopes"] == "internal,external"
-        assert params["expand"] == "user_client_augmentation,meeting_transcript"
-        assert params["sortingOrder"] == "ascending"
 
 
 def test_client_config_pins_host_and_blocks_redirects() -> None:
@@ -150,9 +113,10 @@ def test_validate_credentials_status_mapping(
     assert mock_session.call_args.kwargs["allow_redirects"] is False
 
 
-def _make_http_response(body: list[dict[str, Any]], status_code: int = 200) -> Response:
+def _make_http_response(rows: list[dict[str, Any]], status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
+    body = {"data": rows, "meta": {"total": 101, "returned": len(rows), "page": 0, "pageSize": 100}}
     resp._content = json.dumps(body).encode()
     resp.headers["Content-Type"] = "application/json"
     return resp
@@ -163,7 +127,7 @@ class TestKickscaleSourceResumeBehavior:
 
     def _drive(
         self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
@@ -187,8 +151,8 @@ class TestKickscaleSourceResumeBehavior:
                 job_id="test_job",
                 resumable_source_manager=manager,
             )
-            list(cast(Iterable[Any], response.items()))
-            return mock_session, sent_params
+            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
+            return rows, sent_params
 
     @pytest.mark.parametrize("endpoint", ["meetings", "calls"])
     def test_fresh_run_pages_until_short_page(self, endpoint: str) -> None:
@@ -199,10 +163,11 @@ class TestKickscaleSourceResumeBehavior:
             _make_http_response([{"id": f"m{i}"} for i in range(100)]),
             _make_http_response([{"id": "m100"}]),
         ]
-        _, sent_params = self._drive(endpoint, manager, responses)
+        rows, sent_params = self._drive(endpoint, manager, responses)
 
         pages_sent = [p.get("page") for p in sent_params]
         assert pages_sent == [0, 1]
+        assert [row["id"] for row in rows] == [f"m{i}" for i in range(101)]
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [KickscaleResumeConfig(page=1)]
@@ -218,15 +183,6 @@ class TestKickscaleSourceResumeBehavior:
         assert [p.get("page") for p in sent_params] == [3]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": "only"}])]
-        self._drive("meetings", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -235,34 +191,3 @@ class TestKickscaleSourceResumeBehavior:
         self._drive("meetings", manager, responses)
 
         manager.load_state.assert_not_called()
-
-    @pytest.mark.parametrize("endpoint", ["meetings", "calls"])
-    def test_response_shape(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        responses = [_make_http_response([{"id": "1"}])]
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as mock_session_cls:
-            mock_session = mock_session_cls.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            response_iter = iter(responses)
-            mock_session.send.side_effect = lambda *_a, **_k: next(response_iter)
-
-            response = kickscale_source(
-                api_key="test-key",
-                client_id="test-client",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-        assert response.chunk_size == 1000

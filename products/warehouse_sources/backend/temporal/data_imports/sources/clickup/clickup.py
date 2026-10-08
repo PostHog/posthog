@@ -618,6 +618,12 @@ def clickup_source(
 
 def validate_credentials(api_key: str, workspace_id: str | None) -> tuple[bool, str | None]:
     """Confirm the token is genuine and (when provided) can see the configured workspace."""
+    if workspace_id and not workspace_id.isdigit():
+        return False, (
+            "Your workspace ID is the number right after app.clickup.com/ in your ClickUp URL. "
+            "Enter only that number, not the full URL."
+        )
+
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(
             f"{CLICKUP_BASE_URL}/team", headers=_get_headers(api_key), timeout=10
@@ -626,13 +632,19 @@ def validate_credentials(api_key: str, workspace_id: str | None) -> tuple[bool, 
         return False, str(e)
 
     if response.status_code == 401:
-        return False, "Invalid ClickUp API token"
+        return False, (
+            "Your ClickUp API token is invalid or expired. Generate a new token in ClickUp under "
+            "Settings → Apps, then reconnect."
+        )
     if not response.ok:
         return False, f"ClickUp API error: {response.status_code} {response.text}"
 
     if workspace_id:
         teams = response.json().get("teams", [])
         if not any(str(team.get("id")) == str(workspace_id) for team in teams):
-            return False, f"Workspace '{workspace_id}' is not accessible with this token"
+            return False, (
+                "Your ClickUp API token can't access this workspace. Check the workspace ID, or use "
+                "a token from a member of that workspace."
+            )
 
     return True, None

@@ -148,17 +148,16 @@ class BatchExportEventPropertyFilter:
     value: list[str]
 
 
-# Single source of truth for the serialized filter `type` values we accept. Enforced at write
-# time by the batch export serializer and at query time by `compose_filters_clause`.
-SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
-
-
-@dataclass
+@dataclass(frozen=False)
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str] | None]] | None = None
+    filters: list[dict[str, str | bool | list[str] | None]] | None = None
     hogql_query: str | None = None
+    # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
+    user_id: int | None = None
+    # A dict, not `HogQLQueryModifiers`, because Temporal's default converter only decodes dataclasses and JSON types.
+    hogql_modifiers: dict[str, typing.Any] | None = None
 
 
 @dataclass
@@ -259,13 +258,11 @@ class BaseBatchExportInputs:
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
-    This is the canonical input dataclass consumed by the `s3-export` Temporal
-    workflow and is the superset of every S3-family destination's fields. The
-    legacy `type="S3"` batch exports dispatch with this dataclass directly; the
-    refined S3-family types (AwsS3, S3Compatible) dispatch with their own
-    narrower dataclass — Temporal's data converter serializes that to JSON,
-    and on the worker side deserializes into `S3BatchExportInputs`, with any
-    missing fields falling through to the defaults declared here.
+    This is the input dataclass the `s3-export` Temporal workflow declares, and it holds the
+    union of every S3-family destination's fields. No destination type dispatches with it;
+    each type dispatches with its own narrower dataclass. Temporal's data converter serializes
+    that dataclass to JSON, and the worker deserializes it into this one. A field the narrower
+    dataclass does not declare therefore takes the default declared here.
 
     Credentials and the provider endpoint are never carried here: the activity resolves them from
     the linked Integration at run time (see `integration_id`).
@@ -555,9 +552,6 @@ DESTINATION_WORKFLOWS = {
     "NoOp": ("no-op", NoOpInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
-    # "S3" is the legacy alias still accepted on input and persisted as-is.
-    # AwsS3 and S3Compatible are the refined types preferred for new rows
-    "S3": ("s3-export", S3BatchExportInputs),
     "S3Compatible": ("s3-export", S3CompatibleBatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
@@ -1174,6 +1168,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
+            # nosemgrep: schedule-must-avoid-minute-zero -- each run exports the interval that just closed, and batch_export.jitter already spreads the start
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
             time_zone_name=timezone,
@@ -1210,6 +1205,10 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         schema=batch_export.schema,
                         filters=batch_export.filters,
                         hogql_query=batch_export.hogql_query,
+                        user_id=batch_export.last_modified_by_id
+                        if batch_export.model == BatchExport.Model.HOGQL
+                        else None,
+                        hogql_modifiers=batch_export.hogql_modifiers,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing

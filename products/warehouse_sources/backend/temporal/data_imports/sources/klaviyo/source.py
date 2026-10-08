@@ -190,10 +190,7 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version)):
-            return True, None
-
-        return False, "Invalid Klaviyo API key"
+        return validate_klaviyo_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KlaviyoResumeConfig]:
         return ResumableSourceManager[KlaviyoResumeConfig](inputs, KlaviyoResumeConfig)

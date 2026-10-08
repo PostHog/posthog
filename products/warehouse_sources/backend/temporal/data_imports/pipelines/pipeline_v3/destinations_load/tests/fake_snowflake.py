@@ -19,7 +19,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import NamedBytesIO, SnowflakeTable
+from products.batch_exports.backend.facade.destinations.snowflake import NamedBytesIO, SnowflakeTable
 
 _CREATE_SCHEMA = re.compile(r'^CREATE SCHEMA IF NOT EXISTS "([^"]+)"', re.IGNORECASE)
 _CREATE_TABLE = re.compile(r'^CREATE TABLE IF NOT EXISTS "[^"]+"\."([^"]+)"\s*\((.*)\)$', re.IGNORECASE | re.DOTALL)

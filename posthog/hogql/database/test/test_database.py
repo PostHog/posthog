@@ -940,8 +940,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
-        # credential joins (decrypt once per credential, not per table/view).
-        max_queries = FuzzyInt(6, 8)
+        # credential joins (decrypt once per credential, not per table/view). +1 more for the
+        # organization's flag_evaluations mode, which is_flag_evaluations_table_enabled reads once per build.
+        max_queries = FuzzyInt(7, 9)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -998,8 +999,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
-        # plus the saved-expressions fetch
-        with self.assertNumQueries(6):
+        # plus the saved-expressions fetch and the organization's flag_evaluations mode
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -1519,8 +1520,11 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database.has_table("renamed_view")
         assert not database.has_table("old_view_name")
 
+    @parameterized.expand(
+        [("ordinary", "direct_table"), ("models_root", "models"), ("models_nested", "models.revenue")]
+    )
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
-    def test_build_from_sources_performs_no_io_for_direct_postgres(self, patch_execute):
+    def test_build_from_sources_performs_no_io_for_direct_postgres(self, _case, table_name, patch_execute):
         # Direct-query mode builds a DirectPostgresTable, whose hogql_definition reads the source's
         # job_inputs when no schema option is set on the table. _fetch_sources must hydrate job_inputs in
         # this mode (defer_job_inputs=False) rather than deferring it, so the build phase stays query-free;
@@ -1537,7 +1541,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         # No direct_postgres_schema in options, so hogql_definition falls back to job_inputs["schema"].
         DataWarehouseTable.objects.create(
-            name="direct_table",
+            name=table_name,
             format="Parquet",
             team=self.team,
             credential=credential,
@@ -1552,13 +1556,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             db = Database._build_from_sources(sources)
 
-        direct_table = db.get_table("direct_table")
+        direct_table = db.get_table(table_name)
         assert isinstance(direct_table, DirectPostgresTable)
         # The schema came from the source's job_inputs, proving that branch ran during the zero-query build.
         assert direct_table.postgres_schema == "myschema"
 
+    @parameterized.expand([("ordinary", "TPCH_SF1"), ("models_namespace", "models")])
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
-    def test_build_from_sources_resolves_direct_snowflake_case_insensitively(self, patch_execute):
+    def test_build_from_sources_resolves_direct_snowflake_case_insensitively(self, _case, schema_name, patch_execute):
         # Snowflake stores object names uppercase but resolves unquoted identifiers case-insensitively.
         # A natural all-lowercase query must resolve to the canonical uppercase table and columns.
         source = ExternalDataSource.objects.create(
@@ -1569,7 +1574,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             job_inputs={"database": "DB", "schema": ""},
         )
         DataWarehouseTable.objects.create(
-            name="TPCH_SF1.NATION",
+            name=f"{schema_name}.NATION",
             format="Parquet",
             team=self.team,
             external_data_source=source,
@@ -1577,7 +1582,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="s3://test/*",
             options={
                 "direct_snowflake_catalog": "DB",
-                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_schema": schema_name,
                 "direct_snowflake_table": "NATION",
             },
             columns={"N_NAME": {"clickhouse": "String", "hogql": "string"}},
@@ -1586,10 +1591,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
         db = Database._build_from_sources(sources)
 
-        canonical = db.get_table("TPCH_SF1.NATION")
+        canonical = db.get_table(f"{schema_name}.NATION")
         assert isinstance(canonical, DirectSnowflakeTable)
         # Any-case table name resolves to the same direct table (Snowflake folds unquoted names).
-        for typed_name in ("tpch_sf1.nation", "Tpch_Sf1.Nation", "TPCH_SF1.nation"):
+        for typed_name in (f"{schema_name.lower()}.nation", f"{schema_name.title()}.Nation", f"{schema_name}.nation"):
             resolved = db.get_table(typed_name)
             assert isinstance(resolved, DirectSnowflakeTable), typed_name
         # Columns resolve regardless of case and report their canonical stored name.
@@ -4580,6 +4585,63 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         else:
             with pytest.raises(TableAccessDeniedError):
                 database.get_table("system.data_deletion_requests")
+
+    @parameterized.expand(
+        [
+            ("managed_root", "models", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, True),
+            ("authored_root", "models", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, True),
+            ("managed_nested", "models.revenue", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, True),
+            ("endpoint_nested", "models.revenue", DataWarehouseSavedQuery.Origin.ENDPOINT, True),
+            ("authored_nested", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE, True),
+            ("legacy_authored_nested", "models.revenue", None, True),
+            ("ordinary_prefix", "models_v2", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET, True),
+        ]
+    )
+    def test_models_namespace_preserves_legacy_saved_queries(
+        self, _case: str, name: str, origin: str | None, expected_visible: bool
+    ) -> None:
+        DataWarehouseSavedQuery.objects.bulk_create(
+            [
+                DataWarehouseSavedQuery(
+                    team=self.team,
+                    name=name,
+                    origin=origin,
+                    query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+                )
+            ]
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table(name) is expected_visible
+        assert (name in database.get_view_names()) is expected_visible
+
+    @parameterized.expand(
+        [("root", "models", True), ("nested", "models.revenue", True), ("ordinary_prefix", "models_v2", True)]
+    )
+    def test_models_namespace_preserves_legacy_warehouse_tables(
+        self, _case: str, name: str, expected_visible: bool
+    ) -> None:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        DataWarehouseTable.objects.bulk_create(
+            [
+                DataWarehouseTable(
+                    name=name,
+                    format="Parquet",
+                    team=self.team,
+                    credential=credential,
+                    url_pattern="s3://example/*",
+                    columns={
+                        "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                    },
+                )
+            ]
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table([name]) is expected_visible
+        assert (name in database.get_warehouse_table_names()) is expected_visible
 
     def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
         DataWarehouseSavedQuery.objects.create(

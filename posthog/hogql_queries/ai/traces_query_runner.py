@@ -31,7 +31,12 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import (
+    filled_property_filters,
+    parse_ai_properties,
+    parse_ai_property_value,
+    timestamp_bound_as_hogql,
+)
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -54,6 +59,8 @@ class TracesQueryDateRange(QueryDateRange):
     """
 
     CAPTURE_RANGE_MINUTES = 10
+    # Callers name calendar days: the trace list tool takes a date-only `date_to`.
+    CALENDAR_DAY_DATE_TO_IS_INCLUSIVE = True
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
@@ -70,12 +77,7 @@ class TracesQueryDateRange(QueryDateRange):
         )
 
     def date_to_for_filtering_as_hogql(self) -> ast.Expr:
-        return ast.Call(
-            name="assumeNotNull",
-            args=[
-                ast.Call(name="toDateTime", args=[ast.Constant(value=self.format_date(self.date_to_for_filtering()))])
-            ],
-        )
+        return timestamp_bound_as_hogql(self.date_to_for_filtering())
 
     def date_from(self) -> datetime:
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
@@ -223,6 +225,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             sentiment_lookup = SentimentEvaluationLookup(
                 by_trace_id=load_trace_sentiment_evaluations(
                     team=self.team,
+                    user=self.user,
                     trace_ids=result_trace_ids,
                     timings=self.timings,
                     modifiers=self.modifiers,

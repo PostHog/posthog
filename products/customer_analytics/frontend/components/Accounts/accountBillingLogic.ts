@@ -29,6 +29,12 @@ import {
 import { InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
+import {
+    getTileRecord,
+    getTileString,
+    type AccountViewTileConfig,
+    type AccountViewTileLogicProps,
+} from './accountViewTileConfig'
 import { BillingUsageInterval, billingUsageQuery, supportsUsageAggregation } from './billingUsageQuery'
 import { AccountsEvents } from './constants'
 
@@ -74,10 +80,38 @@ const DEFAULT_DATE_RANGE: Record<AccountBillingKind, BillingDateRange> = {
     spend: { date_from: '-1y', date_to: null },
 }
 
-export interface AccountBillingLogicProps {
+export interface AccountBillingLogicProps extends AccountViewTileLogicProps {
     accountId: string
     externalId: string
     kind: AccountBillingKind
+}
+
+function getInitialDateRange(config: AccountViewTileConfig | undefined, kind: AccountBillingKind): BillingDateRange {
+    const dateRange = getTileRecord(config, 'dateRange')
+    const dateFrom = dateRange?.date_from
+    const dateTo = dateRange?.date_to
+    return {
+        date_from: typeof dateFrom === 'string' || dateFrom === null ? dateFrom : DEFAULT_DATE_RANGE[kind].date_from,
+        date_to: typeof dateTo === 'string' || dateTo === null ? dateTo : DEFAULT_DATE_RANGE[kind].date_to,
+    }
+}
+
+function getInitialUsageInterval(config: AccountViewTileConfig | undefined): BillingUsageInterval {
+    const interval = getTileString(config, 'usageInterval')
+    return interval === 'week' || interval === 'month' ? interval : 'day'
+}
+
+function getInitialHiddenSeries(config: AccountViewTileConfig | undefined): Record<string, string[]> {
+    const hiddenSeries = getTileRecord(config, 'hiddenSeriesKeysByShortId')
+    if (!hiddenSeries) {
+        return {}
+    }
+    return Object.fromEntries(
+        Object.entries(hiddenSeries).filter(
+            (entry): entry is [string, string[]] =>
+                Array.isArray(entry[1]) && entry[1].every((value) => typeof value === 'string')
+        )
+    )
 }
 
 export function getBillingDataVisualizationKey(queryKey: string): string {
@@ -197,6 +231,7 @@ export interface accountBillingLogicMeta {
             resolvedDateRange: BillingDateRange,
             arg: any,
             arg2: any,
+            arg3: any,
             usageInterval: BillingUsageInterval
         ) => (shortId: string) => string
     }
@@ -212,7 +247,7 @@ export type accountBillingLogicType = MakeLogicType<
 export const accountBillingLogic = kea<accountBillingLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountBillingLogic', key]),
     props({} as AccountBillingLogicProps),
-    key((props) => `${props.accountId}:${props.kind}`),
+    key((props) => `${props.accountId}:${props.kind}:${props.instanceId ?? 'default'}`),
     actions({
         setUsageInterval: (interval: BillingUsageInterval) => ({ interval }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -228,15 +263,18 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         }),
     }),
     reducers(({ props }) => ({
-        usageInterval: ['day' as BillingUsageInterval, { setUsageInterval: (_, { interval }) => interval }],
+        usageInterval: [
+            getInitialUsageInterval(props.initialConfig),
+            { setUsageInterval: (_, { interval }) => interval },
+        ],
         dateRange: [
-            DEFAULT_DATE_RANGE[props.kind] as BillingDateRange,
+            getInitialDateRange(props.initialConfig, props.kind),
             {
                 setDateRange: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom, date_to: dateTo }),
             },
         ],
         ephemeralHiddenSeriesKeysByShortId: [
-            {} as Record<string, string[]>,
+            getInitialHiddenSeries(props.initialConfig),
             {
                 toggleHiddenSeriesKey: (state, { shortId, seriesKey }) => {
                     const current = state[shortId] ?? []
@@ -256,6 +294,13 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         ],
     })),
     listeners(({ props, values, cache }) => {
+        const saveConfig = (): void => {
+            props.onConfigChange?.({
+                dateRange: values.dateRange,
+                usageInterval: values.usageInterval,
+                hiddenSeriesKeysByShortId: values.ephemeralHiddenSeriesKeysByShortId,
+            })
+        }
         const preloadSavedInsights = (savedInsights: InsightModel[]): void => {
             for (const insight of savedInsights) {
                 if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
@@ -282,13 +327,16 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 preloadSavedInsights(values.displayInsights ?? [])
             },
             setDateRange: () => {
+                saveConfig()
                 preloadSavedInsights(values.displayInsights ?? [])
             },
             setUsageInterval: ({ interval }) => {
+                saveConfig()
                 preloadSavedInsights(values.displayInsights ?? [])
                 posthog.capture(AccountsEvents.UsageIntervalChanged, { interval })
             },
             toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
+                saveConfig()
                 posthog.capture(AccountsEvents.UsageSeriesToggled, {
                     kind: props.kind,
                     is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
@@ -296,6 +344,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 })
             },
             setAllSeriesHidden: ({ seriesKeys, hidden }) => {
+                saveConfig()
                 posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
                     kind: props.kind,
                     is_hidden: hidden,
@@ -387,10 +436,16 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         // The embedded <Query> only refetches when its query changes, not when variablesOverride changes — so a date
         // change must remount it. Keying on the resolved range gives each insight a key that changes with the range.
         queryKeyFor: [
-            (s) => [s.resolvedDateRange, (_, p) => p.accountId, (_, p) => p.kind, s.usageInterval],
-            (resolvedDateRange: BillingDateRange, accountId, kind, interval: BillingUsageInterval) =>
+            (s) => [
+                s.resolvedDateRange,
+                (_, p) => p.accountId,
+                (_, p) => p.kind,
+                (_, p) => p.instanceId,
+                s.usageInterval,
+            ],
+            (resolvedDateRange: BillingDateRange, accountId, kind, instanceId, interval: BillingUsageInterval) =>
                 (shortId: string): string =>
-                    `account-billing-${accountId}-${kind}-${shortId}-${resolvedDateRange.date_from}-${resolvedDateRange.date_to}-${interval}`,
+                    `account-billing-${accountId}-${kind}-${instanceId ?? 'default'}-${shortId}-${resolvedDateRange.date_from}-${resolvedDateRange.date_to}-${interval}`,
         ],
     }),
     afterMount(({ actions, props }) => {

@@ -125,9 +125,12 @@ function promoteImportedUserPrompt(
     return null;
   }
   const content = update.content as
-    | { type?: string; text?: string }
+    | { type?: string; text?: string; _meta?: { ui?: { hidden?: boolean } } }
     | undefined;
   if (content?.type !== "text" || !content.text) return null;
+  // A hidden chunk is context the model reads and the person never typed: a compaction summary,
+  // a mode note. Promoting it would put text nobody wrote at the top of their thread.
+  if (content._meta?.ui?.hidden) return null;
   return createUserMessageEvent(content.text, ts);
 }
 

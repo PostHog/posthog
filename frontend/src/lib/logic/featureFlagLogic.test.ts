@@ -6,13 +6,20 @@ import { areClientFeatureFlagsHonored, featureFlagLogic } from './featureFlagLog
 
 describe('featureFlagLogic', () => {
     describe('areClientFeatureFlagsHonored', () => {
+        afterEach(() => {
+            delete window.JS_POSTHOG_SELF_CAPTURE
+        })
+
         it.each([
-            [null, false],
-            [{ cloud: false, is_debug: false }, false],
-            [{ cloud: true, is_debug: false }, true],
-            [{ cloud: false, is_debug: true }, true],
-            [{ cloud: true, is_debug: true }, true],
-        ])('preflight %s returns %s', (preflight, expected) => {
+            [null, false, false],
+            [{ cloud: false, is_debug: false }, false, false],
+            [{ cloud: true, is_debug: false }, false, true],
+            [{ cloud: false, is_debug: true }, false, true],
+            [{ cloud: true, is_debug: true }, false, true],
+            [{ cloud: false, is_debug: false }, true, true],
+            [null, true, true],
+        ])('preflight %s with self-capture %s returns %s', (preflight, selfCapture, expected) => {
+            window.JS_POSTHOG_SELF_CAPTURE = selfCapture
             expect(areClientFeatureFlagsHonored(preflight)).toBe(expected)
         })
     })

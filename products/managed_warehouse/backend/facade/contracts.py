@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -45,6 +45,7 @@ __all__ = [
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
     "ServiceCredentialConnect",
+    "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
@@ -73,6 +74,15 @@ class ServiceCredentialConnect:
     sslmode: str
 
 
+@frozen
+class ServiceCredentialTrinoConnect:
+    host: str
+    port: int
+    catalog: str
+    username: str
+    http_scheme: Literal["https"]
+
+
 @dataclass(frozen=True)
 class ServiceCredential:
     """An org-scoped per-credential grant minted by the duckgres control
@@ -98,6 +108,7 @@ class ServiceCredential:
     credential_secret: str = field(repr=False)
     expires_at: datetime
     connect: ServiceCredentialConnect
+    trino_connect: ServiceCredentialTrinoConnect | None = None
 
 
 class ServiceCredentialUnavailable(RuntimeError):
@@ -118,13 +129,15 @@ class ManagedWarehousePostgresConnection:
 
 @frozen
 class ManagedWarehouseTrinoConnection:
-    """A ready managed Trino target with the existing organization root secret."""
+    """A minted Trino connection snapshot; use the connection context manager for refresh."""
 
     host: str
     port: int
     catalog: str
     username: str
     password: str = field(repr=False)
+    credential_id: str
+    expires_at: datetime
 
 
 class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):

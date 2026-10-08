@@ -23,7 +23,10 @@ export const EMPTY_PAGINATED_RESPONSE = {
     results: [],
 }
 
-function createSnapshotMockHandler(sources: SessionRecordingSnapshotSource[]): MockSignature {
+function createSnapshotMockHandler(
+    sources: SessionRecordingSnapshotSource[],
+    replayProxyToken?: string | null
+): MockSignature {
     return ({ request }) => {
         const sourceParam = new URL(request.url).searchParams.get('source')
 
@@ -35,6 +38,7 @@ function createSnapshotMockHandler(sources: SessionRecordingSnapshotSource[]): M
             200,
             {
                 sources,
+                ...(replayProxyToken !== undefined ? { replay_proxy_token: replayProxyToken } : {}),
             },
         ]
     }
@@ -47,12 +51,14 @@ export interface SessionRecordingTestSetupOptions {
     patchMocks?: Record<string, MockSignature>
     deleteMocks?: Record<string, MockSignature>
     snapshotSources?: SessionRecordingSnapshotSource[]
+    replayProxyToken?: string | null
     customQueryHandler?: MockSignature
 }
 
 function getDefaultMocks(
     snapshotSources: SessionRecordingSnapshotSource[],
-    customQueryHandler?: MockSignature
+    customQueryHandler?: MockSignature,
+    replayProxyToken?: string | null
 ): {
     get: Record<string, MockSignature>
     post: Record<string, MockSignature>
@@ -61,7 +67,10 @@ function getDefaultMocks(
 } {
     return {
         get: {
-            '/api/environments/:team_id/session_recordings/:id/snapshots': createSnapshotMockHandler(snapshotSources),
+            '/api/environments/:team_id/session_recordings/:id/snapshots': createSnapshotMockHandler(
+                snapshotSources,
+                replayProxyToken
+            ),
             '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             '/api/projects/:team_id/comments': EMPTY_PAGINATED_RESPONSE,
             '/api/projects/:team/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
@@ -87,12 +96,13 @@ export function setupSessionRecordingTest(options: SessionRecordingTestSetupOpti
         patchMocks = {},
         deleteMocks = {},
         snapshotSources = [BLOB_SOURCE_V2],
+        replayProxyToken,
         customQueryHandler,
     } = options
 
     useAvailableFeatures(features)
 
-    const defaults = getDefaultMocks(snapshotSources, customQueryHandler)
+    const defaults = getDefaultMocks(snapshotSources, customQueryHandler, replayProxyToken)
 
     useMocks({
         get: { ...defaults.get, ...getMocks },
@@ -111,10 +121,11 @@ export function overrideSessionRecordingMocks(options: Omit<SessionRecordingTest
         patchMocks = {},
         deleteMocks = {},
         snapshotSources = [BLOB_SOURCE_V2],
+        replayProxyToken,
         customQueryHandler,
     } = options
 
-    const defaults = getDefaultMocks(snapshotSources, customQueryHandler)
+    const defaults = getDefaultMocks(snapshotSources, customQueryHandler, replayProxyToken)
 
     useMocks({
         get: { ...defaults.get, ...getMocks },

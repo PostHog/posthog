@@ -12,6 +12,7 @@ import {
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
+import { commentScopeFromWire } from "@posthog/core/comments/anchors";
 import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import {
@@ -253,9 +254,7 @@ export function ActivityTimeline({
           ? { scope: "task", itemId: task.id }
           : {
               scope:
-                thread.target.type === "canvas"
-                  ? "desktop_canvas"
-                  : "task_artifact",
+                thread.target.type === "canvas" ? "canvas" : "task_artifact",
               itemId: thread.target.id,
             },
         thread.id,
@@ -279,14 +278,8 @@ export function ActivityTimeline({
 
   const openCommentThread = (payload: CommentEventPayload) => {
     if (!canOpenInPlace) return undefined;
-    const scope = payload.scope;
-    if (
-      scope !== "task" &&
-      scope !== "task_artifact" &&
-      scope !== "desktop_canvas"
-    ) {
-      return undefined;
-    }
+    const scope = commentScopeFromWire(payload.scope);
+    if (!scope) return undefined;
     const itemId = scope === "task" ? task.id : payload.itemId;
     if (!itemId) return undefined;
     return () =>

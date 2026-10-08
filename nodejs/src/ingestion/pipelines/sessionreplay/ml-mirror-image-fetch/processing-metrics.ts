@@ -36,12 +36,13 @@ export type ConfigurationFetchReason =
     | 'cross_domain_redirect'
     | 'invalid_redirect'
     | 'missing_location'
-    | 'http_429'
+    | `http_${number}`
     | 'http_5xx'
     | 'unexpected_status'
     | 'body_limit'
     | 'invalid_utf8'
     | 'invalid_document'
+    | 'not_json_array'
 
 export class ImageFetchProcessingMetrics {
     private static readonly active = new Map<ProcessingStage, Map<symbol, number>>()

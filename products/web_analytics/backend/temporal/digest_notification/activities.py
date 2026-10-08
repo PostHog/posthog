@@ -440,7 +440,8 @@ def _send_test_digest_notification(email: str, team_id: int | None = None) -> No
         if not membership:
             raise PermissionError(f"User {email} is not a member of the organization that owns team {team_id}")
 
-        digest = weekly_digest.build_team_digest(team)
+        # No user runs these queries. `_accessible_team_data` drops the teams that the recipient cannot access.
+        digest = weekly_digest.build_team_digest(team, bypass_warehouse_access_control=True)
         accessible = _accessible_team_data(user, team.organization, membership, {team.id: digest})
         if not accessible:
             raise PermissionError(f"User {email} does not have access to team {team_id}")
@@ -473,8 +474,10 @@ def _send_test_digest_notification(email: str, team_id: int | None = None) -> No
     sent_count = 0
     for membership in memberships:
         org = membership.organization
+        # No user runs these queries. `_accessible_team_data` drops the teams that the recipient cannot access.
         team_digest_data = {
-            t.id: weekly_digest.build_team_digest(t) for t in Team.objects.filter(organization_id=org.id)
+            t.id: weekly_digest.build_team_digest(t, bypass_warehouse_access_control=True)
+            for t in Team.objects.filter(organization_id=org.id)
         }
         accessible = _accessible_team_data(user, org, membership, team_digest_data)
         if not accessible:

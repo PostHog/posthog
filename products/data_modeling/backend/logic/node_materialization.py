@@ -98,7 +98,9 @@ def materialize_saved_query(
     Fire a single materialization — don't fan out over duplicate-DAG nodes, or two workers race to
     write the same backing table.
     """
-    node = Node.objects.filter(saved_query_id=saved_query.id).first()
+    node = (
+        Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id).order_by("created_at").first()
+    )
     if node is None:
         # v2 was already confirmed, so a node should exist; a missing one is a data inconsistency.
         # Raise rather than return: returning reports a materialization the caller can then find no

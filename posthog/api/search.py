@@ -26,7 +26,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.api import search_workflows
 
 LIMIT = 25
 
@@ -98,12 +98,12 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "hog_flow": {
-        "klass": HogFlow,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-    },
 }
+
+# Workflows are searched through the workflows facade rather than unioned by model class, so
+# they are not in ENTITY_MAP. `search_entities` merges them in when this entity is requested.
+WORKFLOW_ENTITY = "hog_flow"
+SEARCHABLE_ENTITIES = [*ENTITY_MAP, WORKFLOW_ENTITY]
 """
 Map of entity names to their class, search_fields and extra_fields.
 
@@ -115,7 +115,7 @@ class QuerySerializer(serializers.Serializer):
     """Validates and formats query params."""
 
     q = serializers.CharField(required=False, default="")
-    entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
+    entities = serializers.MultipleChoiceField(required=False, choices=SEARCHABLE_ENTITIES)
     include_counts = serializers.BooleanField(required=False, default=True)
 
     def validate_q(self, value: str):
@@ -144,7 +144,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = query_serializer.validated_data
 
         # get entities to search from params or default to all entities
-        entities = set(params["entities"]) if params["entities"] else set(ENTITY_MAP.keys())
+        entities = set(params["entities"]) if params["entities"] else set(SEARCHABLE_ENTITIES)
         query = params["q"]
         include_counts = params["include_counts"]
 
@@ -160,6 +160,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         response_data: dict[str, Any] = {"results": results}
         if counts is not None:
+            counts.setdefault(WORKFLOW_ENTITY, None)
             response_data["counts"] = counts
         return Response(response_data)
 
@@ -175,6 +176,9 @@ def search_entities(
     include_counts: bool = True,
     annotate_access_levels: UserAccessControl | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
+    workflows_requested = WORKFLOW_ENTITY in entities
+    entities = entities - {WORKFLOW_ENTITY}
+
     # empty queryset to union things onto it
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
     qs = (
@@ -199,19 +203,48 @@ def search_entities(
         if include_counts:
             counts[entity_name] = klass_qs.count()
 
-    # order by rank
-    if query:
-        qs = qs.order_by("-rank")
+    # order by rank. Ordering an empty union by a column no member added raises, which only
+    # happens here when workflows were the one entity requested.
+    if entities or not workflows_requested:
+        if query:
+            qs = qs.order_by("-rank")
+        else:
+            qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
+
+    if not workflows_requested:
+        # Get total count before pagination (only when needed)
+        total_count = qs.count() if include_counts else None
+        results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
+        if annotate_access_levels is not None:
+            _annotate_user_access_levels(results, entity_map, annotate_access_levels)
     else:
-        qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
+        workflow_results, workflow_count = search_workflows(
+            project_id=project_id,
+            query=query,
+            access_control=view.user_access_control,
+            limit=offset + limit,
+            include_archived=True,
+            with_access_levels=annotate_access_levels is not None,
+            include_count=include_counts,
+        )
+        for result in workflow_results:
+            result["extra_fields"].pop("status", None)
+        if include_counts:
+            counts[WORKFLOW_ENTITY] = workflow_count
 
-    # Get total count before pagination (only when needed)
-    total_count = qs.count() if include_counts else None
+        union_results = cast(list[dict[str, Any]], list(qs[: offset + limit])) if entities else []
+        if annotate_access_levels is not None:
+            _annotate_user_access_levels(union_results, entity_map, annotate_access_levels)
+        total_count = ((qs.count() if entities else 0) + workflow_count) if include_counts else None
 
-    # Apply pagination
-    results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
-    if annotate_access_levels is not None:
-        _annotate_user_access_levels(results, entity_map, annotate_access_levels)
+        # Both inputs arrive in the database order, so a stable sort on the leading key keeps it.
+        merged = [*union_results, *workflow_results]
+        if query:
+            merged.sort(key=lambda result: result["rank"], reverse=True)
+        else:
+            merged.sort(key=lambda result: result["type"])
+        results = merged[offset : offset + limit]
+
     for result in results:
         result.pop("_sort_name", None)
         result.pop("_pk", None)

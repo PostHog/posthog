@@ -64,12 +64,3 @@ class TestKalshiSource:
         KalshiSource().source_for_pipeline(None, mock.MagicMock(), inputs)  # type: ignore[arg-type]
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_is_visible_and_labelled_alpha(self) -> None:
-        # unreleasedSource=True hides the connector from users entirely; this source is finished.
-        config = KalshiSource().get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == "alpha"
-        assert config.category is not None
-        assert config.iconPath == "/static/services/kalshi.png"

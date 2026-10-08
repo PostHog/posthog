@@ -1,12 +1,11 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, TypeVar, cast
+from typing import TypeVar, cast
 from uuid import UUID
 
 from django.db import transaction
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import HumanMessage, SystemMessage
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
@@ -15,7 +14,6 @@ from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import team_distinct_id
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -25,7 +23,7 @@ from posthog.models.user import User
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
-from products.business_knowledge.backend import learning_settings, logic
+from products.business_knowledge.backend import learning_settings, llm_telemetry, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
@@ -58,28 +56,6 @@ from ..schemas import (
 
 logger = structlog.get_logger(__name__)
 ModelOutput = TypeVar("ModelOutput", bound=BaseModel)
-
-
-class _LearningTraceCallbackHandler(CallbackHandler):
-    def on_llm_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: UUID | None = None,
-        **kwargs: Any,
-    ) -> None:
-        _ = error, run_id, parent_run_id, kwargs
-
-    def on_chain_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: UUID | None = None,
-        **kwargs: Any,
-    ) -> None:
-        _ = error, run_id, parent_run_id, kwargs
 
 
 _EXTRACTION_SYSTEM_PROMPT = """You extract reusable Business knowledge from public human support replies.
@@ -179,18 +155,9 @@ def _learning_generation_properties(*, stage: str, trace_id: str, team_id: int) 
 
 
 def _learning_trace_callback(team: Team, *, stage: str, trace_id: str) -> CallbackHandler | None:
-    # default_client stays None until the first module-level capture.
-    client = posthoganalytics.default_client
-    if client is None and not posthoganalytics.disabled:
-        client = posthoganalytics.setup()
-    if client is None:
-        return None
-    return _LearningTraceCallbackHandler(
-        client,
-        distinct_id=team_distinct_id(team.id),
+    return llm_telemetry.trace_callback(
+        team.id,
         trace_id=trace_id,
-        # Token counts stay; prompt and output contain customer replies.
-        privacy_mode=True,
         properties=_learning_generation_properties(stage=stage, trace_id=trace_id, team_id=team.id),
     )
 

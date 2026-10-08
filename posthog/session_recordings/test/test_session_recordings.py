@@ -1085,16 +1085,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
             assert len(response_data["results"]) == 0
 
+    @parameterized.expand(
+        [
+            ["from_the_app", {}, "web"],
+            ["from_mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, "mcp"],
+        ]
+    )
+    @patch("posthoganalytics.capture")
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_delete_session_recording(self, _mock_delete_via_recording_api):
+    def test_delete_session_recording(
+        self, _name, headers, expected_source, _mock_delete_via_recording_api, mock_capture
+    ):
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
-        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        deleted = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording deleted"]
+        assert len(deleted) == 1
+        assert deleted[0].kwargs["properties"]["recording_id"] == "1"
+        assert deleted[0].kwargs["properties"]["source"] == expected_source
         # Deleting again is idempotent (recording-api returns already_deleted)
-        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
@@ -1372,16 +1385,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "at_capacity",
                 ClickHouseAtCapacity(),
                 "ClickHouse is at capacity. Try again later.",
+                "37",
             ),
             (
                 "timeout_exceeded",
                 ServerException("CHQueryErrorTimeoutExceeded"),
                 "Query timeout exceeded. Try again later.",
+                None,
             ),
         ]
     )
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
-    def test_session_recordings_query_errors(self, _name, exception, expected_message, mock_run):
+    def test_session_recordings_query_errors(self, _name, exception, expected_message, expected_retry_after, mock_run):
+        if isinstance(exception, ClickHouseAtCapacity):
+            exception.wait = 37
         mock_run.side_effect = exception
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -1391,6 +1408,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "detail": expected_message,
             "type": "throttled_error",
         }
+        assert response.get("Retry-After") == expected_retry_after
 
     @parameterized.expand(
         [
@@ -1418,19 +1436,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # the real reason must reach the client, not a generic "internal server error"
         assert expected_detail_substring in response.json()["detail"]
 
-    def test_sync_execute_ch_at_capacity_retry_then_503(self):
-        """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""
-        call_count = 0
+    @parameterized.expand(
+        [
+            (
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                6,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "ClickHouse over capacity. Please retry",
+                "37",
+            ),
+            (
+                "unexpected_error",
+                RuntimeError("Unexpected failure"),
+                1,
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "An unexpected error has occurred. Please try again later.",
+                None,
+            ),
+        ]
+    )
+    def test_snapshot_query_errors(self, _name, exception, expected_attempts, expected_status, message, retry_after):
+        if isinstance(exception, ClickHouseAtCapacity):
+            exception.wait = 37
 
-        def mock_list_blocks(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            raise ClickHouseAtCapacity()
-
-        # Patch list_blocks where it's imported and used in session_recording_v2_service
-        with patch(
-            "posthog.session_recordings.session_recording_api.list_blocks",
-            side_effect=mock_list_blocks,
+        with (
+            patch("posthog.session_recordings.session_recording_api.list_blocks", side_effect=exception) as list_blocks,
+            patch(
+                "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._gather_session_recording_sources.retry.sleep"
+            ),
         ):
             session_id = str(uuid7())
             self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
@@ -1439,15 +1473,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
             )
 
-            # Verify the error was called multiple times and we get 503
-            assert call_count > 2, f"Expected multiple calls, got {call_count}"
-            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+            assert list_blocks.call_count == expected_attempts
+            assert response.status_code == expected_status
+            assert response.json() == {"error": message}
+            assert response.get("Retry-After") == retry_after
 
+    @patch("posthoganalytics.capture")
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
         return_value=[],
     )
-    def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api):
+    def test_bulk_delete_session_recordings(self, _mock_delete_via_recording_api, mock_capture):
         create_person(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -1473,6 +1509,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["success"]
         assert response_data["deleted_count"] == 3
         assert response_data["total_requested"] == 3
+        bulk_deleted = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recordings bulk deleted"]
+        assert len(bulk_deleted) == 1
+        assert bulk_deleted[0].kwargs["properties"]["deleted_count"] == 3
+        assert bulk_deleted[0].kwargs["properties"]["total_requested"] == 3
+        assert bulk_deleted[0].kwargs["properties"]["source"] == "web"
 
     @parameterized.expand(
         [

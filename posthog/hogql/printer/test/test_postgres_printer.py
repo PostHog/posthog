@@ -914,6 +914,11 @@ class TestPostgresPrinter(BaseTest):
             ("startsWith", "startsWith('hello', 'he')", "starts_with(%(hogql_val_0)s, %(hogql_val_1)s)"),
             ("rand", "rand()", "random()"),
             ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
+            (
+                "positionCaseInsensitiveUTF8",
+                "positionCaseInsensitiveUTF8('Account', 'COUNT')",
+                "STRPOS(LOWER(%(hogql_val_0)s), LOWER(%(hogql_val_1)s))",
+            ),
             # Type conversions
             ("toDate", "toDate('2024-01-01')", "CAST(%(hogql_val_0)s AS DATE)"),
             ("toDateTime", "toDateTime('2024-01-01')", "CAST(%(hogql_val_0)s AS TIMESTAMP)"),

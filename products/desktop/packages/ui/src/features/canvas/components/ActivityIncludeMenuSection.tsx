@@ -10,7 +10,6 @@ import {
   hasActiveActivityMenuFilters,
   useActivityFilterStore,
 } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 import {
   INBOX_PRIORITY_MENU_OPTIONS,
   INBOX_SORT_MENU_OPTIONS,
@@ -41,7 +40,6 @@ const REPORT_OPTIONS: readonly FilterOption<InboxPrFilter>[] = [
 ];
 
 export function ActivityIncludeMenuSection(): ReactElement {
-  const reportsInboxEnabled = useReportsInboxEnabled();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
@@ -90,7 +88,7 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const filtersActive = useActivityFilterStore((state) =>
     hasActiveActivityMenuFilters(state, authIdentity),
   );
-  const inboxAvailable = reportsInboxEnabled && authIdentity !== null;
+  const inboxAvailable = authIdentity !== null;
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
   });

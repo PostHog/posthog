@@ -182,7 +182,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
                                               : undefined
                                 }
                             >
-                                Update
+                                Save changes
                             </LemonButton>
                         </AccessControlAction>
                     </>

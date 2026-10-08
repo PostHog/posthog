@@ -76,6 +76,18 @@
             ],
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
+        "goal": {
+            "anyOf": [
+                {
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
+        },
         "model": {
             "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
             "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"],
@@ -109,8 +121,8 @@
             "description": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         },
         "scanner_type": {
-            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
-            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
         "tags": {

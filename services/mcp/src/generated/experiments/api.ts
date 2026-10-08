@@ -775,7 +775,10 @@ export const ExperimentsListQueryParams = () => zod.object({
         .describe(
             'Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.'
         ),
-    search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Free-text search applied to the experiment name and its feature flag key (case-insensitive).'),
     status: zod
         .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
@@ -6714,8 +6717,18 @@ export const ExperimentsCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -12685,8 +12698,18 @@ export const ExperimentsPartialUpdateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -18627,8 +18650,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -18790,7 +18823,8 @@ export const ExperimentsLaunchCreateParams = () => zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -19278,6 +19312,8 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
 export const ExperimentsCreateFromPromptCreateBody = () => zod.object({
     prompt_name: zod
         .string()
@@ -19308,7 +19344,11 @@ export const ExperimentsCreateFromPromptCreateBody = () => zod.object({
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**

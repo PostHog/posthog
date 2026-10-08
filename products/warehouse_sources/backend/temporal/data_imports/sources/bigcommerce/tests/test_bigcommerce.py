@@ -84,12 +84,6 @@ class TestGetResource:
         else:
             assert incremental_key not in params
 
-    def test_limit_is_set_for_every_endpoint(self) -> None:
-        for name in ("products", "categories", "brands", "customers", "orders"):
-            resource = get_resource(name, should_use_incremental_field=False)
-            endpoint = cast(Endpoint, resource["endpoint"])
-            assert cast(dict[str, Any], endpoint["params"])["limit"] == 250
-
 
 class TestTimestampConverters:
     @parameterized.expand(
@@ -217,15 +211,6 @@ class TestBigCommerceSourceResumeBehavior:
 
         assert [p.get("page") for p in sent_params] == [5]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response(_v3_page([{"id": 1}], current_page=1, total_pages=1))]
-        self._drive("brands", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

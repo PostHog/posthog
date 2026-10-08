@@ -41,10 +41,6 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
-TRINO_DEPENDENCIES_PATCH = "trino-model-dependencies-2026-09"
-
-NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
-
 
 class EmptyDAGOrCycleError(Exception):
     """Raised when the DAG is empty or contains a cycle according to _dag_execution_levels."""
@@ -293,7 +289,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
-        track_trino_dependencies = temporalio.workflow.patched(TRINO_DEPENDENCIES_PATCH)
         unavailable_trino_nodes: set[str] = set(dag_structure.suspended_nodes.get("managed_warehouse", []))
         skipped_trino_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
@@ -378,10 +373,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
             async def _run_child(node_id: str) -> NodeResult:
                 async with semaphore:
-                    blocked_trino_upstreams = (
-                        sorted(upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream])
-                        if track_trino_dependencies
-                        else []
+                    blocked_trino_upstreams = sorted(
+                        upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream]
                     )
                     child_inputs = MaterializeViewWorkflowInputs(
                         team_id=inputs.team_id,
@@ -476,9 +469,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results.append(nr)
                 if nr.trino_materialized is True:
                     unavailable_trino_nodes.discard(nr.node_id)
-                if track_trino_dependencies and (
-                    nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None)
-                ):
+                if nr.trino_materialized is False or (not managed_warehouse_only and nr.trino_materialized is None):
                     unavailable_trino_nodes.add(nr.node_id)
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
@@ -581,17 +572,11 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        # Filtering can empty the list and skip the commands below, so an old history that recorded
-        # them has to keep taking the old path. A rolling deploy reaches this: an old worker can
-        # record those commands against a new child's quality_audited result.
-        if temporalio.workflow.patched(NODE_AUDIT_PATCH):
-            checkable_node_ids = [
-                result.node_id
-                for result in node_results
-                if result.success and not result.skipped and not result.quality_audited
-            ]
-        else:
-            checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
+        checkable_node_ids = [
+            result.node_id
+            for result in node_results
+            if result.success and not result.skipped and not result.quality_audited
+        ]
         if not checkable_node_ids:
             return
 

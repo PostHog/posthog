@@ -1,10 +1,19 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import emojibaseData from 'emojibase-data/en/data.json'
 import emojibaseMessages from 'emojibase-data/en/messages.json'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
+
+import { emojiSearchSuggestRetrieve } from '~/generated/core/api'
+import { initKeaTests } from '~/test/init'
+
 import { EmojiPickerPanel } from './EmojiPickerPanel'
+
+jest.mock('~/generated/core/api', () => ({ emojiSearchSuggestRetrieve: jest.fn() }))
 
 // The two files the build copies to /static/emoji. Any other URL, such as the frimousse CDN default,
 // has no same-origin copy and the app's connect-src refuses it, so the mock refuses it too.
@@ -18,6 +27,13 @@ describe('EmojiPickerPanel', () => {
     let fetchMock: jest.Mock
 
     beforeEach(() => {
+        initKeaTests()
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 1, name: 'Test project' } as any)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMOJI_RELATED_SEARCH], {
+            [FEATURE_FLAGS.EMOJI_RELATED_SEARCH]: true,
+        })
+        jest.mocked(emojiSearchSuggestRetrieve).mockReset()
         // frimousse caches the data in localStorage and skips the fetch on a hit.
         localStorage.clear()
         sessionStorage.clear()
@@ -47,5 +63,69 @@ describe('EmojiPickerPanel', () => {
         await waitFor(() =>
             expect(container.querySelector('[role="row"] [data-attr="emoji-picker-button"]')).toBeInTheDocument()
         )
+    })
+
+    it('offers related emojis when the normal search has no result', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({
+            suggestions: [{ emoji: '🦖', label: 'T-Rex' }],
+        })
+        const onEmojiSelect = jest.fn()
+        render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={onEmojiSelect} />)
+
+        await waitFor(() =>
+            expect(emojiSearchSuggestRetrieve).toHaveBeenCalledWith(
+                '1',
+                { query: 'jurassic park' },
+                { signal: expect.any(AbortSignal) }
+            )
+        )
+        screen.getByLabelText('T-Rex').click()
+        expect(onEmojiSelect).toHaveBeenCalledWith('🦖')
+    })
+
+    it('does not request suggestions for queries above the endpoint limit', async () => {
+        render(<EmojiPickerPanel initialSearch={'x'.repeat(65)} onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('No emoji found.')).toBeInTheDocument())
+        expect(emojiSearchSuggestRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('counts Unicode characters when checking the endpoint limit', async () => {
+        const query = '🦖'.repeat(33)
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({ suggestions: [] })
+        render(<EmojiPickerPanel initialSearch={query} onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalledWith('1', { query }, expect.anything()))
+    })
+
+    it('aborts a suggestion request when the picker closes', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockImplementation(() => new Promise(() => {}))
+        const { unmount } = render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalled())
+        const signal = jest.mocked(emojiSearchSuggestRetrieve).mock.calls[0][2]?.signal
+        expect(signal?.aborted).toBe(false)
+        unmount()
+
+        expect(signal?.aborted).toBe(true)
+    })
+
+    it('moves from search to related emojis with arrow keys', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({
+            suggestions: [
+                { emoji: '🦖', label: 'T-Rex' },
+                { emoji: '🎢', label: 'roller coaster' },
+            ],
+        })
+        render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={jest.fn()} />)
+
+        const first = await screen.findByLabelText('T-Rex')
+        const second = screen.getByLabelText('roller coaster')
+        const search = screen.getByRole('searchbox')
+        search.focus()
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        expect(first).toHaveFocus()
+        fireEvent.keyDown(first, { key: 'ArrowRight' })
+        expect(second).toHaveFocus()
     })
 })

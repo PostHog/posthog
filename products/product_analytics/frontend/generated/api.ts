@@ -20,6 +20,7 @@ import type {
     ElementsListParams,
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
+    EventsRetentionApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -338,6 +339,24 @@ export const elementsValuesList = async (
     options?: RequestInit
 ): Promise<ElementValueApi[]> => {
     return apiMutator<ElementValueApi[]>(getElementsValuesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEventsRetentionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/`
+}
+
+/**
+ * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
+ * @summary Get the events retention window for a project
+ */
+export const eventsRetentionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EventsRetentionApi> => {
+    return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

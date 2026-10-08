@@ -72,9 +72,12 @@ def lock_definition(team_id: int, definition_id: str | UUID) -> AccountRelations
 def set_controlled(team_id: int, definition_id: UUID, controlled: bool) -> AccountRelationshipDefinition:
     """Let customer analytics take control of the definition per account, or stop it.
 
-    Taking control enrolls no account. Giving it up is refused while any account is enrolled, because
-    those accounts would fall back to legacy authority at once, and while a claim view is bound to the
-    definition, because a claim can only fill a controlled relationship.
+    Taking control enrolls no account at once. From then on, a person's change to a controlled
+    relationship on a linked account enrolls that account (see ``logic/relationships.py``), and so
+    does an accepted Salesforce claim (see ``logic/ownership_claims.py``). Reviewed adoption enrolls
+    accounts in batches. Giving control up is refused while any account is enrolled, because those
+    accounts would fall back to legacy authority at once. It is also refused while a claim view is
+    bound to the definition, because a claim can only fill a controlled relationship.
     """
     with transaction.atomic():
         definition = lock_definition(team_id, definition_id)
@@ -112,16 +115,19 @@ def control_for(account: Account, definition: AccountRelationshipDefinition) -> 
 
 
 def enroll(
-    account: Account, definition: AccountRelationshipDefinition, created_by: User | None
+    account: Account,
+    definition: AccountRelationshipDefinition,
+    created_by: User | None,
+    controlled_at: datetime | None = None,
 ) -> AccountRelationshipControl:
-    """Create the control row, timed by the database clock like every later advance. Call under the
-    definition and Account locks."""
+    """Create the control row, timed by the database clock like every later advance unless the caller
+    names the instant control starts from. Call under the definition and Account locks."""
     control = AccountRelationshipControl.objects.for_team(account.team_id).create(
         team_id=account.team_id,
         account=account,
         definition=definition,
         created_by=created_by,
-        controlled_at=Now(),
+        controlled_at=controlled_at if controlled_at is not None else Now(),
     )
     control.refresh_from_db(fields=["controlled_at"])
     return control
@@ -253,13 +259,6 @@ def canonical_digest(payload: dict) -> str:
     same. Every value must be JSON-serializable."""
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
-
-
-def region_matches(region: str) -> bool:
-    """A self-hosted or test instance has no region to check against; cloud instances require the
-    decision to name theirs."""
-    instance_region = get_instance_region()
-    return instance_region is None or region == instance_region.lower()
 
 
 def allocation_rejection(allocated_at: datetime, fence: datetime | None) -> contracts.OwnershipClaimReason | None:

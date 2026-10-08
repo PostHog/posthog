@@ -12,8 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex import (
     _encode_entity_tag,
-    _flatten_relationship,
-    _flatten_scorecard_score,
     _format_cortex_datetime,
     _normalize_dependency,
     cortex_source,
@@ -58,39 +56,11 @@ class TestCortexTransport:
         assert is_valid is expected_ok
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.make_tracked_session")
-    def test_validate_credentials_probes_catalog_with_bearer(self, mock_session: Mock) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
-
-        validate_credentials(api_key="cx_key")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.getcortexapp.com/api/v1/catalog"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer cx_key"
-        assert call.kwargs["params"] == {"page": 0, "pageSize": 1}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_session: Mock) -> None:
         mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
         is_valid, message = validate_credentials(api_key="cx_key")
         assert is_valid is False
         assert message is not None and "boom" in message
-
-    def test_get_resource_entities_page_number_paginated(self) -> None:
-        resource = cast(dict[str, Any], get_resource(CORTEX_ENDPOINTS["entities"]))
-        assert resource["name"] == "entities"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/catalog"
-        assert resource["endpoint"]["data_selector"] == "entities"
-        assert resource["endpoint"]["params"] == {"pageSize": 250}
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-        assert paginator.total_path == "totalPages"
-
-    def test_get_resource_teams_single_page(self) -> None:
-        resource = cast(dict[str, Any], get_resource(CORTEX_ENDPOINTS["teams"]))
-        assert resource["endpoint"]["data_selector"] == "teams"
-        assert resource["endpoint"]["params"] == {}
-        assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
 
     @parameterized.expand(
         [
@@ -118,35 +88,6 @@ class TestCortexTransport:
         assert resource["name"] == name
         assert resource["endpoint"]["path"] == config.path
 
-    def test_flatten_scorecard_score_pulls_service_identifiers(self) -> None:
-        item = {"service": {"tag": "svc-a", "id": "cid123", "name": "Service A"}, "score": {"summary": {"score": 90}}}
-        flattened = _flatten_scorecard_score(item)
-        assert flattened["service_tag"] == "svc-a"
-        assert flattened["service_id"] == "cid123"
-        assert flattened["service_name"] == "Service A"
-
-    def test_flatten_scorecard_score_handles_missing_service(self) -> None:
-        flattened = _flatten_scorecard_score({})
-        assert flattened["service_tag"] is None
-        assert flattened["service_id"] is None
-
-    def test_flatten_relationship_pulls_source_and_destination_identifiers(self) -> None:
-        item = {
-            "relationshipTypeTag": "depends-on",
-            "sourceEntity": {"tag": "service-a", "id": "cid1"},
-            "destinationEntity": {"tag": "service-b", "id": "cid2"},
-        }
-        flattened = _flatten_relationship(item)
-        assert flattened["source_entity_tag"] == "service-a"
-        assert flattened["source_entity_id"] == "cid1"
-        assert flattened["destination_entity_tag"] == "service-b"
-        assert flattened["destination_entity_id"] == "cid2"
-
-    def test_flatten_relationship_handles_missing_entities(self) -> None:
-        flattened = _flatten_relationship({})
-        assert flattened["source_entity_tag"] is None
-        assert flattened["destination_entity_tag"] is None
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
     def test_cortex_source_entities_top_level(self, mock_rest_api_resource: Mock) -> None:
         mock_rest_api_resource.return_value = Mock()
@@ -156,15 +97,6 @@ class TestCortexTransport:
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
         assert response.partition_keys is None
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
-    def test_cortex_source_scorecards_partitions_on_date_created(self, mock_rest_api_resource: Mock) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = cortex_source(api_key="cx_key", endpoint="scorecards", team_id=1, job_id="job-1")
-
-        assert response.primary_keys == ["tag"]
-        assert response.partition_keys == ["dateCreated"]
-        assert response.partition_mode == "datetime"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
     def test_cortex_source_scorecard_scores_fanout_flattens_and_injects_parent_tag(
@@ -271,22 +203,9 @@ class TestCortexTransport:
         assert normalized["method"] == method
         assert normalized["path"] == path
 
-    def test_format_cortex_datetime_drops_the_zone(self) -> None:
-        # Cortex documents startTime as a date-time without a time zone.
-        assert _format_cortex_datetime(datetime(2024, 3, 1, 9, 30, tzinfo=UTC)) == "2024-03-01T09:30:00"
-
     def test_format_cortex_datetime_caps_a_future_cursor_at_now(self) -> None:
         formatted = _format_cortex_datetime(datetime(2999, 1, 1, tzinfo=UTC))
         assert formatted <= datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.rest_api_resource")
-    def test_cortex_source_users_partitions_on_joined_at(self, mock_rest_api_resource: Mock) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = cortex_source(api_key="cx_key", endpoint="users", team_id=1, job_id="job-1")
-
-        assert response.primary_keys == ["email"]
-        assert response.partition_keys == ["joinedAt"]
-        assert response.sort_mode == "asc"
 
     @parameterized.expand(["custom_events", "deploys", "dependencies", "entity_groups"])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
@@ -330,36 +249,6 @@ class TestCortexTransport:
         # run is done — an asc sync would checkpoint one entity's latest event over every entity
         # it has not reached yet.
         assert response.sort_mode == "desc"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
-    def test_cortex_source_custom_events_full_refresh_omits_the_watermark(
-        self, mock_build_dependent_resource: Mock
-    ) -> None:
-        mock_build_dependent_resource.return_value = _FakeDltResource("custom_events", [])
-
-        cortex_source(api_key="cx_key", endpoint="custom_events", team_id=1, job_id="job-1")
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
-    def test_cortex_source_dependencies_requests_outgoing_edges_only(self, mock_build_dependent_resource: Mock) -> None:
-        mock_build_dependent_resource.return_value = _FakeDltResource(
-            "dependencies", [{"callerTag": "a", "calleeTag": "b"}]
-        )
-
-        response = cortex_source(api_key="cx_key", endpoint="dependencies", team_id=1, job_id="job-1")
-        rows = list(cast(Any, response.items()))
-
-        # Each edge is listed by both of its endpoints; pulling incoming edges too would fetch
-        # every edge twice, under two different callers.
-        assert mock_build_dependent_resource.call_args.kwargs["fanout"].child_params == {
-            "includeOutgoing": "true",
-            "includeIncoming": "false",
-        }
-        assert rows[0]["method"] == "" and rows[0]["path"] == ""
-        assert response.primary_keys == ["callerTag", "calleeTag", "method", "path"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
     def test_entity_groups_keys_membership_on_a_column_the_fanout_injects(

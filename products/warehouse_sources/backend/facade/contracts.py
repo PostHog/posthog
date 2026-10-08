@@ -16,10 +16,15 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from dataclasses import field
 from datetime import datetime, time, timedelta
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+
+class UnsupportedSyncTypeError(ValueError):
+    """The stored sync type is not a mode PostHog can run."""
 
 
 @dataclass(frozen=True)
@@ -267,3 +272,16 @@ class DataWarehouseCredential:
     id: UUID
     team_id: int
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class GitHubSourceCredential:
+    """How a GitHub source authenticates to the repositories it syncs.
+
+    Exactly one field is set. This is the one contract that carries a secret, because a consumer
+    that has to read the same repository the source reads cannot do it without the token. ``repr``
+    omits the token so it cannot reach a log line or a traceback frame.
+    """
+
+    integration_id: int | None = None
+    personal_access_token: str | None = field(default=None, repr=False)

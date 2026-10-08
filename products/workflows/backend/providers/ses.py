@@ -19,6 +19,12 @@ from rest_framework import exceptions
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import (
+    EmailDomainDnsRecord,
+    EmailDomainVerification,
+    EmailDomainVerificationStatus,
+)
+
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
     from types_boto3_sesv2.client import SESV2Client
@@ -63,6 +69,12 @@ METRIC_CALL_WORST_CASE_SECONDS = METRIC_CONNECT_TIMEOUT_SECONDS + METRIC_READ_TI
 # The budget covers every call the breakdown makes, ranking included, and a call starts only with
 # its worst case still inside it — so the ceiling holds even when SES answers slowly.
 METRIC_QUERY_BUDGET_SECONDS = 20
+
+RECOMMENDATIONS_PAGE_SIZE = 100
+
+# The account findings walk runs in a background task, so it can wait out SES throttling. Adaptive
+# mode adds a client-side rate limiter that slows the following pages after a throttle response.
+RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 8})
 
 
 @frozen
@@ -268,6 +280,7 @@ class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
     ses_v2_metrics_client: "SESV2Client"
+    ses_v2_recommendations_client: "SESV2Client"
 
     def __init__(self):
         # Initialize the boto3 clients
@@ -301,6 +314,13 @@ class SESProvider:
                 read_timeout=METRIC_READ_TIMEOUT_SECONDS,
                 retries={"max_attempts": 1},
             ),
+        )
+        self.ses_v2_recommendations_client = boto3.client(
+            "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+            config=RECOMMENDATIONS_RETRY_CONFIG,
         )
 
     def _tenant_name_for_team(self, team_id: int) -> str:
@@ -358,15 +378,20 @@ class SESProvider:
             "findings": findings,
         }
 
-    def _iter_open_recommendations(self, finding_filter: dict[Any, str] | None) -> Iterator["RecommendationTypeDef"]:
+    def _iter_open_recommendations(
+        self, finding_filter: dict[Any, str] | None, client: "SESV2Client | None" = None
+    ) -> Iterator["RecommendationTypeDef"]:
         """
         Walk every page of ListRecommendations, yielding only OPEN recommendations. The local
         STATUS check exists for RESOURCE_ARN-filtered calls: AWS documents STATUS as combinable
         only with IMPACT or TYPE, so tenant-scoped listings must drop FIXED entries client-side.
         """
-        kwargs: dict[str, Any] = {"Filter": finding_filter} if finding_filter else {}
+        client = client or self.ses_v2_client
+        kwargs: dict[str, Any] = {"PageSize": RECOMMENDATIONS_PAGE_SIZE}
+        if finding_filter:
+            kwargs["Filter"] = finding_filter
         while True:
-            page = self.ses_v2_client.list_recommendations(**kwargs)
+            page = client.list_recommendations(**kwargs)
             for recommendation in page.get("Recommendations", []):
                 if recommendation.get("Status") == "OPEN":
                     yield recommendation
@@ -375,25 +400,32 @@ class SESProvider:
                 return
             kwargs["NextToken"] = next_token
 
-    def get_account_reputation(self) -> dict[str, Any]:
+    def get_account_enforcement_status(self) -> str:
         """
-        Account-level SES verdict: enforcement status plus every open reputation finding,
-        classified by the resource it references. AWS opens findings well before it enforces,
-        so this is the earliest account-scoped warning available.
+        Account-level SES verdict from a single GetAccount call, so that it stays cheap enough
+        to poll often and cannot fail because of the paged findings listing.
         """
         # Strict access on purpose: a response without EnforcementStatus must fail the poll
         # (surfacing via the staleness alert) rather than be reported as healthy.
-        enforcement_status: str = self.ses_v2_client.get_account()["EnforcementStatus"]
-        findings = [
+        return self.ses_v2_client.get_account()["EnforcementStatus"]
+
+    def get_account_reputation_findings(self) -> list[dict[str, str]]:
+        """
+        Every open reputation finding on the account, classified by the resource it references.
+        AWS opens findings well before it enforces, so this is the earliest account-scoped
+        warning available.
+        """
+        return [
             {
                 "finding_type": recommendation.get("Type", ""),
                 "impact": recommendation.get("Impact", "LOW"),
                 "scope": self._finding_scope(recommendation.get("ResourceArn", "")),
                 "description": recommendation.get("Description", ""),
             }
-            for recommendation in self._iter_open_recommendations({"STATUS": "OPEN"})
+            for recommendation in self._iter_open_recommendations(
+                {"STATUS": "OPEN"}, client=self.ses_v2_recommendations_client
+            )
         ]
-        return {"enforcement_status": enforcement_status, "findings": findings}
 
     @staticmethod
     def _finding_scope(resource_arn: str) -> str:
@@ -478,13 +510,13 @@ class SESProvider:
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
+    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        dns_records: list[dict[str, Any]] = []
+        dns_records: list[EmailDomainDnsRecord] = []
 
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
         verification_token: str | None = None
@@ -631,6 +663,7 @@ class SESProvider:
         all_statuses = [verification_status, dkim_status, mail_from_status]
 
         # Normalize overall status
+        overall: EmailDomainVerificationStatus
         if (
             verification_status == "Success"
             and dkim_status == "Success"

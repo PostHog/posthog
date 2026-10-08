@@ -93,6 +93,7 @@ export interface materializationJobsLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     materializationChanged: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
@@ -293,6 +294,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 'deleteDataWarehouseSavedQuery',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'deleteDataWarehouseSavedQueryFailure',
+                'loadDataWarehouseSavedQueries',
             ],
         ],
     })),
@@ -675,6 +677,8 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 lemonToast.success('Materialization resumed. The next scheduled run will include this view.')
                 actions.loadSavedQuery()
                 actions.loadDataModelingJobs()
+                // The SQL editor sidebar reads suspension from the view list, not from this view's record.
+                actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(
                     "Couldn't resume materialization. Try again, and contact support if it keeps happening."
@@ -727,7 +731,16 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             if (!dataModelingJobs.results.some((job) => job.status === 'Completed')) {
                 actions.loadLatestCompletedJob()
             }
-            const active = values.startingMaterialization || values.dataModelingJobs?.results[0]?.status === 'Running'
+            // The SQL editor sidebar reads run status from the view list, so reload it once when a run ends.
+            // Compare the newest run's id and status, because a run can start and end between idle polls.
+            const newestJob = dataModelingJobs.results[0]
+            const running = newestJob?.status === 'Running'
+            const newestJobState = newestJob ? `${newestJob.id}:${newestJob.status}` : null
+            if (cache.newestJobState !== undefined && cache.newestJobState !== newestJobState && !running) {
+                actions.loadDataWarehouseSavedQueries()
+            }
+            cache.newestJobState = newestJobState
+            const active = values.startingMaterialization || running
             actions.scheduleJobsRefresh(active ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
         },
     })),

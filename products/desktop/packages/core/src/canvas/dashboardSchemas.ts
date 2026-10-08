@@ -136,6 +136,13 @@ export const createDashboardInput = z.object({
 
 export const dashboardIdInput = z.object({ id: z.string().min(1) });
 
+// Why a canvas did not open, when it did not. `missing` covers a deleted
+// canvas, another project's canvas, and a bad id alike — the API cannot tell
+// them apart and neither can we. `no_access` is the one case it can name: the
+// canvas is in this project, in a space nobody shared with the caller.
+export const canvasAvailabilitySchema = z.enum(["ok", "missing", "no_access"]);
+export type CanvasAvailability = z.infer<typeof canvasAvailabilitySchema>;
+
 export const canvasBuildsInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1).optional(),
@@ -293,3 +300,20 @@ export const canvasConnectorCallResultSchema = z.object({
 export type CanvasConnectorCallResult = z.infer<
   typeof canvasConnectorCallResultSchema
 >;
+
+export const publishProjectInput = z.object({
+  id: z.string().min(1),
+  project: canvasSourceProjectSchema,
+  expectedCurrentVersionId: z.string().nullable(),
+  prompt: z.string().optional(),
+});
+export type PublishProjectInput = z.infer<typeof publishProjectInput>;
+
+export const publishProjectResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("saved"), currentVersionId: z.string() }),
+  z.object({
+    status: z.literal("conflict"),
+    currentVersionId: z.string().nullable(),
+  }),
+]);
+export type PublishProjectResult = z.infer<typeof publishProjectResultSchema>;

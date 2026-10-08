@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -21,7 +21,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-axis-tick-label-test'
-        const query: DataVisualizationNode = {
+        const query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -64,7 +64,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-annotations-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -122,7 +122,7 @@ describe('DisplayTab', () => {
 
         const setQuery = jest.fn()
         const key = 'display-tab-axis-label-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -191,7 +191,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-box-plot-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -240,7 +240,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-metric-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -286,7 +286,7 @@ describe('DisplayTab', () => {
         initKeaTests()
 
         const key = 'display-tab-scatter-test'
-        let query: DataVisualizationNode = {
+        let query: VisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -337,5 +337,45 @@ describe('DisplayTab', () => {
                 })
             )
         })
+    })
+
+    it.each([
+        [ChartDisplayType.ActionsPie, 'Show total below chart'],
+        [ChartDisplayType.ActionsDonut, 'Show total in center'],
+        [ChartDisplayType.ActionsProportionBar, 'Show total below chart'],
+    ])('honors the legacy top-level showPieTotal when pie.showTotal is unset (%s)', async (display, switchLabel) => {
+        initKeaTests()
+
+        const key = `display-tab-legacy-show-total-test-${display}`
+        const query: VisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select label, total from numbers(2)',
+            },
+            display,
+            chartSettings: { showPieTotal: false },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: jest.fn(),
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const toggle = (await screen.findByText(switchLabel)).closest('div')?.querySelector('[role="switch"]')
+        expect(toggle).toHaveAttribute('aria-checked', 'false')
     })
 })

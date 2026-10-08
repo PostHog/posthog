@@ -757,6 +757,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         insight_short_id: props.insightShortId,
                         subscription_id: updatedSub.id,
                         target_type: updatedSub.target_type,
+                        summary_enabled: updatedSub.summary_enabled === true,
                         ai_summary_prefilled: cache.prefillBaseline?.summary_enabled === true,
                     })
                 }

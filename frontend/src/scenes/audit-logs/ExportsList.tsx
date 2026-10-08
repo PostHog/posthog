@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 

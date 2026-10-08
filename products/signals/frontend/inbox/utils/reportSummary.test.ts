@@ -27,6 +27,7 @@ describe('parseReportSummary', () => {
         ['## Fix', 'solution', 'Solution'],
         ['## Recommended fix:', 'solution', 'Solution'],
         ['### The problem', 'problem', 'Problem'],
+        ['## Expected impact', 'expected-impact', 'Expected impact'],
         ['## Next steps', 'other', 'Next steps'],
     ])('maps the heading %s to the %s section', (heading, kind, label) => {
         const [section] = parseReportSummary(`Lead.\n\n${heading}\n\nBody.`).sections

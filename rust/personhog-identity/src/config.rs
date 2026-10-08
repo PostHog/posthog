@@ -1,5 +1,6 @@
 use common_database::PoolConfig;
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -118,6 +119,12 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub router_channels: usize,
 
+    #[envconfig(default = "0")]
+    pub router_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub router_initial_connection_window_bytes: WindowSize,
+
     /// Per-call timeout for leader-routed property writes (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
@@ -137,6 +144,12 @@ pub struct Config {
     /// Timeout for a keepalive ping ack before considering the connection dead
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
 
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
@@ -351,6 +364,20 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn router_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.router_initial_stream_window_bytes,
+            self.router_initial_connection_window_bytes,
+        )
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {

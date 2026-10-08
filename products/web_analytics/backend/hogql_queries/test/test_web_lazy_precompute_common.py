@@ -377,7 +377,15 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             team=self.team,
             query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
         )
-        return runner.get_cache_key()
+        identity = runner.get_query_identity()
+        return f"{runner.get_cache_key()} {identity.query_hash} {identity.runtime_hash}"
+
+    def _assert_only_the_runtime_changed(self, before: str, after: str) -> None:
+        key_before, query_hash_before, runtime_hash_before = before.split(" ")
+        key_after, query_hash_after, runtime_hash_after = after.split(" ")
+        assert key_before != key_after
+        assert query_hash_before == query_hash_after
+        assert runtime_hash_before != runtime_hash_after
 
     def test_flipping_enrollment_changes_cache_key(self) -> None:
         # With default-on reads, disabling the rollout flag (the kill switch)
@@ -387,7 +395,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             key_enabled = self._cache_key()
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
-        assert key_enabled != key_disabled
+        self._assert_only_the_runtime_changed(key_enabled, key_disabled)
 
     def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
         # A team crossing below the floor switches to the live path; the key must
@@ -397,7 +405,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
                 key_above = self._cache_key()
             with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
                 key_below = self._cache_key()
-        assert key_above != key_below
+        self._assert_only_the_runtime_changed(key_above, key_below)
 
 
 class TestHostFilterExpr(BaseTest):

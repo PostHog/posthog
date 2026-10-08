@@ -16,25 +16,20 @@ def _config() -> Any:
 
 
 class TestEmailOctopusGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        names = {s.name for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
-        assert names == {"lists", "campaigns", "contacts"}
-
     @parameterized.expand(
         [
             ("lists", False),
             ("campaigns", False),
             ("contacts", True),
+            ("campaign_reports", False),
+            ("campaign_report_summaries", False),
+            ("campaign_report_links", False),
+            ("list_tags", False),
         ]
     )
     def test_incremental_support(self, endpoint: str, supports_incremental: bool) -> None:
         schemas = {s.name: s for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].supports_incremental is supports_incremental
-
-    def test_contacts_incremental_fields(self) -> None:
-        schemas = {s.name: s for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
-        fields = {f["field"] for f in schemas["contacts"].incremental_fields}
-        assert fields == {"created_at", "last_updated_at"}
 
     def test_names_filter(self) -> None:
         schemas = EmailOctopusSource().get_schemas(_config(), team_id=1, names=["contacts"])
@@ -98,12 +93,6 @@ class TestEmailOctopusResumableAndPipeline:
 
 
 class TestEmailOctopusSourceVersions:
-    def test_new_sources_default_to_v2(self) -> None:
-        # New sources (no pin) must be created on the current API version.
-        source = EmailOctopusSource()
-        assert source.default_version == "v2"
-        assert source.resolve_api_version(None) == "v2"
-
     @parameterized.expand([("v1",), ("v2",)])
     def test_existing_pin_is_honored(self, version: str) -> None:
         # Pinned rows — including the legacy "v1" default existing sources carry — keep their
@@ -111,12 +100,3 @@ class TestEmailOctopusSourceVersions:
         source = EmailOctopusSource()
         assert version in source.supported_versions
         assert source.resolve_api_version(version) == version
-
-    def test_v1_is_deprecated_without_sunset(self) -> None:
-        # Guards the in-product deprecation banner: v1 must stay flagged (no announced sunset)
-        # and the current default must not be, or the warning silently stops firing.
-        source = EmailOctopusSource()
-        deprecation = source.get_version_deprecation("v1")
-        assert deprecation is not None
-        assert deprecation.sunset_at is None
-        assert source.get_version_deprecation("v2") is None

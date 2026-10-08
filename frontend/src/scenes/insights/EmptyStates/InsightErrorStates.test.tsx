@@ -64,6 +64,22 @@ describe('insight error states', () => {
         })
     })
 
+    it('labels a memory failure as unfinished rather than invalid', () => {
+        render(
+            <InsightValidationError
+                detail={CLUSTER_MEMORY_DETAIL}
+                validationErrorCode="clickhouse_memory_limit_exceeded"
+                query={{ kind: 'InsightVizNode' }}
+            />
+        )
+
+        expect(screen.getByText("This query couldn't finish")).toBeTruthy()
+        expect(screen.queryByText("We couldn't run this query")).toBeNull()
+        expect(screen.getByText(CLUSTER_MEMORY_DETAIL)).toBeTruthy()
+        expect(screen.queryByText('Open the query debugger and correct the query.')).toBeNull()
+        expect(screen.getByText('Debug with PostHog AI')).toBeTruthy()
+    })
+
     it('replaces generic invalid-query detail with a next step', () => {
         render(
             <InsightValidationError

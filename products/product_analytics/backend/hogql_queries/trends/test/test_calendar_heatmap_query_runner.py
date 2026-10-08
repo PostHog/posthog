@@ -3,6 +3,8 @@ from typing import Optional
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -959,11 +961,13 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "empty_string", "value": ""}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert results_dict.get((6, 10)) == 1, (
-            f"Expected 1 empty string event at 10:00, got {results_dict.get((6, 10))}"
+        # On the native-JSON table an empty value is absent, like a materialized column, so the filter matches nothing.
+        expected_matches = 0 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 1
+        assert (results_dict.get((6, 10)) or 0) == expected_matches, (
+            f"Expected {expected_matches} empty string event(s) at 10:00, got {results_dict.get((6, 10))}"
         )
-        assert response.results.allAggregations == 1, (
-            f"Expected 1 total empty string event, got {response.results.allAggregations}"
+        assert response.results.allAggregations == expected_matches, (
+            f"Expected {expected_matches} total empty string event(s), got {response.results.allAggregations}"
         )
 
         # Test with non-existent property filter

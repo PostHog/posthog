@@ -19,7 +19,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -35,6 +34,7 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     TEST_TIME,
     assert_clickhouse_records_in_snowflake,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 
 pytestmark = [
     pytest.mark.asyncio,

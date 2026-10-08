@@ -932,6 +932,9 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "id": 900_000 + member_index,
                     "login": login,
+                    # One maintainer per team, so the roster read's maintainers-first order is
+                    # visible locally instead of every member looking the same.
+                    "role": "maintainer" if slot == 0 and member_index < team_count else "member",
                     "team_id": team_index + 1,
                     "team_slug": slug,
                     "team_name": slug.removeprefix("team-").replace("-", " ").title(),

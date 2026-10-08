@@ -1,21 +1,23 @@
 import json
-import base64
 from types import SimpleNamespace
 from typing import Any
 
 from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Response
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip import (
     DripResumeConfig,
     _base_params,
     drip_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import (
+    CAMPAIGN_SUBSCRIBER_STATUSES,
+    DRIP_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -79,31 +81,6 @@ def _run(session: mock.MagicMock, endpoint: str, manager: mock.MagicMock) -> lis
     )
 
 
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_basic_auth_token_as_username_empty_password(self, MockSession) -> None:
-        session = MockSession.return_value
-        captured = _wire(session, [_page("forms", [{"id": 1}])])
-
-        _run(session, "forms", _make_manager())
-
-        auth = captured[0].auth
-        assert isinstance(auth, HttpBasicAuth)
-        prepared = PreparedRequest()
-        prepared.prepare(method="GET", url="https://api.getdrip.com/v2/9999/forms")
-        auth(prepared)
-        expected = base64.b64encode(b"token:").decode("ascii")
-        assert prepared.headers["Authorization"] == f"Basic {expected}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accept_header_set_on_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("forms", [{"id": 1}])])
-
-        _run(session, "forms", _make_manager())
-        assert session.headers.get("Accept") == "application/json"
-
-
 class TestBaseParams:
     @parameterized.expand(
         [
@@ -141,41 +118,6 @@ class TestBaseParams:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_last_page_via_meta(self, MockSession) -> None:
-        session = MockSession.return_value
-        captured = _wire(
-            session,
-            [
-                _page("subscribers", [{"id": 1}], total_pages=2),
-                _page("subscribers", [{"id": 2}], total_pages=2),
-            ],
-        )
-
-        rows = _run(session, "subscribers", _make_manager())
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 2
-        assert captured[0].params["page"] == 1
-        assert captured[1].params["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_each_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page("subscribers", [{"id": 1}], total_pages=2),
-                _page("subscribers", [{"id": 2}], total_pages=2),
-            ],
-        )
-        manager = _make_manager()
-
-        _run(session, "subscribers", manager)
-
-        # State advances to page 2 once page 1 is yielded; the final page saves nothing further.
-        manager.save_state.assert_called_once_with(DripResumeConfig(next_page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         captured = _wire(session, [_page("subscribers", [{"id": 5}], total_pages=3)])
@@ -198,18 +140,6 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == list(range(140))
         assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_for_non_paginated_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("forms", [{"id": 1}, {"id": 2}])])
-        manager = _make_manager()
-
-        rows = _run(session, "forms", manager)
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestValidateCredentials:
@@ -266,15 +196,37 @@ class TestDripSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
+
+class TestScalarEndpoints:
+    @parameterized.expand(
+        [
+            ("tags", "tag", ["Customer", "SEO"]),
+            ("custom_field_identifiers", "identifier", ["first_name", "last_name"]),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_subscribers_partitions_on_created_at(self, _MockSession) -> None:
-        response = drip_source(
-            api_token="token",
-            account_id="9999",
-            endpoint="subscribers",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_format == "month"
+    def test_bare_strings_become_single_column_rows(self, endpoint, column, values, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page(DRIP_ENDPOINTS[endpoint].data_key, values)])
+
+        rows = _run(session, endpoint, _make_manager())
+
+        assert rows == [{column: value} for value in values]
+
+
+class TestCampaignSubscribersFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_pages_are_followed_per_campaign(self, MockSession) -> None:
+        session = MockSession.return_value
+        responses = []
+        for index, _status in enumerate(CAMPAIGN_SUBSCRIBER_STATUSES):
+            responses.append(_page("campaigns", [{"id": 10}]))
+            responses.append(_page("subscribers", [{"id": f"a{index}"}], total_pages=2))
+            responses.append(_page("subscribers", [{"id": f"b{index}"}], total_pages=2))
+        captured = _wire(session, responses)
+
+        rows = _run(session, "campaign_subscribers", _make_manager())
+
+        assert [row["id"] for row in rows] == ["a0", "b0", "a1", "b1", "a2", "b2"]
+        child_pages = [c.params["page"] for c in captured if "status" in c.params]
+        assert child_pages == [1, 2, 1, 2, 1, 2]

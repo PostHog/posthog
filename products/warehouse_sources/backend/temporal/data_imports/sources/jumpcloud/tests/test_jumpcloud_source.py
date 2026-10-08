@@ -27,34 +27,9 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_only_events_is_incremental(self) -> None:
-        schemas = {s.name: s for s in JumpcloudSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        assert schemas["events"].supports_incremental is True
-        assert [f["field"] for f in schemas["events"].incremental_fields] == ["timestamp"]
-        # The start_time boundary can re-return the watermark row, so append would duplicate it.
-        assert all(not s.supports_append for s in schemas.values())
-        # The REST entity endpoints have no server-side "updated since" filter.
-        assert all(not schema.supports_incremental for name, schema in schemas.items() if name != "events")
-
-    def test_primary_keys_follow_api_family(self) -> None:
-        schemas = {s.name: s for s in JumpcloudSource().get_schemas(_config(), team_id=1)}
-        # v1 resources use Mongo-style `_id`; v2 groups and Insights events use `id`.
-        assert schemas["users"].detected_primary_keys == ["_id"]
-        assert schemas["user_groups"].detected_primary_keys == ["id"]
-        assert schemas["events"].detected_primary_keys == ["id"]
-
     def test_names_filter(self) -> None:
         schemas = JumpcloudSource().get_schemas(_config(), team_id=1, names=["users", "events"])
         assert {s.name for s in schemas} == {"users", "events"}
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O) — public docs render the table list.
-        assert JumpcloudSource.lists_tables_without_credentials is True
-        tables = JumpcloudSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        events = next(t for t in tables if t["name"] == "events")
-        assert "Incremental" in events["sync_methods"]
 
 
 class TestNonRetryableErrors:

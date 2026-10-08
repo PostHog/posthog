@@ -5,7 +5,7 @@ import pytest
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import SnowflakeClient
+from products.batch_exports.backend.facade.destinations.snowflake import SnowflakeClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
     DestinationRunContext,

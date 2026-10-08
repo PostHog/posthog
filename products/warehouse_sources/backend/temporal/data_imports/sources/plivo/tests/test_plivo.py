@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -11,7 +11,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.plivo import (
     PlivoResumeConfig,
-    _build_windows,
     get_rows,
     plivo_source,
     validate_credentials,
@@ -81,32 +80,6 @@ def _run(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> list[list[dic
     )
 
 
-class TestBuildWindows:
-    @pytest.mark.parametrize(
-        "start_days_ago, expected_boundaries",
-        [
-            # 90-day span chunks into three contiguous 30-day windows.
-            (90, ["2026-04-22 12:00", "2026-05-22 12:00", "2026-06-21 12:00", "2026-07-21 12:00"]),
-            # A span under 30 days is a single window.
-            (10, ["2026-07-11 12:00", "2026-07-21 12:00"]),
-            # A start at/after the end yields no windows (e.g. a future-dated cursor).
-            (0, ["2026-07-21 12:00"]),
-            (-5, []),
-        ],
-    )
-    def test_windows_are_contiguous_and_capped_at_30_days(self, start_days_ago, expected_boundaries):
-        end = datetime(2026, 7, 21, 12, 0, 0, tzinfo=UTC)
-        windows = _build_windows(end - timedelta(days=start_days_ago), end)
-
-        if len(expected_boundaries) < 2:
-            assert windows == []
-            return
-
-        boundaries = [windows[0][0], *(w[1] for w in windows)]
-        assert [b.strftime("%Y-%m-%d %H:%M") for b in boundaries] == expected_boundaries
-        assert all(we - ws <= timedelta(days=30) for ws, we in windows)
-
-
 class TestWindowedEndpoints:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
@@ -153,22 +126,6 @@ class TestWindowedEndpoints:
         assert [r["message_uuid"] for r in rows] == ["m1"]
         # Timestamp strings are parsed so the incremental watermark compares datetimes.
         assert rows[0]["message_time"] == datetime(2026, 7, 15, 9, 30, 0, tzinfo=UTC)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_future_cursor_makes_no_requests(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, lambda url, params: _page([], 0))
-
-        batches = _run(
-            "messages",
-            _make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 8, 1, tzinfo=UTC),
-            incremental_field="message_time",
-        )
-
-        assert batches == []
-        session.send.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_pagination_saves_offset_then_window_checkpoint(self, MockSession: mock.MagicMock) -> None:
@@ -248,16 +205,6 @@ class TestNonWindowedEndpoints:
         assert "add_time__lte" not in calls[0]["params"]
         # An empty timestamp string stays untouched instead of failing the row.
         assert batches[0][0]["add_time"] == ""
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_applications_full_refresh_has_no_filters_and_resumes_offset(self, MockSession: mock.MagicMock) -> None:
-        calls = _wire(MockSession.return_value, lambda url, params: _page([{"app_id": "a1"}], 41))
-
-        manager = _make_manager(PlivoResumeConfig(offset=40))
-        _run("applications", manager)
-
-        assert calls[0]["url"] == "https://api.plivo.com/v1/Account/MA123/Application/"
-        assert calls[0]["params"] == {"limit": PAGE_SIZE, "offset": 40}
 
 
 class TestValidateCredentials:

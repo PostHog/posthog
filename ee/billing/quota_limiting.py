@@ -18,7 +18,7 @@ import posthoganalytics
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.constants import FlagRequestType
+from posthog.constants import AvailableFeature, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
@@ -286,6 +286,48 @@ def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource,
     return {resource: score is not None and score >= now_ts for resource, score in zip(QuotaResource, scores)}
 
 
+def _resource_usage(summary: dict[str, Any]) -> float | None:
+    """None when billing never synced the resource, so clients read unknown usage. Gate on
+    `limited`: grace periods and refund offsets apply only there."""
+    if not summary:
+        return None
+    usage = summary.get("usage")
+    todays_usage = summary.get("todays_usage")
+    if usage is None and todays_usage is None:
+        return None
+    return (usage or 0) + (todays_usage or 0)
+
+
+def team_quota_snapshot(team: Team) -> dict[str, Any]:
+    """Reads Redis fresh because the legacy gateway re-caches this for minutes, and the 30s memo would
+    re-poison a just-invalidated entry. A deactivated org is limited only on the gateway credit buckets,
+    which blocks AI spend without dropping events."""
+    organization = team.organization
+    org_usage = organization.usage or {}
+    org_deactivated = organization.is_active is False
+    if org_deactivated:
+        limited_resources = dict.fromkeys(QuotaResource, False)
+        limited_resources[QuotaResource.AI_CREDITS] = True
+        limited_resources[QuotaResource.POSTHOG_CODE_CREDITS] = True
+    else:
+        limited_resources = get_fresh_team_limited_resources(team.api_token)
+    limited: dict[str, dict[str, Any]] = {}
+    for resource in QuotaResource:
+        summary = org_usage.get(resource.value) or {}
+        limited[resource.value] = {
+            "limited": limited_resources[resource],
+            "usage": _resource_usage(summary),
+            "limit": summary.get("limit"),
+        }
+    for field in INFORMATIONAL_USAGE_RESOURCES:
+        limited[field] = {"limited": False, "usage": _resource_usage(org_usage.get(field) or {}), "limit": None}
+    return {
+        "limited": limited,
+        "code_usage_billing_active": not org_deactivated
+        and organization.is_feature_available(AvailableFeature.POSTHOG_CODE_USAGE),
+    }
+
+
 def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
     """
     Triggers a `RemoteConfig` rebuild for each team after its recordings quota-limit state
@@ -305,11 +347,67 @@ def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
             capture_exception(e, {"team_id": team_id})
 
 
-def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
-    """Single AI-credit quota signal for LLM-spending paths to share — one resource + cache-key
-    pair. On a cache miss this issues a synchronous Redis read, so async callers must wrap it in
+def is_team_over_credit_budget(team_api_token: str, resource: QuotaResource) -> bool:
+    """Quota signal for an LLM-spending path billed into `resource` (an AI credit bucket). On a
+    cache miss this issues a synchronous Redis read, so async callers must wrap it in
     sync_to_async."""
-    return is_team_limited(team_api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+    return is_team_limited(team_api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+
+def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
+    return is_team_over_credit_budget(team_api_token, QuotaResource.AI_CREDITS)
+
+
+def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[str]) -> dict[str, dict[str, float]]:
+    tokens = list(team_api_tokens)
+    names = list(resources)
+    now_ts = timezone.now().timestamp()
+    pipe = get_client().pipeline()
+    for token in tokens:
+        for name in names:
+            pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{name}", token)
+    scores = iter(pipe.execute())
+    return {
+        token: {
+            name: float(score)
+            for name, score in ((name, next(scores)) for name in names)
+            if score is not None and score >= now_ts
+        }
+        for token in tokens
+    }
+
+
+def get_team_limited_until(team_api_token: str, resources: Iterable[str]) -> dict[str, float]:
+    return get_teams_limited_until([team_api_token], resources)[team_api_token]
+
+
+_LLM_GATEWAY_PROJECTION_BATCH = 500
+
+
+def _project_llm_gateway_quota_for_org(organization: Organization) -> None:
+    """Best-effort because the billing GET reaches this: an enqueue failure must not fail the update."""
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    try:
+        from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task  # noqa: PLC0415
+
+        project_org_llm_gateway_quota_task.delay(str(organization.id))
+    except Exception as e:
+        capture_exception(e)
+
+
+def _project_llm_gateway_quota_for_tokens(tokens: Iterable[str]) -> None:
+    """Enqueued so the all-orgs run never waits on the ai-gateway Redis; the reconcile heals a lost batch."""
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    from posthog.tasks.team_llm_gateway_quota import project_teams_llm_gateway_quota_task  # noqa: PLC0415
+
+    token_list = sorted({token for token in tokens if token})
+    for start in range(0, len(token_list), _LLM_GATEWAY_PROJECTION_BATCH):
+        try:
+            project_teams_llm_gateway_quota_task.delay(token_list[start : start + _LLM_GATEWAY_PROJECTION_BATCH])
+        except Exception as e:
+            capture_exception(e)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -355,20 +453,10 @@ def org_quota_limited_until(
         return None
     usage = summary.get("usage") or 0
     todays_usage = summary.get("todays_usage") or 0
+    current_usage = usage + todays_usage
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-
-    # Credited-path signals PR refunds free the org's quota slot posthog-side (billing's stored
-    # usage still contains the refunded units). Consulted only when the raw comparison is already
-    # at/over the limit, so the DB query fires for the handful of orgs that would otherwise be
-    # limited. Surfaced on every quota event below for debuggability of refund-affected decisions.
-    refund_offset = _signals_credited_refund_offset(
-        organization,
-        resource,
-        limit is not None and usage + todays_usage >= limit + OVERAGE_BUFFER[resource],
-    )
-    refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
 
     if limit is None:
         if quota_limiting_suspended_until is not None or quota_limited_until is not None:
@@ -377,8 +465,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "limit removed",
-                    "current_usage": usage + todays_usage,
-                    **refund_offset_properties,
+                    "current_usage": current_usage,
                     "resource": resource.value,
                     "quota_limited_until": quota_limited_until,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -389,7 +476,46 @@ def org_quota_limited_until(
             )
         return None
 
-    is_over_limit = usage + todays_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
+    # Credited-path signals PR refunds free the org's quota slot posthog-side (billing's stored
+    # usage still contains the refunded units). Consulted only when the raw comparison is already
+    # at/over the limit, so the DB query fires for the handful of orgs that would otherwise be
+    # limited. Surfaced on every quota event below for debuggability of refund-affected decisions.
+    refund_offset = _signals_credited_refund_offset(
+        organization,
+        resource,
+        limit is not None and current_usage >= limit + OVERAGE_BUFFER[resource],
+    )
+    if resource == QuotaResource.SIGNALS_CREDITS and current_usage - refund_offset < limit:
+        active_persisted_limit = quota_limited_until is not None and quota_limited_until > timezone.now().timestamp()
+        if team_tokens is None and previously_quota_limited_team_tokens and not active_persisted_limit:
+            team_tokens = get_team_attribute_by_quota_resource(organization)
+        was_limited = active_persisted_limit or any(
+            token in previously_quota_limited_team_tokens for token in (team_tokens or [])
+        )
+        if was_limited:
+            # Midnight resets today's count before billing necessarily includes yesterday's PRs.
+            # Verify the whole period before releasing a block; keep billing-owned counters intact.
+            period_start = dateutil.parser.isoparse(organization.usage["period"][0])
+            period_end = dateutil.parser.isoparse(organization.usage["period"][1])
+            try:
+                period_usage = get_self_driving_credits_used_in_period_for_org(
+                    organization.id, period_start, period_end
+                )
+            except Exception as error:
+                capture_exception(error, {"organization_id": str(organization.id)})
+                return {
+                    "quota_limited_until": (
+                        quota_limited_until if active_persisted_limit else round(period_end.timestamp())
+                    ),
+                    "quota_limiting_suspended_until": None,
+                }
+            current_usage = max(current_usage, period_usage)
+
+            refund_offset = _signals_credited_refund_offset(organization, resource, current_usage >= limit)
+
+    refund_offset_properties = {"signals_refund_offset": refund_offset} if refund_offset else {}
+
+    is_over_limit = current_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
@@ -420,7 +546,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspension removed",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -438,7 +564,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "ignored",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "never_drop_data": organization.never_drop_data,
@@ -462,7 +588,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "already limited",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "quota_limited_until": billing_period_end,
@@ -491,7 +617,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "ignored",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -525,7 +651,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "suspended",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "trust_score": trust_score,
@@ -547,7 +673,7 @@ def org_quota_limited_until(
             "org_quota_limited_until",
             properties={
                 "event": "suspended",
-                "current_usage": usage + todays_usage,
+                "current_usage": current_usage,
                 **refund_offset_properties,
                 "resource": resource.value,
                 "trust_score": trust_score,
@@ -576,7 +702,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspended",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "grace_period_days": grace_period_days,
@@ -637,7 +763,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspension not expired",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -659,7 +785,7 @@ def org_quota_limited_until(
                 "org_quota_limited_until",
                 properties={
                     "event": "suspended expired",
-                    "current_usage": usage + todays_usage,
+                    "current_usage": current_usage,
                     **refund_offset_properties,
                     "resource": resource.value,
                 },
@@ -770,6 +896,7 @@ def update_org_billing_quotas(organization: Organization):
         dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
     invalidate_llm_gateway_quota_cache(teams_by_token.values())
+    _project_llm_gateway_quota_for_org(organization)
 
 
 def refresh_org_self_driving_quota(organization_id: str) -> None:
@@ -1368,7 +1495,9 @@ def update_all_orgs_billing_quotas(
                 for resource in QuotaResource:
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
-                    result = org_quota_limited_until(org, resource, previously_quota_limited_team_tokens[field])
+                    result = org_quota_limited_until(
+                        org, resource, previously_quota_limited_team_tokens[field], teams_by_org.get(org_id, [])
+                    )
                     if result:
                         quota_limited_until = result.get("quota_limited_until")
                         limiting_suspended_until = result.get("quota_limiting_suspended_until")
@@ -1508,6 +1637,15 @@ def update_all_orgs_billing_quotas(
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
+        # Re-project every team limited before or after this run: the blob TTL is the limit's end,
+        # which can move for a team that stays limited.
+        changed_ai_tokens: set[str] = set()
+        for resource in (QuotaResource.AI_CREDITS, QuotaResource.POSTHOG_CODE_CREDITS):
+            changed_ai_tokens |= set(previously_quota_limited_team_tokens[resource.value]) | set(
+                quota_limited_teams[resource.value]
+            )
+        if changed_ai_tokens:
+            _project_llm_gateway_quota_for_tokens(changed_ai_tokens)
         redis_duration_s = round((time() - redis_start), 1)
         logger.info("quota_limiting_run", phase="redis", status="done", duration_ms=round(redis_duration_s * 1000, 1))
         if progress_callback:

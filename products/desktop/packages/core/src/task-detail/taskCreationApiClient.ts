@@ -15,6 +15,7 @@ export interface CreateTaskRunClientOptions {
   branch?: string | null;
   adapter?: Adapter;
   claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   piRuntime?: boolean;
   model?: string;
   reasoningLevel?: string;

@@ -3,27 +3,53 @@ import { join } from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { FILTER_GLOBALS_RELATIVE_PATH, describeFilterRuntime, renderFilterGlobalsFile } from './filter-runtime'
+import {
+    FILTER_GLOBALS_RELATIVE_PATH,
+    FilterRuntime,
+    describeFilterRuntime,
+    renderFilterGlobalsFile,
+    runtimeContractHash,
+} from './filter-runtime'
 import { execHog } from './hog-exec'
 
 describe('filter-runtime', () => {
     const committed = (): string => readFileSync(join(__dirname, '../../../..', FILTER_GLOBALS_RELATIVE_PATH), 'utf8')
 
-    it('matches the committed file Django reads', () => {
+    it('matches the committed file Django reads, byte for byte', () => {
         // The one gate. A global or a standard-library function added to the runtime lands here as a
         // diff until the file is regenerated, so Django cannot silently validate against a stale set.
-        // Compared as parsed JSON: the pre-commit hook reformats the file, and whitespace is not the
-        // contract.
-        const expected = parseJSON(renderFilterGlobalsFile(describeFilterRuntime()))
-        const actual = parseJSON(committed())
-        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-            // toEqual alone prints a diff and nothing else; say what to do about it.
+        // Compared as text: the generator is the only writer of this file, and a reformat by hand or by
+        // a tool would show up here as churn on every later regenerate.
+        const expected = renderFilterGlobalsFile(describeFilterRuntime())
+        const actual = committed()
+        if (actual !== expected) {
             throw new Error(
-                `${FILTER_GLOBALS_RELATIVE_PATH} is stale. Run: pnpm --filter=@posthog/nodejs run build:filter-globals\n` +
-                    JSON.stringify({ expected, actual }, null, 2)
+                `${FILTER_GLOBALS_RELATIVE_PATH} differs from the generator's output. Run: pnpm --filter=@posthog/nodejs run build:filter-globals\n` +
+                    JSON.stringify({ expected: parseJSON(expected), actual: parseJSON(actual) }, null, 2)
             )
         }
-        expect(actual).toEqual(expected)
+        expect(actual).toBe(expected)
+    })
+
+    it('hashes the contract, not the file', () => {
+        // The hash is stamped on compiled bytecode and compared at run time, so it must move only when
+        // what the runtime provides moves: never on whitespace, key order or the comment in the file.
+        const runtime = describeFilterRuntime()
+        const hash = runtimeContractHash(runtime)
+        expect(hash).toMatch(/^[0-9a-f]{16}$/)
+        expect(parseJSON(committed()).contract).toBe(hash)
+
+        const reparsed = parseJSON(renderFilterGlobalsFile(runtime)) as FilterRuntime
+        expect(runtimeContractHash(reparsed)).toBe(hash)
+
+        const reordered: FilterRuntime = {
+            ...runtime,
+            functions: Object.fromEntries(Object.entries(runtime.functions).reverse()),
+        }
+        expect(runtimeContractHash(reordered)).toBe(hash)
+
+        const narrowed: FilterRuntime = { ...runtime, functions: { ...runtime.functions, lower: [1, 0] } }
+        expect(runtimeContractHash(narrowed)).not.toBe(hash)
     })
 
     it('describes what a hog function is actually evaluated with', () => {

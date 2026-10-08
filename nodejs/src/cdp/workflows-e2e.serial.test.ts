@@ -469,6 +469,86 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
+    describe('workflow with a secret function input: trigger → function → exit', () => {
+        const secretApiKey = 'workflows-e2e-secret-api-key-0000'
+        let workflowId: string
+
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-secret-fetch',
+                name: 'Workflows E2E Secret Fetch',
+                code: `
+                let res := fetch(inputs.url, {'method': 'POST', 'headers': {'Authorization': f'Bearer {inputs.api_key}'}});
+                print('Fetch result:', res.status);
+                `,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'api_key', type: 'string', required: true, secret: true },
+                ],
+            })
+
+            workflowId = await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    send_with_secret: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-secret-fetch',
+                            inputs: { url: { value: 'https://example.com/secret-webhook' } },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'send_with_secret', type: 'continue' },
+                    { from: 'send_with_secret', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            // Mirrors what the hog flow API stores on save: the secret input is stripped out of the
+            // plaintext `actions` and kept Fernet-encrypted in `encrypted_inputs`, keyed by action id.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    workflowId,
+                    hub.encryptedFields.encrypt(
+                        JSON.stringify({ send_with_secret: { api_key: { value: secretApiKey } } })
+                    ),
+                ],
+                'setWorkflowEncryptedInputs'
+            )
+            globals = createGlobals()
+        })
+
+        it('sends the decrypted secret and keeps it out of logs and stored jobs', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/secret-webhook',
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({ Authorization: `Bearer ${secretApiKey}` }),
+                })
+            )
+
+            await waitForExpect(() => {
+                const logs = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .filter((m: any) => m.value.log_source_id === workflowId)
+                expect(logs.map((m: any) => m.value.message)).toContainEqual(
+                    expect.stringContaining('Fetch result:, 200')
+                )
+                expect(JSON.stringify(logs)).not.toContain(secretApiKey)
+            }, 5000)
+
+            expect(JSON.stringify(await queryCyclotronJobs())).not.toContain(secretApiKey)
+        })
+    })
+
     describe('delay workflow: trigger → delay → function → exit', () => {
         beforeEach(async () => {
             await createWorkflow({
@@ -1345,7 +1425,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1383,7 +1462,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1857,7 +1935,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],

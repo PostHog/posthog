@@ -396,7 +396,7 @@ export const problemClauseFor = (
     }
     return hogql.raw(
         `AND invocation_id IN (` +
-            `SELECT instance_id FROM log_entries ` +
+            `SELECT DISTINCT instance_id FROM log_entries ` +
             `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
             `AND log_source_id = ${escapeHogQLString(props.id)} ` +
             `AND lower(level) IN ('error', 'warn'))`
@@ -434,7 +434,7 @@ export const buildSearchClause = (
             `OR distinct_id = ${escapeHogQLString(search)} ` +
             `OR person_id = ${escapeHogQLString(search)} ` +
             `OR invocation_id IN (` +
-            `SELECT instance_id FROM log_entries ` +
+            `SELECT DISTINCT instance_id FROM log_entries ` +
             `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
             `AND log_source_id = ${escapeHogQLString(props.id)} ` +
             `AND message ILIKE concat('%', ${escapeHogQLString(likeTerm)}, '%') ` +

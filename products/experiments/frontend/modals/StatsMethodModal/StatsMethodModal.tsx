@@ -3,7 +3,6 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { StatsMethodSelector } from 'scenes/experiments/components/StatsMethodSelector'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -17,6 +16,7 @@ import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsC
 
 import { ExperimentStatsMethod } from '~/types'
 
+import { StatsMethodSelector } from 'products/experiments/frontend/components/StatsMethodSelector'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {

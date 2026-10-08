@@ -42,6 +42,20 @@ export function defaultDestinationIds(
     return warehouse ? [warehouse.id] : []
 }
 
+/**
+ * Why the wizard cannot create the source yet, or null when it can.
+ *
+ * The toggles stay free, so the warehouse can go off before another destination goes on, which
+ * leaves the Import button to hold the rule. A team with no destination rows yet has nothing to
+ * pick, and its source writes to the PostHog warehouse, so the step does not block there.
+ */
+export function destinationStepBlockReason(availableCount: number, selectedIds: string[]): string | null {
+    if (availableCount === 0 || selectedIds.length > 0) {
+        return null
+    }
+    return 'Pick at least one destination'
+}
+
 /** Adding or removing one destination from the picked set. */
 export function toggleDestinationId(current: string[], destinationId: string): string[] {
     return current.includes(destinationId) ? current.filter((id) => id !== destinationId) : [...current, destinationId]

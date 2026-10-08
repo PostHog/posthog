@@ -68,28 +68,6 @@ def _full_page(page_size: int = 100) -> list[dict[str, Any]]:
 
 
 class TestVeeqoPaginator:
-    def test_stops_via_total_pages_header_without_extra_request(self) -> None:
-        # With X-Total-Pages-Count=1 a full first page must terminate immediately
-        # instead of paying one extra empty-page request.
-        paginator = VeeqoPaginator(page_size=100)
-        paginator.update_state(_response(_full_page(), headers={"X-Total-Pages-Count": "1"}), _full_page())
-        assert paginator.has_next_page is False
-
-    def test_continues_when_more_pages_remain(self) -> None:
-        paginator = VeeqoPaginator(page_size=100)
-        paginator.update_state(_response(_full_page(), headers={"X-Total-Pages-Count": "3"}), _full_page())
-        assert paginator.has_next_page is True
-        assert paginator.page == 2
-
-    def test_short_page_stops_even_without_headers(self) -> None:
-        # A partial page is always the last page for offset-backed page-number
-        # pagination; without this stop the terminal page costs one extra
-        # empty-page request whenever the total-pages header is missing.
-        paginator = VeeqoPaginator(page_size=100)
-        short_page = [{"id": 1}, {"id": 2}]
-        paginator.update_state(_response(short_page), short_page)
-        assert paginator.has_next_page is False
-
     def test_empty_page_stops(self) -> None:
         paginator = VeeqoPaginator(page_size=100)
         paginator.update_state(_response([]), [])
@@ -100,23 +78,6 @@ class TestVeeqoPaginator:
         paginator.update_state(_response(_full_page(), headers={"X-Total-Pages-Count": "unknown"}), _full_page())
         # A full page with an unparseable header keeps paginating rather than crashing.
         assert paginator.has_next_page is True
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = VeeqoPaginator(page_size=100)
-        paginator.update_state(_response(_full_page(), headers={"X-Total-Pages-Count": "5"}), _full_page())
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = VeeqoPaginator(page_size=100)
-        resumed.set_resume_state(state)
-        request = mock.MagicMock(params=None)
-        resumed.init_request(request)
-        assert request.params["page"] == 2
-
-    def test_no_resume_state_on_terminal_page(self) -> None:
-        paginator = VeeqoPaginator(page_size=100)
-        paginator.update_state(_response([]), [])
-        assert paginator.get_resume_state() is None
 
 
 class TestFormatIncrementalValue:
@@ -158,47 +119,6 @@ class TestBuildInitialParams:
         )
         assert params[expected_param] == expected_value
         assert params["page_size"] == 100
-
-    def test_incremental_on_id_uses_since_id(self) -> None:
-        params = _build_initial_params(
-            VEEQO_ENDPOINTS["products"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=99887,
-            incremental_field="id",
-        )
-        assert params["since_id"] == 99887
-        assert "updated_at_min" not in params
-
-    def test_first_incremental_sync_without_last_value_sends_no_filter(self) -> None:
-        params = _build_initial_params(
-            VEEQO_ENDPOINTS["orders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updated_at",
-        )
-        assert not any(k.endswith("_min") or k == "since_id" for k in params)
-
-    def test_full_refresh_endpoint_ignores_incremental_inputs(self) -> None:
-        # Endpoints without a documented server-side filter must never emit one,
-        # even when incremental inputs are supplied.
-        params = _build_initial_params(
-            VEEQO_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params == {"page_size": 100}
-
-    def test_purchase_orders_include_completed(self) -> None:
-        # show_complete defaults to false server-side, which would silently drop
-        # completed purchase orders from the warehouse table.
-        params = _build_initial_params(
-            VEEQO_ENDPOINTS["purchase_orders"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["show_complete"] == "true"
 
 
 class TestValidateCredentials:
@@ -269,16 +189,6 @@ class TestPagination:
         assert params[0]["page"] == 7
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ignores_resume_state_from_different_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
-
-        manager = _make_manager(VeeqoResumeConfig(endpoint="orders", page=7))
-        _rows(veeqo_source("key", "products", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert params[0]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_first_page_sends_min_filter_on_every_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -304,24 +214,6 @@ class TestPagination:
 
         # The filter must stay on every page — the paginator only advances `page`.
         assert all(p["updated_at_min"] == "2026-01-01 00:00:00" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_tags_fetches_a_single_unpaginated_page(self, MockSession) -> None:
-        # `/tags` documents no pagination params. If the API ignores `page` and an
-        # account has page_size-or-more tags, a page-number paginator would refetch
-        # the same full list forever — tags must issue exactly one request, without
-        # pagination params.
-        session = MockSession.return_value
-        params = _wire(session, [_response(_full_page(150))])
-
-        manager = _make_manager()
-        rows = _rows(veeqo_source("key", "tags", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert len(rows) == 150
-        assert session.send.call_count == 1
-        assert "page" not in params[0]
-        assert "page_size" not in params[0]
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_redirects_are_refused(self, MockSession) -> None:

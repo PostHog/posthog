@@ -87,6 +87,9 @@ export const alertsCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
 export const alertsCreateBodyDetectorConfigOneOnefourWindowOneMin = 5
 export const alertsCreateBodyDetectorConfigOneOnefourWindowOneMax = 400
 
+export const alertsCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsCreateBodyEvaluationDelayIntervalsMax = 100
+
 export const AlertsCreateBody = () => zod.object({
     insight: zod
         .number()
@@ -1288,6 +1291,14 @@ export const AlertsCreateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsCreateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1438,6 +1449,9 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnefourThresholdOneMax = 1
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourTypeDefault = `llm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMin = 5
 export const alertsPartialUpdateBodyDetectorConfigOneOnefourWindowOneMax = 400
+
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMin = 0
+export const alertsPartialUpdateBodyEvaluationDelayIntervalsMax = 100
 
 export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
@@ -2665,6 +2679,14 @@ export const AlertsPartialUpdateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsPartialUpdateBodyEvaluationDelayIntervalsMin)
+        .max(alertsPartialUpdateBodyEvaluationDelayIntervalsMax)
+        .optional()
+        .describe(
+            'Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.'
+        ),
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -2805,6 +2827,10 @@ export const AlertsSimulateCreateParams = () => zod.object({
         ),
 })
 
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMin = 0
+export const alertsSimulateCreateBodyEvaluationDelayIntervalsMax = 100
+
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemOneTypeDefault = `zscore`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemTwoTypeDefault = `mad`
 export const alertsSimulateCreateBodyDetectorConfigOneOneDetectorsItemThreeTypeDefault = `iqr`
@@ -2846,6 +2872,14 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = () => zod.object({
+    evaluation_delay_intervals: zod
+        .number()
+        .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
+        .max(alertsSimulateCreateBodyEvaluationDelayIntervalsMax)
+        .default(alertsSimulateCreateBodyEvaluationDelayIntervalsDefault)
+        .describe(
+            'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
+        ),
     insight: zod
         .union([zod.number(), zod.string()])
         .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),

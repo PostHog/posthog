@@ -72,6 +72,9 @@ Materialized view failures are usually independent of sources — a view failure
 itself (syntax error, missing table reference, type mismatch). For each failing view, surface the `error` and point
 at the offending query. Use `view-run-history` if the user wants the failure trail.
 
+An `error` that starts with `Not published:` is not a query problem. The view's data quality checks failed and the
+refresh was held back. Hand off to `debugging-failed-data-quality-checks`.
+
 ### Step 3 — Present the audit
 
 Render a prioritized report. Don't dump the raw JSON — human-readable:

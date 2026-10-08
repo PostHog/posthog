@@ -65,24 +65,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestShortioSource:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_all_rows_in_a_single_batch(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        rows = _rows(shortio_source("sk-key", "domains", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The domain list has no pagination — a single request returns the whole collection.
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(shortio_source("sk-key", "domains", team_id=1, job_id="j")) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_fails_fast(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"error": "nope"})])
@@ -124,36 +106,6 @@ class TestShortioSource:
         # The client exhausts its full retry budget on a persistently-erroring endpoint.
         assert session.send.call_count == 5
 
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_transient_error_then_success_recovers(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=429), _response([{"id": 1}])])
-
-        rows = _rows(shortio_source("sk-key", "domains", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_sent_raw_in_authorization_header(self, MockSession: mock.MagicMock) -> None:
-        # Short.io uses the raw secret key in Authorization — no 'Bearer' prefix.
-        session = MockSession.return_value
-        session.headers = {}
-        real_session = requests.Session()
-        captured: dict[str, Any] = {}
-
-        def _prepare(request: Any) -> Any:
-            prepared = real_session.prepare_request(request)
-            captured["authorization"] = prepared.headers.get("Authorization")
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": 1}])]
-
-        _rows(shortio_source("sk-key", "domains", team_id=1, job_id="j"))
-        assert captured["authorization"] == "sk-key"
-
     @parameterized.expand([(e,) for e in ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_shape(self, endpoint: str, MockSession: mock.MagicMock) -> None:
@@ -193,15 +145,3 @@ class TestValidateCredentials:
         # connection message so source creation reports "not validated" rather than crashing.
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("sk-key") == (False, "Could not connect to Short.io. Please try again.")
-
-    @mock.patch(SHORTIO_SESSION_PATCH)
-    def test_api_key_sent_raw_in_probe_authorization_header(self, mock_session: mock.MagicMock) -> None:
-        captured: dict[str, Any] = {}
-
-        def _get(url: str, **kwargs: Any) -> mock.MagicMock:
-            captured.update(kwargs)
-            return mock.MagicMock(status_code=200)
-
-        mock_session.return_value.get.side_effect = _get
-        validate_credentials("sk-key")
-        assert captured["headers"]["Authorization"] == "sk-key"

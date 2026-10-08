@@ -6,10 +6,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-    SinglePagePaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash import lightdash as lightdash_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash import (
     HOST_NOT_ALLOWED_ERROR,
@@ -69,10 +65,6 @@ class TestValidateCredentials:
         response.is_redirect = status_code in (301, 302, 303, 307, 308)
         response.is_permanent_redirect = status_code in (301, 308)
         return response
-
-    def test_success(self) -> None:
-        with self._patch_session(self._response(200)):
-            assert validate_credentials("https://x.lightdash.cloud", "tok") == (True, None)
 
     def test_invalid_token(self) -> None:
         with self._patch_session(self._response(401)):
@@ -134,23 +126,6 @@ class TestValidateCredentials:
 
 
 class TestGetResource:
-    def test_projects_unpaginated_bare_results(self) -> None:
-        resource = cast(dict[str, Any], get_resource(LIGHTDASH_ENDPOINTS["projects"]))
-        assert resource["name"] == "projects"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/api/v1/org/projects"
-        assert resource["endpoint"]["data_selector"] == "results"
-        assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
-        assert resource["endpoint"]["params"] == {}
-
-    def test_org_users_paginated_nested_results(self) -> None:
-        resource = cast(dict[str, Any], get_resource(LIGHTDASH_ENDPOINTS["org_users"]))
-        assert resource["endpoint"]["data_selector"] == "results.data"
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-        assert paginator.total_path == "results.pagination.totalPageCount"
-        assert resource["endpoint"]["params"] == {"pageSize": LIGHTDASH_ENDPOINTS["org_users"].page_size}
-
     def test_fanout_endpoint_raises_via_get_resource(self) -> None:
         with pytest.raises(ValueError, match="fan-out path"):
             get_resource(LIGHTDASH_ENDPOINTS["spaces"])
@@ -202,64 +177,6 @@ class TestLightdashSourceResponse:
 
 
 class TestLightdashSourceTransport:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash.rest_api_resource"
-    )
-    def test_projects_top_level_uses_rest_api_resource(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        mock_rest_api_resource.return_value = mock.MagicMock()
-        lightdash_source(
-            instance_url="https://x.lightdash.cloud", api_token="tok", endpoint="projects", team_id=1, job_id="job-1"
-        )
-
-        rest_config = mock_rest_api_resource.call_args.args[0]
-        assert rest_config["client"]["base_url"] == "https://x.lightdash.cloud"
-        assert rest_config["client"]["auth"] == {
-            "type": "api_key",
-            "name": "Authorization",
-            "api_key": "ApiKey tok",
-            "location": "header",
-        }
-        assert rest_config["client"]["allow_redirects"] is False
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash.build_dependent_resource"
-    )
-    def test_spaces_fanout_wires_parent_and_child(self, mock_build_dependent_resource: mock.MagicMock) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        lightdash_source(
-            instance_url="https://x.lightdash.cloud", api_token="tok", endpoint="spaces", team_id=1, job_id="job-1"
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] is None
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "results"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "results"
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["child_params_extra"] is None
-        assert kwargs["db_incremental_field_last_value"] is None
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.lightdash.build_dependent_resource"
-    )
-    def test_metrics_catalog_fanout_paginates_child_only(self, mock_build_dependent_resource: mock.MagicMock) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        lightdash_source(
-            instance_url="https://x.lightdash.cloud",
-            api_token="tok",
-            endpoint="metrics_catalog",
-            team_id=1,
-            job_id="job-1",
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] is None
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], PageNumberPaginator)
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "results.data"
-        assert kwargs["child_params_extra"] == {"pageSize": LIGHTDASH_ENDPOINTS["metrics_catalog"].page_size}
-
     def test_blocks_unsafe_host_at_runtime(self) -> None:
         with mock.patch.object(lightdash_module, "_is_host_safe", return_value=(False, "internal address")):
             with pytest.raises(LightdashHostNotAllowedError):

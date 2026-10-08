@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { QuarantineAction } from '../components/QuarantineAction'
+import type { OnQuarantine } from '../components/QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
@@ -187,12 +188,14 @@ function QuarantineSection({
     isQuarantined,
     onQuarantine,
     onUnquarantine,
+    runType,
 }: {
     identifier: string
+    runType: string
     label?: string | null
     quarantineEntry: QuarantinedIdentifierEntryApi | null
     isQuarantined: boolean
-    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
+    onQuarantine: OnQuarantine
     onUnquarantine: () => void
 }): JSX.Element {
     if (isQuarantined && quarantineEntry) {
@@ -297,6 +300,7 @@ function QuarantineSection({
                 identifier={identifier}
                 onQuarantine={onQuarantine}
                 triggerLabel={label ? `Quarantine (${label})` : undefined}
+                runType={runType}
             />
         </div>
     )
@@ -382,6 +386,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         {!quarantineEntryLoading && (
                             <QuarantineSection
                                 identifier={identifier}
+                                runType={runType}
                                 label={primaryTheme}
                                 quarantineEntry={quarantineEntry}
                                 isQuarantined={isQuarantined}
@@ -392,6 +397,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                         {!siblingQuarantineEntryLoading && (
                             <QuarantineSection
                                 identifier={siblingIdentifier}
+                                runType={runType}
                                 label={primaryTheme === 'light' ? 'dark' : 'light'}
                                 quarantineEntry={siblingQuarantineEntry}
                                 isQuarantined={isSiblingQuarantined}
@@ -404,6 +410,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
                     !quarantineEntryLoading && (
                         <QuarantineSection
                             identifier={identifier}
+                            runType={runType}
                             quarantineEntry={quarantineEntry}
                             isQuarantined={isQuarantined}
                             onQuarantine={quarantineIdentifier}

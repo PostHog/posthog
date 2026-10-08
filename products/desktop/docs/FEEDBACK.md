@@ -9,7 +9,7 @@ The form sends one authenticated request to the Desktop feedback endpoint. The e
 
 The endpoint accepts an optional `feedback_type`: `bug`, `feature`, or `general`. The survey event stores this value. Older app versions can omit this field.
 
-The app captures the current window before the form opens. The screenshot can be reviewed and stays off until selected. People can also attach up to two images. Recent app logs can be reviewed while they stay off, and are sent only when selected.
+The app captures the current window before the form opens. The screenshot can be reviewed and stays off until selected. People can attach up to two images with **Attach images** or paste them into the message. Both methods use the same image checks and limit. Image previews open after attachment, and images can be removed before sending. Text paste still works. If another image is still loading, the form asks the user to wait and paste again. Files without a MIME type use their image signature; files with an incorrect or unsupported format are rejected. Recent app logs can be reviewed while they stay off, and are sent only when selected.
 
 Selected screenshots and images are stored in PostHog's internal media project, not the project selected in Desktop. The survey response contains authenticated image links instead of image data. Only people with access to the internal feedback project can open them, and the public media route returns `404`. Links stop working after 30 days, and a daily cleanup removes the stored media. If the response fails, the endpoint removes the new media. The feedback modal is excluded from Session Replay, so previews and logs do not enter the recording.
 

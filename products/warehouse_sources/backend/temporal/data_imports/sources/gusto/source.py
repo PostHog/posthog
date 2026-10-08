@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -47,9 +48,9 @@ class GustoSource(ResumableSource[GustoSourceConfig, GustoResumeConfig]):
     supported_versions = (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
     default_version = GUSTO_API_VERSION_2026_06_15
     api_docs_url = "https://docs.gusto.com/embedded-payroll/reference"
-    # Gusto gives a deprecated version 12 months of phased support before calls return 406, but
-    # publishes no end-of-life date for 2024-04-01 — advisory only, so existing pins are left in place.
-    deprecated_versions = (VersionDeprecation(version=GUSTO_API_VERSION_2024_04_01, sunset_at=None),)
+    # Gusto's version upgrade guide lists 2024-04-01 as no longer supported since its final sunset on
+    # 2026-06-15; calls pinned to it now return 406.
+    deprecated_versions = (VersionDeprecation(version=GUSTO_API_VERSION_2024_04_01, sunset_at=date(2026, 6, 15)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

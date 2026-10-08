@@ -24,7 +24,6 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 
 import { LogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
@@ -39,6 +38,7 @@ function retentionDaysLabel(rule: LogsRetentionRuleApi): string {
 
 interface SortableRowProps {
     row: LogsRetentionRuleApi
+    detailUrl: string
     orderIndex: number
     disabledReason: string | null
     ruleEnabledTogglePendingId: string | null
@@ -48,6 +48,7 @@ interface SortableRowProps {
 
 function SortableRow({
     row,
+    detailUrl,
     orderIndex,
     disabledReason,
     ruleEnabledTogglePendingId,
@@ -88,12 +89,7 @@ function SortableRow({
             </td>
             <td className="py-2 px-2 w-12 text-center text-muted text-sm font-medium align-middle">{orderIndex + 1}</td>
             <td className="py-2 px-2 min-w-0 align-middle">
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    to={urls.logsRetentionDetail(row.id)}
-                    data-attr="logs-retention-rule-link"
-                >
+                <LemonButton size="small" type="tertiary" to={detailUrl} data-attr="logs-retention-rule-link">
                     <strong>{row.name}</strong>
                 </LemonButton>
             </td>
@@ -119,7 +115,7 @@ function SortableRow({
 }
 
 export function LogsRetentionRulesSortableTable(): JSX.Element {
-    const { rules, rulesLoading, saveRulesOrderPending, ruleEnabledTogglePendingId } =
+    const { product, rules, rulesLoading, saveRulesOrderPending, ruleEnabledTogglePendingId } =
         useValues(logsRetentionSectionLogic)
     const { loadRules, saveRulesOrder, setRuleEnabled } = useActions(logsRetentionSectionLogic)
 
@@ -166,7 +162,7 @@ export function LogsRetentionRulesSortableTable(): JSX.Element {
         return (
             <div>
                 <div className="flex justify-end mb-2">
-                    <LemonButton type="primary" icon={<IconPlus />} to={urls.logsRetentionNew()}>
+                    <LemonButton type="primary" icon={<IconPlus />} to={product.urls.newRule()}>
                         New retention rule
                     </LemonButton>
                 </div>
@@ -178,7 +174,7 @@ export function LogsRetentionRulesSortableTable(): JSX.Element {
     return (
         <div>
             <div className="flex justify-end mb-2">
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.logsRetentionNew()}>
+                <LemonButton type="primary" icon={<IconPlus />} to={product.urls.newRule()}>
                     New retention rule
                 </LemonButton>
             </div>
@@ -229,6 +225,7 @@ export function LogsRetentionRulesSortableTable(): JSX.Element {
                                         <SortableRow
                                             key={row.id}
                                             row={row}
+                                            detailUrl={product.urls.ruleDetail(row.id)}
                                             orderIndex={index}
                                             disabledReason={dragDisabledReason}
                                             ruleEnabledTogglePendingId={ruleEnabledTogglePendingId}

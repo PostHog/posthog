@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     SANDBOX_STOPPED_MESSAGE,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
+    TURN_IN_FLIGHT_OUTCOME,
     LiveSandboxLookup,
     SandboxRebindFailure,
     SendFollowupToSandboxInput,
@@ -119,7 +120,7 @@ class TestRefreshSandboxMcp:
         task_run.task.mcp_gateway_server_allowlist = ["srv-9"]
         _refresh(task_run, auth_token="jwt")
 
-        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
+        mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only", run_id="run-1")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token",
             project_id=7,
@@ -251,7 +252,7 @@ class TestRefreshSandboxMcp:
 
         _refresh(_make_task_run_mock(), scopes="full")
 
-        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full")
+        mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], None, scopes="full", run_id="run-1")
         mock_ph_configs.assert_called_once_with(
             token="fresh-token",
             project_id=7,
@@ -966,8 +967,9 @@ class TestSendFollowupTurnTimeout:
             success=False, status_code=504, error="Sandbox request timed out", retryable=True, turn_in_flight=True
         )
 
-        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+        outcome = _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
 
+        assert outcome == TURN_IN_FLIGHT_OUTCOME
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 
@@ -1405,20 +1407,29 @@ class TestPeerDeliveryMode:
         assert _patches["mark"].call_args.args == (self._PEER_ID, "delivery_failed")
         assert _patches["mark"].call_args.kwargs["failure_phase"] == "sandbox_delivery"
 
-    def test_duplicate_delivery_marks_row_delivered_without_turn_complete(self, _patches):
-        # duplicate:true means a prior attempt already delivered this message_id,
-        # so the audit outcome is delivered; that attempt owns the turn bookkeeping.
+    @pytest.mark.parametrize(
+        "result, expected_outcome",
+        [
+            (CommandResult(success=True, status_code=200, data={"result": {"duplicate": True}}), None),
+            (
+                CommandResult(success=False, status_code=504, turn_in_flight=True),
+                TURN_IN_FLIGHT_OUTCOME,
+            ),
+        ],
+    )
+    def test_accepted_delivery_marks_row_delivered_without_turn_complete(
+        self, _patches, result: CommandResult, expected_outcome: str | None
+    ) -> None:
         _patches["bound_actor"].return_value = (MagicMock(id=42, distinct_id="u42"), "")
-        _patches["user_msg"].return_value = CommandResult(
-            success=True, status_code=200, data={"result": {"duplicate": True}}
-        )
+        _patches["user_msg"].return_value = result
 
-        _run_activity(
+        outcome = _run_activity(
             SendFollowupToSandboxInput(
                 run_id="run-1", message="peer ping", message_id="m-1", context=self._peer_context()
             )
         )
 
+        assert outcome == expected_outcome
         assert _patches["mark"].call_args.args == (self._PEER_ID, "delivered")
         _patches["turn_complete"].assert_not_called()
 

@@ -18,7 +18,7 @@ describe('GitHubRepositoryCombobox', () => {
         requests = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/github_repos': () => {
+                '/api/projects/:team_id/integrations/:id/github_repos/': () => {
                     const firstPage = requests++ === 0
                     return [
                         200,
@@ -74,6 +74,19 @@ describe('GitHubRepositoryCombobox', () => {
         await userEvent.click(await screen.findByText('Load more'))
         await userEvent.click(await screen.findByText('example-org/active'))
         expect(onChange).toHaveBeenCalledWith('example-org/active')
+    })
+
+    it('loads later pages without a load-more click when loadAll is set', async () => {
+        hasMore = true
+        render(
+            <Provider>
+                <GitHubRepositoryCombobox integrationId={123} value="" onChange={jest.fn()} loadAll />
+            </Provider>
+        )
+        await userEvent.click(screen.getByRole('combobox'))
+        expect(await screen.findByText('example-org/archived')).toBeVisible()
+        expect(await screen.findByText('example-org/active')).toBeVisible()
+        expect(screen.queryByText('Load more')).not.toBeInTheDocument()
     })
 
     it('disables the trigger and exposes its explanation', async () => {

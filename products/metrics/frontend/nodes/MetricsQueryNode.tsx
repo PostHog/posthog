@@ -1,27 +1,67 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
+import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
 import { MetricsPanel } from '../panels/MetricsPanel'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
+let uniqueEditor = 0
 
-/** Renders a `MetricsQuery` wherever the generic `Query` component is used —
- * saved insights, dashboard tiles, notebooks. */
-export function MetricsQueryNode(props: {
+interface MetricsQueryNodeProps {
     query: MetricsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
-}): JSX.Element | null {
+    /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
+    editMode?: boolean
+    setQuery?: (query: MetricsQuery) => void
+}
+
+/** Renders a `MetricsQuery` wherever the generic `Query` component is used —
+ * saved insights, dashboard tiles, notebooks. */
+export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
+    const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
+    const [editorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
+
+    // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
+    const results = props.query.clauses.length ? (
+        <MetricsQueryResults {...props} />
+    ) : (
+        <div className="flex-1 flex items-center justify-center min-h-[200px] text-secondary text-sm">
+            Pick a metric to see its time series.
+        </div>
+    )
+
+    if (!builderEnabled || !props.editMode || !props.setQuery) {
+        return results
+    }
+
+    return (
+        <div className="flex flex-col gap-3 w-full">
+            {isBuilderCompatibleQuery(props.query) ? (
+                <MetricsQueryEditor editorKey={editorKey} query={props.query} setQuery={props.setQuery} />
+            ) : (
+                <LemonBanner type="info">
+                    This insight uses settings that the builder cannot show, so the builder is off for this insight.
+                </LemonBanner>
+            )}
+            <div className="relative flex h-[360px] border rounded p-3">{results}</div>
+        </div>
+    )
+}
+
+function MetricsQueryResults(props: MetricsQueryNodeProps): JSX.Element {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
     // `dataNodeLogic` deep-compares its query to decide whether to refetch. Its

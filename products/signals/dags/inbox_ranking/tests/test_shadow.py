@@ -93,7 +93,7 @@ def _scores(report_ids: list[str], scores: list[float], *, snapshot_date: dateti
         {
             "report_id": report_ids,
             "snapshot_date": snapshot_date,
-            "model_name": "tabular_xgb",
+            "model_name": "report_embeddings",
             "model_version": snapshot_date.isoformat(),
             "model_role": "champion",
             "head": head,
@@ -256,7 +256,7 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[False, False, False, True], outcome_action=False
     )
-    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
+    joined = _joined(served, model_name="report_embeddings", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
 
     grades = _by_order(grade_lists(joined, served=served))
     ndcg_5 = {order: grade.ndcg_5 or 0.0 for order, grade in grades.items()}
@@ -281,7 +281,7 @@ def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[True, False, False, False], outcome_action=[True, False, False, False]
     )
-    scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "score": 0.5}
+    scored = {"model_name": "report_embeddings", "model_version": "2026-09-09", "score": 0.5}
     joined = pd.concat(
         [_joined(served, head="open", **scored), _joined(served.head(2), head="action", **scored)],
         ignore_index=True,
@@ -302,7 +302,7 @@ def test_the_chance_line_does_not_move_when_the_rows_arrive_in_another_order():
     served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
         outcome_open=[False, True, False, True], outcome_action=False
     )
-    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
+    joined = _joined(served, model_name="report_embeddings", model_version="2026-09-09", score=[0.1, 0.2, 0.3, 0.9])
 
     def chance(frame: pd.DataFrame) -> tuple:
         grade = _by_order(grade_lists(frame, served=served))[RANDOM_ORDER]
@@ -387,7 +387,7 @@ def test_a_grade_carries_the_versions_that_scored_the_day():
     )
     joined = _joined(
         served,
-        model_name="tabular_xgb",
+        model_name="report_embeddings",
         model_version=["2026-09-01", "2026-09-02", "2026-09-01", "2026-09-02"],
         score=0.5,
     )
@@ -518,9 +518,9 @@ def test_the_score_window_reaches_the_partition_day_a_birth_day_score_lands_in()
     assert len(dates) == len(set(dates)) == settings.INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS + 1
 
 
-def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
+def test_load_scores_reads_the_window_and_drops_rows_that_name_no_family():
     old_day, new_day = DAY - datetime.timedelta(days=2), DAY - datetime.timedelta(days=1)
-    # An object written before `model_name` existed holds tabular rows and must not read as null.
+    # An object written before `model_name` existed holds a retired family's rows, which must not read as null.
     legacy = _scores([UUID_A], [0.3], snapshot_date=old_day).drop(columns=["model_name", "available_at"])
     recent = pd.concat(
         [
@@ -538,10 +538,10 @@ def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
 
     scores = load_scores(client, "bucket", "inbox_ranking", [old_day, new_day, DAY])
 
-    assert scores["model_name"].tolist() == ["tabular_xgb", "tabular_xgb"]
+    assert scores["model_name"].tolist() == ["report_embeddings"]
     # Only the heads this read grades, and each one stamped with when it became servable.
-    assert scores["head"].tolist() == ["open", "open"]
-    assert scores["available_at"].tolist() == [SERVED_AT + datetime.timedelta(hours=1)] * 2
+    assert scores["head"].tolist() == ["open"]
+    assert scores["available_at"].tolist() == [SERVED_AT + datetime.timedelta(hours=1)]
     joined = join_scores(_lists(_served("first", [UUID_A, UUID_B])), scores)
     assert joined["score"].isna().all()
 
@@ -575,7 +575,7 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
     # A day whose lists had no score available at impression time grades nothing, and without a
     # run event that is byte-identical to a run that crashed before capturing anything.
     served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
-    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.9, 0.1])
+    joined = _joined(served, model_name="report_embeddings", model_version="2026-09-09", score=[0.9, 0.1])
 
     empty = shadow_grade_events(run_id="run-1", served_rows=12, served_lists=3, run_score_coverage=0.0, grades=[])
     graded = shadow_grade_events(
@@ -614,7 +614,7 @@ def test_grade_rows_match_the_parquet_schema_exactly():
     # pa.Table.from_pylist drops keys the schema does not name, so a grade field added without a
     # column would vanish from the object without failing anything.
     served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
-    joined = _joined(served, model_name="tabular_xgb", model_version="2026-09-09", score=[0.9, 0.1])
+    joined = _joined(served, model_name="report_embeddings", model_version="2026-09-09", score=[0.9, 0.1])
     graded = grade_rows(
         grade_lists(joined, served=served),
         partition_key=DAY.isoformat(),

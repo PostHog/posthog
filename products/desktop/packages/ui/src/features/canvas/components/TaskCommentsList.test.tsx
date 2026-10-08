@@ -28,6 +28,12 @@ const mocks = vi.hoisted(() => ({
   prQueriesLoading: false,
 }));
 
+function pickSource(label: string | RegExp): void {
+  fireEvent.click(screen.getByLabelText("Filter by source"));
+  fireEvent.click(screen.getByText("Source"));
+  fireEvent.click(screen.getAllByText(label).at(-1) as HTMLElement);
+}
+
 function openThread(body: string): void {
   const card = screen.getByText(body).closest("[data-comment-thread-id]");
   expect(card).not.toBeNull();
@@ -137,11 +143,14 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   },
   useSetCommentResolved: (target: unknown) => {
     mocks.resolvedFor.push(target);
-    return { mutate: mocks.setResolved, isPending: false };
+    return { mutateAsync: mocks.setResolved, isPending: false };
   },
 }));
 
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { TaskCommentsList } from "./TaskCommentsList";
 
 const task = { id: "task-1", latest_run: null } as unknown as Task;
@@ -276,7 +285,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Canvas feedback",
         item_context: {
           anchor: {
@@ -300,7 +309,7 @@ describe("TaskCommentsList", () => {
         onlySource={{
           kind: "canvas",
           name: "Launch canvas",
-          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          target: { scope: "canvas", itemId: "canvas-1" },
           url: null,
         }}
         canvasVersionId="version-2"
@@ -310,17 +319,17 @@ describe("TaskCommentsList", () => {
     );
 
     expect(mocks.queriedTargets.at(-1)).toEqual([
-      { scope: "desktop_canvas", itemId: "canvas-1" },
+      { scope: "canvas", itemId: "canvas-1" },
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
-    expect(screen.getByText("“important copy”")).toBeInTheDocument();
+    expect(screen.getByText("important copy")).toBeInTheDocument();
     expect(screen.getByText("V2 ·")).toBeInTheDocument();
     expect(screen.queryByText("Selected text")).not.toBeInTheDocument();
     expect(screen.queryByText("Whole canvas")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
     expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
     expect(mocks.createdFor.at(-1)).toEqual({
-      scope: "desktop_canvas",
+      scope: "canvas",
       itemId: "canvas-1",
     });
 
@@ -359,7 +368,7 @@ describe("TaskCommentsList", () => {
     render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeTruthy();
-    expect(screen.getByText("“Purpose”")).toBeTruthy();
+    expect(screen.getByText("Purpose")).toBeTruthy();
   });
 
   it("loads canvas comments from a local-development artifact link", () => {
@@ -367,7 +376,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Linked canvas feedback",
       }),
     ];
@@ -390,10 +399,21 @@ describe("TaskCommentsList", () => {
     );
 
     expect(mocks.queriedTargets.at(-1)).toContainEqual({
-      scope: "desktop_canvas",
+      scope: "canvas",
       itemId: "canvas-1",
     });
     expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
+
+    openThread("Linked canvas feedback");
+
+    expect(
+      useCommentNavigationStore.getState().focusByTask[
+        canvasCommentFocusKey("canvas-1")
+      ],
+    ).toMatchObject({
+      target: { scope: "canvas", itemId: "canvas-1" },
+      threadId: "comment-1",
+    });
   });
 
   // The tab is the one place to see every thread the task produced, so each row
@@ -408,7 +428,6 @@ describe("TaskCommentsList", () => {
     ).toBeTruthy();
     expect(screen.getByText("summary.md")).toBeTruthy();
     expect(screen.getByText("report.md")).toBeTruthy();
-    expect(screen.getByText(/1 reply/)).toBeTruthy();
     // The resolve/reopen reply is thread state, not a comment of its own.
     expect(screen.queryByText("Agreed")).toBeTruthy();
   });
@@ -463,7 +482,8 @@ describe("TaskCommentsList", () => {
     const thread = screen
       .getByText("Tighten this summary")
       .closest("[data-comment-thread-id]") as HTMLElement;
-    const pane = thread.parentElement as HTMLElement;
+    const pane = thread.closest("[data-comment-thread-list]")
+      ?.parentElement as HTMLElement;
     Object.defineProperty(pane, "scrollTop", { value: 20, writable: true });
     pane.getBoundingClientRect = () => ({ top: 0, bottom: 100 }) as DOMRect;
     thread.getBoundingClientRect = () => ({ top: 120, bottom: 160 }) as DOMRect;
@@ -497,7 +517,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Historical canvas feedback",
         item_context: {
           anchor: { kind: "document" },
@@ -514,7 +534,7 @@ describe("TaskCommentsList", () => {
         onlySource={{
           kind: "canvas",
           name: "Launch canvas",
-          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          target: { scope: "canvas", itemId: "canvas-1" },
           url: null,
         }}
         canvasVersionId="version-3"
@@ -526,8 +546,8 @@ describe("TaskCommentsList", () => {
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(
-          "task-1",
-          { scope: "desktop_canvas", itemId: "canvas-1" },
+          canvasCommentFocusKey("canvas-1"),
+          { scope: "canvas", itemId: "canvas-1" },
           "comment-1",
         );
     });
@@ -546,6 +566,26 @@ describe("TaskCommentsList", () => {
     const second = useCommentNavigationStore.getState().focusByTask["task-1"];
 
     expect(second?.nonce).toBeGreaterThan(first?.nonce ?? 0);
+  });
+
+  it("expands a collapsed source when activity requests one of its threads", () => {
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
+
+    fireEvent.click(screen.getByText("report.md"));
+    expect(screen.queryByText("Tighten this summary")).toBeNull();
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "a" },
+          "comment-1",
+          { intent: "reveal-thread" },
+        );
+    });
+
+    expect(screen.getByText("Tighten this summary")).toBeTruthy();
   });
 
   it("filters between open and resolved threads", () => {
@@ -574,8 +614,7 @@ describe("TaskCommentsList", () => {
     expect(screen.getByText("Second thread")).toBeTruthy();
     expect(screen.queryByText("Tighten this summary")).toBeNull();
 
-    fireEvent.click(screen.getByLabelText("Filter comments"));
-    fireEvent.click(screen.getByText("Resolved (1)"));
+    fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
 
     expect(screen.getByText("Tighten this summary")).toBeTruthy();
     expect(screen.queryByText("Second thread")).toBeNull();
@@ -610,7 +649,7 @@ describe("TaskCommentsList", () => {
     const thread = screen
       .getByText("Tighten this summary")
       .closest("[data-comment-thread-id]") as HTMLElement;
-    fireEvent.click(within(thread).getByText("Resolve"));
+    fireEvent.click(within(thread).getByLabelText("Resolve"));
 
     expect(mocks.setResolved).toHaveBeenCalledWith({
       root: expect.objectContaining({ id: "comment-1" }),
@@ -645,16 +684,11 @@ describe("TaskCommentsList", () => {
 
     render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
-    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
-      "empty.md",
-    );
     expect(screen.queryByText("Tighten this summary")).toBeNull();
     fireEvent.click(screen.getByLabelText("Filter by source"));
-    const emptySourceOption = screen
-      .getAllByText("empty.md")
-      .at(-1)
-      ?.closest('[role="menuitemradio"]');
-    expect(emptySourceOption).toHaveTextContent("0");
+    expect(screen.getByText("Source").parentElement).toHaveTextContent(
+      "empty.md",
+    );
   });
 
   it("follows an active artifact once its run data arrives", () => {
@@ -664,7 +698,8 @@ describe("TaskCommentsList", () => {
       <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
     );
 
-    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
+    fireEvent.click(screen.getByLabelText("Filter by source"));
+    expect(screen.getByText("Source").parentElement).toHaveTextContent(
       "All sources",
     );
 
@@ -679,7 +714,7 @@ describe("TaskCommentsList", () => {
     ];
     rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
-    expect(screen.getByLabelText("Filter by source")).toHaveTextContent(
+    expect(screen.getByText("Source").parentElement).toHaveTextContent(
       "late.md",
     );
   });
@@ -690,8 +725,7 @@ describe("TaskCommentsList", () => {
       <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
     );
 
-    fireEvent.click(screen.getByLabelText("Filter by source"));
-    fireEvent.click(screen.getByText(/^All sources/));
+    pickSource(/^All sources/);
     mocks.activeArtifactId = "a";
     rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
@@ -705,8 +739,7 @@ describe("TaskCommentsList", () => {
       <TaskCommentsList taskId={task.id} task={task} timeline={[]} />,
     );
 
-    fireEvent.click(screen.getByLabelText("Filter by source"));
-    fireEvent.click(screen.getAllByText("report.md").at(-1) as HTMLElement);
+    pickSource("report.md");
     mocks.activeArtifactId = "b";
     rerender(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
@@ -733,9 +766,9 @@ describe("TaskCommentsList", () => {
 
     expect(screen.getByText("This needs a guard")).toBeTruthy();
     expect(screen.getByText("Shipping this")).toBeTruthy();
-    expect(screen.getAllByText("PR #7").length).toBe(2);
+    expect(screen.getByText("PR #7")).toBeTruthy();
     // Only the file-anchored thread can be resolved on GitHub.
-    expect(screen.getAllByText("Resolve")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Resolve")).toHaveLength(1);
     // The conversation comment can't be handled here, so it links out instead.
     expect(screen.getByText("View on GitHub")).toBeTruthy();
   });
@@ -789,7 +822,7 @@ describe("TaskCommentsList", () => {
     const thread = screen
       .getByText("This needs a guard")
       .closest("[data-comment-thread-id]") as HTMLElement;
-    fireEvent.click(within(thread).getByText("Resolve"));
+    fireEvent.click(within(thread).getByLabelText("Resolve"));
 
     expect(mocks.prResolve).toHaveBeenCalledWith("node-1", true);
     expect(mocks.setResolved).not.toHaveBeenCalled();

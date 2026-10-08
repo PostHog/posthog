@@ -10,6 +10,10 @@ export function channelHref(channelId: string): string {
   return `/spaces/${channelId}`;
 }
 
+export function canvasHref(channelId: string, canvasId: string): string {
+  return `/spaces/${channelId}/dashboards/${canvasId}`;
+}
+
 function canvasId(result: TaskSearchResult): string | undefined {
   const value = result.metadata.canvas_id;
   return typeof value === "string" && value ? value : undefined;
@@ -28,7 +32,7 @@ export function searchResultHref(
     const canvas = canvasId(result);
     if (!canvas) return undefined;
     return channelId
-      ? `/spaces/${channelId}/dashboards/${canvas}`
+      ? canvasHref(channelId, canvas)
       : `/canvases?canvas=${canvas}`;
   }
   if (task) return taskHref(task, bluebirdEnabled ? channelId : undefined);

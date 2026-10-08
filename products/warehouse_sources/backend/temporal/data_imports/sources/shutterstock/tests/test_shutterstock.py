@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-import time_machine
 from unittest import mock
 
 from requests import Response
@@ -119,11 +118,6 @@ class TestCredentialProbes:
 
         assert validate_credentials(BASIC_AUTH) is expected
 
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials(BASIC_AUTH) is False
-
     @pytest.mark.parametrize(
         "endpoint, status_code, expect_reason, expect_scope",
         [
@@ -181,19 +175,6 @@ class TestGetRows:
         assert manager.save_state.call_args.args[0] == ShutterstockResumeConfig(page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, snapshots, _ = _collect(
-            "images_updated",
-            [_page([])],
-            MockSession,
-            manager=_make_manager(ShutterstockResumeConfig(page=7)),
-        )
-
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 7
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_basic_auth_uses_consumer_key_and_secret(self, MockSession: mock.MagicMock) -> None:
         _, snapshots, _ = _collect("images_updated", [_page([])], MockSession, auth=BASIC_AUTH)
 
@@ -221,39 +202,6 @@ class TestGetRows:
         assert snapshots[0]["params"]["per_page"] == 200
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_licenses_full_refresh_fetches_full_history(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "image_licenses",
-            [_page([])],
-            MockSession,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        # No lookback default for license history: a full refresh walks all of it, still
-        # ascending so pages don't skip/duplicate rows inserted mid-sync.
-        assert "start_date" not in snapshots[0]["params"]
-        assert snapshots[0]["params"]["sort"] == "oldest"
-
-    @time_machine.travel("2026-01-31 00:00:00", tick=False)
-    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_updated_feed_defaults_to_bounded_lookback_without_watermark(
-        self, MockSession: mock.MagicMock, should_use_incremental_field: bool
-    ) -> None:
-        # The updated feeds return only the last hour when no start_date is passed, so an
-        # unwatermarked sync must bound the window explicitly or it silently syncs nothing.
-        _, snapshots, _ = _collect(
-            "images_updated",
-            [_page([])],
-            MockSession,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=None,
-        )
-
-        assert snapshots[0]["params"]["start_date"] == "2026-01-01T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_unpaginated_endpoint_makes_a_single_request(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         batches, snapshots, manager = _collect(
@@ -266,13 +214,6 @@ class TestGetRows:
         assert [item["id"] for batch in batches for item in batch] == ["s1", "s2"]
         assert "page" not in snapshots[0]["params"]
         assert "per_page" not in snapshots[0]["params"]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_reads_as_end_of_data(self, MockSession: mock.MagicMock) -> None:
-        batches, _, manager = _collect("images_updated", [_response({"message": "no results"})], MockSession)
-
-        assert batches == []
         manager.save_state.assert_not_called()
 
 

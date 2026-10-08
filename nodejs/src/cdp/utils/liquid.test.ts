@@ -60,6 +60,19 @@ describe('LiquidRenderer', () => {
         })
     })
 
+    describe('warehouse row record alias', () => {
+        it.each([
+            ['$warehouse_view_row', 'row@example.com'],
+            ['$warehouse_source_row', 'row@example.com'],
+            ['test_event', ''],
+        ])('renders {{ record.email }} for %s as "%s"', (eventName, expected) => {
+            globals.event.event = eventName
+            globals.event.properties = { email: 'row@example.com' }
+
+            expect(LiquidRenderer.renderWithHogFunctionGlobals('{{ record.email }}', globals)).toBe(expected)
+        })
+    })
+
     describe('memoized initialisation', () => {
         it('only initialises once', () => {
             LiquidRenderer['_liquid'] = null

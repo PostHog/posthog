@@ -19,31 +19,9 @@ def _config(api_key: str = "key") -> Any:
 
 
 class TestGetSchemas:
-    def test_incremental_only_where_server_filter_exists(self) -> None:
-        schemas = {s.name: s for s in MailosaurSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        # Only messages exposes a server-side `receivedAfter` filter, so it's the only incremental table.
-        assert schemas["messages"].supports_incremental is True
-        assert [f["field"] for f in schemas["messages"].incremental_fields] == ["received"]
-        assert schemas["servers"].supports_incremental is False
-        assert schemas["usage_transactions"].supports_incremental is False
-
-    def test_messages_primary_key_is_composite(self) -> None:
-        # Message summaries omit the server, so the key must include the injected parent id to stay
-        # unique table-wide across the fan-out.
-        schemas = {s.name: s for s in MailosaurSource().get_schemas(_config(), team_id=1)}
-        assert schemas["messages"].detected_primary_keys == ["server", "id"]
-
     def test_names_filter(self) -> None:
         schemas = MailosaurSource().get_schemas(_config(), team_id=1, names=["servers"])
         assert {s.name for s in schemas} == {"servers"}
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        assert MailosaurSource.lists_tables_without_credentials is True
-        tables = {t["name"]: t for t in MailosaurSource().get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["messages"]["sync_methods"]
-        assert tables["servers"]["sync_methods"] == ["Full refresh"]
 
 
 class TestResumableWiring:

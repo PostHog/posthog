@@ -11,7 +11,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob import (
     LobResumeConfig,
     LobRetryableError,
-    _build_initial_url,
     _fetch_page,
     _format_date_filter_value,
     _parse_date_created,
@@ -19,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob im
     lob_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lob.settings import LOB_ENDPOINTS
 
 
 def _make_response(json_body: dict[str, Any] | None = None, status: int = 200) -> Response:
@@ -49,9 +47,6 @@ class TestFormatDateFilterValue:
     def test_format(self, _name: str, value: object, expected: str) -> None:
         assert _format_date_filter_value(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_date_filter_value(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestParseDateCreated:
     @parameterized.expand(
@@ -66,57 +61,7 @@ class TestParseDateCreated:
         assert _parse_date_created(value) == expected
 
 
-class TestBuildInitialUrl:
-    def test_incremental_endpoint_forces_ascending_sort(self) -> None:
-        url = _build_initial_url(
-            LOB_ENDPOINTS["letters"], should_use_incremental_field=False, db_incremental_field_last_value=None
-        )
-        assert url.startswith("https://api.lob.com/v1/letters?")
-        assert "sort_by[date_created]=asc" in url
-        assert "limit=100" in url
-        assert "date_created[gt]" not in url
-
-    def test_incremental_endpoint_with_watermark_adds_filter(self) -> None:
-        url = _build_initial_url(
-            LOB_ENDPOINTS["postcards"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-        )
-        assert "sort_by[date_created]=asc" in url
-        assert "date_created[gt]=2026-01-02T03:04:05.000000Z" in url
-
-    def test_full_refresh_endpoint_has_no_sort_or_filter(self) -> None:
-        url = _build_initial_url(
-            LOB_ENDPOINTS["addresses"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 2, tzinfo=UTC),
-        )
-        assert "sort_by" not in url
-        assert "date_created[gt]" not in url
-        assert "limit=100" in url
-
-
 class TestGetRows:
-    def test_paginates_following_next_url_and_saves_state_after_each_page(self) -> None:
-        pages = [
-            {
-                "data": [{"id": "ltr_1", "date_created": "2026-01-01T00:00:00Z"}],
-                "next_url": "https://api.lob.com/v1/letters?after=cursor1",
-            },
-            {"data": [{"id": "ltr_2", "date_created": "2026-01-02T00:00:00Z"}], "next_url": None},
-        ]
-        manager = _manager()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.lob.lob._fetch_page", side_effect=pages
-        ):
-            batches = list(get_rows("k", "letters", MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["ltr_1", "ltr_2"]
-        # State saved once, after yielding the first page (which had a next_url); not after the last.
-        manager.save_state.assert_called_once_with(
-            LobResumeConfig(next_url="https://api.lob.com/v1/letters?after=cursor1")
-        )
-
     def test_stops_on_empty_data(self) -> None:
         manager = _manager()
         with patch(

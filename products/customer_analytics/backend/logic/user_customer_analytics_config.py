@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, time
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -9,24 +9,28 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, TaskDigestCadence
-from products.customer_analytics.backend.models import (
-    AccountRelationshipDefinition,
-    CustomPropertyDefinition,
-    TargetType,
-    UserCustomerAnalyticsConfig,
-)
+from products.customer_analytics.backend.logic.account_property_pins import validate_pinned_properties
+from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig, UserCustomerAnalyticsConfig
 
 PINNED_PROPERTIES_KEY = "pinned_properties"
-MAX_PINNED_PROPERTIES = 50
-
+PINNED_PROPERTIES_OVERRIDE_KEY = "pinned_properties_override"
 TASK_DIGEST_KEY = "task_digest"
 DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
 
-
-class InvalidPinnedAccountProperties(ValueError):
-    def __init__(self, errors: list[str]) -> None:
-        super().__init__("; ".join(errors))
-        self.errors = errors
+ACCOUNT_DETAIL_TABS_KEY = "account_detail_tabs"
+ACCOUNT_DETAIL_SYSTEM_TAB_IDS = {
+    "system:notes",
+    "system:tasks",
+    "system:users",
+    "system:relationships",
+    "system:feature_requests",
+    "system:usage",
+    "system:spend",
+    "system:opportunities",
+    "system:conversations",
+    "system:meetings",
+}
+MAX_ACCOUNT_DETAIL_TAB_IDS = 100
 
 
 @transaction.atomic
@@ -38,7 +42,7 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
     config, _ = UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
         user_id=user_id,
-        defaults={"properties": {PINNED_PROPERTIES_KEY: []}},
+        defaults={"properties": {}},
     )
     config = (
         UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True)
@@ -46,6 +50,9 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
         .get(pk=config.pk)
     )
     if PINNED_PROPERTIES_KEY in config.properties:
+        return config
+
+    if not config.pinned_custom_property_definition_ids:
         return config
 
     legacy_references = [
@@ -61,17 +68,34 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
 def update_pinned_properties(
     *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]
 ) -> UserCustomerAnalyticsConfig:
-    _validate_pinned_properties(team_id=team_id, references=references)
+    validate_pinned_properties(team_id=team_id, references=references)
     config = get_or_create_config(team_id=team_id, user_id=user_id)
     config.properties = {
         **config.properties,
         PINNED_PROPERTIES_KEY: [{"kind": kind.value, "id": str(definition_id)} for kind, definition_id in references],
+        PINNED_PROPERTIES_OVERRIDE_KEY: True,
     }
     config.pinned_custom_property_definition_ids = [
         definition_id for kind, definition_id in references if kind == AccountPropertyPinKind.CUSTOM_PROPERTY
     ]
     config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
     return config
+
+
+def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> list[dict[str, str]]:
+    stored = config.properties.get(PINNED_PROPERTIES_KEY)
+    if isinstance(stored, list) and (
+        stored
+        or config.properties.get(PINNED_PROPERTIES_OVERRIDE_KEY) is True
+        or config.pinned_custom_property_definition_ids
+    ):
+        return cast(list[dict[str, str]], stored)
+    defaults = (
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
+        .values_list("default_pinned_properties", flat=True)
+        .first()
+    )
+    return cast(list[dict[str, str]], defaults) if isinstance(defaults, list) else []
 
 
 def read_task_digest(config: UserCustomerAnalyticsConfig) -> contracts.TaskDigestPreferences:
@@ -115,6 +139,84 @@ def update_task_digest(
     return config
 
 
+def read_account_detail_tabs(config: UserCustomerAnalyticsConfig) -> contracts.AccountDetailTabsConfig:
+    stored = config.properties.get(ACCOUNT_DETAIL_TABS_KEY)
+    if not isinstance(stored, dict):
+        return contracts.AccountDetailTabsConfig()
+
+    ordered_tab_ids = _read_tab_ids(stored.get("ordered_tab_ids"))
+    hidden_tab_ids = _read_tab_ids(stored.get("hidden_tab_ids"))
+    default_tab_id = stored.get("default_tab_id")
+    return contracts.AccountDetailTabsConfig(
+        ordered_tab_ids=ordered_tab_ids,
+        hidden_tab_ids=hidden_tab_ids,
+        default_tab_id=default_tab_id if isinstance(default_tab_id, str) and _is_tab_id(default_tab_id) else None,
+    )
+
+
+@transaction.atomic
+def update_account_detail_tabs(
+    *,
+    team_id: int,
+    user_id: int,
+    ordered_tab_ids: list[str],
+    hidden_tab_ids: list[str],
+    default_tab_id: str | None,
+) -> UserCustomerAnalyticsConfig:
+    errors: list[str] = []
+    _validate_tab_ids("ordered_tab_ids", ordered_tab_ids, errors)
+    _validate_tab_ids("hidden_tab_ids", hidden_tab_ids, errors)
+    if default_tab_id is not None and not _is_tab_id(default_tab_id):
+        errors.append("default_tab_id must use a system: or view: identifier.")
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    config.properties = {
+        **config.properties,
+        ACCOUNT_DETAIL_TABS_KEY: {
+            "ordered_tab_ids": ordered_tab_ids,
+            "hidden_tab_ids": hidden_tab_ids,
+            "default_tab_id": default_tab_id,
+        },
+    }
+    config.save(update_fields=["properties", "updated_at"])
+    return config
+
+
+def _is_tab_id(tab_id: str) -> bool:
+    if tab_id in ACCOUNT_DETAIL_SYSTEM_TAB_IDS:
+        return True
+    if not tab_id.startswith("view:"):
+        return False
+    try:
+        UUID(tab_id.removeprefix("view:"))
+    except ValueError:
+        return False
+    return True
+
+
+def _read_tab_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tab_ids: list[str] = []
+    for tab_id in value:
+        if isinstance(tab_id, str) and _is_tab_id(tab_id) and tab_id not in tab_ids:
+            tab_ids.append(tab_id)
+        if len(tab_ids) == MAX_ACCOUNT_DETAIL_TAB_IDS:
+            break
+    return tab_ids
+
+
+def _validate_tab_ids(field: str, tab_ids: list[str], errors: list[str]) -> None:
+    if len(tab_ids) > MAX_ACCOUNT_DETAIL_TAB_IDS:
+        errors.append(f"{field} can contain at most {MAX_ACCOUNT_DETAIL_TAB_IDS} items.")
+    if len(set(tab_ids)) != len(tab_ids):
+        errors.append(f"{field} cannot contain duplicates.")
+    if any(not _is_tab_id(tab_id) for tab_id in tab_ids):
+        errors.append(f"{field} contains an invalid tab identifier.")
+
+
 def _read_send_time(stored: dict[str, Any]) -> str:
     value = stored.get("send_time")
     if isinstance(value, str):
@@ -124,49 +226,3 @@ def _read_send_time(stored: dict[str, Any]) -> str:
             return DEFAULT_TASK_DIGEST.send_time
         return parsed.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT)
     return DEFAULT_TASK_DIGEST.send_time
-
-
-def _validate_pinned_properties(*, team_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]) -> None:
-    if len(references) > MAX_PINNED_PROPERTIES:
-        raise InvalidPinnedAccountProperties([f"Pin at most {MAX_PINNED_PROPERTIES} account properties."])
-
-    errors: list[str] = []
-    first_index_by_reference: dict[tuple[AccountPropertyPinKind, UUID], int] = {}
-    for index, reference in enumerate(references):
-        if reference in first_index_by_reference:
-            errors.append(f"Item {index + 1} duplicates item {first_index_by_reference[reference] + 1}.")
-        else:
-            first_index_by_reference[reference] = index
-
-    referenced_ids = {definition_id for _, definition_id in references}
-    custom_property_targets = dict(
-        CustomPropertyDefinition.objects.for_team(team_id)
-        .filter(id__in=referenced_ids)
-        .values_list("id", "target_type")
-    )
-    matching_relationship_ids = set(
-        AccountRelationshipDefinition.objects.for_team(team_id)
-        .filter(id__in=referenced_ids)
-        .values_list("id", flat=True)
-    )
-
-    for index, (kind, definition_id) in enumerate(references):
-        item = index + 1
-        if kind == AccountPropertyPinKind.CUSTOM_PROPERTY:
-            target_type = custom_property_targets.get(definition_id)
-            if target_type is not None:
-                if target_type != TargetType.ACCOUNT.value:
-                    errors.append(f"Item {item} must reference an account property.")
-            elif definition_id in matching_relationship_ids:
-                errors.append(f"Item {item} is a relationship, not a custom property.")
-            else:
-                errors.append(f"Item {item} custom property was not found in this project.")
-        elif definition_id in matching_relationship_ids:
-            continue
-        elif definition_id in custom_property_targets:
-            errors.append(f"Item {item} is a custom property, not a relationship.")
-        else:
-            errors.append(f"Item {item} relationship was not found in this project.")
-
-    if errors:
-        raise InvalidPinnedAccountProperties(errors)

@@ -84,9 +84,9 @@ function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean 
         case 'unstable':
         case 'at_risk':
             return entry.flakiness_state === preset
-        // The catch-all. See `FlakinessStatRow` for why these two share a tile.
+        // The catch-all. See `FlakinessStatRow` for why it exists.
         case 'quiet':
-            return entry.flakiness_state === 'noisy' || entry.flakiness_state === 'clean'
+            return entry.flakiness_state === 'clean'
         case 'quarantined':
             return entry.is_quarantined
         case 'needs_decision':
@@ -240,10 +240,12 @@ export interface visualReviewFlakinessSceneLogicActions {
         runType: string,
         reason: string,
         expiresAt: string | null,
-        sourceRunId: string | null
+        sourceRunId: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifier: string
+        notifyOwners: boolean
         reason: string
         runType: string
         sourceRunId: string | null
@@ -326,13 +328,15 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             runType: string,
             reason: string,
             expiresAt: string | null,
-            sourceRunId: string | null
+            sourceRunId: string | null,
+            notifyOwners: boolean = false
         ) => ({
             identifier,
             runType,
             reason,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
         quarantineSettled: (identifier: string, runType: string) => ({ identifier, runType }),
@@ -438,7 +442,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 broken: overview?.totals.broken ?? 0,
                 unstable: overview?.totals.unstable ?? 0,
                 at_risk: overview?.totals.at_risk ?? 0,
-                quiet: (overview?.totals.noisy ?? 0) + (overview?.totals.clean ?? 0),
+                quiet: overview?.totals.clean ?? 0,
                 quarantined: overview?.totals.quarantined ?? 0,
             }),
         ],
@@ -511,7 +515,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 actions.landOnPreset(populated)
             }
         },
-        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
+        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId, notifyOwners }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {
                     identifier,
@@ -521,6 +525,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                     // old row and creates a replacement, so dropping this loses the link
                     // to the run that prompted the quarantine.
                     source_run_id: sourceRunId,
+                    notify_owners: notifyOwners,
                 })
                 lemonToast.success('Quarantined. Runs stop gating on this snapshot.')
             } catch (e: any) {

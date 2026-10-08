@@ -11,10 +11,6 @@ import jwt as pyjwt
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.helpers.two_factor_session import (
-    add_code_based_verification_bypass,
-    set_code_based_verification_global_disable,
-)
 from posthog.models import User
 
 SECRET = "in-us"
@@ -110,20 +106,6 @@ class TestHubApi(BaseTest):
     @patch("products.security.backend.presentation.hub_api.start_sync_now", side_effect=RuntimeError("temporal down"))
     def test_sync_now_answers_503_when_temporal_is_unreachable(self, start: MagicMock) -> None:
         assert self.post("sync-now", {}, "rules:sync_now").status_code == 503
-
-    def test_mfa_export(self) -> None:
-        add_code_based_verification_bypass("Bypass@Example.com")
-        set_code_based_verification_global_disable(
-            reason="email outage", ttl_seconds=3600, disabled_by="ops@posthog.com"
-        )
-        body = self.post("mfa-bypass-export", {}, "mfa_bypass:export").json()
-        assert body["emails"] == ["bypass@example.com"]
-        assert body["global"]["reason"] == "email outage"
-        assert body["global"]["actor"] == "ops@posthog.com"
-        assert body["global"]["expires_at"].endswith("Z")
-
-    def test_mfa_export_without_a_global_switch(self) -> None:
-        assert self.post("mfa-bypass-export", {}, "mfa_bypass:export").json() == {"emails": [], "global": None}
 
     @parameterized.expand(
         [

@@ -108,7 +108,7 @@ fn v2_ingress_counts_parse_outcomes_without_configuration_labels() {
     let mut malformed = valid.clone();
     malformed["default_value"] = json!("invalid");
     let mut unsupported = valid.clone();
-    unsupported["return_type"] = json!("string");
+    unsupported["aggregation_group_type_index"] = json!(0);
     let mut oversized = valid.clone();
     oversized["extra"] = json!("x".repeat(*config_v2::MAX_CONFIG_BYTES));
     metrics::with_local_recorder(&recorder, || {

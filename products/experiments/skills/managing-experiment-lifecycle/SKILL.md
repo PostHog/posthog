@@ -45,7 +45,7 @@ One optional item worth a single mention at launch, when the change is user-faci
 short survey, shown when users finish the experimented flow (e.g. triggered by the form's submit event),
 collects qualitative feedback (a rating, an optional comment) alongside the metrics, from day one. Offer it once as setup advice, drop it if declined, and
 never let it delay the launch. Do **not** raise it at end or ship-variant time — there it reads as a gate
-on rolling out. → See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]
+on rolling out. → See [`references/qualitative-feedback.md`](../diagnosing-experiment-health/references/qualitative-feedback.md) in [[diagnosing-experiment-health]]
 
 ### Pause (`experiment-pause`)
 
@@ -273,5 +273,5 @@ When you get a 400, explain the situation to the user rather than retrying.
 ## Related skills
 
 - **`creating-experiments`** — create the next experiment from scratch
-- **`diagnosing-experiment-results`** — sanity-check results before a ship or end decision
+- **`diagnosing-experiment-health`** — sanity-check results before a ship or end decision
 - **`configuring-experiment-rollout`** — split and rollout changes, which are config edits rather than lifecycle operations

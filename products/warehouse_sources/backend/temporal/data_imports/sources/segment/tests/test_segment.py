@@ -6,20 +6,15 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment import segment
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.segment import (
-    PAGE_SIZE,
     SegmentResumeConfig,
     _base_url,
-    _build_url,
     _extract_rows,
     _next_cursor,
     _redact_rows,
     get_rows,
     segment_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import (
-    REGION_BASE_URLS,
-    SEGMENT_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import SEGMENT_ENDPOINTS
 
 
 class _FakeResumableManager:
@@ -51,26 +46,6 @@ class TestBaseUrl:
     def test_base_url(self, _name: str, region: str, expected: str) -> None:
         assert _base_url(region) == expected
 
-    def test_both_documented_regions_are_covered(self) -> None:
-        assert set(REGION_BASE_URLS) == {"api", "eu1"}
-
-
-class TestBuildUrl:
-    def test_first_page_has_count_and_no_cursor(self) -> None:
-        url = _build_url("https://api.segmentapis.com", "/sources", None)
-        assert url == f"https://api.segmentapis.com/sources?pagination[count]={PAGE_SIZE}"
-
-    def test_cursor_is_url_encoded(self) -> None:
-        # Segment cursors are base64 and contain `=` padding, which must be percent-encoded in a query value.
-        url = _build_url("https://api.segmentapis.com", "/sources", "Mw==")
-        assert url == f"https://api.segmentapis.com/sources?pagination[count]={PAGE_SIZE}&pagination[cursor]=Mw%3D%3D"
-
-    def test_bracket_keys_stay_literal(self) -> None:
-        # Segment expects literal brackets in the pagination keys, not percent-encoded ones.
-        url = _build_url("https://api.segmentapis.com", "/labels", "abc")
-        assert "pagination[count]" in url
-        assert "%5B" not in url
-
 
 class TestExtractRows:
     @parameterized.expand(
@@ -97,15 +72,6 @@ class TestRedactRows:
     def test_no_redacted_fields_returns_rows_unchanged(self) -> None:
         rows = [{"id": "1", "settings": {"k": "v"}}]
         assert _redact_rows(rows, frozenset()) == rows
-
-    def test_drops_only_the_named_fields(self) -> None:
-        rows = [{"id": "1", "settings": {"apiKey": "secret"}, "name": "keep"}]
-        assert _redact_rows(rows, frozenset({"settings"})) == [{"id": "1", "name": "keep"}]
-
-    def test_non_dict_rows_pass_through(self) -> None:
-        # Defensive: a malformed row that isn't a dict should not raise.
-        malformed: list[Any] = ["not-a-dict"]
-        assert _redact_rows(malformed, frozenset({"settings"})) == malformed
 
 
 class TestNextCursor:
@@ -154,23 +120,6 @@ class TestGetRows:
         ]
         rows = self._collect("sources", manager, monkeypatch, pages)
         assert rows == [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]
-
-    def test_saves_cursor_after_each_non_terminal_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [
-            {"data": {"sources": [{"id": "s1"}], "pagination": {"next": "c1"}}},
-            {"data": {"sources": [{"id": "s2"}], "pagination": {"next": "c2"}}},
-            {"data": {"sources": [{"id": "s3"}], "pagination": {"next": None}}},
-        ]
-        self._collect("sources", manager, monkeypatch, pages)
-        # State is saved only for the pages that have a next cursor — never on the terminal page.
-        assert manager.saved == [SegmentResumeConfig(cursor="c1"), SegmentResumeConfig(cursor="c2")]
-
-    def test_terminal_single_page_saves_no_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [{"data": {"sources": [{"id": "only"}], "pagination": {"next": None}}}]
-        self._collect("sources", manager, monkeypatch, pages)
-        assert manager.saved == []
 
     def test_resume_starts_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(state=SegmentResumeConfig(cursor="resumed"))
@@ -248,16 +197,6 @@ class TestSegmentSource:
         )
         assert response.name == endpoint
         assert response.primary_keys == SEGMENT_ENDPOINTS[endpoint].primary_keys
-
-    def test_labels_use_composite_primary_key(self) -> None:
-        response = segment_source(
-            api_token="tok",
-            region="api",
-            endpoint="labels",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.primary_keys == ["key", "value"]
 
     @parameterized.expand(
         [

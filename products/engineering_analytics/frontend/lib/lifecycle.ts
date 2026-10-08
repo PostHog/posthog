@@ -1,6 +1,7 @@
-import type { PRLifecycleEventApi } from '../generated/api.schemas'
+import type { PRLifecycleEventApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 
 export interface WorkflowRun {
+    ciEngine?: WorkflowRunDetailApi['ci_engine']
     workflow: string
     /** Null while the run hasn't reported a finish — queued or in progress. */
     conclusion: string | null
@@ -43,6 +44,10 @@ function parseFinishedDetail(detail: string | null | undefined): { workflow: str
     return { workflow: detail.slice(0, splitAt), conclusion: detail.slice(splitAt + 2) }
 }
 
+function unfinishedKey(event: PRLifecycleEventApi, workflow: string): string {
+    return `${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`
+}
+
 /**
  * Pairs ci_started / ci_finished events into per-workflow runs with durations, FIFO by workflow name.
  * A finish without a matching start (events outside the window) still yields a row.
@@ -61,15 +66,17 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: event.run_id ?? null,
+                ciEngine: event.ci_engine,
                 runAttempt: null,
             }
             runs.push(run)
-            const queue = unfinishedByWorkflow.get(workflow) ?? []
+            const key = unfinishedKey(event, workflow)
+            const queue = unfinishedByWorkflow.get(key) ?? []
             queue.push(run)
-            unfinishedByWorkflow.set(workflow, queue)
+            unfinishedByWorkflow.set(key, queue)
         } else if (event.kind === 'ci_finished') {
             const { workflow, conclusion } = parseFinishedDetail(event.detail)
-            const started = unfinishedByWorkflow.get(workflow)?.shift()
+            const started = unfinishedByWorkflow.get(unfinishedKey(event, workflow))?.shift()
             if (started) {
                 started.conclusion = conclusion ?? 'completed'
                 started.finishedAt = event.at
@@ -85,6 +92,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                     finishedAt: event.at,
                     durationSeconds: null,
                     runId: event.run_id ?? null,
+                    ciEngine: event.ci_engine,
                     runAttempt: null,
                 })
             }

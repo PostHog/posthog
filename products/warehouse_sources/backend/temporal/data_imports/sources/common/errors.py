@@ -45,6 +45,11 @@ TRANSIENT_EGRESS_PROXY_ERRORS: tuple[str, ...] = (
     "Tunnel connection failed: 504",
     "Cannot connect to proxy.', TimeoutError",
     "Cannot connect to proxy.', NewConnectionError",
+    # Our own egress proxy accepted the TCP connection but hung up before answering the CONNECT
+    # request (`ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end closed
+    # connection without response'))`) — the same proxy-side blip as the TimeoutError/
+    # NewConnectionError variants above, just a different failure shape at the socket layer.
+    "Cannot connect to proxy.', RemoteDisconnected",
 )
 
 

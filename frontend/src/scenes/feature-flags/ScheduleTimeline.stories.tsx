@@ -35,6 +35,7 @@ function occurrence(
         projected,
         addedRolloutPercentage:
             payload.operation === ScheduledChangeOperationType.AddReleaseCondition ? projected.rolloutPercentage : null,
+        rolloutUnchanged: false,
         needsApproval,
     }
 }
@@ -48,6 +49,30 @@ function rolloutStep(daysFromNow: number, rollout: number, needsApproval = false
         },
         { active: true, rolloutPercentage: rollout, variantCount: null },
         needsApproval
+    )
+}
+
+function coveredRolloutStep(daysFromNow: number, rollout: number, needsApproval = false): ScheduleOccurrence {
+    return {
+        ...rolloutStep(daysFromNow, rollout, needsApproval),
+        projected: { active: true, rolloutPercentage: 100, variantCount: null },
+        rolloutUnchanged: true,
+    }
+}
+
+/**
+ * Marks near both edges that carry the longest label the chart can draw. Two such labels overlap
+ * when they sit close together near one edge. The plan therefore has only these two.
+ */
+export function EdgeStepLabels(): JSX.Element {
+    return (
+        <div className="max-w-3xl">
+            <ScheduleTimeline
+                occurrences={[coveredRolloutStep(1, 25, true), coveredRolloutStep(30, 100, true)]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        </div>
     )
 }
 
@@ -90,5 +115,17 @@ export function SingleOccurrence(): JSX.Element {
             currentRolloutPercentage={100}
             timezone="UTC"
         />
+    )
+}
+
+export function CoveredRolloutRamp(): JSX.Element {
+    return (
+        <div className="max-w-3xl">
+            <ScheduleTimeline
+                occurrences={[coveredRolloutStep(1, 25), coveredRolloutStep(2, 50), coveredRolloutStep(30, 100)]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        </div>
     )
 }

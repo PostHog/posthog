@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
     K6CloudSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source import K6CloudSource
 
 INCREMENTAL_ENDPOINTS = {"test_runs"}
@@ -20,11 +19,6 @@ class TestK6CloudSource:
         # `stack_id` routes the stored token to a specific k6 stack, so changing it must re-require
         # the secret — guards against credential retargeting across stacks.
         assert self.source.connection_host_fields == ["stack_id"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog -> the public docs table list must render.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_has_message",

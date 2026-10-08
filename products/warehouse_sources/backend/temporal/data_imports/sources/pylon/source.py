@@ -46,7 +46,7 @@ class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
             name=ExternalDataSourceType.PYLON,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Pylon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Pylon API token to pull your Pylon support data into the PostHog Data warehouse.
 
 You can create an API token from your Pylon dashboard under **Settings > API tokens** (admin only). US and EU workspaces are detected from the token, so there is no region to pick.""",

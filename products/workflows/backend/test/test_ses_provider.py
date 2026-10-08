@@ -399,14 +399,14 @@ class TestSESResponseShapeContract(TestCase):
                 "EnforcementStatus",
                 lambda m: m.operation_model("GetAccount").output_shape.members.keys(),
                 "AWS SES v2 GetAccount response no longer exposes `EnforcementStatus`. "
-                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+                "Update get_account_enforcement_status in products/workflows/backend/providers/ses.py.",
             ),
             (
                 "recommendation_resource_arn",
                 "ResourceArn",
                 lambda m: m.shape_for("Recommendation").members.keys(),
                 "AWS SES v2 Recommendation no longer exposes `ResourceArn`. "
-                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+                "Update get_account_reputation_findings in products/workflows/backend/providers/ses.py.",
             ),
         ]
     )
@@ -537,8 +537,7 @@ class TestGetAccountReputation(TestCase):
         self.mock_client = mock_boto3_client.return_value
         self.provider = SESProvider()
 
-    def test_returns_enforcement_status_and_open_findings_across_pages(self):
-        self.mock_client.get_account.return_value = {"EnforcementStatus": "PROBATION"}
+    def test_returns_open_findings_across_pages(self):
         self.mock_client.list_recommendations.side_effect = [
             {
                 "Recommendations": [
@@ -572,10 +571,9 @@ class TestGetAccountReputation(TestCase):
             },
         ]
 
-        result = self.provider.get_account_reputation()
+        findings = self.provider.get_account_reputation_findings()
 
-        assert result["enforcement_status"] == "PROBATION"
-        assert [(f["finding_type"], f["impact"], f["scope"]) for f in result["findings"]] == [
+        assert [(f["finding_type"], f["impact"], f["scope"]) for f in findings] == [
             ("BOUNCE", "LOW", "tenant"),
             ("DMARC", "HIGH", "identity"),
             ("COMPLAINT", "HIGH", "account"),
@@ -583,14 +581,15 @@ class TestGetAccountReputation(TestCase):
         # The listing must be account-wide with OPEN filtered server-side, and walk every page
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
         assert first_call.kwargs["Filter"] == {"STATUS": "OPEN"}
+        assert first_call.kwargs["PageSize"] == 100
         assert second_call.kwargs["NextToken"] == "page-2"
+        self.mock_client.get_account.assert_not_called()
 
     def test_missing_enforcement_status_fails_the_poll(self):
         self.mock_client.get_account.return_value = {}
-        self.mock_client.list_recommendations.return_value = {"Recommendations": []}
 
         with pytest.raises(KeyError):
-            self.provider.get_account_reputation()
+            self.provider.get_account_enforcement_status()
 
 
 def _isp_of(query) -> str:

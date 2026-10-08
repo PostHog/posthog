@@ -17,6 +17,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
@@ -31,6 +32,8 @@ import {
 } from '~/types'
 
 import filtersJson from '../__mocks__/filters.json'
+import { legacyFiltersToSeries } from '../legacyFilters'
+import { SeriesNode } from '../seriesNode'
 import { ActionFilterRow, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
 import { MathAvailability } from './types'
 
@@ -57,12 +60,10 @@ jest.mock('@dnd-kit/sortable', () => ({
     }),
 }))
 
-const DEFAULT_FILTER = {
-    id: '$pageview',
+const DEFAULT_NODE: SeriesNode = {
+    kind: NodeKind.EventsNode,
+    event: '$pageview',
     name: '$pageview',
-    type: EntityTypes.EVENTS as const,
-    order: 0,
-    uuid: 'test-uuid-1',
     properties: [],
 }
 
@@ -72,15 +73,15 @@ const INLINE_CONTEXT = {
     mathAvailability: MathAvailability.None,
 }
 
-function setup(filtersOverride?: Partial<FilterType>): {
+function setup(seriesOverride?: SeriesNode[]): {
     logic: ReturnType<typeof entityFilterLogic.build>
-    setFilters: jest.Mock
+    onChange: jest.Mock
 } {
-    const filters = { ...filtersJson, ...filtersOverride } as FilterType
-    const setFilters = jest.fn()
-    const logic = entityFilterLogic({ setFilters, filters, typeKey: 'test-key' })
+    const series = seriesOverride ?? legacyFiltersToSeries(filtersJson as FilterType)
+    const onChange = jest.fn()
+    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key' })
     logic.mount()
-    return { logic, setFilters }
+    return { logic, onChange }
 }
 
 function renderRow(
@@ -91,7 +92,8 @@ function renderRow(
         <Provider>
             <ActionFilterRow
                 logic={logic}
-                filter={DEFAULT_FILTER}
+                node={DEFAULT_NODE}
+                uuid="test-uuid-1"
                 index={0}
                 typeKey="test-key"
                 mathAvailability={MathAvailability.All}
@@ -170,7 +172,7 @@ describe('ActionFilterRow', () => {
         it('shows the underlying event alongside a renamed series', () => {
             const { logic } = setup()
             renderRow(logic, {
-                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+                node: { ...DEFAULT_NODE, event: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
             })
             const row = document.querySelector('.ActionFilterRow')!
             expect(row.textContent).toContain('Signed up')
@@ -181,7 +183,7 @@ describe('ActionFilterRow', () => {
             const { logic } = setup()
             renderRow(logic, {
                 ...INLINE_CONTEXT,
-                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+                node: { ...DEFAULT_NODE, event: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
             })
 
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
@@ -261,7 +263,7 @@ describe('ActionFilterRow', () => {
             })
 
             it('shows ellipsis menu button in funnel context', () => {
-                const { logic } = setup({ insight: InsightType.FUNNELS })
+                const { logic } = setup()
                 renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
                 expect(screen.getByLabelText('Show more actions')).toBeInTheDocument()
             })
@@ -324,21 +326,16 @@ describe('ActionFilterRow', () => {
                     joins: [],
                 } as any)
 
-                const dataWarehouseFilter = {
+                const dataWarehouseNode = {
+                    kind: NodeKind.DataWarehouseNode,
                     id: 'events_table',
                     name: 'events_table',
-                    type: EntityTypes.DATA_WAREHOUSE,
                     table_name: 'events_table',
-                    order: 0,
-                }
-                const { logic, setFilters } = setup({
-                    events: [],
-                    actions: [],
-                    data_warehouse: [dataWarehouseFilter],
-                } as Partial<FilterType>)
+                } as SeriesNode
+                const { logic, onChange } = setup([dataWarehouseNode])
                 renderRow(logic, {
                     mathAvailability: MathAvailability.BoxPlotOnly,
-                    filter: { ...DEFAULT_FILTER, ...dataWarehouseFilter },
+                    node: dataWarehouseNode,
                 })
 
                 await userEvent.click(screen.getByTestId('box-plot-property-select'))
@@ -349,16 +346,13 @@ describe('ActionFilterRow', () => {
                 await userEvent.click(screen.getByText('duration'))
 
                 await waitFor(() => {
-                    expect(setFilters).toHaveBeenCalledWith(
+                    expect(onChange).toHaveBeenCalledWith([
                         expect.objectContaining({
-                            data_warehouse: [
-                                expect.objectContaining({
-                                    math_property: 'duration',
-                                    math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                                }),
-                            ],
-                        })
-                    )
+                            kind: NodeKind.DataWarehouseNode,
+                            math_property: 'duration',
+                            math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                        }),
+                    ])
                 })
             })
         })
@@ -436,7 +430,7 @@ describe('ActionFilterRow', () => {
                     ...INLINE_CONTEXT,
                     showCombine: true,
                     singleFilter: false,
-                    filter: { ...DEFAULT_FILTER, type: EntityTypes.DATA_WAREHOUSE },
+                    node: { ...DEFAULT_NODE, kind: NodeKind.DataWarehouseNode } as SeriesNode,
                 })
                 expect(screen.queryByTestId('show-prop-combine-0')).not.toBeInTheDocument()
             })
@@ -468,14 +462,14 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByText('my-suffix')).toBeInTheDocument()
             })
 
-            it('calls function suffix with filter, index, onClose', () => {
+            it('calls function suffix with node, index, onClose', () => {
                 const { logic } = setup()
-                const suffixFn = jest.fn(({ filter }) => <span data-attr="fn-suffix">{filter.name}</span>)
+                const suffixFn = jest.fn(({ node }) => <span data-attr="fn-suffix">{node.name}</span>)
                 renderRow(logic, { customRowSuffix: suffixFn })
                 expect(screen.getByTestId('fn-suffix')).toHaveTextContent('$pageview')
                 expect(suffixFn).toHaveBeenCalledWith(
                     expect.objectContaining({
-                        filter: expect.objectContaining({ id: '$pageview' }),
+                        node: expect.objectContaining({ event: '$pageview' }),
                         index: 0,
                         onClose: expect.any(Function),
                     })
@@ -487,7 +481,7 @@ describe('ActionFilterRow', () => {
             it('renders with the action name', () => {
                 const { logic } = setup()
                 renderRow(logic, {
-                    filter: { ...DEFAULT_FILTER, id: '9', name: 'Users signed up', type: EntityTypes.ACTIONS },
+                    node: { kind: NodeKind.ActionsNode, id: 9, name: 'Users signed up' } as SeriesNode,
                 })
                 expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Users signed up')
             })
@@ -496,30 +490,26 @@ describe('ActionFilterRow', () => {
 
     describe('interactions', () => {
         it('dispatches removeLocalFilter on delete click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDeleteBtn: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Delete graph series'))
             // Deleting the first event (order 0) leaves only 1 event + 1 action, re-ordered
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: [expect.objectContaining({ id: '$pageview' })],
-                    actions: [expect.objectContaining({ id: '9' })],
-                })
-            )
-            // The remaining event list should have exactly 1 entry (down from 2)
-            const call = setFilters.mock.calls[0][0]
-            expect(call.events).toHaveLength(1)
+            expect(onChange).toHaveBeenCalledWith([
+                expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }),
+                expect.objectContaining({ kind: NodeKind.ActionsNode, id: 9 }),
+            ])
+            // Down from 3 series (2 events + 1 action) to 2
+            expect(onChange.mock.calls[0][0]).toHaveLength(2)
         })
 
         it('dispatches duplicateFilter on duplicate click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDuplicate: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Duplicate graph series'))
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview', order: 0 })]),
-                })
-            )
+            const duplicated = onChange.mock.calls[0][0]
+            expect(duplicated).toHaveLength(4)
+            expect(duplicated[0]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
+            expect(duplicated[1]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
         })
 
         it('dispatches selectFilter and calls onRenameClick on rename', async () => {
@@ -531,12 +521,14 @@ describe('ActionFilterRow', () => {
         })
 
         it('dispatches convertFilterToGroup on combine click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: false })
             await userEvent.click(screen.getByTestId('show-prop-combine-0'))
-            expect(setFilters).toHaveBeenCalledWith(
+            // The combined row becomes a group holding the event it was built from
+            expect(onChange.mock.calls[0][0][0]).toEqual(
                 expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview' })]),
+                    kind: NodeKind.GroupNode,
+                    nodes: [expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' })],
                 })
             )
         })
@@ -557,7 +549,7 @@ describe('ActionFilterRow', () => {
 
     describe('math selection', () => {
         it('changing math type calls setFilters with updated math', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.All })
 
             await userEvent.click(screen.getByTestId('math-selector-0'))
@@ -567,19 +559,15 @@ describe('ActionFilterRow', () => {
             })
             await userEvent.click(screen.getByText('Unique users'))
 
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ math: 'dau' })]),
-                })
-            )
+            expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ math: 'dau' })]))
         })
 
         it('shows property value selector when property math is active', () => {
             const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: PropertyMathType.Average,
                     math_property: '$time',
                 },
@@ -591,8 +579,8 @@ describe('ActionFilterRow', () => {
             const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: HogQLMathType.HogQL,
                     math_hogql: 'sum(price)',
                 },
@@ -602,7 +590,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('defaults HogQL math expression to person_id for stickiness insights', async () => {
-            const { logic, setFilters } = setup({ insight: InsightType.STICKINESS })
+            const { logic, onChange } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
                 insightType: InsightType.STICKINESS,
@@ -612,53 +600,49 @@ describe('ActionFilterRow', () => {
             await waitFor(() => expect(screen.getByText('SQL expression')).toBeInTheDocument())
             await userEvent.click(screen.getByText('SQL expression'))
 
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })]),
-                })
+            expect(onChange).toHaveBeenCalledWith(
+                expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })])
             )
         })
 
         it('does not show math selector inline for FunnelsOnly (it goes in the popup menu)', () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
             // MathSelector should NOT be in the center section (it's in the popup menu instead)
             expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
         })
 
         it('selecting property math sets math_property and clears math_hogql', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: PropertyMathType.Average,
                     math_property: '$time',
                     math_hogql: 'count()',
                 },
             })
 
-            // Simulate onMathPropertySelect which calls updateFilterMath
-            logic.actions.updateFilterMath({
-                ...DEFAULT_FILTER,
+            // Simulate onMathPropertySelect
+            logic.actions.updateSeriesMath(0, {
                 math_hogql: undefined,
                 math_property: '$session_duration',
                 math_property_type: TaxonomicFilterGroupType.SessionProperties,
-                index: 0,
             })
 
             await waitFor(() => {
-                const call = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
-                expect(call.events).toEqual(
+                const call = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+                expect(call).toEqual(
                     expect.arrayContaining([
                         expect.objectContaining({
                             math_property: '$session_duration',
                         }),
                     ])
                 )
-                // math_hogql should not be present on the updated filter
-                const updatedEvent = call.events.find((e: any) => e.math_property === '$session_duration')
-                expect(updatedEvent.math_hogql).toBeUndefined()
+                // math_hogql should not be present on the updated series
+                const updated = call.find((node: any) => node.math_property === '$session_duration')
+                expect(updated.math_hogql).toBeUndefined()
             })
         })
 
@@ -680,7 +664,7 @@ describe('ActionFilterRow', () => {
 
     describe('funnel popup menu contents', () => {
         it('shows rename and delete inside popup menu when opened', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -692,7 +676,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows duplicate in popup menu when not singleFilter', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 singleFilter: false,
@@ -706,7 +690,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('hides duplicate in popup menu when singleFilter', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 singleFilter: true,
@@ -721,11 +705,10 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows optional step checkbox for funnel steps after the first', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 index: 1,
-                filter: { ...DEFAULT_FILTER, order: 1 },
             })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -736,7 +719,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('does not show optional step checkbox for the first funnel step', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 index: 0,
@@ -751,7 +734,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows math selector inside funnel popup menu', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -763,7 +746,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows property filter outside the popup menu', () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 hideFilter: false,
@@ -777,7 +760,7 @@ describe('ActionFilterRow', () => {
 
     describe('event selection onChange handler', () => {
         it('selecting an event updates the filter with the chosen event', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, INLINE_CONTEXT)
 
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
@@ -789,15 +772,12 @@ describe('ActionFilterRow', () => {
             await userEvent.click(screen.getByTestId('prop-filter-events-1'))
 
             await waitFor(() => {
-                expect(setFilters).toHaveBeenCalledWith(
-                    expect.objectContaining({
-                        events: expect.arrayContaining([
-                            expect.objectContaining({
-                                type: EntityTypes.EVENTS,
-                                order: 0,
-                            }),
-                        ]),
-                    })
+                expect(onChange).toHaveBeenCalledWith(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            kind: NodeKind.EventsNode,
+                        }),
+                    ])
                 )
             })
         })
@@ -839,7 +819,7 @@ describe('ActionFilterRow', () => {
                     },
                 })
 
-                const { logic, setFilters } = setup()
+                const { logic, onChange } = setup()
                 renderRow(logic, {
                     ...INLINE_CONTEXT,
                     actionsTaxonomicGroupTypes: [
@@ -853,11 +833,11 @@ describe('ActionFilterRow', () => {
                 await searchAndSelect('trend-element-subject-0', searchText, `prop-filter-${tab}-0`)
 
                 await waitFor(() => {
-                    const lastCall = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
-                    expect(lastCall.events).toEqual(
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+                    expect(lastCall).toEqual(
                         expect.arrayContaining([
                             expect.objectContaining({
-                                id: expectedEventId,
+                                event: expectedEventId,
                                 properties: expect.arrayContaining([
                                     expect.objectContaining({
                                         key: expectedPropertyKey,
@@ -878,8 +858,8 @@ describe('ActionFilterRow', () => {
         it('renders "All events" placeholder for null event id', () => {
             const { logic } = setup()
             renderRow(logic, {
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     id: null,
                     name: 'All events',
                 },
@@ -894,8 +874,8 @@ describe('ActionFilterRow', () => {
             renderRow(logic, {
                 ...INLINE_CONTEXT,
                 hideFilter: false,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     properties: [
                         { key: '$browser', value: 'Chrome', operator: 'exact', type: 'event' },
                         { key: '$os', value: 'Mac', operator: 'exact', type: 'event' },
@@ -911,7 +891,7 @@ describe('ActionFilterRow', () => {
             renderRow(logic, {
                 ...INLINE_CONTEXT,
                 hideFilter: false,
-                filter: { ...DEFAULT_FILTER, id: 'empty' },
+                node: { ...DEFAULT_NODE, event: 'empty' },
             })
             const filterButton = screen.getByTitle('Show filters')
             expect(filterButton).toHaveAttribute('aria-disabled', 'true')

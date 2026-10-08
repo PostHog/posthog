@@ -1,4 +1,4 @@
-import { PROVIDER_BY_RUNTIME_ADAPTER } from './modelCatalog.generated'
+import { MODELS, PROVIDER_BY_RUNTIME_ADAPTER } from './modelCatalog.generated'
 
 /**
  * The form a model id is looked up under.
@@ -20,4 +20,11 @@ export function normalizeModelId(modelId: string): string {
         }
     }
     return normalized
+}
+
+const RETIRED_MODEL_IDS: ReadonlySet<string> = new Set(MODELS.filter((model) => model.retired).map((model) => model.id))
+
+/** Whether a picker may offer this model. Mirrors `isOfferedModel` in the desktop app's `model-catalog.ts`. */
+export function isOfferedModel(modelId: string): boolean {
+    return !RETIRED_MODEL_IDS.has(normalizeModelId(modelId))
 }

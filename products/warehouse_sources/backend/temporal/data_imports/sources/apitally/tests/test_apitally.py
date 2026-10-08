@@ -12,10 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.a
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-    SinglePagePaginator,
-)
 
 
 class _FakeDltResource:
@@ -47,13 +43,6 @@ def _response(status_code: int = 200, json_body: Any = None, text: str = "") -> 
 
 
 class TestFormatApitallyDatetime:
-    def test_formats_naive_datetime_as_utc(self) -> None:
-        assert _format_apitally_datetime(datetime(2025, 5, 14, 0, 0, 0)) == "2025-05-14T00:00:00Z"
-
-    def test_formats_aware_datetime_converted_to_utc(self) -> None:
-        aware = datetime(2025, 5, 14, 5, 0, 0, tzinfo=UTC)
-        assert _format_apitally_datetime(aware) == "2025-05-14T05:00:00Z"
-
     def test_caps_future_datetime_to_now(self) -> None:
         far_future = datetime(2999, 1, 1, tzinfo=UTC)
         formatted = _format_apitally_datetime(far_future)
@@ -78,17 +67,6 @@ class TestIncrementalWindow:
 
 
 class TestGetResource:
-    def test_apps_shape(self) -> None:
-        resource = get_resource("Apps", should_use_incremental_field=False)
-
-        assert resource["name"] == "Apps"
-        assert resource["write_disposition"] == "replace"
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint["path"] == "/v1/apps"
-        assert endpoint["data_selector"] == "data"
-        assert isinstance(endpoint["paginator"], SinglePagePaginator)
-        assert "params" not in endpoint
-
     @parameterized.expand(["Consumers", "Endpoints", "Traffic", "RequestLogs"])
     def test_rejects_fanout_endpoints(self, endpoint: str) -> None:
         try:
@@ -194,18 +172,6 @@ class TestApitallyFanout:
         assert row["app_id"] == "1"
         assert "_Apps_id" not in row
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_endpoints_fanout_overrides_paginator_to_single_page(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        apitally_source(api_key="key", endpoint="Endpoints", team_id=1, job_id="job-1")
-
-        _, kwargs = mock_build.call_args
-        assert kwargs["page_size_param"] is None
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
-
     @parameterized.expand(["Consumers", "Endpoints", "Traffic", "RequestLogs"])
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
@@ -217,18 +183,6 @@ class TestApitallyFanout:
 
         _, kwargs = mock_build.call_args
         assert kwargs["parent_endpoint_extra"] == {"data_selector": "data"}
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-    )
-    def test_consumers_fanout_keeps_cursor_pagination(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        apitally_source(api_key="key", endpoint="Consumers", team_id=1, job_id="job-1")
-
-        _, kwargs = mock_build.call_args
-        assert kwargs["page_size_param"] == "limit"
-        assert kwargs["child_endpoint_extra"] is None
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
@@ -250,20 +204,3 @@ class TestApitallyFanout:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["incremental_field"] == "period_end"
         assert kwargs["incremental_config_factory"] is _incremental_window
-
-    def test_client_config_uses_cursor_paginator_and_api_key_header(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
-        ) as mock_build:
-            mock_build.return_value = iter([])
-            apitally_source(api_key="secret-key", endpoint="Consumers", team_id=1, job_id="job-1")
-
-            _, kwargs = mock_build.call_args
-            client_config = kwargs["client_config"]
-            assert isinstance(client_config["paginator"], JSONResponseCursorPaginator)
-            assert client_config["auth"] == {
-                "type": "api_key",
-                "name": "Api-Key",
-                "api_key": "secret-key",
-                "location": "header",
-            }

@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 from requests import Request, Response
@@ -121,6 +122,27 @@ class FilloutSubmissionsPaginator(OffsetPaginator):
         request.params.setdefault("sort", "asc")
 
 
+@dataclass(frozen=True)
+class _PerFormProbe:
+    """A follow-up request against one form, confirming the key reaches a per-form endpoint."""
+
+    path_suffix: str
+    params: dict[str, Any]
+    label: str
+
+
+# Fillout answers the per-form probe with a 400 or 404 when it can't load that one form, which
+# says nothing about the key. Later forms stand in for it, up to a cap that keeps validation
+# quick on accounts with many forms.
+_FORM_SPECIFIC_PROBE_STATUSES = (400, 404)
+_MAX_FORMS_TO_PROBE = 5
+
+_PER_FORM_PROBES: dict[str, _PerFormProbe] = {
+    "submissions": _PerFormProbe(path_suffix="/submissions", params={"limit": 1}, label="submissions"),
+    "form_metadata": _PerFormProbe(path_suffix="", params={}, label="form metadata"),
+}
+
+
 def validate_credentials(
     api_key: str, api_base_url: str | None = None, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
@@ -132,7 +154,10 @@ def validate_credentials(
     headers = _auth_headers(api_key)
     errors: list[str] = []
 
-    skip_submissions_validation = schema_name == "forms"
+    # `/forms` is the only endpoint the `forms` schema reads, so it needs no follow-up. At
+    # source-create time (no schema yet) the submissions probe stands in for every per-form
+    # endpoint — Fillout issues one key with no per-endpoint scopes.
+    probe = _PER_FORM_PROBES.get(schema_name or "submissions")
 
     def _parse_error_description(response: Response) -> str:
         try:
@@ -158,31 +183,35 @@ def validate_credentials(
     except RequestException as exc:
         errors.append(f"/forms request failed: {exc}")
 
-    if not skip_submissions_validation and forms_response and forms_response.status_code == 200:
+    if probe and forms_response and forms_response.status_code == 200:
         forms_items = forms_response.json()
 
-        # With no forms there's nothing to probe submissions against; that shouldn't block validation.
+        # With no forms there's nothing to probe against; that shouldn't block validation.
         if isinstance(forms_items, list) and forms_items:
-            first_form = forms_items[0]
-            form_id = first_form.get("formId") if isinstance(first_form, dict) else None
-            if not isinstance(form_id, str) or not form_id:
-                errors.append("Fillout returned an invalid form id while validating submissions access.")
-            else:
+            for form in forms_items[:_MAX_FORMS_TO_PROBE]:
+                form_id = form.get("formId") if isinstance(form, dict) else None
+                if not isinstance(form_id, str) or not form_id:
+                    errors.append(f"Fillout returned an invalid form id while validating {probe.label} access.")
+                    break
                 try:
-                    submissions_response = make_tracked_session().get(
-                        f"{base_url}/forms/{form_id}/submissions",
+                    probe_response = make_tracked_session().get(
+                        f"{base_url}/forms/{form_id}{probe.path_suffix}",
                         headers=headers,
-                        params={"limit": 1},
+                        params=probe.params,
                         timeout=10,
                     )
-                    if submissions_response.status_code == 401:
-                        errors.append("Invalid Fillout API key")
-                    elif submissions_response.status_code == 403:
-                        errors.append("Fillout API key is missing permission to read submissions")
-                    elif submissions_response.status_code != 200:
-                        errors.append(f"/submissions endpoint failed: {_parse_error_description(submissions_response)}")
                 except RequestException as exc:
-                    errors.append(f"/submissions request failed: {exc}")
+                    errors.append(f"Fillout {probe.label} request failed: {exc}")
+                    break
+                if probe_response.status_code in _FORM_SPECIFIC_PROBE_STATUSES:
+                    continue
+                if probe_response.status_code == 401:
+                    errors.append("Invalid Fillout API key")
+                elif probe_response.status_code == 403:
+                    errors.append(f"Fillout API key is missing permission to read {probe.label}")
+                elif probe_response.status_code != 200:
+                    errors.append(f"Fillout {probe.label} endpoint failed: {_parse_error_description(probe_response)}")
+                break
 
     if errors:
         return False, "; ".join(errors)
@@ -197,8 +226,7 @@ def get_resource(endpoint: str) -> EndpointResource:
     endpoint_config: Endpoint = {
         "path": config.path,
         "params": {},
-        # `/forms` returns a bare JSON array, so select the root.
-        "data_selector": "$",
+        "data_selector": config.data_selector,
         "paginator": SinglePagePaginator(),
     }
 
@@ -208,6 +236,20 @@ def get_resource(endpoint: str) -> EndpointResource:
         "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
+    }
+
+
+def _child_endpoint_extra(endpoint_config: FilloutEndpointConfig) -> Endpoint:
+    if endpoint_config.paginated:
+        return {
+            "paginator": FilloutSubmissionsPaginator(limit=endpoint_config.page_size),
+            "data_selector": endpoint_config.data_selector,
+        }
+    # `/forms/{formId}` returns the form's whole metadata object in one response, so there is
+    # nothing to page through and the object itself is the single row.
+    return {
+        "paginator": SinglePagePaginator(),
+        "data_selector": endpoint_config.data_selector,
     }
 
 
@@ -241,6 +283,7 @@ def fillout_source(
     base_api_url = _validated_api_base_url(api_base_url)
 
     if endpoint_config.fanout:
+        parent_config = FILLOUT_ENDPOINTS[endpoint_config.fanout.parent_name]
         dependent_resource = cast(
             Iterable[Any],
             build_dependent_resource(
@@ -255,15 +298,12 @@ def fillout_source(
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
                 incremental_config_factory=_incremental_window_factory(db_incremental_field_last_value),
-                page_size_param="limit",
+                page_size_param="limit" if endpoint_config.paginated else None,
                 parent_endpoint_extra={
                     "paginator": SinglePagePaginator(),
-                    "data_selector": "$",
+                    "data_selector": parent_config.data_selector,
                 },
-                child_endpoint_extra={
-                    "paginator": FilloutSubmissionsPaginator(limit=endpoint_config.page_size),
-                    "data_selector": "responses",
-                },
+                child_endpoint_extra=_child_endpoint_extra(endpoint_config),
             ),
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)

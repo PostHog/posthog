@@ -1,4 +1,5 @@
 import type { AuthService } from "@posthog/core/auth/auth";
+import type { SavedInsight } from "@posthog/core/canvas/freeformSchemas";
 
 // Thin authenticated helpers over the PostHog HTTP API, shared by the canvas
 // services so the HogQL-query and current-user round-trips aren't duplicated.
@@ -10,6 +11,7 @@ interface HogQLResponse {
   columns?: string[];
   error?: string | null;
   last_refresh?: string | null;
+  hogql?: string | null;
 }
 
 export interface HogQLResult {
@@ -19,6 +21,7 @@ export interface HogQLResult {
   /** ISO time the returned result was computed, when the endpoint reports it —
    * what callers judge cached-result freshness by. */
   lastRefresh: string | null;
+  hogql?: string;
 }
 
 /**
@@ -41,6 +44,7 @@ export async function runQuery(
     results: Array.isArray(body.results) ? body.results : [],
     lastRefresh:
       typeof body.last_refresh === "string" ? body.last_refresh : null,
+    ...(typeof body.hogql === "string" ? { hogql: body.hogql } : {}),
   };
 }
 
@@ -83,7 +87,14 @@ async function postQuery(
     },
   );
   if (!response.ok) {
-    throw new Error(`Query failed (${response.status})`);
+    const detail = await response
+      .json()
+      .then((error: unknown) => {
+        const errorDetail = (error as { detail?: unknown } | null)?.detail;
+        return typeof errorDetail === "string" ? errorDetail : null;
+      })
+      .catch(() => null);
+    throw new Error(detail ?? `Query failed (${response.status})`);
   }
   const body = (await response.json()) as HogQLResponse;
   if (body.error) throw new Error(body.error);
@@ -93,6 +104,9 @@ async function postQuery(
 /** A saved insight's stored result, fetched by short id. */
 export interface InsightFetchResult {
   shortId: string;
+  name: string | null;
+  sourceKind: string | null;
+  display: string | null;
   /** `insight.query.kind` — drives result-shape coercion (HogQLQuery → rows). */
   queryKind: string | null;
   columns: string[];
@@ -155,6 +169,36 @@ function buildVariablesOverride(
   );
 }
 
+interface InsightRow {
+  short_id?: string;
+  name?: string | null;
+  derived_name?: string | null;
+  query?: InsightQueryNode | null;
+  columns?: string[] | null;
+  result?: unknown;
+}
+
+async function fetchInsights(
+  authService: AuthService,
+  params: URLSearchParams,
+  action: string,
+): Promise<InsightRow[]> {
+  const { apiHost } = await authService.getValidAccessToken();
+  const projectId = authService.getState().currentProjectId;
+  if (projectId == null) {
+    throw new Error("No PostHog project selected");
+  }
+  const response = await authService.authenticatedFetch(
+    fetch,
+    `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`${action} failed (${response.status})`);
+  }
+  const body = (await response.json()) as { results?: InsightRow[] };
+  return body.results ?? [];
+}
+
 /**
  * Fetch a SAVED insight by `short_id` and return its STORED result straight from
  * the insights endpoint (`/insights/?short_id=…&refresh=blocking`) — the same
@@ -184,12 +228,6 @@ export async function fetchInsightByShortId(
     variables?: Record<string, unknown>;
   },
 ): Promise<InsightFetchResult> {
-  const { apiHost } = await authService.getValidAccessToken();
-  const projectId = authService.getState().currentProjectId;
-  if (projectId == null) {
-    throw new Error("No PostHog project selected");
-  }
-
   const params = new URLSearchParams({
     short_id: shortId,
     refresh: "blocking",
@@ -204,29 +242,22 @@ export async function fetchInsightByShortId(
     );
   }
 
-  const response = await authService.authenticatedFetch(
-    fetch,
-    `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Insight load failed (${response.status})`);
-  }
-
-  const body = (await response.json()) as {
-    results?: Array<{
-      short_id?: string;
-      query?: InsightQueryNode | null;
-      columns?: string[] | null;
-      result?: unknown;
-    }>;
-  };
-  const insight = body.results?.[0];
+  const [insight] = await fetchInsights(authService, params, "Insight load");
   if (!insight) {
     throw new Error(`Insight "${shortId}" not found`);
   }
 
+  const source = (insight.query as { source?: Record<string, unknown> } | null)
+    ?.source;
+  const trendsFilter = source?.trendsFilter as { display?: string } | undefined;
   return {
     shortId,
+    name: insight.name || insight.derived_name || null,
+    sourceKind:
+      (typeof source?.kind === "string" ? source.kind : null) ??
+      insight.query?.kind ??
+      null,
+    display: trendsFilter?.display ?? null,
     queryKind: insight.query?.kind ?? null,
     columns: Array.isArray(insight.columns) ? insight.columns.map(String) : [],
     results: Array.isArray(insight.result) ? insight.result : [],
@@ -272,4 +303,31 @@ export async function fetchCurrentUser(
   } catch {
     return null;
   }
+}
+
+export async function listSavedInsights(
+  authService: AuthService,
+  search = "",
+): Promise<SavedInsight[]> {
+  const params = new URLSearchParams({
+    saved: "true",
+    basic: "true",
+    limit: "200",
+    order: "-last_modified_at",
+  });
+  if (search.trim()) params.set("search", search.trim());
+  const insights = await fetchInsights(authService, params, "Insight list");
+  return insights.flatMap((insight) =>
+    insight.short_id
+      ? [
+          {
+            shortId: insight.short_id,
+            name:
+              insight.name?.trim() ||
+              insight.derived_name?.trim() ||
+              "Untitled insight",
+          },
+        ]
+      : [],
+  );
 }

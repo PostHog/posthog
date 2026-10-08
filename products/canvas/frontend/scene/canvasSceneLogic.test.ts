@@ -1,0 +1,89 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { canvasSceneLogic } from './canvasSceneLogic'
+
+const CANVAS_ID = 'canvas-1'
+
+describe('canvasSceneLogic', () => {
+    let releaseTaskRequest: () => void = () => {}
+
+    beforeEach(() => {
+        const taskRequestReleased = new Promise<void>((resolve) => {
+            releaseTaskRequest = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/canvases/:id/view/': {
+                    canvas: {
+                        id: CANVAS_ID,
+                        name: 'Untitled canvas',
+                        kind: 'freeform',
+                        channel: 'space-1',
+                        template_id: 'freeform',
+                        generation_task_id: null,
+                        published_build_id: null,
+                    },
+                    published_build: null,
+                    current_version_id: null,
+                    has_active_build: false,
+                    source: null,
+                    layout: null,
+                    sandbox_document_url: null,
+                },
+                '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
+                '/api/projects/:team_id/task_channels/:id/': { id: 'space-1', name: 'me', system_role: 'personal' },
+            },
+            post: {
+                '/api/projects/:team_id/tasks/:id/run/': [
+                    201,
+                    { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } },
+                ],
+                '/api/projects/:team_id/tasks/': async () => {
+                    await taskRequestReleased
+                    return [403, { error: 'Agent-started task runs are not available for this project' }]
+                },
+            },
+        })
+        initKeaTests()
+    })
+
+    it('keeps the composer on screen while a run starts and after it fails to start', async () => {
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess'])
+        expect(logic.values.bodyState).toEqual('empty')
+
+        logic.actions.generateCanvas('A chart of daily signups', false)
+        expect(logic.values.generationStarting).toBe(true)
+        expect(logic.values.bodyState).toEqual('empty')
+
+        releaseTaskRequest()
+        await expectLogic(logic).toDispatchActions(['generationFinished'])
+        expect(logic.values.bodyState).toEqual('empty')
+        // The side panel and the composer say why, rather than only a toast that disappears.
+        expect(logic.values.generationError).toEqual('Agent-started task runs are not available for this project')
+    })
+
+    it('stops generating when the agent turn ends while the cloud run stays open', async () => {
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess'])
+        logic.actions.canvasUpdated({ ...logic.values.canvas!, generation_task_id: 'task-1' })
+        logic.actions.loadGenerationTaskSuccess({
+            id: 'task-1',
+            title: 'Daily signups',
+            latest_run: { id: 'run-1', status: 'in_progress' },
+        })
+        expect(logic.values.isGenerating).toBe(true)
+
+        logic.actions.setAgentTurn('run-1', false)
+        expect(logic.values.isGenerating).toBe(false)
+        expect(logic.values.generationPhase).toBeNull()
+
+        logic.actions.setAgentTurn('run-1', true)
+        expect(logic.values.isGenerating).toBe(true)
+    })
+})

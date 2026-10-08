@@ -22,8 +22,8 @@ from products.notebooks.backend.widget_models import (
     DEFAULT_WIDGET_MODEL,
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
     MAX_WIDGET_PROMPT_LENGTH,
-    WIDGET_LIFECYCLE_STATUS_CHOICES,
     WIDGET_MODEL_CHOICES,
+    LifecycleStatus,
 )
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
@@ -47,7 +47,7 @@ __all__ = [
     "MAX_REUSABLE_WIDGET_DEMO_ROWS",
     "MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH",
     "MAX_WIDGET_PROMPT_LENGTH",
-    "WIDGET_LIFECYCLE_STATUS_CHOICES",
+    "LifecycleStatus",
     "WIDGET_MODEL_CHOICES",
     "WidgetConflictError",
     "WidgetError",

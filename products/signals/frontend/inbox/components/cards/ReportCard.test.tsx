@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { Profiler } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,10 +12,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
@@ -367,6 +369,68 @@ describe('ReportCard', () => {
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).not.toBeNull()
     })
 
+    it.each([
+        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        [
+            'without the impact column, falling back to the probability for a head with no lift',
+            false,
+            'ranking_action',
+            '6.2% action',
+        ],
+    ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableRedesign(impactColumn)
+        const report = makeReport('r-2', {
+            metrics: [makeMetric()],
+            ranking: {
+                served_key: 'report_embeddings@2026-09-30',
+                model_name: 'report_embeddings',
+                model_version: '2026-09-30',
+                manifest_version: 'manifest',
+                scored_at: '2026-09-30T12:00:00Z',
+                scores: { pr_merged: 0.41, action: 0.062 },
+                lifts: { pr_merged: 2.7 },
+                readable_heads: ['action', 'pr_merged'],
+                stale: false,
+            },
+        })
+        const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
+
+        const tag = screen.getByText(tagText)
+        const impactMetric = container.querySelector('[data-attr="report-card-impact-metric"]')
+        expect(impactMetric !== null).toBe(impactColumn)
+        expect(impactMetric?.contains(tag) ?? false).toBe(false)
+    })
+
+    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableRedesign()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_pr_merged" />)
+        expect(screen.getByText('Not scored')).toBeInTheDocument()
+
+        const stale = makeReport('r-2', {
+            ranking: {
+                served_key: 'report_embeddings@2026-09-30',
+                model_name: 'report_embeddings',
+                model_version: '2026-09-30',
+                manifest_version: 'manifest',
+                scored_at: '2026-09-30T12:00:00Z',
+                scores: { pr_merged: 0.41 },
+                lifts: { pr_merged: 2.7 },
+                readable_heads: ['pr_merged'],
+                stale: true,
+            },
+        })
+        rerender(<ReportCard report={stale} rankingSortField="ranking_pr_merged" />)
+        expect(screen.getByText('Edited since scored')).toBeInTheDocument()
+        expect(screen.queryByText('2.7x merge')).not.toBeInTheDocument()
+
+        rerender(<ReportCard report={makeReport('r-2')} />)
+        expect(screen.queryByText('Not scored')).not.toBeInTheDocument()
+    })
+
     it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
         const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 
@@ -398,5 +462,49 @@ describe('ReportCard', () => {
             />
         )
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+    })
+
+    /**
+     * Render two cards, each behind its own profiler, and hand back the per-card render tally.
+     * A card that skips a store change never commits, so its count stands still.
+     */
+    function renderCountedPair(): Record<string, number> {
+        cleanup()
+        const renders: Record<string, number> = { 'r-1': 0, 'r-2': 0 }
+        render(
+            <>
+                {['r-1', 'r-2'].map((id) => (
+                    <Profiler key={id} id={id} onRender={() => (renders[id] += 1)}>
+                        <ReportCard report={makeReport(id)} selectable />
+                    </Profiler>
+                ))}
+            </>
+        )
+        return renders
+    }
+
+    it('repaints only the row whose selection changed', () => {
+        const renders = renderCountedPair()
+        // Selection mode is already on, so the only thing this toggle changes is one row's own flag.
+        act(() => logic.actions.setSelectedReportIds(['r-3']))
+        const before = { ...renders }
+
+        act(() => logic.actions.toggleReportSelection('r-1'))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+    })
+
+    it('repaints only the row whose CI state changed', () => {
+        const ciLogic = prCiStatusLogic()
+        ciLogic.mount()
+        const renders = renderCountedPair()
+        const before = { ...renders }
+
+        act(() => ciLogic.actions.loadCiStatusesSuccess({ 'r-1': PullRequestCiStatusEnumApi.Failing }))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+        ciLogic.unmount()
     })
 })

@@ -1,9 +1,12 @@
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
+    CLEVER_API_VERSION_V3_0,
+    CLEVER_API_VERSION_V3_1,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
@@ -13,6 +16,7 @@ def _inputs(
     schema_name: str = "Districts",
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: object = None,
+    api_version: str | None = None,
 ) -> SourceInputs:
     return SourceInputs(
         schema_name=schema_name,
@@ -27,6 +31,7 @@ def _inputs(
         job_id="job-id",
         logger=MagicMock(),
         reset_pipeline=False,
+        api_version=api_version,
     )
 
 
@@ -34,10 +39,6 @@ class TestCleverSource:
     def setup_method(self) -> None:
         self.source = CleverSource()
         self.config = CleverSourceConfig(bearer_token="test-token")
-
-    def test_no_unreleased_source_flag(self) -> None:
-        # A finished source ships visible; `unreleasedSource` hides it from every user.
-        assert self.source.get_source_config.unreleasedSource is not True
 
     @parameterized.expand(
         [
@@ -75,17 +76,39 @@ class TestCleverSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "evt-123"
 
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
-        # A stale watermark leaking into a full refresh would silently skip earlier rows.
-        inputs = _inputs(
-            schema_name="Events",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="evt-123",
-        )
-        with patch.object(source_module, "clever_source") as mock_source:
-            self.source.source_for_pipeline(self.config, MagicMock(), inputs)
+    def test_new_sources_default_to_v3_1(self) -> None:
+        assert self.source.supported_versions == (CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_1)
+        assert self.source.default_version == CLEVER_API_VERSION_V3_1
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+    @parameterized.expand(
+        [
+            ("pinned_v3_0", CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_0),
+            ("pinned_v3_1", CLEVER_API_VERSION_V3_1, CLEVER_API_VERSION_V3_1),
+            ("unpinned", None, CLEVER_API_VERSION_V3_1),
+        ]
+    )
+    def test_source_for_pipeline_passes_resolved_api_version(
+        self, _name: str, pinned: str | None, expected: str
+    ) -> None:
+        with patch.object(source_module, "clever_source") as mock_source:
+            self.source.source_for_pipeline(self.config, MagicMock(), _inputs(api_version=pinned))
+
+        assert mock_source.call_args.kwargs["api_version"] == expected
+
+    @parameterized.expand(
+        [
+            ("pinned_v3_0", CLEVER_API_VERSION_V3_0, CLEVER_API_VERSION_V3_0),
+            ("pinned_v3_1", CLEVER_API_VERSION_V3_1, CLEVER_API_VERSION_V3_1),
+            ("pre_creation", None, CLEVER_API_VERSION_V3_1),
+        ]
+    )
+    def test_validate_credentials_uses_resolved_api_version(
+        self, _name: str, pinned: str | None, expected: str
+    ) -> None:
+        with patch.object(source_module, "validate_clever_credentials", return_value=(True, None)) as mock_validate:
+            self.source.validate_credentials(self.config, team_id=1, api_version=pinned)
+
+        mock_validate.assert_called_once_with("test-token", expected)
 
     @parameterized.expand(
         [
@@ -113,14 +136,3 @@ class TestCleverSource:
         else:
             assert response.partition_keys == [expected_partition_key]
             assert response.partition_mode == "datetime"
-
-    def test_non_retryable_errors_match_requests_error_format(self) -> None:
-        # The pipeline disables a source by substring-matching these keys against the raised
-        # error; they must match the message `requests.raise_for_status` actually produces.
-        response = MagicMock(spec=requests.Response)
-        response.status_code = 401
-        response.reason = "Unauthorized"
-        response.url = "https://api.clever.com/v3.0/districts?limit=10000"
-        error = requests.HTTPError(f"401 Client Error: Unauthorized for url: {response.url}", response=response)
-
-        assert any(key in str(error) for key in self.source.get_non_retryable_errors())

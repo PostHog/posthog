@@ -98,4 +98,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sharing": "User and workspace sharing details, JSON-encoded.",
         },
     },
+    "vault_project_users": {
+        "description": "Workspace users with active access to each Vault project, with their effective access level (including inherited access). The project owner always has MANAGE access.",
+        "docs_url": "https://developers.harvey.ai/guides/vault",
+        "columns": {
+            "project_id": "Vault project the access applies to (UUID). Joins to vault_projects.id.",
+            "user_id": "Unique identifier of the workspace user (UUID).",
+            "email": "Email of the user.",
+            "name": "Display name of the user.",
+            "access_level": "The user's effective access level on the project, e.g. MANAGE or READ.",
+        },
+    },
+    "vault_project_files": {
+        "description": "Files uploaded to each Vault project, with processing status, size, and upload time.",
+        "docs_url": "https://developers.harvey.ai/guides/vault",
+        "columns": {
+            "project_id": "Vault project the file belongs to (UUID). Joins to vault_projects.id.",
+            "id": "Unique identifier of the file (UUID).",
+            "name": "Display name of the file.",
+            "content_type": "MIME type of the file.",
+            "processing_status": "Processing status of the file: UPLOADED, PROCESSING, READY_TO_QUERY, READY_TO_REVIEW, RECOVERABLE_FAILURE, or UNRECOVERABLE_FAILURE.",
+            "size": "Size of the file in bytes.",
+            "uploaded_at": "When the file was uploaded, in UTC.",
+        },
+    },
+    "review_tables": {
+        "description": "Review tables in each Vault project, with their title and the files they cover.",
+        "docs_url": "https://developers.harvey.ai/guides/vault",
+        "columns": {
+            "review_table_id": "Unique integer ID of the review table.",
+            "project_id": "Vault project the review table belongs to (UUID). Joins to vault_projects.id.",
+            "title": "Title of the review table.",
+            "created_at": "When the review table was created, when available.",
+            "file_ids": "IDs of the files the review table covers, JSON-encoded. Each one is a row in review_table_rows.",
+        },
+    },
+    "review_table_rows": {
+        "description": "One row of a Vault review table per file: the answer to each column question extracted from the document, with citations and review state.",
+        "docs_url": "https://developers.harvey.ai/guides/vault",
+        "columns": {
+            "review_table_id": "Review table the row belongs to. Joins to review_tables.review_table_id.",
+            "file_id": "File the row covers (UUID). Files in a file group all return the group's row.",
+            "project_id": "Vault project the review table belongs to (UUID).",
+            "event_id": "The review table ID, as returned by Harvey.",
+            "assigned_user": "Email of the user assigned to the row.",
+            "is_assigned": "Whether the row is assigned to a user.",
+            "updated_at": "When the row was last updated.",
+            "response": "The row's cells, JSON-encoded. Each cell has the column name and question, the short answer (summary), the full reasoning (additional_context), citations, and edit, flag, and verification state.",
+        },
+    },
 }

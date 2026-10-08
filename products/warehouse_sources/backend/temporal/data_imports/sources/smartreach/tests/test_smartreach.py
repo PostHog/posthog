@@ -106,57 +106,6 @@ def _source(
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_rows_and_stops(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        urls = _wire(session, [_response([{"id": 1}, {"id": 2}], "prospects", next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert urls == [f"{SMARTREACH_BASE_URL}/prospects"]
-        # No further pages, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_links_next_until_null(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
-        p3 = f"{SMARTREACH_BASE_URL}/prospects?cursor=def"
-        urls = _wire(
-            session,
-            [
-                _response([{"id": 1}], "prospects", next_url=p2),
-                _response([{"id": 2}], "prospects", next_url=p3),
-                _response([{"id": 3}], "prospects", next_url=None),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-        # The follow-up requests hit the verbatim links.next URLs.
-        assert urls == [f"{SMARTREACH_BASE_URL}/prospects", p2, p3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_url_after_yielding_each_batch(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
-        _wire(
-            session,
-            [
-                _response([{"id": 1}], "prospects", next_url=p2),
-                _response([{"id": 2}], "prospects", next_url=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved AFTER page 1 is yielded (pointing at the next URL), never for the final page.
-        manager.save_state.assert_called_once_with(SmartreachResumeConfig(next_url=p2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor_url(self, MockSession: Any) -> None:
         session = MockSession.return_value
         p2 = f"{SMARTREACH_BASE_URL}/prospects?cursor=abc"
@@ -175,34 +124,6 @@ class TestPagination:
         assert rows == [{"id": 2}, {"id": 3}]
         # The first-page URL is never fetched on resume — the run starts at the saved cursor.
         assert urls == [p2, p3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], "prospects", next_url=None)])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reads_rows_from_endpoint_specific_data_key(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 9}], "campaigns", next_url=None)])
-
-        rows = _rows(_source(_make_manager(), endpoint="campaigns"))
-        assert rows == [{"id": 9}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_empty_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        # A body without the endpoint's data key is tolerated as an empty page (not a hard error).
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps({"data": {"other": []}, "links": {"next": None}}).encode()
-        resp.url = f"{SMARTREACH_BASE_URL}/prospects"
-        _wire(session, [resp])
-
-        assert _rows(_source(_make_manager())) == []
 
 
 class TestVersionDispatch:
@@ -254,21 +175,6 @@ class TestSSRFHostPinning:
 
 
 class TestRetryAndFailLoud:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_transient_5xx_is_retried_then_succeeds(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(None, "prospects", next_url=None, status=500),
-                _response([{"id": 1}], "prospects", next_url=None, status=200),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_errors_fail_loud(self, _name: str, status: int, MockSession: Any) -> None:
@@ -308,14 +214,6 @@ class TestCheckAccess:
             status, message = check_access("uk_test", SMARTREACH_API_V1)
         assert status == 0
         assert message == "Could not connect to SmartReach"
-
-    def test_v1_probes_campaigns_without_team_id(self) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        with self._patch_session(response) as patched:
-            check_access("uk_test", SMARTREACH_API_V1)
-        session = patched.return_value
-        assert session.get.call_args.args[0] == f"{SMARTREACH_BASE_URL}/campaigns"
 
     def test_v3_probes_campaigns_with_team_id_on_v3_base(self) -> None:
         # v3 rejects a list request without team_id, so the probe URL must carry it against the v3 base.

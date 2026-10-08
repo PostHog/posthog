@@ -30,13 +30,13 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
+from products.batch_exports.backend.facade.destinations.snowflake import (
     NamedBytesIO,
     SnowflakeClient,
     SnowflakeField,
     SnowflakeTable,
     SnowflakeType,
-    _get_snowflake_integration,
+    get_snowflake_integration,
     load_private_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -219,7 +219,7 @@ class SnowflakeDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        creds = await _get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
+        creds = await get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
 
         private_key: bytes | None = None
         password: str | None = None

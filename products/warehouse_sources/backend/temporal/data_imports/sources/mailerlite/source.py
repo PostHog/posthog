@@ -182,10 +182,7 @@ Copy the `secret` from the response into the field below. MailerLite never retur
     ) -> tuple[bool, str | None]:
         endpoint_config = MAILERLITE_ENDPOINTS.get(schema_name) if schema_name else None
         path = endpoint_config.path if endpoint_config else "/subscribers"
-        if validate_mailerlite_credentials(config.api_key, path):
-            return True, None
-
-        return False, "Invalid MailerLite API key"
+        return validate_mailerlite_credentials(config.api_key, path)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailerLiteResumeConfig]:
         return ResumableSourceManager[MailerLiteResumeConfig](inputs, MailerLiteResumeConfig)

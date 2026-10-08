@@ -124,6 +124,12 @@ describe('dashboardVisualizationOptions', () => {
 
     describe('sqlQueryForVisualizationPicker', () => {
         it.each([
+            {
+                label: 'BI worksheets change chart types in their builder',
+                query: { ...sqlQuery, kind: NodeKind.BIVisualizationNode } as Node,
+                canPersist: true,
+                expected: null,
+            },
             { label: 'SQL insight gets the picker', query: sqlQuery as Node, canPersist: true, expected: sqlQuery },
             {
                 label: 'a trends insight gets nothing, since its chart type carries query side effects',

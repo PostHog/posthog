@@ -1,9 +1,11 @@
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import serializers
 
+from products.dashboards.backend.api.dashboard import DashboardWriteOpenApiSerializer
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
+from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
 
 
@@ -19,6 +21,13 @@ def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[s
 
 
 class TestDashboardPatchOpenApiContract:
+    def test_write_schemas_exclude_legacy_collaborator_level(self) -> None:
+        supported_level = RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value
+        for serializer in (DashboardWriteOpenApiSerializer(), PatchedDashboardOpenApiSerializer()):
+            field = serializer.fields["restriction_level"]
+            assert isinstance(field, serializers.IntegerField)
+            assert field.min_value == field.max_value == supported_level
+
     def test_patched_dashboard_openapi_covers_runtime_patch_fields(self) -> None:
         runtime_fields = dashboard_patch_runtime_openapi_field_names()
         openapi_fields = frozenset(PatchedDashboardOpenApiSerializer().fields.keys())

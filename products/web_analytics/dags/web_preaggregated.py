@@ -18,6 +18,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
 )
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL
 from posthog.settings import DEBUG, TEST
 
 from products.web_analytics.dags.web_preaggregated_utils import (
@@ -46,6 +47,12 @@ REPLACE_TEMPLATES_BY_STAGING_TABLE_NAME = {
 }
 
 
+def count_selected_teams() -> int:
+    with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
+        rows = sync_execute(f"SELECT count() FROM ({WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL()})")
+    return rows[0][0]
+
+
 def pre_aggregate_web_analytics_data(
     context: dagster.AssetExecutionContext,
     table_name: str,
@@ -54,6 +61,9 @@ def pre_aggregate_web_analytics_data(
 ) -> None:
     config = context.op_config
     team_ids = config.get("team_ids")
+    # An empty selection would swap empty partitions over the existing data
+    if not team_ids and count_selected_teams() == 0:
+        raise dagster.Failure("No teams are selected for web analytics pre-aggregation")
     extra_settings = config.get("extra_clickhouse_settings", "")
     ch_settings = merge_clickhouse_settings(WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS, extra_settings)
 
@@ -87,7 +97,7 @@ def pre_aggregate_web_analytics_data(
         )
 
         context.log.info(f"Populating staging table with hourly data from {date_start} to {date_end}")
-        context.log.info(f"Processing {len(team_ids) if team_ids else 0} team_ids: {team_ids}")
+        context.log.info(f"Processing team_ids: {team_ids or 'all teams in the team selection table'}")
         context.log.info(insert_query)
         with tags_context(product=ProductKey.WEB_ANALYTICS, feature=Feature.PREAGGREGATION):
             sync_execute(insert_query)

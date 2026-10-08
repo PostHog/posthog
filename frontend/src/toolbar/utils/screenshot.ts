@@ -28,6 +28,7 @@ export async function captureElementScreenshot(element: HTMLElement, options?: C
             type: 'image/jpeg',
             quality: 0.7,
             filter: screenshotFilter,
+            backgroundColor: '#ffffff',
             ...options,
         })
     } catch (error) {

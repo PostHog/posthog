@@ -5,7 +5,7 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 
 import { mswDecorator } from '~/mocks/browser'
-import { MCPModelBreakdownQuery } from '~/queries/schema/schema-general'
+import { MCPModelBreakdownQuery, MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
 
 import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
@@ -23,6 +23,7 @@ import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
 import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
+import { ProtocolVersionStrip } from './ProtocolVersionStrip'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
 import { ToolUsageChart } from './ToolUsageChart'
 
@@ -112,6 +113,15 @@ const modelPagesDecorator = mswDecorator({
         },
     },
 })
+
+const PROTOCOL_VERSION_ROWS: MCPProtocolVersionBreakdownItem[] = [
+    { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
+    { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
+    { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
+    { protocol_version: '2025-03-26', is_current: false, total_calls: 15 },
+    { protocol_version: '2024-11-05', is_current: false, total_calls: 20 },
+    { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
+]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -383,6 +393,29 @@ export const ShareByModelUnknownOnly: Story = {
 
 export const ShareByModelEmpty: Story = {
     render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
+}
+
+export const ShareByProtocolVersion: Story = {
+    render: withTheme((theme) => <ProtocolVersionStrip rows={PROTOCOL_VERSION_ROWS} theme={theme} />),
+}
+
+export const ShareByProtocolVersionManyLegacy: Story = {
+    render: withTheme((theme) => (
+        <ProtocolVersionStrip
+            rows={[
+                { protocol_version: 'draft', is_current: true, total_calls: 120 },
+                { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
+                { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
+                { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
+                { protocol_version: '2025-03-26', is_current: false, total_calls: 415 },
+                { protocol_version: '2024-11-05', is_current: false, total_calls: 220 },
+                { protocol_version: 'v2', is_current: false, total_calls: 90 },
+                { protocol_version: 'Other', is_current: false, total_calls: 60 },
+                { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
+            ]}
+            theme={theme}
+        />
+    )),
 }
 
 export const ErrorRateByTool: Story = {

@@ -342,7 +342,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Which kernel this run was dispatched to, so the callback can file the run's frame
     # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
     # are transient (starting/stopped/discarded/error) and run history must not be coupled
-    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    # to their churn.
     kernel_runtime_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

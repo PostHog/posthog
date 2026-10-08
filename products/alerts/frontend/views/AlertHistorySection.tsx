@@ -157,7 +157,7 @@ export function AlertHistorySection({
     const showWhyColumn =
         isLLMDetectorAlert ||
         alertHistoryChecksSortedDesc.some(
-            (check) => !!(check.triggered_metadata as { rationale?: string } | null)?.rationale
+            (check) => !!check.triggered_metadata?.rationale || !!check.triggered_metadata?.skipped_reason
         )
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
@@ -165,7 +165,7 @@ export function AlertHistorySection({
             {
                 title: 'Status',
                 key: 'state',
-                render: (_value, check) => check.state,
+                render: (_value, check) => (check.triggered_metadata?.skipped_reason ? 'Skipped' : check.state),
             },
             {
                 title: 'Time',
@@ -180,6 +180,17 @@ export function AlertHistorySection({
                 render: (_value, check) => check.calculated_value ?? '—',
             },
         ]
+        if (alertHistoryChecksSortedDesc.some((check) => check.triggered_metadata?.evaluated_interval_start)) {
+            columns.push({
+                title: 'Evaluated interval',
+                render: (_value, check) => {
+                    const metadata = check.triggered_metadata
+                    return metadata?.evaluated_interval_start ? (
+                        <div className="text-sm max-w-xs break-words">{`${metadata.evaluated_interval_start} to ${metadata.evaluated_interval_end} (${metadata.evaluated_interval_timezone}; delay: ${metadata.evaluation_delay_intervals} intervals)`}</div>
+                    ) : null
+                },
+            })
+        }
         if (alertHistoryIsAnomalyDetection) {
             columns.push({
                 title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
@@ -199,7 +210,8 @@ export function AlertHistorySection({
             columns.push({
                 title: 'Why',
                 render: (_value, check) => {
-                    const rationale = (check.triggered_metadata as { rationale?: string } | null)?.rationale?.trim()
+                    const metadata = check.triggered_metadata as { rationale?: string; skipped_reason?: string } | null
+                    const rationale = (metadata?.skipped_reason ?? metadata?.rationale)?.trim()
                     if (!rationale) {
                         return '—'
                     }
@@ -279,6 +291,7 @@ export function AlertHistorySection({
         isAnyRowSqlAlert,
         alertHistoryChartSeriesName,
         showWhyColumn,
+        alertHistoryChecksSortedDesc,
     ])
 
     if (!alert) {

@@ -19,9 +19,13 @@
 //! timestamp to place the row in its day, the accumulator keys on the person, and the event name
 //! selects which conditions run. Leaving them out of [`ColumnPlan`] means no caller can ask for that.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use cohort_core::hogvm::analysis::{ConditionAnalysis, GlobalRoot, Projection, ReadPath};
+use cohort_core::hogvm::analysis::{
+    ColumnExactness, ConditionAnalysis, Exactness, GlobalRoot, Projection, ReadPath,
+};
+
+use super::columns::{ColumnName, MaterializedColumns};
 
 /// What one chunk's scan must select.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +40,7 @@ pub enum ChunkProjection {
 pub struct ColumnPlan {
     pub uuid: ScalarColumn,
     pub elements_chain: ScalarColumn,
-    pub properties: BlobSource,
+    pub properties: PropertiesSource,
     pub person_properties: BlobSource,
 }
 
@@ -56,6 +60,13 @@ pub enum BlobSource {
     /// Nothing: no active condition reads under this root.
     Empty,
     Keys(ProjectedKeys),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PropertiesSource {
+    Blob(BlobSource),
+    /// Only the event's own properties have materialized columns.
+    Columns(ColumnBackedKeys),
 }
 
 /// A non-empty set of top-level keys, in a stable order so a rendered scan is reproducible.
@@ -83,6 +94,194 @@ impl ProjectedKeys {
     }
 }
 
+/// Non-empty, and built only from keys proven exact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnBackedKeys(BTreeMap<String, ColumnName>);
+
+impl ColumnBackedKeys {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &ColumnName)> {
+        self.0.iter().map(|(key, column)| (key.as_str(), column))
+    }
+
+    pub fn count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+/// Keys every active condition reads only through exact equalities.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ColumnExactKeys(ColumnExactness);
+
+impl ColumnExactKeys {
+    /// Only the condition analysis may build one.
+    pub(crate) fn new(exactness: ColumnExactness) -> Self {
+        Self(exactness)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn exact<K: Into<String>>(keys: impl IntoIterator<Item = K>) -> Self {
+        Self(
+            keys.into_iter()
+                .map(|key| (key, Exactness::Exact))
+                .collect(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn exact_keys(&self) -> impl Iterator<Item = &str> {
+        self.0.exact_keys()
+    }
+
+    fn covers(&self, keys: &ProjectedKeys) -> bool {
+        keys.iter()
+            .all(|key| self.0.get(key) == Some(Exactness::Exact))
+    }
+
+    pub(crate) fn back(
+        &self,
+        keys: &ProjectedKeys,
+        columns: &MaterializedColumns,
+    ) -> Result<ColumnBackedKeys, Unbacked> {
+        if !self.covers(keys) {
+            return Err(Unbacked::InexactKey);
+        }
+        keys.iter()
+            .map(|key| Some((key.to_owned(), columns.column_for(key)?.clone())))
+            .collect::<Option<_>>()
+            .map(ColumnBackedKeys)
+            .ok_or(Unbacked::NoColumn)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unbacked {
+    InexactKey,
+    /// A key has no column, or the lookup failed.
+    NoColumn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildReason {
+    Unbacked(Unbacked),
+    TooLong,
+    /// A column of the chunk holds a value that reads as `false`. It can be the boolean or the
+    /// string `"false"`, and the VM answers an exact equality on the two oppositely.
+    AmbiguousValue,
+}
+
+/// The `source` label of `seeder_scan_properties_source_total`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertiesOutcome {
+    Whole,
+    Empty,
+    Columns,
+    Rebuilt(RebuildReason),
+}
+
+impl PropertiesOutcome {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Whole => "whole",
+            Self::Empty => "empty",
+            Self::Columns => "columns",
+            Self::Rebuilt(RebuildReason::Unbacked(Unbacked::InexactKey)) => "rebuilt_inexact_key",
+            Self::Rebuilt(RebuildReason::Unbacked(Unbacked::NoColumn)) => "rebuilt_no_column",
+            Self::Rebuilt(RebuildReason::TooLong) => "rebuilt_too_long",
+            Self::Rebuilt(RebuildReason::AmbiguousValue) => "rebuilt_ambiguous_value",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum PropertiesSourcing {
+    Decided(SourcedProjection),
+    /// The caller decides whether the column form fits and whether the chunk's values are
+    /// unambiguous.
+    Upgradable(ColumnUpgrade),
+}
+
+#[derive(Debug)]
+pub struct ColumnUpgrade {
+    rebuilt: ColumnPlan,
+    backed: ColumnBackedKeys,
+}
+
+impl ColumnUpgrade {
+    pub fn backed(&self) -> &ColumnBackedKeys {
+        &self.backed
+    }
+
+    pub fn column_form(&self) -> ChunkProjection {
+        ChunkProjection::Projected(ColumnPlan {
+            properties: PropertiesSource::Columns(self.backed.clone()),
+            ..self.rebuilt.clone()
+        })
+    }
+
+    pub fn accept(self) -> SourcedProjection {
+        SourcedProjection {
+            projection: self.column_form(),
+            outcome: PropertiesOutcome::Columns,
+        }
+    }
+
+    pub fn decline_too_long(self) -> SourcedProjection {
+        self.decline(RebuildReason::TooLong)
+    }
+
+    pub fn decline_ambiguous_value(self) -> SourcedProjection {
+        self.decline(RebuildReason::AmbiguousValue)
+    }
+
+    fn decline(self, reason: RebuildReason) -> SourcedProjection {
+        SourcedProjection {
+            projection: ChunkProjection::Projected(self.rebuilt),
+            outcome: PropertiesOutcome::Rebuilt(reason),
+        }
+    }
+}
+
+/// Built only by sourcing, so the projection and its label agree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcedProjection {
+    projection: ChunkProjection,
+    outcome: PropertiesOutcome,
+}
+
+impl SourcedProjection {
+    pub fn projection(&self) -> &ChunkProjection {
+        &self.projection
+    }
+
+    pub const fn outcome(&self) -> PropertiesOutcome {
+        self.outcome
+    }
+
+    pub fn into_projection(self) -> ChunkProjection {
+        self.projection
+    }
+}
+
+impl BlobSource {
+    /// `None` when the scan reads the whole blob.
+    pub fn key_count(&self) -> Option<usize> {
+        match self {
+            Self::Full => None,
+            Self::Empty => Some(0),
+            Self::Keys(keys) => Some(keys.count()),
+        }
+    }
+}
+
+impl PropertiesSource {
+    pub fn key_count(&self) -> Option<usize> {
+        match self {
+            Self::Blob(blob) => blob.key_count(),
+            Self::Columns(columns) => Some(columns.count()),
+        }
+    }
+}
+
 impl ColumnPlan {
     /// Every narrowable column selected whole — what the seeder scanned before this existed.
     ///
@@ -93,7 +292,7 @@ impl ColumnPlan {
         Self {
             uuid: ScalarColumn::Keep,
             elements_chain: ScalarColumn::Keep,
-            properties: BlobSource::Full,
+            properties: PropertiesSource::Blob(BlobSource::Full),
             person_properties: BlobSource::Full,
         }
     }
@@ -122,6 +321,50 @@ impl ChunkProjection {
             }
         }
         Self::Projected(demand.into_plan())
+    }
+
+    /// All projected keys when all are exact; one key left on the blob reads the whole blob.
+    pub fn column_candidates(&self, exact: &ColumnExactKeys) -> Option<&ProjectedKeys> {
+        let Self::Projected(plan) = self else {
+            return None;
+        };
+        match &plan.properties {
+            PropertiesSource::Blob(BlobSource::Keys(keys)) => exact.covers(keys).then_some(keys),
+            PropertiesSource::Blob(BlobSource::Full | BlobSource::Empty)
+            | PropertiesSource::Columns(_) => None,
+        }
+    }
+
+    /// Never upgrades [`ChunkProjection::FullColumns`], which the shadow compare's wide arm needs.
+    pub fn source_properties(
+        self,
+        exact: &ColumnExactKeys,
+        columns: &MaterializedColumns,
+    ) -> PropertiesSourcing {
+        let Self::Projected(plan) = self else {
+            return PropertiesSourcing::Decided(SourcedProjection {
+                projection: self,
+                outcome: PropertiesOutcome::Whole,
+            });
+        };
+        let outcome = match &plan.properties {
+            PropertiesSource::Columns(_) => PropertiesOutcome::Columns,
+            PropertiesSource::Blob(BlobSource::Full) => PropertiesOutcome::Whole,
+            PropertiesSource::Blob(BlobSource::Empty) => PropertiesOutcome::Empty,
+            PropertiesSource::Blob(BlobSource::Keys(keys)) => match exact.back(keys, columns) {
+                Ok(backed) => {
+                    return PropertiesSourcing::Upgradable(ColumnUpgrade {
+                        rebuilt: plan,
+                        backed,
+                    })
+                }
+                Err(unbacked) => PropertiesOutcome::Rebuilt(RebuildReason::Unbacked(unbacked)),
+            },
+        };
+        PropertiesSourcing::Decided(SourcedProjection {
+            projection: Self::Projected(plan),
+            outcome,
+        })
     }
 
     /// The label this chunk's scan is metered under.
@@ -242,7 +485,7 @@ impl Demand {
         ColumnPlan {
             uuid: keep_if(self.uuid),
             elements_chain: keep_if(self.elements_chain),
-            properties: self.properties.freeze(),
+            properties: PropertiesSource::Blob(self.properties.freeze()),
             person_properties: self.person_properties.freeze(),
         }
     }
@@ -292,6 +535,13 @@ mod tests {
         }
     }
 
+    fn blob(source: &PropertiesSource) -> &BlobSource {
+        match source {
+            PropertiesSource::Blob(blob) => blob,
+            PropertiesSource::Columns(columns) => panic!("expected the blob, got {columns:?}"),
+        }
+    }
+
     fn keys(source: &BlobSource) -> Vec<&str> {
         match source {
             BlobSource::Keys(keys) => keys.iter().collect(),
@@ -318,7 +568,7 @@ mod tests {
             ColumnPlan {
                 uuid: ScalarColumn::Empty,
                 elements_chain: ScalarColumn::Empty,
-                properties: BlobSource::Empty,
+                properties: PropertiesSource::Blob(BlobSource::Empty),
                 person_properties: BlobSource::Empty,
             }
         );
@@ -339,7 +589,7 @@ mod tests {
             path(GlobalRoot::ElementsChainIds, &[]),
             path(GlobalRoot::ElementsChainElements, &[]),
         ])]);
-        assert_eq!(plan.properties, BlobSource::Empty);
+        assert_eq!(plan.properties, PropertiesSource::Blob(BlobSource::Empty));
         assert_eq!(plan.person_properties, BlobSource::Empty);
         assert_eq!(plan.uuid, ScalarColumn::Empty);
         assert_eq!(plan.elements_chain, ScalarColumn::Empty);
@@ -354,7 +604,7 @@ mod tests {
             path(GlobalRoot::Person, &["properties", "company", "size"]),
             path(GlobalRoot::Pdi, &["person", "properties", "email"]),
         ])]);
-        assert_eq!(keys(&plan.properties), ["$set"]);
+        assert_eq!(keys(blob(&plan.properties)), ["$set"]);
         assert_eq!(keys(&plan.person_properties), ["company", "email"]);
     }
 
@@ -366,7 +616,7 @@ mod tests {
             reads([path(GlobalRoot::Properties, &["utm_source"])]),
             reads([path(GlobalRoot::Properties, &["plan"])]),
         ]);
-        assert_eq!(keys(&plan.properties), ["plan", "utm_source"]);
+        assert_eq!(keys(blob(&plan.properties)), ["plan", "utm_source"]);
     }
 
     /// `person.properties` and `pdi.person` name whole objects whose keys are chosen at runtime, so
@@ -383,7 +633,11 @@ mod tests {
             ]);
             assert_eq!(plan.person_properties, BlobSource::Full, "{whole:?}");
             // Only the person blob widens: the event's own properties are untouched by it.
-            assert_eq!(plan.properties, BlobSource::Empty, "{whole:?}");
+            assert_eq!(
+                plan.properties,
+                PropertiesSource::Blob(BlobSource::Empty),
+                "{whole:?}"
+            );
         }
     }
 
@@ -417,7 +671,7 @@ mod tests {
             path(GlobalRoot::Properties, &["$elements_chain"]),
         ])]);
         assert_eq!(plan.elements_chain, ScalarColumn::Keep);
-        assert_eq!(keys(&plan.properties), ["$elements_chain"]);
+        assert_eq!(keys(blob(&plan.properties)), ["$elements_chain"]);
     }
 
     /// Every way a condition can escape the analysis takes the whole chunk wide, whatever its
@@ -452,10 +706,113 @@ mod tests {
             ChunkProjection::Projected(ColumnPlan {
                 uuid: ScalarColumn::Empty,
                 elements_chain: ScalarColumn::Empty,
-                properties: BlobSource::Empty,
+                properties: PropertiesSource::Blob(BlobSource::Empty),
                 person_properties: BlobSource::Empty,
             })
         );
+    }
+
+    fn reading_properties(properties: PropertiesSource) -> ChunkProjection {
+        ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Keep,
+            properties,
+            person_properties: BlobSource::Full,
+        })
+    }
+
+    fn rebuilt(names: &[&str]) -> ChunkProjection {
+        let keys = ProjectedKeys::new(names.iter().map(|name| (*name).to_owned()).collect())
+            .expect("the test key sets are non-empty");
+        reading_properties(PropertiesSource::Blob(BlobSource::Keys(keys)))
+    }
+
+    #[test]
+    fn properties_come_from_columns_only_when_every_key_is_exact_and_stored() {
+        let exact = ColumnExactKeys::exact(["$current_url", "$pathname", "$host"]);
+        let stored: MaterializedColumns = [
+            ("$current_url", "mat_$current_url"),
+            ("$pathname", "mat_$pathname"),
+            ("plan", "mat_plan"),
+        ]
+        .into_iter()
+        .collect();
+        let upgrade =
+            |projection: ChunkProjection| match projection.source_properties(&exact, &stored) {
+                PropertiesSourcing::Upgradable(upgrade) => upgrade,
+                PropertiesSourcing::Decided(sourced) => panic!("no upgrade offered: {sourced:?}"),
+            };
+
+        let both = rebuilt(&["$current_url", "$pathname"]);
+        assert!(both.column_candidates(&exact).is_some());
+        let accepted = upgrade(both.clone()).accept();
+        assert_eq!(accepted.outcome(), PropertiesOutcome::Columns);
+        let ChunkProjection::Projected(plan) = accepted.projection() else {
+            panic!("an upgrade keeps the chunk projected");
+        };
+        let PropertiesSource::Columns(columns) = &plan.properties else {
+            panic!("expected columns, got {:?}", plan.properties);
+        };
+        assert_eq!(
+            columns
+                .iter()
+                .map(|(key, column)| (key, column.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("$current_url", "mat_$current_url"),
+                ("$pathname", "mat_$pathname")
+            ]
+        );
+        assert_eq!(plan.person_properties, BlobSource::Full);
+        assert_eq!(plan.elements_chain, ScalarColumn::Keep);
+
+        for (declined, reason) in [
+            (
+                upgrade(both.clone()).decline_too_long(),
+                RebuildReason::TooLong,
+            ),
+            (
+                upgrade(both.clone()).decline_ambiguous_value(),
+                RebuildReason::AmbiguousValue,
+            ),
+        ] {
+            assert_eq!(
+                (declined.outcome(), declined.into_projection()),
+                (PropertiesOutcome::Rebuilt(reason), both.clone())
+            );
+        }
+
+        let inexact = rebuilt(&["$current_url", "plan"]);
+        assert_eq!(inexact.column_candidates(&exact), None);
+        for (projection, expected) in [
+            (
+                inexact,
+                PropertiesOutcome::Rebuilt(RebuildReason::Unbacked(Unbacked::InexactKey)),
+            ),
+            (
+                rebuilt(&["$current_url", "$host"]),
+                PropertiesOutcome::Rebuilt(RebuildReason::Unbacked(Unbacked::NoColumn)),
+            ),
+            (ChunkProjection::FullColumns, PropertiesOutcome::Whole),
+            (
+                reading_properties(PropertiesSource::Blob(BlobSource::Full)),
+                PropertiesOutcome::Whole,
+            ),
+            (
+                reading_properties(PropertiesSource::Blob(BlobSource::Empty)),
+                PropertiesOutcome::Empty,
+            ),
+        ] {
+            let PropertiesSourcing::Decided(sourced) =
+                projection.clone().source_properties(&exact, &stored)
+            else {
+                panic!("{projection:?} was offered an upgrade");
+            };
+            assert_eq!(
+                (sourced.outcome(), sourced.into_projection()),
+                (expected, projection)
+            );
+        }
     }
 
     #[test]

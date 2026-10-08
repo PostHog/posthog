@@ -14,6 +14,8 @@ from unittest import skip
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActorsQuery,
     DateRange,
@@ -24,10 +26,13 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
+    InsightActorsQueryOptions,
     StepOrderValue,
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
@@ -67,6 +72,24 @@ def get_actors(
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+
+    @parameterized.expand([("correlation",), ("correlation_actors",), ("actors_options",)])
+    def test_wrapper_queries_use_source_funnel_modifiers(self, wrapper):
+        funnel = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+        )
+        correlation = FunnelCorrelationQuery(
+            source=FunnelsActorsQuery(source=funnel), funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+        )
+        query = {
+            "correlation": correlation,
+            "correlation_actors": FunnelCorrelationActorsQuery(source=correlation),
+            "actors_options": InsightActorsQueryOptions(source=FunnelsActorsQuery(source=funnel)),
+        }[wrapper]
+
+        runner = get_query_runner(query, self.team)
+        self.assertTrue(runner.modifiers.useNewEventsSchema)
 
     def _setup_basic_test(self):
         query = FunnelsQuery(

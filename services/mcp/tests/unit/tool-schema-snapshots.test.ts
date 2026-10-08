@@ -5,10 +5,12 @@ import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { OAUTH_SCOPES_HIDDEN } from '@/lib/constants'
+import { PostHogMCP } from '@posthog/mcp-analytics'
+
+import { CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT, OAUTH_SCOPES_HIDDEN } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import type { Context } from '@/tools/types'
+import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 function createMockContext(): Context {
     return {
@@ -82,31 +84,36 @@ async function formatSnapshotJson(snapshotPath: string, schema: unknown): Promis
     return result.code
 }
 
+async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
+    // Enable flag-gated tools we snapshot here: tracing (APM spans), tasks, loops,
+    // dashboard-widgets and experiment setup context. Other flag-gated tools (logs-alerts,
+    // visual-review, etc.) stay off to keep the surface stable.
+    // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
+    const featureFlags = {
+        tracing: true,
+        tasks: true,
+        'tasks-mcp-agent-run-start': true,
+        loops: true,
+        'dashboard-widgets': true,
+        'agent-platform': true,
+        'billing-alerts': true,
+        'experiment-setup-context': true,
+        'scout-trials': true,
+        'signals-report-checks-replace': true,
+        'ai-observability-offline-evaluations': true,
+    }
+    return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    )
+}
+
 describe('Tool schema snapshots', () => {
     const __filename = fileURLToPath(import.meta.url)
     const __dirname = path.dirname(__filename)
-    const context = createMockContext()
     it('snapshots runtime tool schemas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        // Enable flag-gated tools we snapshot here: tracing (APM spans), tasks, loops,
-        // dashboard-widgets, billing read tools, and experiment setup context. Other flag-gated tools (logs-alerts,
-        // visual-review, etc.) stay off to keep the surface stable.
-        // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
-        const featureFlags = {
-            tracing: true,
-            tasks: true,
-            'tasks-mcp-agent-run-start': true,
-            loops: true,
-            'dashboard-widgets': true,
-            'agent-platform': true,
-            'billing-alerts': true,
-            'billing-mcp-read-tools': true,
-            'experiment-setup-context': true,
-        }
-        const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
-            a.name.localeCompare(b.name)
-        )
+        const tools = await loadSnapshotTools()
 
         expect(tools.length).toBeGreaterThan(0)
 
@@ -136,5 +143,101 @@ describe('Tool schema snapshots', () => {
                     .join('\n')}`
             )
         }
+    })
+
+    describe('schema budgets', () => {
+        // Ratchet: the number of oversized tool schemas may only go down.
+        const OVERSIZED_SCHEMA_COUNT = 44
+        // Ratchet: the share of nested properties with a description may only go up.
+        const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
+
+        interface DescriptionCoverage {
+            described: number
+            total: number
+        }
+
+        function schemaChildren(schema: Record<string, unknown>): Record<string, unknown>[] {
+            const branches = [schema.anyOf, schema.oneOf, schema.allOf].flatMap((group) =>
+                Array.isArray(group) ? (group as Record<string, unknown>[]) : []
+            )
+            const items =
+                schema.items && typeof schema.items === 'object' ? [schema.items as Record<string, unknown>] : []
+            return [...branches, ...items]
+        }
+
+        function countNestedProperties(schema: unknown, depth: number, into: DescriptionCoverage): void {
+            if (!schema || typeof schema !== 'object') {
+                return
+            }
+            const node = schema as Record<string, unknown>
+            const properties = node.properties as Record<string, Record<string, unknown>> | undefined
+            for (const property of Object.values(properties ?? {})) {
+                if (depth > 0) {
+                    into.total += 1
+                    if (typeof property.description === 'string' && property.description.length > 0) {
+                        into.described += 1
+                    }
+                }
+                countNestedProperties(property, depth + 1, into)
+            }
+            for (const child of schemaChildren(node)) {
+                countNestedProperties(child, depth, into)
+            }
+        }
+
+        function percent({ described, total }: DescriptionCoverage): number {
+            return total === 0 ? 100 : (described / total) * 100
+        }
+
+        it('keeps the number of tool schemas over the claude.ai registry limit from growing', async () => {
+            const tools = await loadSnapshotTools()
+            // The analytics SDK adds a `context` property at registration, so measure the registered shape.
+            const posthog = new PostHogMCP('phc_test', { disabled: true })
+            const registered = posthog.prepareToolList(
+                tools.map((tool) => ({
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' }) as {
+                        type: 'object'
+                        [key: string]: unknown
+                    },
+                }))
+            )
+            const oversized = registered
+                .map((entry) => ({ name: entry.name, size: JSON.stringify(entry.inputSchema).length }))
+                .filter(({ size }) => size >= CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT)
+                .sort((a, b) => b.size - a.size)
+
+            const offenders = oversized.map(({ name, size }) => `- ${name}: ${size} chars`).join('\n')
+
+            expect(
+                oversized.length,
+                `${oversized.length} tool schemas are at or over ${CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT} chars, ` +
+                    `above the ratchet of ${OVERSIZED_SCHEMA_COUNT}. Claude web and desktop silently drop such tools in tools mode. ` +
+                    `Shrink the schema with exclude_params, include_params or param_overrides in the product tools.yaml, ` +
+                    `or shorten serializer help_text. Largest schemas:\n${offenders}`
+            ).toBeLessThanOrEqual(OVERSIZED_SCHEMA_COUNT)
+            expect(
+                oversized.length,
+                `Only ${oversized.length} tool schemas are at or over the limit. Lower OVERSIZED_SCHEMA_COUNT ` +
+                    `from ${OVERSIZED_SCHEMA_COUNT} to ${oversized.length} so the count only goes down.`
+            ).toBe(OVERSIZED_SCHEMA_COUNT)
+        })
+
+        it('keeps description coverage of nested tool properties from dropping', async () => {
+            const tools = await loadSnapshotTools()
+            const nested: DescriptionCoverage = { described: 0, total: 0 }
+            for (const tool of tools) {
+                const schema = z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' })
+                countNestedProperties(schema, 0, nested)
+            }
+            expect(
+                percent(nested),
+                `Only ${percent(nested).toFixed(1)}% of nested tool properties have a description ` +
+                    `(${nested.described} of ${nested.total}), below the floor of ${NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT}%. ` +
+                    `Add help_text to the serializer fields behind the new properties and regenerate with hogli build:openapi, ` +
+                    `or drop the properties with exclude_params.`
+            ).toBeGreaterThanOrEqual(NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT)
+        })
     })
 })

@@ -137,6 +137,31 @@ describe('RunSurface', () => {
     })
 
     describe('Composer slot', () => {
+        it('replaces the loading fallback with the composer after the run status resolves', () => {
+            setValues({ currentRunStatus: null })
+            const surface = (
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            const { rerender } = render(surface)
+            expect(screen.getByTestId('composer-loading')).toBeInTheDocument()
+            expect(screen.queryByTestId('composer-child')).not.toBeInTheDocument()
+
+            setValues({ currentRunStatus: 'completed' })
+            rerender(
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Composer loadingFallback={<div data-attr="composer-loading" />}>
+                        <div data-attr="composer-child" />
+                    </RunSurface.Composer>
+                </RunSurface.Root>
+            )
+            expect(screen.queryByTestId('composer-loading')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer-child')).toBeInTheDocument()
+        })
+
         it('clears a draft sent before its debounce commits', () => {
             jest.useFakeTimers()
             try {

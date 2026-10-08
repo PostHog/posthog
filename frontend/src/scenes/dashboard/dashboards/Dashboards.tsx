@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
@@ -16,6 +20,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -23,10 +28,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
+import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
-import { DashboardSavedViews } from 'products/dashboards/frontend/saved-views/DashboardSavedViews'
 
 import { DashboardsTableContainer } from './DashboardsTable'
+import { NewDashboardMenu } from './NewDashboardMenu'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -36,20 +43,22 @@ export const scene: SceneExport = {
 }
 
 export function Dashboards(): JSX.Element {
+    const { searchParams } = useValues(router)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
+    const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
-        {
-            key: DashboardsTab.Templates,
-            label: 'Templates',
-        },
+        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project dashboards' }] : []),
     ]
 
     return (
@@ -57,6 +66,21 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <LemonModal
+                title="Manage templates"
+                isOpen={templatesModalOpen}
+                onClose={() =>
+                    router.actions.push(urls.dashboards(), {
+                        ...searchParams,
+                        templates: undefined,
+                        templateFilter: undefined,
+                    })
+                }
+                width="min(1200px, calc(100vw - 3rem))"
+                data-attr="dashboard-templates-modal"
+            >
+                {templatesModalOpen && <DashboardTemplatesTable />}
+            </LemonModal>
             <DashboardTemplateEditor />
             <DashboardTemplateModal />
 
@@ -67,7 +91,9 @@ export function Dashboards(): JSX.Element {
                     type: sceneConfigurations[Scene.Dashboards].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
+                    crossProjectTabOpen ? (
+                        <NewCrossProjectDashboardButton />
+                    ) : (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Dashboard}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -84,12 +110,21 @@ export function Dashboards(): JSX.Element {
                                     data-attr="new-dashboard"
                                     onClick={showNewDashboardModal}
                                     type="primary"
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        'aria-label': 'More dashboard options',
+                                        'data-attr': 'new-dashboard-dropdown',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: <NewDashboardMenu />,
+                                        },
+                                    }}
                                 >
                                     New dashboard
                                 </LemonButton>
                             </Shortcut>
                         </AccessControlAction>
-                    </>
+                    )
                 }
             />
             <LemonTabs
@@ -99,17 +134,15 @@ export function Dashboards(): JSX.Element {
                 activeKey={currentTab}
                 tabs={enabledTabs}
                 sceneInset
-                rightSlot={<DashboardSavedViews />}
-                rightSlotClassName="!static !justify-start !bg-transparent"
             />
 
-            <div>
-                {currentTab === DashboardsTab.Templates ? (
-                    <DashboardTemplatesTable />
-                ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsTableContainer />
-                ) : null}
-            </div>
+            {crossProjectTabOpen ? (
+                <CrossProjectDashboardsList />
+            ) : (
+                <div>
+                    {dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}
+                </div>
+            )}
         </SceneContent>
     )
 }

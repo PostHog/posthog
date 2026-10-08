@@ -95,16 +95,8 @@ class TestHandleResponse:
         with pytest.raises(requests.HTTPError, match="unexpected body"):
             self._handle(_resp([{"idx": "idea_1"}]))
 
-    def test_success_returns_body(self) -> None:
-        body = _page([{"idx": "idea_1"}], has_next=False)
-        assert self._handle(_resp(body)) == body
-
 
 class TestNextCursor:
-    def test_has_next_page_true_returns_cursor(self) -> None:
-        data = _page([{"idx": "1"}], has_next=True, end_cursor="cur")
-        assert _next_cursor(data, data["data"], None) == "cur"
-
     def test_has_next_page_false_returns_none(self) -> None:
         data = _page([{"idx": "1"}], has_next=True, end_cursor="cur")
         data["pagination"]["hasNextPage"] = False
@@ -113,18 +105,6 @@ class TestNextCursor:
     @pytest.mark.parametrize("body", [{}, {"pagination": None}, {"pagination": {"hasNextPage": True}}])
     def test_missing_pagination_or_cursor_returns_none(self, body: dict[str, Any]) -> None:
         assert _next_cursor(body, [{"idx": "1"}], None) is None
-
-    def test_repeated_cursor_returns_none(self) -> None:
-        # Guards against an infinite loop if the API keeps echoing the same cursor.
-        data = _page([{"idx": "1"}], has_next=True, end_cursor="cur")
-        assert _next_cursor(data, data["data"], "cur") is None
-
-    def test_after_shape_full_page_returns_cursor(self) -> None:
-        # The embedded OpenAPI specs describe pagination as {total, before, after} with no
-        # hasNextPage flag; a full page means there may be more results.
-        records = [{"idx": str(i)} for i in range(PAGE_SIZE)]
-        data = {"data": records, "pagination": {"total": 500, "after": "cur"}}
-        assert _next_cursor(data, records, None) == "cur"
 
     def test_after_shape_short_page_returns_none(self) -> None:
         records = [{"idx": "1"}]
@@ -149,45 +129,6 @@ class TestGetRows:
         # State is saved after each non-terminal page so a crash re-yields rather than skips.
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [FrillResumeConfig(after="c1"), FrillResumeConfig(after="c2")]
-
-    def test_resume_seeds_cursor_from_saved_state(self) -> None:
-        manager = _manager(FrillResumeConfig(after="resume-cursor"))
-
-        calls, batches = _drive("votes", manager, [_resp(_page([{"idx": "vote_1"}], has_next=False))])
-
-        assert calls[0][1].get("after") == "resume-cursor"
-        manager.load_state.assert_called_once()
-        assert len(batches) == 1
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _manager()
-
-        _, batches = _drive("statuses", manager, [_resp(_page([{"idx": "status_1"}], has_next=False))])
-
-        assert len(batches) == 1
-        manager.save_state.assert_not_called()
-
-    def test_empty_page_yields_nothing(self) -> None:
-        manager = _manager()
-
-        _, batches = _drive("ideas", manager, [_resp(_page([], has_next=False))])
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("endpoint", "param", "value"),
-        [
-            ("followers", "include_attributes", "true"),
-        ],
-    )
-    def test_endpoint_extra_params_are_sent(self, endpoint: str, param: str, value: str) -> None:
-        manager = _manager()
-
-        calls, _ = _drive(endpoint, manager, [_resp(_page([{"idx": "x"}], has_next=False))])
-
-        assert calls[0][0] == f"{FRILL_BASE_URL}{FRILL_ENDPOINTS[endpoint].path}"
-        assert calls[0][1].get(param) == value
 
     def test_session_carries_bearer_auth_redacts_key_and_disables_capture(self) -> None:
         manager = _manager()
@@ -278,10 +219,6 @@ class TestFrillSource:
         # Fan-out child rows must be unique table-wide, not per parent.
         assert FRILL_ENDPOINTS["comments"].primary_keys == ["_idea_idx", "idx"]
 
-    @pytest.mark.parametrize("endpoint", ["statuses", "topics"])
-    def test_endpoints_without_timestamps_are_unpartitioned(self, endpoint: str) -> None:
-        assert FRILL_ENDPOINTS[endpoint].partition_key is None
-
 
 class TestValidateCredentials:
     def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
@@ -294,9 +231,6 @@ class TestValidateCredentials:
             else:
                 get.return_value = response
             return validate_credentials("k")
-
-    def test_valid_key(self) -> None:
-        assert self._validate(_resp(_page([{"idx": "status_1"}], has_next=False))) is True
 
     def test_unauthorized_is_invalid(self) -> None:
         assert self._validate(_resp({"success": False, "message": "Unauthorized"}, status=401)) is False

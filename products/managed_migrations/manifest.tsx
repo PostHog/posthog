@@ -18,7 +18,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/managed_migrations': ['ManagedMigration', 'managedMigration'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     },
     urls: {
@@ -28,8 +30,12 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Managed migrations',
-            category: 'Pipeline',
-            iconType: 'data_pipeline_metadata',
+            category: 'CDP',
+            iconType: 'managed_migration',
+            iconColor: [
+                'var(--color-product-managed-migrations-light)',
+                'var(--color-product-managed-migrations-dark)',
+            ],
             href: urls.managedMigration(),
             sceneKey: 'ManagedMigration',
             sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],

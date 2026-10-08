@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::core::types::notification::{
     IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
-    IssueSpiking, NotificationMeta,
+    IssueSpiking, NotificationMeta, SeveritySource,
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::ProcessedExceptionProperties;
@@ -495,6 +495,7 @@ pub async fn send_issue_created_notification(
     processed_properties: ProcessedExceptionProperties,
     event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
+    severity_source: Option<SeveritySource>,
 ) -> Result<(), UnhandledError> {
     let fingerprint = processed_properties.fingerprint().to_string();
     store_error_tracking_event_properties(
@@ -516,6 +517,7 @@ pub async fn send_issue_created_notification(
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
+            severity_source,
         }),
     )
     .await

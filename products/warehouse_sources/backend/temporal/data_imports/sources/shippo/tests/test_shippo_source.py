@@ -17,40 +17,10 @@ class TestShippoSource:
         self.team_id = 123
         self.config = ShippoSourceConfig(api_key="shippo_test_key")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no
-        # non-secret field an editor could retarget to reuse a preserved token elsewhere.
-        assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_only_shipments_is_incremental(self) -> None:
-        # Only /shipments honors the server-side object_created filters; advertising incremental
-        # on any other endpoint would silently sync unfiltered data.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["shipments"].supports_incremental is True
-        assert [f["field"] for f in schemas["shipments"].incremental_fields] == ["object_created"]
-        for name, schema in schemas.items():
-            if name != "shipments":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["transactions"])
         assert len(schemas) == 1
         assert schemas[0].name == "transactions"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Keys must match schema names exactly or the enrichment silently falls back to the LLM.

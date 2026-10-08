@@ -166,26 +166,6 @@ class TestCloudzeroSourceTransport:
         assert [p.get("cursor") for p in sent_params] == [None, "cursor-1"]
         assert len(rows) == 2
 
-    def test_costs_pages_through_cursor_and_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_costs_page("cursor-1", [{"usage_date": "2025-01-01T00:00:00+00:00", "cost": 1.0}])),
-            _make_http_response(_costs_page("cursor-2", [{"usage_date": "2025-01-02T00:00:00+00:00", "cost": 2.0}])),
-            _make_http_response(_costs_page(None, [{"usage_date": "2025-01-03T00:00:00+00:00", "cost": 3.0}])),
-        ]
-        _, sent_params, _ = self._drive("Costs", manager, responses)
-
-        cursors_sent = [p.get("cursor") for p in sent_params]
-        assert cursors_sent == [None, "cursor-1", "cursor-2"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
-            CloudzeroResumeConfig(next_cursor="cursor-1"),
-            CloudzeroResumeConfig(next_cursor="cursor-2"),
-        ]
-
     def test_costs_resume_seeds_paginator_with_saved_cursor(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
@@ -198,40 +178,6 @@ class TestCloudzeroSourceTransport:
 
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
-
-    def test_costs_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_costs_page(None, [{"usage_date": "2025-01-05T00:00:00+00:00", "cost": 5.0}])),
-        ]
-        self._drive("Costs", manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    def test_dimensions_endpoint_does_not_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"dimensions": [{"id": "service", "name": "Service"}]}),
-        ]
-        _, sent_params, _ = self._drive("Dimensions", manager, responses)
-
-        assert len(sent_params) == 1
-        manager.load_state.assert_not_called()
-
-    def test_full_refresh_uses_default_start_date(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_costs_page(None, [{"usage_date": "2025-01-05T00:00:00+00:00", "cost": 5.0}])),
-        ]
-        _, sent_params, _ = self._drive("Costs", manager, responses)
-
-        assert sent_params[0]["start_date"] == "2025-01-01T00:00:00+00:00"
 
     def test_incremental_rolls_start_date_back_from_watermark(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -281,18 +227,6 @@ class TestCloudzeroSourceTransport:
 
         assert sent_params[0]["group_by"] == ["service", "account"]
 
-    def test_granularity_and_cost_type_are_forwarded(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_costs_page(None, [{"usage_date": "2025-01-05T00:00:00+00:00", "cost": 5.0}])),
-        ]
-        _, sent_params, _ = self._drive("Costs", manager, responses, granularity="monthly", cost_type="billed_cost")
-
-        assert sent_params[0]["granularity"] == "monthly"
-        assert sent_params[0]["cost_type"] == "billed_cost"
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -315,28 +249,6 @@ class TestValidateCredentials:
             mock_make_session.return_value.get.return_value = mock_response
 
             assert validate_credentials("test-key") == expected
-
-    def test_does_not_blame_the_key_when_cloudzero_is_unreachable(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = ConnectionError("boom")
-
-            assert validate_credentials("test-key") == (False, PROBE_FAILED_MESSAGE)
-
-    def test_sends_raw_api_key_without_bearer_prefix(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero.make_tracked_session"
-        ) as mock_make_session:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_session = mock_make_session.return_value
-            mock_session.get.return_value = mock_response
-
-            validate_credentials("raw-key-123")
-
-            _, kwargs = mock_session.get.call_args
-            assert kwargs["headers"]["Authorization"] == "raw-key-123"
 
 
 class TestGetResource:

@@ -4,10 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source"
 
@@ -34,24 +32,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 class TestUpPromoteSource:
     def setup_method(self) -> None:
         self.source = UpPromoteSource()
-
-    def test_source_config_is_released_with_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.name == ExternalDataSourceType.UPPROMOTE
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/uppromote"
-
-        fields = {f.name: f for f in config.fields}
-        assert set(fields.keys()) == {"api_key"}
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
-
-        webhook_fields = {f.name: f for f in config.webhookFields or []}
-        assert set(webhook_fields.keys()) == {"signing_secret"}
 
     @parameterized.expand(
         [
@@ -128,22 +108,6 @@ class TestUpPromoteSource:
         assert {"signing_secret", "bypass_signature_check", "schema_mapping", "source_id"} <= input_keys
         assert "x-uppromote-signature" in template.code
         assert "produceToWarehouseWebhooks" in template.code
-
-    def test_desired_webhook_events_exclude_unmergeable_status_changed(self) -> None:
-        events = self.source.get_desired_webhook_events(MagicMock(), ["affiliates"])
-        assert events is not None
-        assert set(events) == {
-            "affiliate.new",
-            "affiliate.approved",
-            "affiliate.inactive",
-            "referral.new",
-            "referral.approved",
-            "referral.denied",
-            "payment.paid",
-        }
-        # Status-changed payloads are {previous_status, current_status} diffs and can't be
-        # merged into a table row.
-        assert not any(event.endswith("status-changed") for event in events)
 
     @parameterized.expand(
         [

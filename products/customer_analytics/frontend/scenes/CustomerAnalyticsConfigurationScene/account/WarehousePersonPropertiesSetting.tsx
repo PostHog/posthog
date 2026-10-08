@@ -8,8 +8,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
     CustomPropertyDefinitionApi,
@@ -69,10 +72,20 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
     } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, setRunsSearch, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
-    const restrictionReason = useRestrictedArea({
+    const memberRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Member,
+    })
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const editorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
+    const restrictionReason = memberRestrictionReason ?? editorRestrictionReason
+    const deleteRestrictionReason = adminRestrictionReason ?? editorRestrictionReason
 
     const labels = LABELS_BY_TARGET[targetType]
     const profileDefinitions = definitions.filter((definition) => definition.target_type === targetType)
@@ -213,6 +226,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconRefresh />}
                             tooltip="Sync now — re-runs the warehouse sync for this table"
+                            data-attr="sync-warehouse-profile-property"
                             onClick={() => source && triggerSync({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -220,6 +234,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         <LemonButton
                             size="small"
                             tooltip="Backfill — reads the whole table to fill in historical rows"
+                            data-attr="backfill-warehouse-profile-property"
                             onClick={() => source && triggerBackfill({ sourceId: source.id })}
                             loading={triggering || running}
                             disabledReason={disabledReason}
@@ -230,6 +245,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             size="small"
                             icon={<IconPencil />}
                             tooltip="Edit"
+                            data-attr="edit-warehouse-profile-property"
                             onClick={() => openEditModal(definition)}
                             disabledReason={restrictionReason}
                         />
@@ -238,8 +254,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             status="danger"
                             icon={<IconTrash />}
                             tooltip="Delete"
+                            data-attr="delete-warehouse-profile-property"
                             onClick={() => confirmDelete(definition)}
-                            disabledReason={restrictionReason}
+                            disabledReason={deleteRestrictionReason}
                         />
                     </div>
                 )
@@ -256,6 +273,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     // Lock the target: this page only manages one target, so the modal shouldn't offer
                     // the "Attach to" switch.
                     onClick={() => openCreateModal(targetType as CustomPropertyTargetType, true)}
+                    data-attr="add-warehouse-profile-property"
                     disabledReason={restrictionReason}
                 >
                     Add {labels.entity} property

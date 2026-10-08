@@ -1,4 +1,6 @@
-import { InactivityPeriod } from './types'
+import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
+
+import { InactivityPeriod, RasterizeRecordingInput, RasterizeRecordingOutput, RecordingResult } from './types'
 
 /**
  * Place each period on the video clock from the timeline measured during capture.
@@ -106,4 +108,24 @@ export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityP
     }
 
     return results
+}
+
+/** The render's output metadata, shared by the Temporal activity and the file CLI so the two cannot drift. */
+export function renderOutputFields(
+    result: RecordingResult,
+    input: RasterizeRecordingInput
+): Omit<RasterizeRecordingOutput, 's3_uri' | 'file_size_bytes' | 'timings'> {
+    return {
+        video_duration_s: result.capture_duration_s,
+        playback_speed: result.playback_speed,
+        show_metadata_footer: !!input.show_metadata_footer,
+        footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
+        truncated: result.truncated,
+        inactivity_periods: videoTimestampsFromFrames(
+            result.inactivity_periods,
+            result.frame_session_ms,
+            result.output_fps,
+            result.pre_roll_frames
+        ),
+    }
 }

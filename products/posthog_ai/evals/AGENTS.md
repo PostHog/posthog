@@ -1,9 +1,15 @@
 # Hedgebox demo data — reference for eval authors
 
-Evals that need a project to query — every eval in this tree, and those in `ee/hogai/eval/ci` that take the `demo_org_team_user` fixture — run against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
+Evals that need a project to query run against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
 
 Evals that score a prompt rather than a query supply their own case data inline and never touch this taxonomy.
-That data has to be invented rather than adapted from real material — see [`ee/hogai/eval/AGENTS.md`](../../../ee/hogai/eval/AGENTS.md).
+That data must be invented, not adapted from real material.
+Before writing cases from support conversations, list only the properties each case must test, close the source, then write the cases from that list.
+Use invented names, identifiers, and tokens, and reserved domains such as `example.com`.
+Read the [public repository guidance](../../../AGENTS.md#public-open-source-repo-guidance) before adding case data.
+
+Use [`hogli evals`](../eval_harness/README.md) to run PostHog AI evals.
+Add suites under `products/posthog_ai/evals/` or `products/<product>/evals/` and follow [`/writing-evals`](../../../.agents/skills/writing-evals/SKILL.md).
 
 Source of truth (read these if anything below looks stale):
 
@@ -31,7 +37,6 @@ HedgeboxMatrix(
 
 - The seed is fixed, so the dataset is **byte-for-byte reproducible** — assertions on relative shapes (e.g. "signups trend over -8w") are stable, but **do not hard-code absolute counts**; they can drift if the simulation code changes.
 - **Sandboxed evals** (`SandboxedDemoData` in `harness/demo_data.py`): a master Hedgebox team is generated once via `ensure_master_demo_team`, then each eval case gets its own org/team via `copy_demo_data_to_new_team` (ClickHouse `INSERT ... SELECT` copy + `set_project_up` re-run + taxonomy re-inference). When object storage is enabled, the master must also have all five warehouse CSVs and metadata rows. Case teams share those immutable master CSVs but receive isolated credentials, table metadata, annotations, and the persons join. Each case is isolated; the seeded user is **"Karen Smith"**.
-- **CI evals** reuse one org/team via `create_demo_org_team_user`.
 - Events span both past (`days_past`) and future (`days_future` — `paid_bill` events are scheduled forward). When choosing date ranges in expected queries, prefer relative ranges like `-30d`, `-8w`, `-6m`.
 - Most insights/dashboards are built with `filterTestAccounts=True`. The team has `test_account_filters` configured, and a "Signed-up users" cohort exists.
 

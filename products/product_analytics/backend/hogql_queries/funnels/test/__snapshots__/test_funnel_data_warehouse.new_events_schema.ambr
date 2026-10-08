@@ -37,8 +37,8 @@
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                      toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS aggregation_target,
                      e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
+                     e.properties.`$session_id` AS `$session_id`,
+                     e.properties.`$window_id` AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      0 AS step_1
               FROM events_json AS e
@@ -80,7 +80,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelDataWarehouse.test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target[new_events_schema]
@@ -121,8 +122,8 @@
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                      toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS aggregation_target,
                      e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
+                     e.properties.`$session_id` AS `$session_id`,
+                     e.properties.`$window_id` AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      0 AS step_1
               FROM events_json AS e
@@ -164,7 +165,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestFunnelDataWarehouse.test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target_actors[new_events_schema]
@@ -196,8 +198,8 @@
              (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                      toString(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS aggregation_target,
                      e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
+                     e.properties.`$session_id` AS `$session_id`,
+                     e.properties.`$window_id` AS `$window_id`,
                      if(equals(e.event, '$pageview'), 1, 0) AS step_0,
                      0 AS step_1
               FROM events_json AS e
@@ -238,6 +240,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

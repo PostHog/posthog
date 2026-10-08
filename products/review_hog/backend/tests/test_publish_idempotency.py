@@ -10,7 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import message_prefix_for_mode
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
@@ -82,7 +82,7 @@ def test_review_already_posted_proceeds_when_readback_fails() -> None:
     [
         ("full", ""),
         ("flash", "FLASH MODE\n"),
-        ("flash", message_prefix_for_mode("flash")),
+        ("flash", LEGACY_FLASH_MODE_MESSAGE_PREFIX),
     ]
 )
 def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str, prefix: str) -> None:

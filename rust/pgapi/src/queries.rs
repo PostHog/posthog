@@ -3,9 +3,12 @@
 //! in lock-step and the API layer is thin.
 
 use crate::db::Db;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use futures_util::future::{BoxFuture, FutureExt};
+use futures_util::stream::{self, StreamExt};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 type Ts = DateTime<Utc>;
 
@@ -803,15 +806,28 @@ pub async fn log_errors(db: &Db, server: &str, from: Ts, to: Ts, limit: i64) -> 
     Ok(json!({ "summary": summary, "counts": counts, "recent": errors, "temp_files": temp }))
 }
 
+/// Host CPU, CPU by user, code path and query, and the checkpoint, bgwriter and Aurora
+/// panels, in one object for callers that want the whole picture.
 pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
+    // One after the other, so this request never holds more than CPU_PAGE_CONCURRENCY connections.
+    let mut all = cpu(db, server, from, to).await?;
+    let rest = checkpoints(db, server, from, to).await?;
+    if let (Some(a), Some(r)) = (all.as_object_mut(), rest.as_object()) {
+        a.extend(r.clone());
+    }
+    Ok(all)
+}
+
+pub async fn cpu(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
+    let p: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&server, &from, &to];
     let cpu = opt(db, "SELECT collected_at, instance,
                 round(((user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies)::numeric / nullif(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies, 0)) * 100, 2)::float8 AS cpu_pct,
                 round((iowait_jiffies::numeric / nullif(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies, 0)) * 100, 2)::float8 AS iowait_pct
-         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", &[&server, &from, &to]).await?;
+         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", p);
     let host = opt(db, "SELECT instance, round(sum(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies) / nullif(sum(interval_seconds), 0) / 100.0)::bigint AS ncpu,
                 sum(interval_seconds)::float8 AS covered_s
-         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND interval_seconds > 0 GROUP BY 1", &[&server, &from, &to]).await?;
-    let mem = opt(db, "SELECT collected_at, instance, mem_used_kb, mem_free_kb, mem_cached_kb, swap_used_kb, load1, load5 FROM ts_system_memory WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", &[&server, &from, &to]).await?;
+         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND interval_seconds > 0 GROUP BY 1", p);
+    let mem = opt(db, "SELECT collected_at, instance, mem_used_kb, mem_free_kb, mem_cached_kb, swap_used_kb, load1, load5 FROM ts_system_memory WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", p);
 
     // A jiffy is 10 ms, and /proc/stat sums to 100 jiffies per core per second, which
     // is where the core count comes from; `covered` counts each tick once.
@@ -822,7 +838,7 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
         covered AS (
             SELECT instance, sum(interval_seconds) AS covered_s
             FROM (SELECT DISTINCT instance, collected_at, interval_seconds FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3) t GROUP BY 1)";
-    let by_user = opt(db, &format!("{CPU_CTES},
+    let by_user_sql = format!("{CPU_CTES},
         per_pid AS (
             SELECT instance, datname, usename, application_name, backend_type, pid, backend_start, sum(utime_jiffies + stime_jiffies) AS jiffies
             FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1, 2, 3, 4, 5, 6, 7)
@@ -833,7 +849,8 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                count(*)::bigint AS backends,
                (max(p.jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS hottest_backend_cores
         FROM per_pid p JOIN covered c ON c.instance = p.instance LEFT JOIN host h ON h.instance = p.instance
-        GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 20"), &[&server, &from, &to]).await?;
+        GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 20");
+    let by_user = opt(db, &by_user_sql, p);
     let by_user_series = opt(db, "
         WITH b AS (
             SELECT collected_at, instance, interval_seconds,
@@ -843,9 +860,9 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
         top AS (SELECT label FROM b GROUP BY 1 ORDER BY sum(jiffies) DESC LIMIT 7)
         SELECT b.collected_at, b.instance, CASE WHEN t.label IS NULL THEN 'other' ELSE b.label END AS label,
                (sum(b.jiffies) / 100.0 / max(b.interval_seconds))::float8 AS cores
-        FROM b LEFT JOIN top t ON t.label = b.label GROUP BY 1, 2, 3 ORDER BY 1", &[&server, &from, &to]).await?;
-    let by_code_path = if has_column(db, "ts_backend_cpu", "tags").await {
-        opt(db, &format!("{CPU_CTES}
+        FROM b LEFT JOIN top t ON t.label = b.label GROUP BY 1, 2, 3 ORDER BY 1", p);
+    let has_tags = has_column(db, "ts_backend_cpu", "tags").await;
+    let by_code_path_sql = format!("{CPU_CTES}
             SELECT b.instance, b.tags,
                    (sum(b.utime_jiffies + b.stime_jiffies) / 100.0)::float8 AS cpu_seconds,
                    (sum(b.utime_jiffies + b.stime_jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS avg_cores,
@@ -853,29 +870,214 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                    count(DISTINCT (b.pid, b.backend_start))::bigint AS backends
             FROM ts_backend_cpu b JOIN covered c ON c.instance = b.instance LEFT JOIN host h ON h.instance = b.instance
             WHERE b.server_id = $1 AND b.collected_at >= $2 AND b.collected_at < $3 AND b.tags IS NOT NULL AND b.tags <> '{{}}'::jsonb
-            GROUP BY 1, 2, c.covered_s, h.ncpu ORDER BY 3 DESC LIMIT 15"), &[&server, &from, &to]).await?
-    } else {
-        vec![]
-    };
-    let by_query = if has_column(db, "ts_backend_cpu", "query_id").await {
-        let query_tags = if has_column(db, "cur_queries", "tags").await {
-            "q.tags"
+            GROUP BY 1, 2, c.covered_s, h.ncpu ORDER BY 3 DESC LIMIT 15");
+    let by_code_path = async {
+        if has_tags {
+            opt(db, &by_code_path_sql, p).await
         } else {
-            "NULL::jsonb AS tags"
-        };
-        opt(db, &format!("{CPU_CTES}
-            SELECT b.instance, b.datname, b.query_id AS queryid, q.query, {query_tags},
-                   (sum(b.utime_jiffies + b.stime_jiffies) / 100.0)::float8 AS cpu_seconds,
-                   (sum(b.utime_jiffies + b.stime_jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS avg_cores,
-                   (sum(b.utime_jiffies + b.stime_jiffies) / nullif(c.covered_s, 0) / nullif(h.ncpu, 0))::float8 AS host_pct,
-                   count(DISTINCT (b.pid, b.backend_start))::bigint AS backends
-            FROM ts_backend_cpu b JOIN covered c ON c.instance = b.instance LEFT JOIN host h ON h.instance = b.instance
-                 LEFT JOIN cur_queries q ON q.server_id = $1 AND q.instance = b.instance AND q.queryid = b.query_id AND q.datname = b.datname
-            WHERE b.server_id = $1 AND b.collected_at >= $2 AND b.collected_at < $3 AND b.query_id IS NOT NULL
-            GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 15"), &[&server, &from, &to]).await?
-    } else {
-        vec![]
+            Ok(vec![])
+        }
     };
+    let by_query = cpu_by_query(db, server, from, to, CPU_CTES);
+    // Each panel scans a different table over the whole range. A few run side by side to
+    // cut the wait, but not all of them, so one page view leaves pool connections for others.
+    let panels: Vec<BoxFuture<'_, Result<Vec<Value>>>> = vec![
+        cpu.boxed(),
+        host.boxed(),
+        mem.boxed(),
+        by_user.boxed(),
+        by_user_series.boxed(),
+        by_code_path.boxed(),
+        by_query.boxed(),
+    ];
+    let panels: Vec<Vec<Value>> = stream::iter(panels)
+        .buffered(CPU_PAGE_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<_>>()?;
+    let [cpu, host, mem, by_user, by_user_series, by_code_path, by_query]: [Vec<Value>; 7] = panels
+        .try_into()
+        .map_err(|_| anyhow!("the CPU page expects seven panels"))?;
+    Ok(json!({
+        "cpu": cpu, "host": host, "memory": mem,
+        "cpu_by_user": by_user, "cpu_by_user_series": by_user_series, "cpu_by_code_path": by_code_path, "cpu_by_query": by_query,
+    }))
+}
+
+/// How many of the CPU page's queries run at once against the shared pool.
+const CPU_PAGE_CONCURRENCY: usize = 3;
+
+/// One pg_stat_statements entry summed over the range, with the CPU its role used according to /proc.
+#[derive(Debug, Clone, PartialEq)]
+struct StatementCpu {
+    instance: String,
+    rolname: String,
+    datname: String,
+    queryid: i64,
+    calls: f64,
+    exec_ms: f64,
+    role_cpu_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct QueryCpu {
+    instance: String,
+    datname: String,
+    queryid: i64,
+    calls: f64,
+    cpu_ms: f64,
+    share_pct: f64,
+}
+
+/// pg_stat_statements counts every call, while the per-minute backend sample only sees the
+/// statement running at the tick and misses almost all short queries. So each role's CPU from
+/// /proc is split between its queries: execution time minus I/O time first, then the rest
+/// (planning, parsing, protocol) by call count. When the role used less CPU than its execution
+/// time (the time includes lock and other waits), the time is scaled down instead. A role with
+/// no /proc rows keeps its execution time as the estimate. Largest first.
+fn allocate_query_cpu(stmts: &[StatementCpu]) -> Vec<QueryCpu> {
+    let mut roles: HashMap<(&str, &str, &str), (f64, f64)> = HashMap::new();
+    for s in stmts {
+        let r = roles
+            .entry((&s.instance, &s.rolname, &s.datname))
+            .or_default();
+        r.0 += s.exec_ms;
+        r.1 += s.calls;
+    }
+    let mut queries: HashMap<(&str, &str, i64), (f64, f64)> = HashMap::new();
+    for s in stmts {
+        let (role_exec_ms, role_calls) =
+            roles[&(s.instance.as_str(), s.rolname.as_str(), s.datname.as_str())];
+        let cpu_ms = match s.role_cpu_ms {
+            None => s.exec_ms,
+            Some(cpu) if cpu >= role_exec_ms && role_calls > 0.0 => {
+                s.exec_ms + (cpu - role_exec_ms) * s.calls / role_calls
+            }
+            Some(_) if role_exec_ms <= 0.0 => 0.0,
+            Some(cpu) if cpu < role_exec_ms => s.exec_ms * cpu / role_exec_ms,
+            Some(_) => s.exec_ms,
+        };
+        let q = queries
+            .entry((&s.instance, &s.datname, s.queryid))
+            .or_default();
+        q.0 += s.calls;
+        q.1 += cpu_ms;
+    }
+    let mut instance_ms: HashMap<&str, f64> = HashMap::new();
+    for ((instance, _, _), (_, cpu_ms)) in &queries {
+        *instance_ms.entry(instance).or_default() += cpu_ms;
+    }
+    let mut out: Vec<QueryCpu> = queries
+        .into_iter()
+        .filter(|(_, (_, cpu_ms))| *cpu_ms > 0.0)
+        .map(|((instance, datname, queryid), (calls, cpu_ms))| QueryCpu {
+            share_pct: 100.0 * cpu_ms / instance_ms[instance],
+            instance: instance.to_string(),
+            datname: datname.to_string(),
+            queryid,
+            calls,
+            cpu_ms,
+        })
+        .collect();
+    out.sort_by(|a, b| b.cpu_ms.total_cmp(&a.cpu_ms));
+    out
+}
+
+async fn cpu_by_query(
+    db: &Db,
+    server: &str,
+    from: Ts,
+    to: Ts,
+    cpu_ctes: &str,
+) -> Result<Vec<Value>> {
+    let p: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&server, &from, &to];
+    let rows = opt(db, "
+        WITH stmts AS (
+            SELECT instance, rolname, datname, queryid, sum(calls)::float8 AS calls,
+                   greatest(sum(total_exec_time + coalesce(total_plan_time, 0) - coalesce(blk_read_time, 0) - coalesce(blk_write_time, 0)), 0)::float8 AS exec_ms
+            FROM ts_query_stats WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND toplevel
+            GROUP BY 1, 2, 3, 4),
+        role_cpu AS (
+            SELECT instance, usename AS rolname, datname, (sum(utime_jiffies + stime_jiffies) * 10.0)::float8 AS cpu_ms
+            FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND backend_type IN ('client backend', 'parallel worker')
+            GROUP BY 1, 2, 3)
+        SELECT s.instance, s.rolname, s.datname, s.queryid, s.calls, s.exec_ms, rc.cpu_ms AS role_cpu_ms
+        FROM stmts s LEFT JOIN role_cpu rc USING (instance, rolname, datname)", p).await?;
+    let stmts: Vec<StatementCpu> = rows
+        .iter()
+        .filter_map(|r| {
+            Some(StatementCpu {
+                instance: r["instance"].as_str()?.to_string(),
+                rolname: r["rolname"].as_str()?.to_string(),
+                datname: r["datname"].as_str()?.to_string(),
+                queryid: json_i64(&r["queryid"])?,
+                calls: r["calls"].as_f64()?,
+                exec_ms: r["exec_ms"].as_f64()?,
+                role_cpu_ms: r["role_cpu_ms"].as_f64(),
+            })
+        })
+        .collect();
+    let mut top = allocate_query_cpu(&stmts);
+    top.truncate(15);
+    if top.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let scale = opt(db, &format!("{cpu_ctes}
+        SELECT coalesce(c.instance, h.instance) AS instance, c.covered_s::float8 AS covered_s, h.ncpu::float8 AS ncpu
+        FROM covered c FULL JOIN host h ON h.instance = c.instance"), p).await?;
+    let scale: HashMap<&str, (Option<f64>, Option<f64>)> = scale
+        .iter()
+        .filter_map(|r| {
+            Some((
+                r["instance"].as_str()?,
+                (r["covered_s"].as_f64(), r["ncpu"].as_f64()),
+            ))
+        })
+        .collect();
+    let query_tags = if has_column(db, "cur_queries", "tags").await {
+        "tags"
+    } else {
+        "NULL::jsonb AS tags"
+    };
+    let ids: Vec<i64> = top.iter().map(|q| q.queryid).collect();
+    let texts = opt(db, &format!("SELECT instance, datname, queryid, query, {query_tags} FROM cur_queries WHERE server_id = $1 AND queryid = ANY($2)"), &[&server, &ids]).await?;
+    let texts: HashMap<(&str, &str, i64), &Value> = texts
+        .iter()
+        .filter_map(|r| {
+            Some((
+                (
+                    r["instance"].as_str()?,
+                    r["datname"].as_str()?,
+                    json_i64(&r["queryid"])?,
+                ),
+                r,
+            ))
+        })
+        .collect();
+
+    Ok(top
+        .iter()
+        .map(|q| {
+            let (covered_s, ncpu) = scale.get(q.instance.as_str()).copied().unwrap_or((None, None));
+            let text = texts.get(&(q.instance.as_str(), q.datname.as_str(), q.queryid));
+            // Same shape the SQL rows have: ids past 2^53 travel as strings.
+            let queryid = if q.queryid.unsigned_abs() > (1u64 << 53) { json!(q.queryid.to_string()) } else { json!(q.queryid) };
+            json!({
+                "instance": q.instance, "datname": q.datname, "queryid": queryid,
+                "query": text.map(|t| t["query"].clone()), "tags": text.map(|t| t["tags"].clone()),
+                "calls": q.calls.round() as i64,
+                "cpu_seconds": q.cpu_ms / 1000.0,
+                "avg_cores": covered_s.filter(|c| *c > 0.0).map(|c| q.cpu_ms / 1000.0 / c),
+                "host_pct": covered_s.zip(ncpu).filter(|(c, n)| *c > 0.0 && *n > 0.0).map(|(c, n)| q.cpu_ms / 10.0 / c / n),
+                "share_pct": q.share_pct,
+            })
+        })
+        .collect())
+}
+
+pub async fn checkpoints(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
     let checkpoints = opt(db, "SELECT log_time, log_stream, kind, buffers_written, buffers_pct, write_s, sync_s, total_s, distance_kb FROM ts_checkpoints WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY log_time DESC LIMIT 50", &[&server, &from, &to]).await?;
     let bgw = opt(db, "SELECT instance, sum(checkpoints_timed)::bigint AS checkpoints_timed, sum(checkpoints_req)::bigint AS checkpoints_req, sum(buffers_checkpoint)::bigint AS buffers_checkpoint, sum(buffers_clean)::bigint AS buffers_clean, sum(buffers_alloc)::bigint AS buffers_alloc
          FROM ts_bgwriter WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1", &[&server, &from, &to]).await?;
@@ -884,8 +1086,6 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                 CASE WHEN sum(update_count) > 0 THEN sum(update_latency_us) / sum(update_count) END::float8 AS avg_update_latency_us
          FROM ts_aurora_db_latency WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1", &[&server, &from, &to]).await?;
     Ok(json!({
-        "cpu": cpu, "host": host, "memory": mem,
-        "cpu_by_user": by_user, "cpu_by_user_series": by_user_series, "cpu_by_code_path": by_code_path, "cpu_by_query": by_query,
         "checkpoints": checkpoints, "bgwriter": bgw, "aurora_replicas": repl, "aurora_db_latency": latency,
     }))
 }
@@ -1005,7 +1205,7 @@ pub async fn schema_of_stats_db(db: &Db) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{denied_function, json_i64, parse_tag_filter};
+    use super::{allocate_query_cpu, denied_function, json_i64, parse_tag_filter, StatementCpu};
     use serde_json::json;
 
     #[test]
@@ -1023,6 +1223,45 @@ mod tests {
         );
         assert!(parse_tag_filter("web").is_err());
         assert!(parse_tag_filter("=web").is_err());
+    }
+
+    #[test]
+    fn query_cpu_splits_each_roles_measured_cpu() {
+        let stmt =
+            |rolname: &str, queryid: i64, calls: f64, exec_ms: f64, role_cpu_ms: Option<f64>| {
+                StatementCpu {
+                    instance: "writer".into(),
+                    rolname: rolname.into(),
+                    datname: "app".into(),
+                    queryid,
+                    calls,
+                    exec_ms,
+                    role_cpu_ms,
+                }
+            };
+        let out = allocate_query_cpu(&[
+            // More CPU than execution time: the 800 ms left over goes 10:30 by calls.
+            stmt("ingest", 1, 10.0, 100.0, Some(1000.0)),
+            stmt("ingest", 2, 30.0, 100.0, Some(1000.0)),
+            // Less CPU than execution time: execution time scales down to fit 50 ms.
+            stmt("api", 1, 1.0, 100.0, Some(50.0)),
+            stmt("api", 3, 1.0, 100.0, Some(50.0)),
+            // No /proc rows: execution time stands.
+            stmt("cron", 4, 5.0, 40.0, None),
+        ]);
+        let got: Vec<(i64, f64, f64)> =
+            out.iter().map(|q| (q.queryid, q.calls, q.cpu_ms)).collect();
+        assert_eq!(
+            got,
+            vec![
+                (2, 30.0, 700.0),
+                (1, 11.0, 325.0),
+                (4, 5.0, 40.0),
+                (3, 1.0, 25.0)
+            ]
+        );
+        let shares: f64 = out.iter().map(|q| q.share_pct).sum();
+        assert!((shares - 100.0).abs() < 1e-9);
     }
 
     #[test]

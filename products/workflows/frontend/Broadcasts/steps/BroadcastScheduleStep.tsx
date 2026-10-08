@@ -117,6 +117,8 @@ export function BroadcastScheduleStep(): JSX.Element {
                         onStartsAtChange={setRecurringStartsAtFromPicker}
                         onTimezoneChange={setScheduleTimezone}
                         onRepeatingChange={setRecurringRepeating}
+                        showRepeatToggle={false}
+                        alwaysShowTimezone
                     />
                 </div>
             )}

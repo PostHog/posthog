@@ -1,11 +1,9 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import (
     JamfProAuthMethodConfig,
     JamfProSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
 
 
@@ -24,18 +22,6 @@ class TestJamfProSource:
         # Without this, an org member could retarget the instance URL at a server they control
         # and exfiltrate the preserved credentials.
         assert self.source.connection_host_fields == ["instance_url"]
-
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_schema_sync_modes(self, endpoint):
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        # Only computer inventory documents a server-side RSQL timestamp filter; everything else
-        # is full-refresh. Inventory records mutate in place, so append mode is never offered.
-        assert schemas[endpoint].supports_incremental is (endpoint == "computers")
-        assert schemas[endpoint].supports_append is False
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["computers"])

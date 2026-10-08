@@ -1,9 +1,8 @@
-"""Config version 2 update path: closed in production, exercised through a test-only admission.
+"""Config version 2 update path: full-document replacement, identity, concurrency and admission.
 
-`config_writes.V2_UPDATE_LIMITS` is None in every deployed configuration, so the closed-path
-tests here run with production settings and the admitted ones patch that one attribute.
-Admitting updates is not PH-GATE-001 and not the common safety gate: no production v2 row may
-exist, and these flags are invented test rows.
+Both writer flags are off in tests, so the closed-path tests run as production does and the
+admitted ones stub the flag client for one project. Create, enable, disable and soft delete are
+covered in test_feature_flag_config_v2_lifecycle. These flags are invented test rows.
 """
 
 import copy
@@ -15,7 +14,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connection, transaction
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -24,6 +23,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
@@ -32,12 +32,7 @@ from products.feature_flags.backend.facade import (
     api as flag_facade,
     config_writes,
 )
-from products.feature_flags.backend.facade.config_validation import ValidationLimits
 from products.feature_flags.backend.models import FeatureFlag
-
-ADMITTED_LIMITS = ValidationLimits(
-    max_config_bytes=settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES, max_metadata_bytes=2048
-)
 
 RULE_A = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
 RULE_B = "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e"
@@ -45,8 +40,17 @@ SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
-def admit_v2_updates():
-    return patch.object(config_writes, "V2_UPDATE_LIMITS", ADMITTED_LIMITS)
+type JsonValue = bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def admit_v2(team_id: int, *, creation: bool = False):
+    """Turn the writer flags on for one project the way the local flag client would answer."""
+    enabled = {config_writes.V2_WRITES_FLAG} | ({config_writes.V2_CREATION_FLAG} if creation else set())
+
+    def evaluate(key: str, distinct_id: str, **kwargs: Any) -> bool:
+        return key in enabled and kwargs.get("groups", {}).get("project") == str(team_id)
+
+    return patch("posthoganalytics.feature_enabled", side_effect=evaluate)
 
 
 def targeted(rule_id: str | None = RULE_A, **extra: Any) -> dict:
@@ -75,9 +79,30 @@ def config(*rules: dict, **extra: Any) -> dict:
     return {"version": 2, "return_type": "boolean", "default_value": False, "rules": list(rules), **extra}
 
 
+class TestWriterAdmission(SimpleTestCase):
+    def test_the_gate_evaluates_locally_for_the_project_and_captures_nothing(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            assert config_writes.v2_write_limits(42) is not None
+        kwargs = feature_enabled.call_args.kwargs
+        assert kwargs["only_evaluate_locally"] is True
+        assert kwargs["send_feature_flag_events"] is False
+        assert kwargs["groups"] == {"project": "42"}
+        assert kwargs["group_properties"] == {"project": {"id": "42"}}
+
+    def test_a_broken_client_reads_closed_and_is_logged(self) -> None:
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=RuntimeError("boom")),
+            patch.object(config_writes, "logger") as logger,
+        ):
+            assert config_writes.v2_write_limits(42) is None
+            assert config_writes.v2_creation_enabled(42) is False
+        assert logger.warning.call_args.args[0] == "feature_flag_rules_v2_flag_evaluation_failed"
+        assert logger.warning.call_args.kwargs["team_id"] == 42
+
+
 class V2UpdateTestCase(APIBaseTest):
     def flag(self, filters: dict | None = None, **extra: Any) -> FeatureFlag:
-        return FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             key=extra.pop("key", "v2-flag"),
             filters=filters if filters is not None else config(targeted(), rollout()),
@@ -85,15 +110,30 @@ class V2UpdateTestCase(APIBaseTest):
             created_by=self.user,
             **extra,
         )
+        self._activity_qs(flag).delete()
+        return flag
 
     def patch_flag(self, flag: FeatureFlag, data: dict, method: str = "patch"):
         return getattr(self.client, method)(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json"
         )
 
+    def post_flag(self, data: dict):
+        return self.client.post(f"/api/projects/{self.team.id}/feature_flags/", data, format="json")
 
-class TestV2UpdatesAreClosed(V2UpdateTestCase):
-    """With production settings nothing reaches the v2 path, through any entrypoint."""
+    def _activity_qs(self, flag: FeatureFlag):
+        return ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id=str(flag.id))
+
+    def activity(self, flag: FeatureFlag) -> list[ActivityLog]:
+        return list(self._activity_qs(flag).order_by("created_at"))
+
+    @staticmethod
+    def changed_fields(entry: ActivityLog) -> set[str]:
+        return {change["field"] for change in (entry.detail or {})["changes"]}
+
+
+class TestV2WritesAreClosed(V2UpdateTestCase):
+    """With production settings no create, replacement or enable reaches the v2 path, through any entrypoint."""
 
     @parameterized.expand(["patch", "put"])
     def test_http_v2_replacement_is_rejected_and_writes_nothing(self, method: str) -> None:
@@ -159,12 +199,33 @@ class TestV2UpdatesAreClosed(V2UpdateTestCase):
         assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_config_version"
 
+    def test_facade_and_direct_serializer_creates_are_reserved(self) -> None:
+        with self.assertRaises(ValidationError) as caught:
+            flag_facade.create_flag({"key": "new-v2", "filters": config()}, team=self.team, user=self.user)
+        assert caught.exception.get_codes() == {"filters": ["reserved_config_version"]}
+        serializer = FeatureFlagSerializer(
+            data={"key": "new-v2", "filters": config()},
+            context={"request": ServiceRequest(self.user), "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "reserved_config_version"
+        assert not FeatureFlag.objects.filter(key="new-v2").exists()
+
+    def test_enabling_is_rejected_without_admission(self) -> None:
+        flag = self.flag(active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unsupported_config_version"
+        flag.refresh_from_db()
+        assert not flag.active
+        assert flag.version == 3
+
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
 class AdmittedV2TestCase(V2UpdateTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(admit_v2_updates())
+        self.enterContext(admit_v2(self.team.id))
 
 
 class TestAdmittedV2Updates(AdmittedV2TestCase):
@@ -177,10 +238,8 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert flag.filters == {"groups": [{"properties": [], "rollout_percentage": 25}]}
         assert flag.version == 4
 
-    def test_v2_create_stays_reserved_when_updates_are_admitted(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", {"key": "new-v2", "filters": config()}, format="json"
-        )
+    def test_v2_create_stays_reserved_while_creation_is_closed(self) -> None:
+        response = self.post_flag({"key": "new-v2", "filters": config()})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "reserved_config_version"
         assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
@@ -258,6 +317,43 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         flag.refresh_from_db()
         assert flag.filters == document
+
+    @parameterized.expand(
+        [
+            ("string", "compact", "compact"),
+            ("number", 2, 2.0),
+            ("object", {"a": 1, "b": [True]}, {"b": [True], "a": 1}),
+        ]
+    )
+    def test_typed_documents_replace_and_report_warnings(
+        self, return_type: str, upper: JsonValue, lower: JsonValue
+    ) -> None:
+        flag = self.flag(
+            config(targeted(value=upper), rollout(value=upper), return_type=return_type, default_value=None)
+        )
+        # The same JSON value, spelled differently, below a partial rollout that continues on a miss.
+        document = config(rollout(value=upper), targeted(value=lower), return_type=return_type, default_value=None)
+        with patch("products.feature_flags.backend.api.feature_flag.logger.info") as info:
+            response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == document
+        assert info.call_args.kwargs["extra"]["codes"] == ["ROLLOUT_MISS_CAN_ENTER_LOWER_RULE"]
+
+    @parameterized.expand(
+        [
+            ("values_of_the_new_type", config(targeted(value="compact"), return_type="string", default_value=None)),
+            ("only_the_type", config(targeted(), return_type="string")),
+        ]
+    )
+    def test_return_type_cannot_change(self, _name: str, document: dict) -> None:
+        flag = self.flag()
+        stored = copy.deepcopy(flag.filters)
+        response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "filters.return_type: Cannot be changed after the flag is created."
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (stored, 3)
 
     @parameterized.expand([("zero", 0), ("hundred", 100), ("two_decimals", 33.33)])
     def test_percentages_round_trip(self, _name: str, percentage: Any) -> None:
@@ -417,7 +513,7 @@ class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
             finally:
                 connection.close()
 
-        with admit_v2_updates(), transaction.atomic():
+        with admit_v2(self.team.id), transaction.atomic():
             flag_facade.update_flag(first, {"version": 3, "name": "First"}, team=self.team, user=self.user)
             with ThreadPoolExecutor(max_workers=1) as executor:
                 executor.submit(update_second_flag).result(timeout=10)
@@ -475,7 +571,7 @@ class TestV2ApprovalPolicyLocking(NonAtomicBaseTest):
             assert getattr(error.exception.__cause__, "sqlstate", None) == "55P03"
 
         with (
-            admit_v2_updates(),
+            admit_v2(self.team.id),
             patch.object(FeatureFlag, "save", autospec=True, side_effect=save_with_concurrent_policy),
         ):
             flag_facade.update_flag(flag, {"version": 3, "name": "Renamed"}, team=self.team, user=self.user)
@@ -493,7 +589,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         [
             ("malformed", {"version": 2, "rules": "broken"}),
             ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
-            ("deferred_string", config(return_type="string")),
+            ("string_with_boolean_default", config(return_type="string")),
         ]
     )
     def test_unsupported_stored_configs_are_not_replaced(self, _name: str, stored: dict) -> None:
@@ -516,9 +612,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("active", {"active": False}),
             ("archived", {"archived": True, "active": False}),
-            ("deleted", {"deleted": True}),
             ("remote_config", {"is_remote_configuration": True}),
             ("encrypted", {"has_encrypted_payloads": True}),
             ("continuity", {"ensure_experience_continuity": True}),
@@ -541,6 +635,13 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         flag.refresh_from_db()
         assert (flag.name, flag.key, flag.version) == ("Renamed", "v2-renamed", 4)
+
+    def test_a_key_change_never_reads_v1_enrollment(self) -> None:
+        flag = self.flag()
+        response = self.patch_flag(flag, {"version": 3, "key": "v2-renamed"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.key, flag.filters) == ("v2-renamed", config(targeted(), rollout()))
 
     @parameterized.expand(["has_encrypted_payloads", "is_remote_configuration"])
     def test_unsupported_flag_families_are_not_admitted(self, field: str) -> None:
@@ -624,6 +725,131 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+def string_config(value: str, default: str | None, rule_id: str | None = RULE_A) -> dict:
+    return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
+
+
+RESERVED_STRING_VALUES = [
+    ("rule_value", "$false", None, "filters.rules[0].value: Must be a non-empty string other than $false or $true."),
+    (
+        "default_value",
+        "compact",
+        "$true",
+        "filters.default_value: Must be a non-empty string other than $false or $true, or null.",
+    ),
+]
+
+
+class TestWriterOnlyRules(AdmittedV2TestCase):
+    """The writer reserves `$false` and `$true` as string values; the caches accept them, so a stored one stays replaceable."""
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_create_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            response = self.post_flag({"key": "new-v2", "filters": string_config(value, default, rule_id=None)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_update_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        flag = self.flag(string_config("compact", None))
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config(value, default)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 3)
+
+    def test_a_stored_reserved_value_is_not_enabled_but_can_be_replaced(self) -> None:
+        stored = string_config("$false", "$false")
+        flag = self.flag(stored, active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters: This flag's stored configuration cannot be enabled through this API."
+        )
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters, flag.version) == (False, stored, 3)
+
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config("compact", None)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 4)
+
+    def test_a_stored_reserved_value_can_be_disabled(self) -> None:
+        flag = self.flag(string_config("$false", None), active=True)
+        response = self.patch_flag(flag, {"version": 3, "active": False})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (False, 4)
+
+
+def regex_config(*patterns: tuple[str, str], rule_id: str | None = RULE_A, **extra: Any) -> dict:
+    properties = [{"key": "email", "type": "person", "operator": op, "value": value} for op, value in patterns]
+    return config(targeted(rule_id=rule_id, targeting={"properties": properties}, **extra))
+
+
+COMPILABLE = ("regex", r"@example\.com$")
+UNCOMPILABLE_PATTERNS = [
+    ("regex", "regex", "["),
+    ("not_regex", "not_regex", "(?P<"),
+    ("repetition_overflow", "regex", "a{4294967296}"),
+    ("repetition_past_the_int_digit_limit", "regex", "a{" + "9" * 5000 + "}"),
+    ("nesting_past_the_recursion_limit", "not_regex", "(" * 5000 + ")" * 5000),
+]
+
+
+class TestWriterRegexPatterns(AdmittedV2TestCase):
+    """New patterns must compile with Python's `re`, as in v1; readers accept any, and a pattern the row holds is kept."""
+
+    @parameterized.expand(UNCOMPILABLE_PATTERNS)
+    def test_create_rejects_an_uncompilable_pattern(self, _name: str, operator: str, pattern: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            filters = regex_config(COMPILABLE, (operator, pattern), rule_id=None)
+            response = self.post_flag({"key": "new-v2", "filters": filters})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == (
+            "invalid_input",
+            "filters.rules[0].targeting.properties[1].value: Must be a valid regular expression.",
+        )
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+
+    @parameterized.expand(UNCOMPILABLE_PATTERNS)
+    def test_update_rejects_a_new_uncompilable_pattern(self, _name: str, operator: str, pattern: str) -> None:
+        flag = self.flag(regex_config(COMPILABLE))
+        response = self.patch_flag(flag, {"version": 3, "filters": regex_config(COMPILABLE, (operator, pattern))})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters.rules[0].targeting.properties[1].value: Must be a valid regular expression."
+        )
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (regex_config(COMPILABLE), 3)
+
+    def test_an_update_keeps_patterns_the_row_already_holds(self) -> None:
+        # The flags service compiles `\p{Lu}`, Python's `re` does not; `[` compiles in neither.
+        held = [("regex", "["), ("not_regex", r"^\p{Lu}")]
+        flag = self.flag(regex_config(*held))
+        response = self.patch_flag(flag, {"version": 3, "filters": regex_config(*held, ("regex", "("))})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters.rules[0].targeting.properties[2].value: Must be a valid regular expression."
+        )
+
+        replacement = regex_config(*held, description="Reviewed")
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (replacement, 4)
+
+    def test_a_stored_uncompilable_pattern_can_be_enabled(self) -> None:
+        stored = regex_config(("regex", "["))
+        flag = self.flag(stored, active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters, flag.version) == (True, stored, 4)
+
+
 class TestV2RequestBytes(AdmittedV2TestCase):
     def post_bytes(self, flag: FeatureFlag, body: str):
         return self.client.patch(
@@ -669,7 +895,7 @@ class TestV2RequestBytes(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("config", config(targeted(description="x" * 400)), 200),
-            ("metadata", config(targeted(metadata={"note": "x" * 4000})), ADMITTED_LIMITS.max_config_bytes),
+            ("metadata", config(targeted(metadata={"note": "x" * 4000})), settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),
         ]
     )
     def test_an_oversized_stored_document_can_be_replaced_within_the_limits(

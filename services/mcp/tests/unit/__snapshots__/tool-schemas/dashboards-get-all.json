@@ -17,6 +17,11 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "ordering": {
+            "description": "Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.",
+            "enum": ["-last_viewed_at"],
+            "type": "string"
+        },
         "pinned": {
             "description": "Optional. Return only pinned dashboards.",
             "type": "boolean"

@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
@@ -25,6 +27,12 @@ class TestGroupsJoinPrefilter(APIBaseTest):
     The optimization is gated on `timestamp` appearing in the outer WHERE, so unbounded
     queries (no WHERE, or WHERE without a date range) still go through the original path.
     """
+
+    def _group_0_column(self) -> str:
+        # The new table reads $group_0 as a declared JSON path, the old one as a column.
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return "events.properties.`$group_0`"
+        return "events.`$group_0`"
 
     def setUp(self):
         super().setUp()
@@ -50,7 +58,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         # against the GroupTypeMapping created_at, etc.), so we only assert the column ref
         # appears in the printed SQL — not the exact SELECT prefix.
         self.assertIn("globalIn(key,", sql)
-        self.assertIn("events.`$group_0`", sql)
+        self.assertIn(self._group_0_column(), sql)
         self.assertIn("FROM events", sql)
 
     def test_pushes_group_key_filter_with_uuid_and_timestamp_where(self):
@@ -62,7 +70,7 @@ class TestGroupsJoinPrefilter(APIBaseTest):
             "AND timestamp < toDateTime('2026-06-23 13:32:26')"
         )
         self.assertIn("globalIn(key,", sql)
-        self.assertIn("events.`$group_0`", sql)
+        self.assertIn(self._group_0_column(), sql)
 
     def test_skips_filter_when_outer_where_lacks_timestamp(self):
         # No timestamp reference → the optimization would push a key subquery that scans every

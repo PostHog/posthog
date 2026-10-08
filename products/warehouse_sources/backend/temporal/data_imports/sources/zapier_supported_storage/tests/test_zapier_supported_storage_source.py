@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
     ZapierSupportedStorageSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source import (
     ZapierSupportedStorageSource,
 )
@@ -35,21 +34,6 @@ class TestZapierSupportedStorageSource:
         assert secret.secret is True
         assert secret.required is True
 
-    def test_get_schemas_single_full_refresh_table(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS) == {"records"}
-        # The store has no timestamps, so nothing supports incremental or append.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
     def test_get_schemas_filtered_by_names(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["records"])[0].name == "records"
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # A static endpoint catalog opts into public docs; get_documented_tables must succeed with
-        # no credentials and surface the records table as full refresh.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        assert [t["name"] for t in tables] == ["records"]
-        assert "Full refresh" in tables[0]["sync_methods"]

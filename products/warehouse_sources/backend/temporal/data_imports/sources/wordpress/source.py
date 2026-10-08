@@ -54,7 +54,7 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
             name=ExternalDataSourceType.WORDPRESS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="WordPress",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync posts, pages, comments, media, categories, tags, and users from a self-hosted WordPress site via the core REST API (`/wp-json/wp/v2`).
 
 Enter your site URL (for example `https://example.com`). Public, published content syncs without credentials.

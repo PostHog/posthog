@@ -1,49 +1,28 @@
 import { memo } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconCopy, IconWrench } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
-import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
-
-import { runStreamLogic } from '../logics/runStreamLogic'
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ProgressStep, ThreadItem } from '../types/streamTypes'
-import { resolveToolCall } from '../utils/toolResolver'
+import type { ProgressStep, ThreadItem, ToolInvocation } from '../types/streamTypes'
+import { toolInvocationToMessage } from '../utils/toolCallMessage'
+import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
+import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
+import { useQuillThread } from './quill/quillThreadContext'
 import { RunErrorRow } from './RunErrorRow'
+import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-
-type ToolInvocations = typeof runStreamLogic.values.toolInvocations
-
-/** Maps a raw merged `ToolInvocation` into the flat `ToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(invocation: ReturnType<ToolInvocations['get']>): ToolCallMessage | null {
-    if (!invocation) {
-        return null
-    }
-    const resolved = resolveToolCall(invocation)
-    return {
-        id: invocation.toolCallId,
-        resolvedKey: resolved.resolvedKey,
-        rawServerName: invocation.rawServerName,
-        rawToolName: invocation.rawToolName,
-        innerToolName: resolved.innerToolName,
-        claudeToolName: resolved.claudeToolName,
-        rawInput: invocation.input,
-        innerInput: resolved.innerInput,
-        rawOutput: invocation.output,
-        content: invocation.contentBlocks,
-        status: invocation.status,
-        title: invocation.title,
-        kind: invocation.kind,
-        locations: invocation.locations,
-        error: invocation.error,
-    }
-}
 
 function progressStepText(step: ProgressStep): string {
     return step.detail ? `${step.label}\n\n${step.detail}` : step.label
@@ -98,11 +77,33 @@ export interface ThreadRowProps {
     /** Last item in the thread — drives reasoning collapse alongside `isThinking`. */
     isLast: boolean
     isThinking: boolean
-    toolInvocations: ToolInvocations
+    invocation?: ToolInvocation
     turnComplete: boolean
     turnCancelled: boolean
     /** The current run reached a terminal status; only then is the last error the run's ending. */
     runEnded?: boolean
+}
+
+/** Hidden at rest so a long thread does not repeat a row under every message. */
+function HumanMessageFooter({ startedAt, text }: { startedAt?: number; text?: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-1 mt-1.5 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {startedAt !== undefined && (
+                // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
+                <TZLabel time={new Date(startedAt).toISOString()} className="text-xs text-muted" />
+            )}
+            {text && (
+                <LemonButton
+                    icon={<IconCopy />}
+                    type="tertiary"
+                    size="xsmall"
+                    tooltip="Copy message"
+                    data-attr="posthog-ai-human-message-copy"
+                    onClick={() => void copyToClipboard(text)}
+                />
+            )}
+        </div>
+    )
 }
 
 /**
@@ -113,19 +114,32 @@ export const ThreadRow = memo(function ThreadRow({
     item,
     isLast,
     isThinking,
-    toolInvocations,
+    invocation,
     turnComplete,
     turnCancelled,
     runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
+    const quill = useQuillThread()
     if (item.type === 'human_message') {
+        if (quill) {
+            return <QuillHumanMessage item={item} />
+        }
+        const text = userMessageDisplayText(item.text ?? '')
         return (
-            <MessageTemplate type="human">
-                <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+            <MessageTemplate
+                type="human"
+                className="group"
+                action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
+            >
+                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
+                {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )
     }
     if (item.type === 'assistant_message') {
+        if (quill) {
+            return <QuillAssistantMessage item={item} />
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
@@ -144,7 +158,7 @@ export const ThreadRow = memo(function ThreadRow({
         return <ReasoningAnswer content={item.text} id={item.id} completed={completed} showCompletionIcon={false} />
     }
     if (item.type === 'tool_invocation' && item.toolCallId) {
-        const message = toolInvocationToMessage(toolInvocations.get(item.toolCallId))
+        const message = toolInvocationToMessage(invocation)
         if (!message) {
             return null
         }
@@ -152,6 +166,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'error') {
         return <RunErrorRow item={item} isLast={isLast && runEnded} />
+    }
+    if (quill && (item.type === 'status' || item.type === 'compact_boundary' || item.type === 'conversation_cleared')) {
+        return <QuillSeparatorRow item={item} live={isLast && isThinking} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />

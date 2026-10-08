@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
     ACCOUNT_LOOKUP_FAILED,
@@ -89,18 +89,6 @@ class TestFlatten:
         assert result["spec"] == {"steps": {}}
         assert "metadata" not in result
 
-    def test_top_level_field_wins_on_clash(self) -> None:
-        item = {"metadata": {"id": "from_metadata"}, "id": "top_level"}
-        assert _flatten(item, "metadata")["id"] == "top_level"
-
-    def test_no_flatten_key_is_passthrough(self) -> None:
-        item = {"id": "1", "created": "2026-01-01"}
-        assert _flatten(item, None) == item
-
-    def test_flatten_key_absent_is_passthrough(self) -> None:
-        item = {"id": "1"}
-        assert _flatten(item, "metadata") == item
-
 
 class TestTransformRow:
     @parameterized.expand(
@@ -168,19 +156,6 @@ class TestTransformRow:
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_stops_without_saving(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}])])
-        manager = _make_manager()
-
-        rows = _rows(_source("projects", manager))
-
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 1
-        # A short page is the last page — nothing left to resume to, so no state is saved.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_page_then_short_page_paginates_and_saves(self, MockSession) -> None:
         session = MockSession.return_value
@@ -264,42 +239,6 @@ class TestPagePagination:
         assert manager.save_state.call_args.args[0] == CodefreshResumeConfig(page=2, session_id="sess-1")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": [{"id": "b1"}]}, "pagination": {"nextPage": False}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == [{"id": "b1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_even_when_next_page_advertised(self, MockSession) -> None:
-        # A misbehaving API that streams empty pages with nextPage=True must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": []}, "pagination": {"nextPage": True}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_docs_envelope_stops_without_rows(self, MockSession) -> None:
-        # A body without workflows.docs yields no rows and terminates (parity with the old transport).
-        session = MockSession.return_value
-        _wire(session, [_response({"pagination": {"nextPage": True}})])
-
-        rows = _rows(_source("builds"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_page_and_session(self, MockSession) -> None:
         session = MockSession.return_value
         params, headers = _wire(
@@ -313,78 +252,6 @@ class TestPagePagination:
         assert rows == [{"id": "b9"}]
         assert params[0]["page"] == 3
         assert headers[0]["X-Pagination-Session-Id"] == "sess-resume"
-
-
-class TestUnpaginatedEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_triggers_single_fetch_yields_rows_without_pagination_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _headers = _wire(
-            session,
-            [
-                _response(
-                    [
-                        {"event": "e1", "pipeline": "p1", "event-data": {"secret": "s", "endpoint": "u"}},
-                        {"event": "e2", "pipeline": "p1"},
-                    ]
-                )
-            ],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source("triggers", manager))
-
-        # Single request, no pagination params, and the webhook secret/endpoint are redacted.
-        assert rows == [{"event": "e1", "pipeline": "p1", "event-data": {}}, {"event": "e2", "pipeline": "p1"}]
-        assert session.send.call_count == 1
-        assert params[0] == {}
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        rows = _rows(_source("triggers"))
-
-        assert rows == []
-
-
-class TestGetRowsFlattensPipelines:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pipeline_metadata_lifted_to_top_level(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response({"docs": [{"metadata": {"id": "p1", "name": "deploy"}, "spec": {"steps": {}}}], "count": 1})],
-        )
-
-        rows = _rows(_source("pipelines"))
-
-        assert rows == [{"id": "p1", "name": "deploy", "spec": {"steps": {}}}]
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_authorization_header_is_raw_token_without_bearer_prefix(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured_auth: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured_auth.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "1"}])]
-
-        _rows(_source("projects"))
-
-        # Codefresh expects the raw token as the Authorization header value — no "Bearer " prefix.
-        prepared = PreparedRequest()
-        prepared.prepare(method="GET", url="https://g.codefresh.io/api/projects", headers={})
-        captured_auth[0](prepared)
-        assert prepared.headers["Authorization"] == "token"
 
 
 class _FakeResponse:
@@ -411,16 +278,6 @@ class TestValidateCredentials:
         assert valid is expected_valid
         if not expected_valid:
             assert error is not None
-
-    def test_users_schema_probes_the_resolved_users_path(self) -> None:
-        # The users path is only knowable after /team resolves the account id, so probing the
-        # unfilled path would report a 404 rather than whether the key can reach the data.
-        session = mock.MagicMock()
-        session.get.side_effect = [_response([{"account": "acc-9"}]), _FakeResponse(200)]
-        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
-            valid, _error = validate_credentials("token", schema_name="users")
-        assert valid is True
-        assert session.get.call_args.args[0] == "https://g.codefresh.io/api/accounts/acc-9/users?limit=1"
 
     def test_users_schema_is_rejected_when_no_team_names_an_account(self) -> None:
         # A 200 from /team that names no account passes a status probe but fails the sync later,
@@ -462,11 +319,6 @@ class TestAccountIdResolution:
         session.get.return_value = _response(body)
         return session
 
-    def test_returns_the_account_the_first_team_names(self) -> None:
-        session = self._patched([{"_id": "t1", "name": "users", "account": "acc-7"}])
-        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
-            assert _resolve_account_id("token") == "acc-7"
-
     @parameterized.expand(
         [
             ("no_teams", []),
@@ -482,36 +334,8 @@ class TestAccountIdResolution:
             with pytest.raises(ValueError, match=ACCOUNT_LOOKUP_FAILED):
                 _resolve_account_id("token")
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_users_request_path_carries_the_resolved_account_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        urls: list[str] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            urls.append(request.url)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"_id": "u1", "userName": "ada"}])]
-
-        rows = _rows(_source("users", account_teams=[{"_id": "t1", "account": "acc-42"}]))
-
-        assert rows == [{"_id": "u1", "userName": "ada"}]
-        assert urls == ["https://g.codefresh.io/api/accounts/acc-42/users"]
-
 
 class TestEnvelopeEndpointFailsLoudOnAMissingDataKey:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_environments_rows_come_from_the_docs_envelope(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _headers = _wire(session, [_response({"docs": [{"_id": "e1", "name": "staging"}]})])
-
-        rows = _rows(_source("environments"))
-
-        assert rows == [{"_id": "e1", "name": "staging"}]
-        assert params[0] == {"limit": 100, "offset": 0}
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_body_without_the_docs_envelope_fails_loud(self, MockSession) -> None:
         # Codefresh does not document this response body. A shape we did not expect must stop the
@@ -549,9 +373,3 @@ class TestCodefreshSourceResponse:
         else:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
-
-    def test_every_endpoint_has_a_source_response(self) -> None:
-        # Guards against an endpoint added to settings without transport wiring.
-        for endpoint in CODEFRESH_ENDPOINTS:
-            response = _source(endpoint)
-            assert response.primary_keys

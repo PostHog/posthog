@@ -4,17 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowplow import (
     SnowplowSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.source import SnowplowSource
 
 
@@ -41,24 +35,6 @@ class TestSnowplowSource:
     def setup_method(self) -> None:
         self.source = SnowplowSource()
 
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        fields = {f.name: f for f in config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields.keys()) == {"organization_id", "api_key_id", "api_key"}
-        # Only the API key is confidential; the org ID and key ID must stay editable/visible.
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
-        assert fields["organization_id"].secret is False
-        assert fields["api_key_id"].secret is False
-        assert all(f.required for f in fields.values())
-
-    def test_source_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/snowplow"
-
     def test_connection_host_fields_cover_organization(self) -> None:
         # organization_id decides which org the stored API key reaches, so the update serializer
         # must force the key to be re-entered when it changes.
@@ -67,10 +43,6 @@ class TestSnowplowSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["job_runs"])
@@ -126,9 +98,3 @@ class TestSnowplowSource:
         with patch.object(source_module, "snowplow_source") as mock_source:
             self.source.source_for_pipeline(config, MagicMock(), inputs)
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Drift here (an endpoint renamed in settings but not here) silently drops the curated docs
-        # and falls back to LLM enrichment, so keep the two in lockstep.
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

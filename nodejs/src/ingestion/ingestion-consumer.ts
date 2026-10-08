@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Assignment, Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
 import { CommonConfig } from '~/common/config'
@@ -239,6 +239,7 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             mergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
             mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
@@ -341,15 +342,18 @@ export class IngestionConsumer {
         }
         this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
 
-        await this.kafkaConsumer.connect(async (messages) => {
-            return await instrumentFn(
-                {
-                    key: `ingestionConsumer.handleEachBatch`,
-                    sendException: false,
-                },
-                async () => await this.handleKafkaBatch(messages)
-            )
-        })
+        await this.kafkaConsumer.connect(
+            async (messages) => {
+                return await instrumentFn(
+                    {
+                        key: `ingestionConsumer.handleEachBatch`,
+                        sendException: false,
+                    },
+                    async () => await this.handleKafkaBatch(messages)
+                )
+            },
+            (revokedPartitions) => this.onPartitionsRevoked(revokedPartitions)
+        )
     }
 
     public async stop(): Promise<void> {
@@ -461,6 +465,13 @@ export class IngestionConsumer {
                 await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
             }),
         }
+    }
+
+    private onPartitionsRevoked(revokedPartitions: Assignment[]): Promise<void> {
+        for (const { topic, partition } of revokedPartitions) {
+            latestOffsetTimestampGauge.remove({ topic, partition, groupId: this.groupId })
+        }
+        return Promise.resolve()
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {

@@ -8,7 +8,7 @@ use crate::core::error::UnhandledError;
 use crate::core::symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver};
 use crate::core::symbolication::symbol_store::{
     apple::AppleProvider,
-    caching::{Caching, SymbolSetCache},
+    caching::{Caching, ParseLimiter, SymbolSetCache},
     chunk_id::ChunkIdFetcher,
     concurrency,
     hermesmap::HermesMapProvider,
@@ -58,6 +58,10 @@ pub fn build_catalog(
     let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
         config.symbol_store_cache_max_bytes,
     )));
+    let parse_limiter = ParseLimiter::new(
+        config.symbol_set_large_parse_bytes,
+        config.symbol_set_max_concurrent_large_parses,
+    );
 
     let smp = SourcemapProvider::new(config).with_chunk_id_rescue(
         posthog_pool.clone(),
@@ -78,7 +82,8 @@ pub fn build_catalog(
         config.ss_prefix.clone(),
         std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
     );
-    let smp_caching = Caching::new(smp_saving, ss_cache.clone());
+    let smp_caching =
+        Caching::new(smp_saving, ss_cache.clone()).with_parse_limiter(parse_limiter.clone());
     // We want to fetch each sourcemap from the outside world exactly once,
     // and if it isn't in the cache, load/parse it from s3 exactly once too.
     // Limiting the per symbol set reference concurrency to 1 ensures this.
@@ -92,7 +97,8 @@ pub fn build_catalog(
     );
     // Skip the saving layer for HermesMapProvider, since it'll never fetch
     // something from the outside world.
-    let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
+    let hmp_caching =
+        Caching::new(hmp_chunk, ss_cache.clone()).with_parse_limiter(parse_limiter.clone());
     let hmp_atmostonce = concurrency::AtMostOne::new(hmp_caching);
 
     let pgp_chunk = ChunkIdFetcher::new(
@@ -101,7 +107,8 @@ pub fn build_catalog(
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
     );
-    let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+    let pgp_caching =
+        Caching::new(pgp_chunk, ss_cache.clone()).with_parse_limiter(parse_limiter.clone());
     let pgp_atmostonce = concurrency::AtMostOne::new(pgp_caching);
 
     let apple_chunk = ChunkIdFetcher::new(
@@ -110,7 +117,8 @@ pub fn build_catalog(
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
     );
-    let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
+    let apple_caching =
+        Caching::new(apple_chunk, ss_cache.clone()).with_parse_limiter(parse_limiter.clone());
     let apple_atmostonce = concurrency::AtMostOne::new(apple_caching);
 
     let native_chunk = ChunkIdFetcher::new(
@@ -119,7 +127,7 @@ pub fn build_catalog(
         posthog_pool.clone(),
         config.object_storage_bucket.clone(),
     );
-    let native_caching = Caching::new(native_chunk, ss_cache);
+    let native_caching = Caching::new(native_chunk, ss_cache).with_parse_limiter(parse_limiter);
     let native_atmostonce = concurrency::AtMostOne::new(native_caching);
 
     Arc::new(Catalog::new(

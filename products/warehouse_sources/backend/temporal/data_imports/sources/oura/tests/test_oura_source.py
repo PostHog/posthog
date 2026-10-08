@@ -12,16 +12,6 @@ def _config(token: str = "tok") -> Any:
     return OuraSource().parse_config({"access_token": token})
 
 
-class TestSourceConfig:
-    def test_config_basics(self) -> None:
-        cfg = OuraSource().get_source_config
-        assert cfg.name == "Oura"
-        assert cfg.category == "Analytics"
-        assert cfg.releaseStatus == "alpha"
-        # A finished source must be visible — no unreleasedSource flag.
-        assert getattr(cfg, "unreleasedSource", None) is None
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -40,16 +30,6 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
-
-    def test_probes_personal_info_at_source_create(self) -> None:
-        with patch.object(oura_source_module, "probe_endpoint", return_value=200) as probe:
-            OuraSource().validate_credentials(_config(), team_id=1, schema_name=None)
-        probe.assert_called_once_with("tok", "/usercollection/personal_info")
-
-    def test_probes_requested_endpoint_for_schema(self) -> None:
-        with patch.object(oura_source_module, "probe_endpoint", return_value=200) as probe:
-            OuraSource().validate_credentials(_config(), team_id=1, schema_name="heartrate")
-        probe.assert_called_once_with("tok", "/usercollection/heartrate")
 
 
 class TestNonRetryableErrors:

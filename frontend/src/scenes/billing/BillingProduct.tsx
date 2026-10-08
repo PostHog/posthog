@@ -61,7 +61,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -548,7 +548,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             {/* Add-ons title */}
                             <h4 className="my-4">{addonSectionLabel}</h4>
-                            {billing?.subscription_level == 'free' && (
+                            {billing?.subscription_level == 'free' && !isBillingManagedByPartner && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>

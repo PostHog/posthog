@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall
 SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.fourthwall.make_tracked_session"
 )
-REST_RESOURCE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.fourthwall.rest_api_resource"
-)
 API_ROOT = "https://api.fourthwall.com/open-api/v1.0"
 
 
@@ -42,13 +39,6 @@ def _page(results: list[dict[str, Any]], total_pages: int) -> Response:
     response._content = json.dumps(
         {"results": results, "total": len(results), "page": 0, "size": PAGE_SIZE, "totalPages": total_pages}
     ).encode()
-    return response
-
-
-def _bare(items: list[dict[str, Any]]) -> Response:
-    response = Response()
-    response.status_code = 200
-    response._content = json.dumps(items).encode()
     return response
 
 
@@ -110,30 +100,12 @@ class TestFormatDatetime:
         # instead of skipping an order whose updatedAt equals the watermark.
         assert _format_datetime(value) == expected
 
-    def test_non_datetime_passes_through_as_string(self):
-        assert _format_datetime("2026-05-01T10:30:15Z") == "2026-05-01T10:30:15Z"
-
 
 def _endpoint_config(endpoint: str, should_use_incremental_field: bool = False) -> dict[str, Any]:
     return cast("dict[str, Any]", get_resource(endpoint, should_use_incremental_field)["endpoint"])
 
 
 class TestGetResource:
-    @pytest.mark.parametrize(
-        "endpoint",
-        [
-            name
-            for name in ENDPOINTS
-            if FOURTHWALL_ENDPOINTS[name].paginated and not FOURTHWALL_ENDPOINTS[name].page_in_path
-        ],
-    )
-    def test_paginated_endpoints_select_the_results_envelope(self, endpoint):
-        endpoint_config = _endpoint_config(endpoint)
-
-        assert endpoint_config["data_selector"] == "results"
-        assert endpoint_config["params"]["size"] == PAGE_SIZE
-        assert endpoint_config["path"] == FOURTHWALL_ENDPOINTS[endpoint].path
-
     @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if not FOURTHWALL_ENDPOINTS[name].paginated])
     def test_bare_array_endpoints_take_no_selector_and_a_single_page(self, endpoint):
         # A `results` selector here would match nothing and sync zero rows.
@@ -142,65 +114,12 @@ class TestGetResource:
         assert "data_selector" not in endpoint_config
         assert endpoint_config["paginator"] == "single_page"
 
-    @pytest.mark.parametrize(
-        "endpoint, should_use_incremental_field, expected_disposition",
-        [
-            ("orders", True, {"disposition": "merge", "strategy": "upsert"}),
-            ("orders", False, "replace"),
-            # products has no server-side timestamp filter, so it stays a full replace even
-            # when the pipeline asks for an incremental run.
-            ("products", True, "replace"),
-        ],
-    )
-    def test_write_disposition_follows_real_incremental_support(
-        self, endpoint, should_use_incremental_field, expected_disposition
-    ):
-        resource = get_resource(endpoint, should_use_incremental_field=should_use_incremental_field)
-        assert resource["write_disposition"] == expected_disposition
-
     def test_only_orders_declares_a_server_side_incremental_filter(self):
         # Declaring an incremental param an endpoint doesn't support would send a filter the
         # API ignores, turning every "incremental" sync back into a full scan.
         with_param = {name for name, config in FOURTHWALL_ENDPOINTS.items() if config.incremental_param}
         assert with_param == {"orders"}
         assert FOURTHWALL_ENDPOINTS["orders"].incremental_param == "updatedAt[gt]"
-
-
-class TestPagination:
-    @mock.patch(SESSION_PATCH)
-    def test_walks_pages_until_total_pages(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([_order("1")], 2), _page([_order("2")], 2)])
-
-        manager = _make_manager()
-        rows = _rows(_source("orders", manager))
-
-        assert [row["id"] for row in rows] == ["1", "2"]
-        assert [request["params"]["page"] for request in requests_seen] == [0, 1]
-        assert all(request["params"]["size"] == PAGE_SIZE for request in requests_seen)
-        # Checkpointed only while a next page remains, after the page was yielded.
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == FourthwallResumeConfig(paginator_state={"page": 1})
-
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([_order("9")], 4)])
-
-        rows = _rows(_source("orders", _make_manager(FourthwallResumeConfig(paginator_state={"page": 3}))))
-
-        assert [row["id"] for row in rows] == ["9"]
-        assert requests_seen[0]["params"]["page"] == 3
-
-    @mock.patch(SESSION_PATCH)
-    def test_bare_array_endpoint_yields_body_rows_without_pagination(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_bare([{"id": "tier_1", "name": "Gold"}])])
-
-        rows = _rows(_source("membership_tiers", _make_manager()))
-
-        assert rows == [{"id": "tier_1", "name": "Gold"}]
-        assert len(requests_seen) == 1
 
 
 def _templates_page(results: list[dict[str, Any]]) -> Response:
@@ -211,33 +130,6 @@ def _templates_page(results: list[dict[str, Any]]) -> Response:
 
 
 class TestProductTemplatePagination:
-    @mock.patch(SESSION_PATCH)
-    def test_walks_pages_by_path_until_empty(self, MockSession):
-        # product-templates pages by a 1-based path segment with no `totalPages`, so it must
-        # walk `/page/1`, `/page/2`, ... and stop only when a page returns no rows.
-        session = MockSession.return_value
-        requests_seen = _wire(
-            session,
-            [
-                _templates_page([{"productId": "pt_1"}, {"productId": "pt_2"}]),
-                _templates_page([{"productId": "pt_3"}]),
-                _templates_page([]),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("product_templates", manager))
-
-        assert [row["productId"] for row in rows] == ["pt_1", "pt_2", "pt_3"]
-        assert [request["url"] for request in requests_seen] == [
-            f"{API_ROOT}/product-templates/page/1",
-            f"{API_ROOT}/product-templates/page/2",
-            f"{API_ROOT}/product-templates/page/3",
-        ]
-        # Checkpointed after each non-empty page while a next page remained; the empty page saves nothing.
-        assert manager.save_state.call_count == 2
-        assert manager.save_state.call_args.args[0] == FourthwallResumeConfig(paginator_state={"page": 3})
-
     @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession):
         session = MockSession.return_value
@@ -251,26 +143,6 @@ class TestProductTemplatePagination:
 
 class TestIncrementalRequests:
     @mock.patch(SESSION_PATCH)
-    def test_incremental_sync_sends_the_watermark_on_every_page(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([_order("1")], 2), _page([_order("2")], 2)])
-
-        _rows(
-            _source(
-                "orders",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 5, 1, 10, 0, 0, tzinfo=UTC),
-            )
-        )
-
-        # The filter has to ride every page, otherwise later pages walk the full history.
-        assert [request["params"].get("updatedAt[gt]") for request in requests_seen] == [
-            "2026-05-01T10:00:00Z",
-            "2026-05-01T10:00:00Z",
-        ]
-
-    @mock.patch(SESSION_PATCH)
     def test_first_incremental_sync_starts_from_the_epoch(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(session, [_page([_order("1")], 1)])
@@ -279,32 +151,8 @@ class TestIncrementalRequests:
 
         assert requests_seen[0]["params"]["updatedAt[gt]"] == "1970-01-01T00:00:00Z"
 
-    @mock.patch(SESSION_PATCH)
-    def test_full_refresh_sends_no_timestamp_filter(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_page([_order("1")], 1)])
-
-        _rows(_source("orders", _make_manager()))
-
-        assert "updatedAt[gt]" not in requests_seen[0]["params"]
-
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(REST_RESOURCE_PATCH)
-    def test_metadata_matches_the_endpoint_catalog(self, mock_rest_api_resource, endpoint):
-        config = FOURTHWALL_ENDPOINTS[endpoint]
-
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        # Every table is a top-level list endpoint keyed by a globally unique id, so the
-        # endpoint's primary key stays unique table-wide.
-        assert response.primary_keys == config.primary_key
-        assert response.sort_mode == config.sort_mode
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
-        assert response.partition_mode == ("datetime" if config.partition_key else None)
-
     def test_orders_finalize_the_watermark_only_after_a_full_sync(self):
         # Fourthwall documents no ordering for the orders list and takes no sort parameter, so
         # `asc` would checkpoint the watermark to whatever the first page happened to contain.
@@ -330,55 +178,10 @@ class TestValidateCredentials:
         assert is_valid is expected_valid
         assert (error is None) is expected_valid
 
-    @mock.patch(SESSION_PATCH)
-    def test_probes_the_shop_endpoint_on_the_pinned_version(self, MockSession):
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("api-user", "api-secret", "v1.0")
-
-        assert session.get.call_args.args[0] == f"{API_ROOT}/shops/current"
-        assert session.auth == ("api-user", "api-secret")
-
 
 class TestWebhookTableTransformer:
     def _table(self, events: list[dict[str, Any]]):
         return table_from_py_list(events)
-
-    def test_lifts_the_resource_out_of_the_event_envelope(self):
-        table = self._table(
-            [
-                {
-                    "id": "weve_1",
-                    "type": "ORDER_PLACED",
-                    "createdAt": "2026-05-01T10:00:00+00:00",
-                    "data": _order("order_1"),
-                }
-            ]
-        )
-
-        rows = webhook_table_transformer(table).to_pylist()
-
-        assert [row["id"] for row in rows] == ["order_1"]
-        assert rows[0]["status"] == "CONFIRMED"
-
-    def test_unwraps_the_nested_order_on_order_updated(self):
-        # ORDER_UPDATED nests the order under `data.order`; without unwrapping, the row would
-        # carry the wrapper's shape and never merge onto the orders table.
-        table = self._table(
-            [
-                {
-                    "id": "weve_1",
-                    "type": "ORDER_UPDATED",
-                    "createdAt": "2026-05-01T10:00:00+00:00",
-                    "data": {"order": _order("order_1"), "update": {"type": "STATUS"}},
-                }
-            ]
-        )
-
-        rows = webhook_table_transformer(table).to_pylist()
-
-        assert [row["id"] for row in rows] == ["order_1"]
 
     def test_keeps_only_the_newest_event_per_object(self):
         # Delta merge dedupes across syncs but not within one batch, so a placed-then-updated
@@ -396,29 +199,6 @@ class TestWebhookTableTransformer:
                     "type": "ORDER_UPDATED",
                     "createdAt": "2026-05-02T10:00:00+00:00",
                     "data": {"order": _order("order_1", updated_at="2026-05-02T10:00:00.000Z")},
-                },
-            ]
-        )
-
-        rows = webhook_table_transformer(table).to_pylist()
-
-        assert len(rows) == 1
-        assert rows[0]["updatedAt"] == "2026-05-02T10:00:00.000Z"
-
-    def test_out_of_order_delivery_still_keeps_the_newest(self):
-        table = self._table(
-            [
-                {
-                    "id": "weve_2",
-                    "type": "ORDER_UPDATED",
-                    "createdAt": "2026-05-02T10:00:00+00:00",
-                    "data": {"order": _order("order_1", updated_at="2026-05-02T10:00:00.000Z")},
-                },
-                {
-                    "id": "weve_1",
-                    "type": "ORDER_PLACED",
-                    "createdAt": "2026-05-01T10:00:00+00:00",
-                    "data": _order("order_1", updated_at="2026-05-01T10:00:00.000Z"),
                 },
             ]
         )

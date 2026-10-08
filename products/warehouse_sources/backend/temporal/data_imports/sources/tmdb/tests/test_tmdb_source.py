@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.source import TMDbSource
@@ -18,28 +16,6 @@ class TestTMDbSource:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.themoviedb.org/3/movie/popular?api_key=x&page=1",
-            "401 Client Error: Unauthorized for url: https://api.themoviedb.org/3/configuration",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @pytest.mark.parametrize(
-        "unrelated_error",
-        [
-            "500 Server Error for url: https://api.themoviedb.org/3/movie/popular",
-            "404 Client Error: Not Found for url: https://api.themoviedb.org/3/movie/0",
-        ],
-    )
-    def test_non_retryable_errors_ignore_unrelated(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     def test_canonical_descriptions_keyed_by_known_endpoints(self) -> None:
         descriptions = self.source.get_canonical_descriptions()

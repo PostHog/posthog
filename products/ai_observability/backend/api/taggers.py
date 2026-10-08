@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.validators import EMPTY_VALUES
 from django.db import transaction
@@ -39,9 +39,12 @@ from products.access_control.backend.presentation.access_control import AccessCo
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +124,9 @@ class TaggerConfigField(serializers.JSONField):
 
 
 class TaggerModelConfigurationWriteSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(choices=LLMProvider.choices, help_text="LLM provider to use for this tagger.")
+    provider = serializers.ChoiceField(
+        choices=llm_completion_provider_choices(), help_text="LLM provider to use for this tagger."
+    )
     model = serializers.CharField(max_length=100, help_text="Provider model identifier to use for this tagger.")
     provider_key_id = serializers.UUIDField(
         required=False,
@@ -604,7 +609,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        response = execute_hogql_query(query=query, team=team, user=cast("User", request.user), limit_context=None)
 
         if not response.results:
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})

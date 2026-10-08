@@ -1,12 +1,21 @@
+from datetime import timedelta
+
 import pytest
 
 import requests
+from temporalio.exceptions import ApplicationError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
-from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
+from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
 
 _URL = "https://api.github.com/repos/PostHog/posthog/actions/jobs/123/logs"
+_DEPOT_URL = "https://api.depot.dev/depot.ci.v1.CIService/GetJobAttemptLogs"
+
+
+def _depot_page(*bodies: str, next_page_token: str = "") -> dict:
+    lines = [{"stepKey": "tests", "timestampMs": "1790000000000", "lineNumber": 1, "body": body} for body in bodies]
+    return {"lines": lines, "nextPageToken": next_page_token} if next_page_token else {"lines": lines}
 
 
 def test_returns_log_text_on_success(requests_mock):
@@ -66,3 +75,87 @@ def test_rejects_unsafe_repo_path(requests_mock, bad_repo):
     with pytest.raises(ValueError):
         fetch_job_log(bad_repo, 123, "tok")
     assert not requests_mock.called
+
+
+def test_depot_follows_page_tokens_into_github_shaped_lines(requests_mock):
+    # Depot pages an attempt's log. Stopping after the first page drops the failure at the end, and a
+    # line without the GitHub timestamp prefix reaches Logs with no timestamp.
+    requests_mock.post(
+        _DEPOT_URL,
+        [
+            {"json": _depot_page("##[group]Run tests", next_page_token="page-2")},
+            {"json": _depot_page("##[error]Process completed with exit code 1")},
+        ],
+    )
+    assert fetch_depot_job_log("zf6sbbn2wh", "depot-tok") == (
+        "2026-09-21T14:13:20.000Z ##[group]Run tests\n"
+        "2026-09-21T14:13:20.000Z ##[error]Process completed with exit code 1\n"
+    )
+    assert [request.json() for request in requests_mock.request_history] == [
+        {"attemptId": "zf6sbbn2wh"},
+        {"attemptId": "zf6sbbn2wh", "pageToken": "page-2"},
+    ]
+    assert requests_mock.request_history[0].headers["Authorization"] == "Bearer depot-tok"
+
+
+def test_depot_caps_log_but_keeps_failure_tail(requests_mock):
+    requests_mock.post(
+        _DEPOT_URL,
+        [
+            {"json": _depot_page(*["noise line"] * 1000, next_page_token="page-2")},
+            {"json": _depot_page(*["noise line"] * 1000, "##[error]the real failure")},
+        ],
+    )
+    result = fetch_depot_job_log("zf6sbbn2wh", "depot-tok", max_bytes=400)
+    assert result is not None
+    assert "##[error]the real failure" in result
+    assert "log truncated" in result
+    assert len(result.encode()) < 1000
+
+
+@pytest.mark.parametrize(
+    "pages, kept, calls",
+    [
+        # A page over the remaining budget is dropped before it is decoded into memory.
+        ([_depot_page(*["noise line"] * 100, next_page_token="page-2")], [], 1),
+        # A job that prints an endless log must not hold the worker in the download.
+        (
+            [
+                _depot_page("##[error]first page", next_page_token="page-2"),
+                _depot_page(*["noise line"] * 100, next_page_token="page-3"),
+            ],
+            ["##[error]first page"],
+            2,
+        ),
+    ],
+)
+def test_depot_stops_paging_at_the_read_budget(requests_mock, pages, kept, calls):
+    requests_mock.post(_DEPOT_URL, [{"json": page} for page in pages])
+    result = fetch_depot_job_log("zf6sbbn2wh", "depot-tok", max_read_bytes=1000)
+    assert result is not None
+    assert result.endswith("[log download stopped at the read budget] ...\n")
+    assert "noise line" not in result
+    assert all(line in result for line in kept)
+    assert requests_mock.call_count == calls
+
+
+@pytest.mark.parametrize(
+    "status, headers, error, retry_delay",
+    [
+        # A revoked token must fail the attempt, never read as an empty log that is marked done.
+        (401, {}, requests.HTTPError, None),
+        # Depot's Retry-After must reach Temporal, so the retry waits as long as Depot asked.
+        (429, {"Retry-After": "30"}, ApplicationError, timedelta(seconds=30)),
+    ],
+)
+def test_depot_raises_on_error_status_without_leaking_token(requests_mock, status, headers, error, retry_delay):
+    requests_mock.post(_DEPOT_URL, status_code=status, headers=headers, json={"code": "unauthenticated"})
+    with pytest.raises(error) as raised:
+        fetch_depot_job_log("zf6sbbn2wh", "depot-secret-token")
+    assert "depot-secret-token" not in str(raised.value)
+    assert getattr(raised.value, "next_retry_delay", None) == retry_delay
+
+
+def test_depot_returns_none_when_attempt_has_no_log(requests_mock):
+    requests_mock.post(_DEPOT_URL, status_code=404, json={"code": "not_found"})
+    assert fetch_depot_job_log("zf6sbbn2wh", "depot-tok") is None

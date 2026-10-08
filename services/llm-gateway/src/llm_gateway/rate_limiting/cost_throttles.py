@@ -253,15 +253,12 @@ class _UserCostThrottleBase(CostThrottle):
         return config
 
     def _is_exempt(self, context: ThrottleContext) -> bool:
-        """Whether this request meters against the posthog_code budget, which billable credits
-        cover instead of a per-user cost limit.
-
-        Keyed on the resolved cost key rather than the declared product, for the same reason
-        `_cost_key` is: a Signals run holding an Array-app token declares `posthog_code`, and
-        reading the declaration here would hand it this exemption and leave the interactive
-        budget its spend is keyed to unenforced.
-        """
-        return self._cost_key(context) == POSTHOG_CODE_PRODUCT
+        """Use the resolved budget so Signals runs declaring Code cannot claim the Code exemption."""
+        settings = get_settings()
+        return self._cost_key(context) == POSTHOG_CODE_PRODUCT and (
+            not settings.posthog_code_user_cost_limits_enabled
+            or context.user.user_id not in settings.posthog_code_capped_user_ids
+        )
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         if not context.end_user_id or self._is_exempt(context):
@@ -291,7 +288,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id or self._is_exempt(context):
+        if not context.end_user_id:
             return
         await super().record_cost(context, cost)
 

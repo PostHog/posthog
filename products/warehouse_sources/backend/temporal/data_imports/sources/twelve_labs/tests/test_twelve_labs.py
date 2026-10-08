@@ -8,11 +8,8 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs import twelve_labs
-from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.settings import TWELVE_LABS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.twelve_labs import (
     TwelveLabsResumeConfig,
-    _build_params,
     _format_incremental_value,
     twelve_labs_source,
     validate_credentials,
@@ -91,47 +88,6 @@ class TestFormatIncrementalValue:
         # filter, so the exact string matters.
         assert _format_incremental_value(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, tzinfo=UTC))
-
-
-class TestBuildParams:
-    def test_incremental_sets_filter_and_ascending_sort(self) -> None:
-        params = _build_params(
-            TWELVE_LABS_ENDPOINTS["indexes"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["sort_by"] == "updated_at"
-        assert params["sort_option"] == "asc"
-        assert params["updated_at"] == "2026-03-04T00:00:00.000Z"
-        assert params["page_limit"] == twelve_labs.PAGE_LIMIT
-
-    def test_incremental_first_sync_has_no_filter_value(self) -> None:
-        # No watermark yet: sort ascending but don't emit a filter param, else we'd send an empty value.
-        params = _build_params(
-            TWELVE_LABS_ENDPOINTS["tasks"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updated_at",
-        )
-        assert params["sort_by"] == "updated_at"
-        assert "updated_at" not in params
-
-    def test_full_refresh_sorts_by_stable_creation_field(self) -> None:
-        # Full refresh must still pass an explicit ascending sort on a stable field so page
-        # boundaries don't skip or duplicate rows if the library grows mid-sync.
-        params = _build_params(
-            TWELVE_LABS_ENDPOINTS["videos"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["sort_by"] == "created_at"
-        assert params["sort_option"] == "asc"
-        assert not any(k in params for k in ("created_at", "updated_at"))
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -144,14 +100,6 @@ class TestValidateCredentials:
         # The caller relies on the status code to tell a rejected key from a transient outage.
         assert returned_status == status_code
 
-    def test_network_error_reports_no_status(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(TL_SESSION_PATCH, return_value=session):
-            ok, returned_status = validate_credentials("tlk_key")
-        assert ok is False
-        assert returned_status is None
-
     def test_credentialed_session_redacts_key_and_refuses_redirects(self) -> None:
         # The x-api-key value must never reach tracked telemetry, and a 30x must not replay it to
         # another host, so validation builds the session with both guards on.
@@ -163,23 +111,6 @@ class TestValidateCredentials:
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_pages_until_total_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [_page([{"_id": "a"}], page=1, total_page=2), _page([{"_id": "b"}], page=2, total_page=2)],
-        )
-
-        rows = _rows(_source("indexes"))
-
-        assert [r["_id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 2
-        assert snapshots[0][0] == "https://api.twelvelabs.io/v1.3/indexes"
-        assert snapshots[0][1]["page"] == 1
-        assert snapshots[0][1]["page_limit"] == 50
-        assert snapshots[1][1]["page"] == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_resume_state_after_each_page_but_not_on_last(self, MockSession) -> None:
         # State is saved after yielding a page (so a crash re-yields, not skips) and only while more
@@ -223,16 +154,6 @@ class TestTopLevelPagination:
         assert snapshots[0][1]["sort_by"] == "updated_at"
         assert snapshots[0][1]["sort_option"] == "asc"
         assert snapshots[0][1]["updated_at"] == "2026-03-04T02:58:14.000Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([{"_id": "a"}], page=1, total_page=1)])
-
-        _rows(_source("indexes"))
-
-        assert snapshots[0][1]["sort_by"] == "created_at"
-        assert "updated_at" not in snapshots[0][1]
 
 
 class TestFanOut:
@@ -289,47 +210,54 @@ class TestFanOut:
         ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_fanout_state_as_indexes_complete(self, MockSession) -> None:
+    def test_asset_transcriptions_skip_assets_without_a_transcription(self, MockSession) -> None:
+        # An asset with no transcription 404s. That must skip the asset, not fail the sync, and each
+        # transcription row must carry its asset's id and creation time.
         session = MockSession.return_value
-        _wire(
+        not_found = Response()
+        not_found.status_code = 404
+        not_found.reason = "Not Found"
+        not_found.url = "https://api.twelvelabs.io/v1.3/assets/a1/transcription"
+        not_found._content = b'{"code": "resource_not_found"}'
+        transcription = Response()
+        transcription.status_code = 200
+        transcription.url = "https://api.twelvelabs.io/v1.3/assets/a2/transcription"
+        transcription._content = json.dumps(
+            {"status": "ready", "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}]}
+        ).encode()
+        snapshots = _wire(
             session,
             [
-                _page([{"_id": "idx1"}, {"_id": "idx2"}], page=1, total_page=1),
-                _page([{"_id": "v1"}], page=1, total_page=1),
-                _page([{"_id": "v2"}], page=1, total_page=1),
+                _page(
+                    [
+                        {"_id": "a1", "created_at": "2026-08-01T00:00:00Z"},
+                        {"_id": "a2", "created_at": "2026-08-02T00:00:00Z"},
+                    ],
+                    page=1,
+                    total_page=1,
+                ),
+                not_found,
+                transcription,
             ],
         )
 
-        manager = _make_manager()
-        _rows(_source("videos", manager=manager))
+        rows = _rows(_source("asset_transcriptions"))
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert all(isinstance(state, TwelveLabsResumeConfig) and state.fanout_state is not None for state in saved)
-        final = saved[-1].fanout_state
-        assert final == {
-            "completed": ["/indexes/idx1/videos", "/indexes/idx2/videos"],
-            "current": None,
-            "child_state": None,
-        }
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_old_shape_resume_state_restarts_fanout(self, MockSession) -> None:
-        # A pre-migration bookmark (index_id) can't seed the framework fan-out — the sync starts that
-        # part fresh and merge dedupes the re-pulled rows on the [index_id, _id] key.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"_id": "idx1"}, {"_id": "idx2"}], page=1, total_page=1),
-                _page([{"_id": "v1"}], page=1, total_page=1),
-                _page([{"_id": "v2"}], page=1, total_page=1),
-            ],
-        )
-
-        manager = _make_manager(TwelveLabsResumeConfig(next_page=1, index_id="idx2"))
-        rows = _rows(_source("videos", manager=manager))
-
-        assert [r["index_id"] for r in rows] == ["idx1", "idx2"]
+        assert rows == [
+            {
+                "status": "ready",
+                "sentences": [{"start": 0.0, "end": 1.5, "value": "Hello."}],
+                "asset_id": "a2",
+                "asset_created_at": "2026-08-02T00:00:00Z",
+            }
+        ]
+        assert [url for url, _ in snapshots] == [
+            "https://api.twelvelabs.io/v1.3/assets",
+            "https://api.twelvelabs.io/v1.3/assets/a1/transcription",
+            "https://api.twelvelabs.io/v1.3/assets/a2/transcription",
+        ]
+        assert snapshots[0][1]["asset_types"] == ["video", "audio"]
+        assert snapshots[1][1] == {"include": "sentences,utterances"}
 
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the

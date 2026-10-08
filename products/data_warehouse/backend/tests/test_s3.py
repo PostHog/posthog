@@ -7,11 +7,17 @@ from django.test import SimpleTestCase, override_settings
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists, get_size_of_folder
+from products.data_warehouse.backend.s3 import (
+    _LOOP_S3_CLIENTS,
+    _shared_async_s3_client,
+    aget_s3_client,
+    ensure_bucket_exists,
+    get_size_of_folder,
+)
 
 
-def _client_error(code: str) -> ClientError:
-    return ClientError({"Error": {"Code": code}}, "operation")
+def _client_error(code: str, message: str = "") -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": message}}, "operation")
 
 
 class TestAgetS3Client(SimpleTestCase):
@@ -36,6 +42,32 @@ class TestAgetS3Client(SimpleTestCase):
 
         fake_s3._s3creator.__aexit__.assert_awaited_once_with(None, None, None)
         fake_s3._s3.close.assert_not_awaited()
+
+
+class TestSharedAsyncS3ClientLoopEviction(SimpleTestCase):
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_evicts_a_closed_loops_entry_instead_of_leaking_it_forever(self) -> None:
+        # _LOOP_S3_CLIENTS is a WeakKeyDictionary keyed on the event loop, but each cached client's
+        # aiohttp session keeps a strong reference back to that loop, so the loop is never weakly
+        # reachable and its entry never disappears on its own (the leak both review bots flagged).
+        # A worker whose call path keeps starting new short-lived loops needs those dead entries
+        # swept explicitly, or they and their clients accumulate for the life of the process.
+        dead_loop = asyncio.new_event_loop()
+        dead_loop.run_until_complete(asyncio.sleep(0))
+        _LOOP_S3_CLIENTS[dead_loop] = {None: MagicMock()}
+        dead_loop.close()
+        assert dead_loop in _LOOP_S3_CLIENTS
+
+        fake_s3 = MagicMock()
+        fake_s3.set_session = AsyncMock()
+
+        async def run() -> None:
+            with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
+                await _shared_async_s3_client(None)
+
+        asyncio.run(run())
+
+        assert dead_loop not in _LOOP_S3_CLIENTS
 
 
 class TestGetSizeOfFolder(SimpleTestCase):
@@ -101,19 +133,40 @@ class TestEnsureBucketExists(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("owned_by_us", "BucketAlreadyOwnedByYou", False),
-            ("owned_by_someone_else", "BucketAlreadyExists", True),
-            ("access_denied", "AccessDenied", True),
+            ("owned_by_us", "BucketAlreadyOwnedByYou", "", False),
+            ("owned_by_someone_else", "BucketAlreadyExists", "", True),
+            (
+                "seaweedfs_shared_namespace_race",
+                "BucketAlreadyExists",
+                "The bucket name can not be an existing collection, and the bucket namespace is "
+                "shared by all users of the system. Please select a different name and try again.",
+                False,
+            ),
+            (
+                "genuine_aws_collision_with_shared_namespace_wording",
+                "BucketAlreadyExists",
+                "The requested bucket name is not available. The bucket namespace is shared by all "
+                "users of the system. Please select a different name and try again.",
+                True,
+            ),
+            ("access_denied", "AccessDenied", "", True),
         ]
     )
     @patch("products.data_warehouse.backend.s3.boto3.client")
-    def test_create_bucket_race_after_a_404(self, _name, create_error_code, should_raise, mock_boto3_client) -> None:
+    def test_create_bucket_race_after_a_404(
+        self, _name, create_error_code, create_error_message, should_raise, mock_boto3_client
+    ) -> None:
         # A concurrent caller can create the bucket between our head_bucket 404 and our own
         # create_bucket call. BucketAlreadyOwnedByYou means we lost that race but still own the
-        # bucket, so it must not surface as a failure; any other create_bucket error is real.
+        # bucket, so it must not surface as a failure. SeaweedFS (the backend behind local/self-hosted
+        # setups) has no per-account ownership check, so it reports the identical race as a bare
+        # BucketAlreadyExists carrying its own "existing collection" wording instead — that must not
+        # raise either. SeaweedFS's message otherwise reuses AWS's own wording for a genuine collision
+        # verbatim, so a BucketAlreadyExists with AWS's wording but no "existing collection" is a real,
+        # unrelated name collision and must still raise.
         s3_client = MagicMock()
         s3_client.head_bucket.side_effect = _client_error("404")
-        s3_client.create_bucket.side_effect = _client_error(create_error_code)
+        s3_client.create_bucket.side_effect = _client_error(create_error_code, create_error_message)
         mock_boto3_client.return_value = s3_client
 
         if should_raise:

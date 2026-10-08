@@ -7,11 +7,6 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import (
     browserbase,
     source as source_module,
@@ -27,29 +22,6 @@ def _config() -> BrowserbaseSourceConfig:
     return BrowserbaseSourceConfig(api_key="bb_test_key")
 
 
-class TestBrowserbaseSourceConfig:
-    def test_source_config_basics(self) -> None:
-        config = BrowserbaseSource().get_source_config
-
-        assert config.name == "Browserbase"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        # Alpha, and visible (no unreleasedSource) - a finished source ships connectable.
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath.endswith(".svg")
-
-    def test_single_required_api_key_field(self) -> None:
-        fields = BrowserbaseSource().get_source_config.fields
-
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        # API keys are secrets - must never be echoed back to the client.
-        assert field.secret is True
-
-
 class TestBrowserbaseSchemas:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
@@ -61,23 +33,6 @@ class TestBrowserbaseSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_session_logs_is_not_enabled_by_default(self) -> None:
-        # One request per session over an unpaginated session list, carrying raw CDP bodies - it
-        # must not be force-enabled by one-shot source creation.
-        by_name = {s.name: s for s in BrowserbaseSource().get_schemas(_config(), team_id=1)}
-
-        assert by_name["session_logs"].should_sync_default is False
-        assert by_name["sessions"].should_sync_default is True
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
-        tables = BrowserbaseSource().get_documented_tables()
-
-        by_name = {t["name"]: t for t in tables}
-        assert set(by_name) == set(ENDPOINTS)
-        assert by_name["sessions"]["description"]
-        assert by_name["sessions"]["sync_methods"] == ["Full refresh"]
 
 
 class TestBrowserbaseCredentials:

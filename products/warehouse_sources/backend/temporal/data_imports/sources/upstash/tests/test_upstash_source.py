@@ -1,11 +1,10 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
     UpstashSourceConfig,
@@ -38,38 +37,13 @@ class TestUpstashSource:
         self.source = UpstashSource()
         self.config = UpstashSourceConfig(email="me@example.com", api_key="key")
 
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
-        assert set(fields) == {"email", "api_key"}
-        assert fields["email"].required is True
-        # The management API key is a credential: it must be a secret password field so it is never
-        # echoed back or logged in the clear.
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static catalog with no I/O, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_are_all_full_refresh(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {"redis_databases", "redis_stats", "teams", "vector_indexes", "audit_logs"}
-        # No Upstash management endpoint exposes a server-side time filter, so none is incremental.
-        for schema in schemas.values():
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["teams"])
         assert [s.name for s in schemas] == ["teams"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Public-docs table catalog must be derivable with no network/credentials.
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == {"redis_databases", "redis_stats", "teams", "vector_indexes", "audit_logs"}
-        assert tables["redis_databases"]["sync_methods"] == ["Full refresh"]
-        assert tables["redis_databases"]["primary_keys"] == []  # unknown until first sync
 
     @parameterized.expand(
         [

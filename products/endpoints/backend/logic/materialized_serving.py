@@ -104,6 +104,9 @@ def serving_state_for_version(
     ready: bool,
     materialized_at: datetime | None,
 ) -> MaterializedServingState:
+    # A version materialized before an eligibility rule tightened keeps its table, but the table
+    # can no longer answer the query correctly, so it serves inline until the query changes.
+    ready = ready and version.can_materialize()[0]
     return MaterializedServingState(
         ready=ready,
         materialized_at=materialized_at,

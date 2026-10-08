@@ -398,6 +398,8 @@ def google_analytics_source(
             offset = resume_offset if chunk_start_iso == resume_chunk_start else 0
 
             while True:
+                # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                resumable_source_manager.safe_point()
                 payload = _run_report(
                     session=session,
                     property_id=config.property_id,

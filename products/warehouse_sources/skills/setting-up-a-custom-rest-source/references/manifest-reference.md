@@ -28,7 +28,7 @@ real engine behavior. Only the fields the engine reads are documented here; unkn
 - **`client.headers`** (optional) — static headers sent on every request.
 - **`client.paginator`** (optional) — a default paginator for all resources; override per resource on the endpoint.
 - **`resource_defaults.endpoint`** (optional) — endpoint fields merged into every resource (e.g. a shared paginator or
-  `data_selector`).
+  `data_selector`). Incremental config isn't allowed here; set `endpoint.incremental` on each resource instead.
 - **`resources`** (required, 1–50) — one entry per table you want to import. Each has a unique `name` (becomes the
   table name) and an `endpoint`.
 

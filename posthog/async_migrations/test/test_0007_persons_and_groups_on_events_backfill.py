@@ -11,9 +11,12 @@ from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
+from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.utils import UUIDT
-from posthog.test.persons import create_person as create_test_person
+from posthog.test.persons import (
+    create_person as create_test_person,
+    delete_person,
+)
 
 pytestmark = pytest.mark.async_migrations
 

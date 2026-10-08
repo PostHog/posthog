@@ -1,5 +1,7 @@
 import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
 
+import { percentage } from 'lib/utils/numbers'
+
 import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
@@ -146,4 +148,8 @@ export function resolveFunnelStepClick(
     const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
     const variant = step.nested_breakdown?.[breakdownIndex] ?? step
     return { step, series: variant, converted: !clickData.inTrackArea }
+}
+
+export function formatFunnelStepBarLabel(ratePercent: number): string {
+    return percentage(ratePercent / RATE_TO_PERCENT, 0)
 }

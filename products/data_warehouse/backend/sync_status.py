@@ -33,11 +33,12 @@ _BILLING_LIMIT_REASONS: dict[str, str] = {
 
 
 def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
-    """Stale once the last sync is older than 2x the cadence; unknown cadence or never-synced is not stale."""
+    """Stale once the last sync run is older than 2x the cadence; unknown cadence or never-run is not stale."""
     interval = schema.sync_frequency_interval
-    if interval is None or schema.last_synced_at is None:
+    last_run = schema.last_run_at
+    if interval is None or last_run is None:
         return False
-    return (now - ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
+    return (now - last_run) > interval * STALE_RUNNING_MULTIPLIER
 
 
 def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:

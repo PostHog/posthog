@@ -34,7 +34,7 @@ export interface ChannelItemModel {
    * names one.
    */
   environment: ChannelItemEnvironment | null;
-  /** The product that filed it (`origin_product`), or null if it started here. */
+  /** The product that filed it (`origin_product`), or Desktop for a canvas. */
   source: string | null;
   /** The agent is blocked on an answer from you. */
   needsInput: boolean;
@@ -134,16 +134,8 @@ function environmentOf(
   return mode === "cloud" ? "cloud" : "local";
 }
 
-/**
- * `origin_product` for a session someone started here rather than one filed by
- * another product. It is the default the backend stamps on, so it is an absence
- * of a source, not one of the sources to choose between.
- */
-const SELF_ORIGIN = "user_created";
-
 function sourceOf(task: Task): string | null {
-  const origin = task.origin_product;
-  return origin && origin !== SELF_ORIGIN ? origin : null;
+  return task.origin_product || null;
 }
 
 export function buildChannelItems({
@@ -171,7 +163,7 @@ export function buildChannelItems({
     pinned: d.pinnedAt != null,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: d.createdByUser ?? null,
@@ -232,13 +224,13 @@ export type CreatedByFilter = "anyone" | "me" | "others";
 export type AttentionFilter = "any" | "needs_input" | "unread";
 export type PinnedFilter = "any" | "pinned";
 export type EnvironmentFilter = "any" | ChannelItemEnvironment;
-/** `ANY_SOURCE`, or an `origin_product` key like `slack`. */
-export type SourceFilter = string;
+export type SourceFilter = readonly string[];
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
 export type KindFilter = "any" | "task" | "canvas";
 
-export const ANY_SOURCE = "any";
+export const ANY_SOURCE: SourceFilter = [];
+export const DESKTOP_SOURCE = "user_created";
 
 export interface ChannelItemFilters {
   kind: KindFilter;
@@ -246,7 +238,7 @@ export interface ChannelItemFilters {
   attention: AttentionFilter;
   pinned: PinnedFilter;
   environment: EnvironmentFilter;
-  source: SourceFilter;
+  sources: SourceFilter;
 }
 
 export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
@@ -255,7 +247,7 @@ export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
   attention: "any",
   pinned: "any",
   environment: "any",
-  source: ANY_SOURCE,
+  sources: ANY_SOURCE,
 };
 
 /** Newest activity first, which is what a session list is for. */
@@ -285,15 +277,32 @@ export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
  */
 export function hasActiveChannelItemFilters(
   filters: ChannelItemFilters,
+  defaults: ChannelItemFilters = DEFAULT_CHANNEL_ITEM_FILTERS,
 ): boolean {
   return (
-    filters.kind !== "any" ||
-    filters.createdBy !== "anyone" ||
-    filters.attention !== "any" ||
-    filters.pinned !== "any" ||
-    filters.environment !== "any" ||
-    filters.source !== ANY_SOURCE
+    filters.kind !== defaults.kind ||
+    filters.createdBy !== defaults.createdBy ||
+    filters.attention !== defaults.attention ||
+    filters.pinned !== defaults.pinned ||
+    filters.environment !== defaults.environment ||
+    !sameSources(filters.sources, defaults.sources)
   );
+}
+
+export function sameSources(a: SourceFilter, b: SourceFilter): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((source) => set.has(source));
+}
+
+export function migrateSourceFilter({
+  source,
+  ...rest
+}: Partial<ChannelItemFilters> & {
+  source?: unknown;
+}): Partial<ChannelItemFilters> {
+  if (typeof source !== "string" || rest.sources) return rest;
+  return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
 }
 
 /**
@@ -352,7 +361,10 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (
+      filters.sources.length > 0 &&
+      (item.source === null || !filters.sources.includes(item.source))
+    ) {
       return false;
     }
     return true;

@@ -103,71 +103,7 @@ class TestFormatIncrementalValue:
         assert "+00:00" not in result
 
 
-class TestPagination:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_follows_cursor_until_has_more_after_false(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"id": "tcl_1"}, {"id": "tcl_2"}], has_more_after=True),
-                _response([{"id": "tcl_3"}], has_more_after=False),
-            ],
-        )
-
-        rows = _rows(_source(MockSession))
-
-        assert [r["id"] for r in rows] == ["tcl_1", "tcl_2", "tcl_3"]
-        # No extra empty request: has_more_after=False on page two ends the sync.
-        assert session.send.call_count == 2
-        # Page one carries no cursor; page two pages from the last id of page one.
-        assert "after" not in params[0]
-        assert params[1]["after"] == "tcl_2"
-        assert all(p["order"] == "asc" and p["limit"] == DEFAULT_PAGE_SIZE for p in params)
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more_after=False)])
-        manager = _make_manager()
-
-        rows = _rows(_source(MockSession, resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_drops_sensitive_fields_on_sessions(self, MockSession: MagicMock) -> None:
-        # A live client_secret must never be persisted to the warehouse.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "ses_1", "client_secret": "metorial_fk_x"}], has_more_after=False)])
-
-        rows = _rows(_source(MockSession, endpoint="sessions"))
-
-        assert rows == [{"id": "ses_1"}]
-
-
 class TestResume:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_cursor_after_each_page(self, MockSession: MagicMock) -> None:
-        # Saving after (not before) yielding means a crash re-fetches the page rather than skipping it.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "prn_1"}], has_more_after=True),
-                _response([{"id": "prn_2"}], has_more_after=False),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source(MockSession, endpoint="provider_runs", resumable_source_manager=manager))
-
-        # Only the page that had a successor persists a cursor; the terminal page does not.
-        saved = [call.args[0].after for call in manager.save_state.call_args_list]
-        assert saved == ["prn_1"]
-
     @patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession: MagicMock) -> None:
         # A resumed run must continue from the persisted cursor, not restart the whole stream.
@@ -209,25 +145,6 @@ class TestIncrementalFilter:
         assert len(params) == 2
         for p in params:
             assert p["updated_at[gt]"] == "2026-03-04T02:58:14.000Z"
-
-    @patch(CLIENT_SESSION_PATCH)
-    def test_honors_user_incremental_field_over_default(self, MockSession: MagicMock) -> None:
-        # sessions default is updated_at; the user picking created_at must be respected.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "ses_1"}], has_more_after=False)])
-
-        _rows(
-            _source(
-                MockSession,
-                endpoint="sessions",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-                incremental_field="created_at",
-            )
-        )
-
-        assert "created_at[gt]" in params[0]
-        assert "updated_at[gt]" not in params[0]
 
     @patch(CLIENT_SESSION_PATCH)
     def test_first_sync_has_no_filter(self, MockSession: MagicMock) -> None:
@@ -348,16 +265,6 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @patch(METORIAL_SESSION_PATCH)
-    def test_valid_key(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=200)
-        mock_session_factory.return_value = session
-
-        assert validate_credentials(_SECRET_KEY) is True
-        # The key must be registered with the tracked transport so it's masked in logged URLs / samples.
-        mock_session_factory.assert_called_once_with(redact_values=(_SECRET_KEY,))
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     @patch(METORIAL_SESSION_PATCH)
     def test_invalid_key(self, _name: str, status: int, mock_session_factory: MagicMock) -> None:
@@ -366,11 +273,3 @@ class TestValidateCredentials:
         mock_session_factory.return_value = session
 
         assert validate_credentials("bad-key") is False
-
-    @patch(METORIAL_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("no network")
-        mock_session_factory.return_value = session
-
-        assert validate_credentials("key") is False

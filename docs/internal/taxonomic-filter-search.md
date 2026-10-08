@@ -7,6 +7,11 @@ The classic picker shows its active category in the search input. A person can d
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
+In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search does not offer an uncaptured event name, and it does not change the selected form value.
+When a caller allows custom event names, a successful empty search offers "Use event name".
+Pressing Enter in the search input selects that custom event name.
+The classic picker does not infer ingestion history from a filtered definition list.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.
 
@@ -22,6 +27,14 @@ Opening an event picker that offers Actions loads the list; later opens reuse th
 When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
 The classic popover unmounts after its close transition and starts with a fresh search when reopened.
 
+## Element breakdowns
+
+Trends and funnels offer element text, tag name, and href in the Elements category and suggested filters.
+These breakdowns use values from the autocapture element chain.
+Text and tag name use the first matching value in the chain. Href uses the first href.
+CSS selectors remain available as property filters, but not as breakdowns.
+Other insight types exclude element breakdown suggestions.
+
 ## Typing and rendering
 
 The legacy picker debounces API searches for 500 ms after the last keystroke, including while the initial response is loading.
@@ -30,7 +43,7 @@ Local filtering and rendering still update on each keystroke.
 
 ## Event list pagination
 
-The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
+The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page, except on projects above the large-project threshold, where it stops at the cap in `posthog/taxonomy/definition_search.py`. There the response sets `count_is_capped`, `count` is a lower bound rather than a total, and paging continues while pages come back full rather than ending at the cap. A request that filters by search, stale events, verification, names, tags or `event_type=event_posthog` keeps the exact count, because those filters match too few rows for a bounded count to stop early. Above a second, higher threshold the default order is by name instead of recency, because nothing indexes `last_seen_at`. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.
 
 Tag-filtered requests retain ORM pagination after resolving matching event IDs. Both paths preserve the same response fields and project scope, including legacy definitions whose `project_id` is null.
 

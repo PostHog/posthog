@@ -34,6 +34,9 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 from posthog.utils import pluralize
 
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import BATCH_EXPORT_MODEL_LABEL
+
 # Registry of default-db models to count for bulk-delete report.
 # Format: (app_label.ModelName, filter_field, display_name)
 # This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
@@ -87,16 +90,13 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
                 }
             )
 
-    # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
+    # Not in the registry above, because the count must leave out deleted exports, as team deletion does.
     try:
-        from products.batch_exports.backend.models.batch_export import BatchExport
-
-        batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
         results.append(
             {
                 "name": "Batch Exports",
-                "count": batch_export_count,
-                "model": BatchExport._meta.label,
+                "count": batch_exports_api.count_batch_exports_for_teams(team_ids),
+                "model": BATCH_EXPORT_MODEL_LABEL,
             }
         )
     except Exception as e:
@@ -104,7 +104,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Batch Exports",
                 "count": f"Error: {e}",
-                "model": "products.batch_exports.backend.models.batch_export.BatchExport",
+                "model": BATCH_EXPORT_MODEL_LABEL,
             }
         )
 

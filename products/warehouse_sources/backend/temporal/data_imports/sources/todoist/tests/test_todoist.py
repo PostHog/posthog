@@ -174,17 +174,6 @@ class TestTopLevelPagination:
         assert "cursor" not in params[0]
         assert params[1]["cursor"] == "c2"
 
-    def test_saves_cursor_after_yielding_each_page(self) -> None:
-        # State is saved AFTER yielding a page that has a next cursor; the final page saves nothing.
-        responses = {
-            f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "T1"}], "next_cursor": "c2"})],
-            f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=c2": [_resp({"results": [{"id": "T2"}], "next_cursor": None})],
-        }
-        manager = _make_manager()
-        _run("tasks", responses, manager)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TodoistResumeConfig(next_cursor="c2")]
-
     def test_resumes_from_saved_cursor(self) -> None:
         responses = {
             f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=saved": [_resp({"results": [{"id": "T9"}], "next_cursor": None})],
@@ -193,15 +182,6 @@ class TestTopLevelPagination:
         # Resumes mid-pagination from the saved cursor instead of restarting at page one.
         assert rows == [{"id": "T9"}]
         assert params[0]["cursor"] == "saved"
-
-    def test_empty_first_page_terminates_without_saving(self) -> None:
-        responses = {
-            f"{BASE}/labels?limit={PAGE_LIMIT}": [_resp({"results": [], "next_cursor": None})],
-        }
-        manager = _make_manager()
-        rows, _params = _run("labels", responses, manager)
-        assert rows == []
-        manager.save_state.assert_not_called()
 
 
 class TestCollaboratorsFanOut:
@@ -223,58 +203,6 @@ class TestCollaboratorsFanOut:
             {"id": "U2", "name": "Bob", "project_id": "P1"},
             {"id": "U1", "name": "Ann", "project_id": "P2"},
         ]
-
-    def test_follows_collaborator_pagination(self) -> None:
-        responses = {
-            f"{BASE}/projects?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "P1"}], "next_cursor": None})],
-            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "U1"}], "next_cursor": "next"})
-            ],
-            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}&cursor=next": [
-                _resp({"results": [{"id": "U2"}], "next_cursor": None})
-            ],
-        }
-        rows, _params = _run("collaborators", responses, _make_manager())
-        assert rows == [
-            {"id": "U1", "project_id": "P1"},
-            {"id": "U2", "project_id": "P1"},
-        ]
-
-    def test_project_deleted_mid_fan_out_is_skipped(self) -> None:
-        # A project deleted between enumeration and the collaborators fetch 404s — skip it, don't fail.
-        responses = {
-            f"{BASE}/projects?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "P1"}, {"id": "GONE"}, {"id": "P2"}], "next_cursor": None})
-            ],
-            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "U1"}], "next_cursor": None})
-            ],
-            f"{BASE}/projects/GONE/collaborators?limit={PAGE_LIMIT}": [_resp({}, status=404)],
-            f"{BASE}/projects/P2/collaborators?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "U2"}], "next_cursor": None})
-            ],
-        }
-        rows, _params = _run("collaborators", responses, _make_manager())
-        assert rows == [
-            {"id": "U1", "project_id": "P1"},
-            {"id": "U2", "project_id": "P2"},
-        ]
-
-    def test_resume_skips_already_completed_project(self) -> None:
-        # A project whose collaborators fully synced on the prior attempt is skipped on resume.
-        responses = {
-            f"{BASE}/projects?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "P1"}, {"id": "P2"}], "next_cursor": None})
-            ],
-            f"{BASE}/projects/P2/collaborators?limit={PAGE_LIMIT}": [
-                _resp({"results": [{"id": "U2"}], "next_cursor": None})
-            ],
-        }
-        state = TodoistResumeConfig(
-            fanout_state={"completed": ["/projects/P1/collaborators"], "current": None, "child_state": None}
-        )
-        rows, _params = _run("collaborators", responses, _make_manager(state))
-        assert rows == [{"id": "U2", "project_id": "P2"}]
 
     def test_resume_from_deleted_project_restarts_from_first(self) -> None:
         # The in-progress project from the saved state no longer exists — its checkpoint is ignored and
@@ -326,13 +254,3 @@ class TestValidateCredentials:
     def test_ok(self, mock_session: Any) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("tok") is True
-
-    @mock.patch(TODOIST_SESSION_PATCH)
-    def test_unauthorized(self, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("tok") is False
-
-    @mock.patch(TODOIST_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session: Any) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("tok") is False

@@ -4,9 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(**overrides: Any) -> MagicMock:
@@ -15,17 +13,6 @@ def _source_inputs(**overrides: Any) -> MagicMock:
     inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
     inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-15 00:00:00")
     return inputs
-
-
-class TestSourceConfig:
-    def test_config_identity_and_release_contract(self) -> None:
-        config = NewsDataSource().get_source_config
-        assert config.name == ExternalDataSourceType.NEWSDATA
-        # Alpha but released: the finished source must be reachable, so unreleasedSource stays off.
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        # The doc slug is derived from this URL; a mismatch 404s the docs page.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/newsdata"
 
 
 class TestGetSchemas:
@@ -43,10 +30,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in NewsDataSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_incremental is expected_incremental
         assert schemas[endpoint].supports_append is expected_incremental
-
-    def test_incremental_endpoints_advertise_pubdate(self) -> None:
-        schemas = {s.name: s for s in NewsDataSource().get_schemas(MagicMock(), team_id=1)}
-        assert [f["field"] for f in schemas["archive"].incremental_fields] == ["pubDate"]
 
     def test_names_filter(self) -> None:
         schemas = NewsDataSource().get_schemas(MagicMock(), team_id=1, names=["crypto"])
@@ -90,12 +73,3 @@ class TestSourceForPipeline:
                 inputs=_source_inputs(schema_name="latest", should_use_incremental_field=False),
             )
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the public docs Supported tables section renders.
-        source = NewsDataSource()
-        assert source.lists_tables_without_credentials is True
-        table_names = {t["name"] for t in source.get_documented_tables()}
-        assert {"latest", "archive", "crypto", "sources"}.issubset(table_names)

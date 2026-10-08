@@ -8,8 +8,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    FeatureFlagFilters,
     FeatureFlagGroupType,
-    FeatureFlagType,
     FlagPropertyFilter,
     MultivariateFlagOptions,
     PropertyFilterType,
@@ -31,7 +31,7 @@ jest.mock('uuid', () => ({
 function generateFeatureFlagFilters(
     groups: FeatureFlagGroupType[],
     multivariate?: MultivariateFlagOptions
-): FeatureFlagType['filters'] {
+): FeatureFlagFilters {
     return { groups, multivariate: multivariate ?? null, payloads: {} }
 }
 
@@ -407,6 +407,54 @@ describe('the feature flag release conditions logic', () => {
                 .toMatchValues({
                     affectedCounts: { A: 124, B: 248 },
                 })
+        })
+
+        it('copies both counts of the source condition when duplicating a condition set', async () => {
+            jest.spyOn(api, 'create').mockResolvedValueOnce({ affected: 500, total: 1000 })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'duplicate-counts-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+
+            await expectLogic(logic, () => {
+                nextUuid = 'DUP'
+                logic.actions.duplicateConditionSet(0)
+            })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toMatchValues({
+                    affectedCounts: { A: 500, DUP: 500 },
+                    totalCounts: { A: 1000, DUP: 1000 },
+                })
+        })
+
+        it('estimates a duplicated condition itself when the source has no counts yet', async () => {
+            // The source's estimate never resolves, so the copy cannot inherit its counts.
+            const createSpy = jest.spyOn(api, 'create').mockReturnValue(new Promise(() => {}))
+            try {
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'duplicate-pending-counts-test',
+                    filters: generateFeatureFlagFilters([
+                        { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                    ]),
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    nextUuid = 'DUP'
+                    logic.actions.duplicateConditionSet(0)
+                }).toDispatchActions([logic.actionCreators.calculateBlastRadiusForCondition('DUP', [], null)])
+            } finally {
+                createSpy.mockRestore()
+            }
         })
 
         it('uses explicit sortKey when provided to addConditionSet', async () => {
@@ -1458,7 +1506,7 @@ describe('the feature flag release conditions logic', () => {
     })
 
     describe('distinct_id display names', () => {
-        function distinctIdFilters(value: string | string[]): FeatureFlagType['filters'] {
+        function distinctIdFilters(value: string | string[]): FeatureFlagFilters {
             return generateFeatureFlagFilters([
                 {
                     properties: [
@@ -1918,5 +1966,26 @@ describe('the feature flag release conditions logic', () => {
 
             expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
         })
+    })
+})
+
+describe('a document in another config version', () => {
+    it('does not throw and shows no condition sets', () => {
+        const logic = featureFlagReleaseConditionsLogic({
+            id: 'rules-v2',
+            readOnly: true,
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: [],
+            } as unknown as FeatureFlagFilters,
+        })
+        logic.mount()
+
+        expect(logic.values.filterGroups).toEqual([])
+        expect(logic.values.properties).toEqual([])
+
+        logic.unmount()
     })
 })

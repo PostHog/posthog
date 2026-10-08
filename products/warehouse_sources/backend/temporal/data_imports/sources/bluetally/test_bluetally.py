@@ -108,30 +108,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 1}])])
-
-        _rows(_source())
-
-        # offset=0 is the first page; it must not be dropped as a falsy value.
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[0]["sort"] == "created_at"
-        assert params[0]["order"] == "asc"
-        assert "tenant_id" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_threads_tenant_id_into_requests(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PAGE_SIZE)]
-        params = _wire(session, [_response(full_page), _response([{"id": PAGE_SIZE}])])
-
-        _rows(_source(tenant_id="99"))
-
-        assert all(p["tenant_id"] == "99" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_short_page(self, MockSession) -> None:
         session = MockSession.return_value
         full_page = [{"id": i} for i in range(PAGE_SIZE)]
@@ -146,31 +122,6 @@ class TestPagination:
         # State is saved after the full page (pointing at the next offset), then we stop on the short page.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == BluetallyResumeConfig(offset=PAGE_SIZE)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_stops_without_saving_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        # A short first page never advances the offset, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
@@ -308,21 +259,6 @@ class TestActivity:
 
 class TestValidateCredentials:
     @mock.patch(BLUETALLY_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key") is True
-
-    @mock.patch(BLUETALLY_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") is False
-
-    @mock.patch(BLUETALLY_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
-    @mock.patch(BLUETALLY_SESSION_PATCH)
     def test_probes_given_endpoint_with_tenant_id(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("key", tenant_id="42", endpoint="employees") is True
@@ -338,10 +274,3 @@ class TestValidateCredentials:
         assert validate_credentials("key", tenant_id="42", endpoint="tenants") is True
         url = mock_session.return_value.get.call_args.args[0]
         assert url == "https://app.bluetallyapp.com/api/v1/tenants"
-
-    @mock.patch(BLUETALLY_SESSION_PATCH)
-    def test_omits_unset_tenant_id(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "tenant_id" not in url

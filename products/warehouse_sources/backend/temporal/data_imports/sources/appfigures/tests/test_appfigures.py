@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -11,9 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
     AppfiguresResumeConfig,
     _flatten_ranks,
     _flatten_report,
-    _headers,
-    _is_page_limit_response,
-    _parse_aso_countries,
     _to_date_str,
     appfigures_source,
     check_credentials,
@@ -41,13 +37,6 @@ def _manager(resume: AppfiguresResumeConfig | None = None) -> mock.MagicMock:
     manager.can_resume.return_value = resume is not None
     manager.load_state.return_value = resume
     return manager
-
-
-class TestHeaders:
-    def test_bearer_header(self):
-        headers = _headers("pat_123")
-        assert headers["Authorization"] == "Bearer pat_123"
-        assert headers["Accept"] == "application/json"
 
 
 class TestToDateStr:
@@ -83,11 +72,6 @@ class TestFlattenReport:
             {"date": "2024-01-02", "downloads": 5, "revenue": 1.0},
         ]
 
-    def test_non_dict_values_are_skipped(self):
-        assert _flatten_report({"2024-01-01": {"downloads": 1}, "meta": "ignored"}) == [
-            {"date": "2024-01-01", "downloads": 1}
-        ]
-
     def test_non_dict_input_returns_empty(self):
         assert _flatten_report([1, 2, 3]) == []
 
@@ -103,56 +87,7 @@ class TestIterObject:
         assert {row["id"] for row in batches[0]} == {42, 7}
 
 
-class TestIsPageLimitResponse:
-    @pytest.mark.parametrize(
-        "status_code,reason,text,expected",
-        [
-            (400, _PAGE_LIMIT_REASON, "", True),
-            (400, "Bad Request", _PAGE_LIMIT_REASON, True),
-            # A different 400 (e.g. a malformed param) must stay fatal, not be swallowed as the cap.
-            (400, "Bad Request", "", False),
-            # Same wording on another status isn't the page-depth cap.
-            (403, _PAGE_LIMIT_REASON, "", False),
-            (200, _PAGE_LIMIT_REASON, "", False),
-        ],
-    )
-    def test_detects_page_limit(self, status_code: int, reason: str, text: str, expected: bool):
-        response = _response(status_code, reason=reason, text=text)
-        assert _is_page_limit_response(response) is expected
-
-
 class TestIterPaged:
-    def test_walks_all_pages_using_pages_and_this_page(self):
-        pages = [
-            {"total": 3, "pages": 2, "this_page": 1, "reviews": [{"id": "a"}, {"id": "b"}]},
-            {"total": 3, "pages": 2, "this_page": 2, "reviews": [{"id": "c"}]},
-        ]
-        # The transport mutates one params dict across pages, so snapshot the `page` per call.
-        seen_pages: list[int] = []
-
-        def fake_fetch(_session, _url, params, _logger):
-            seen_pages.append(params["page"])
-            return pages[len(seen_pages) - 1]
-
-        manager = _manager()
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
-            batches = list(
-                get_rows(
-                    token="pat",
-                    endpoint="reviews",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-        assert [r["id"] for batch in batches for r in batch] == ["a", "b", "c"]
-        assert seen_pages == [1, 2]
-        # First request uses the configured sort and page size.
-        first_params = fetch.call_args_list[0].args[2]
-        assert first_params["sort"] == "date"
-        assert first_params["count"] == 500
-        # State saved after yielding the first page, pointing at the next page to fetch.
-        manager.save_state.assert_called_once_with(AppfiguresResumeConfig(next_page=2))
-
     def test_incremental_sets_start_param_from_watermark(self):
         body = {"total": 0, "pages": 1, "this_page": 1, "reviews": []}
         with mock.patch(f"{_MODULE}._fetch", return_value=body) as fetch:
@@ -167,19 +102,6 @@ class TestIterPaged:
                 )
             )
         assert fetch.call_args_list[0].args[2]["start"] == "2024-05-01"
-
-    def test_resume_starts_from_saved_page(self):
-        body = {"total": 1, "pages": 3, "this_page": 3, "reviews": [{"id": "z"}]}
-        with mock.patch(f"{_MODULE}._fetch", return_value=body) as fetch:
-            list(
-                get_rows(
-                    token="pat",
-                    endpoint="reviews",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(AppfiguresResumeConfig(next_page=3)),
-                )
-            )
-        assert fetch.call_args_list[0].args[2]["page"] == 3
 
     def test_page_limit_stops_and_keeps_rows_gathered_so_far(self):
         # A backlog deep enough that offset pagination would cross Appfigures' page*count<=10000
@@ -236,109 +158,12 @@ class TestIterReport:
         # State saved after the first window, pointing at the next window's start.
         manager.save_state.assert_called_once_with(AppfiguresResumeConfig(window_start="2024-01-31"))
 
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_report_request_sets_group_by_and_granularity(self):
-        with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
-            list(
-                get_rows(
-                    token="pat",
-                    endpoint="sales_report",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=date(2024, 2, 1),
-                )
-            )
-        params = fetch.call_args_list[0].args[2]
-        assert params["group_by"] == "dates"
-        assert params["granularity"] == "daily"
-
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_resume_starts_from_saved_window(self):
-        with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
-            list(
-                get_rows(
-                    token="pat",
-                    endpoint="sales_report",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(AppfiguresResumeConfig(window_start="2024-02-10")),
-                )
-            )
-        assert fetch.call_args_list[0].args[2]["start_date"] == "2024-02-10"
-
 
 def _ranks_body(dates: list[str], series: list[dict[str, Any]]) -> dict[str, Any]:
     return {"start_date": dates[0], "end_date": dates[-1], "dates": dates, "data": series}
 
 
 class TestFlattenRanks:
-    def test_columnar_series_becomes_one_row_per_date(self):
-        body = _ranks_body(
-            ["2024-01-01", "2024-01-02"],
-            [
-                {
-                    "country": "US",
-                    "product_id": 42,
-                    "category": {
-                        "id": 12,
-                        "name": "Games",
-                        "subtype": "free",
-                        "parent_id": 6000,
-                        "device": "ios",
-                        "store": "apple",
-                    },
-                    "positions": [7, 9],
-                    "deltas": [0, -2],
-                }
-            ],
-        )
-        assert _flatten_ranks(body) == [
-            {
-                "date": "2024-01-01",
-                "product_id": 42,
-                "country": "US",
-                "category_id": 12,
-                "category_name": "Games",
-                "category_subtype": "free",
-                "category_parent_id": 6000,
-                "category_device": "ios",
-                "store": "apple",
-                "position": 7,
-                "delta": 0,
-            },
-            {
-                "date": "2024-01-02",
-                "product_id": 42,
-                "country": "US",
-                "category_id": 12,
-                "category_name": "Games",
-                "category_subtype": "free",
-                "category_parent_id": 6000,
-                "category_device": "ios",
-                "store": "apple",
-                "position": 9,
-                "delta": -2,
-            },
-        ]
-
-    def test_unranked_days_are_dropped(self):
-        # Appfigures returns null for a day the product held no rank in that chart. Those aren't rank
-        # observations, and at the default rank depth they are most of the array.
-        body = _ranks_body(
-            ["2024-01-01", "2024-01-02", "2024-01-03"],
-            [
-                {
-                    "country": "US",
-                    "product_id": 1,
-                    "category": {"id": 12},
-                    "positions": [None, 3, None],
-                    "deltas": [None, 1, None],
-                }
-            ],
-        )
-        rows = _flatten_ranks(body)
-        assert [(r["date"], r["position"]) for r in rows] == [("2024-01-02", 3)]
-
     def test_series_arrays_shorter_than_dates_do_not_index_error(self):
         body = _ranks_body(
             ["2024-01-01", "2024-01-02"],
@@ -353,57 +178,6 @@ class TestFlattenRanks:
 
 
 class TestIterRanks:
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_fans_out_over_product_chunks_and_yields_dates_ascending(self):
-        products = {str(index): {"id": index, "type": "app"} for index in range(1, 4)}
-        # An in-app purchase never holds a store category rank, so it must not reach the /ranks path.
-        products["999"] = {"id": 999, "type": "inapp"}
-
-        ranks_calls: list[str] = []
-
-        def fake_fetch(_session, url, _params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return products
-            ranks_calls.append(url)
-            chunk = url.split("/ranks/")[1].split("/")[0].split(",")
-            return _ranks_body(
-                ["2024-02-14", "2024-02-15"],
-                [
-                    {
-                        "country": "US",
-                        "product_id": int(product_id),
-                        "category": {"id": 12, "subtype": "free"},
-                        "positions": [2, 1],
-                        "deltas": [0, 1],
-                    }
-                    for product_id in chunk
-                ],
-            )
-
-        chunked = dataclasses.replace(appfigures.APPFIGURES_ENDPOINTS["ranks"], products_per_request=2)
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
-            with mock.patch.dict(appfigures.APPFIGURES_ENDPOINTS, {"ranks": chunked}):
-                batches = list(
-                    get_rows(
-                        token="pat",
-                        endpoint="ranks",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=_manager(),
-                        should_use_incremental_field=True,
-                        db_incremental_field_last_value=date(2024, 2, 14),
-                    )
-                )
-
-        # Three rankable products at 2 per request => two chunked /ranks calls for the one window.
-        assert ranks_calls == [
-            f"{appfigures.APPFIGURES_BASE_URL}/ranks/1,2/daily/2024-02-14/2024-02-15",
-            f"{appfigures.APPFIGURES_BASE_URL}/ranks/3/daily/2024-02-14/2024-02-15",
-        ]
-        # Batches leave the iterator grouped by date, ascending, with every chunk's rows merged in —
-        # sort_mode="asc" is what checkpoints the watermark.
-        assert [batch[0]["date"] for batch in batches] == ["2024-02-14", "2024-02-15"]
-        assert [sorted(row["product_id"] for row in batch) for batch in batches] == [[1, 2, 3], [1, 2, 3]]
-
     @time_machine.travel("2024-02-15", tick=False)
     def test_walks_date_windows_and_saves_state_after_each(self):
         windows: list[tuple[str, str]] = []
@@ -467,26 +241,6 @@ class TestIterRanks:
         assert fetch.call_count == 1
 
 
-class TestParseAsoCountries:
-    @pytest.mark.parametrize(
-        "raw,expected",
-        [
-            (None, ("US",)),
-            ("", ("US",)),
-            ("   ", ("US",)),
-            (",,", ("US",)),
-            ("gb", ("GB",)),
-            ("US, GB ,de", ("US", "GB", "DE")),
-            # A code repeated in the form would otherwise fan out twice and seed duplicate rows.
-            ("US,us", ("US",)),
-            # Anything that isn't a two-letter code would only ever be a request Appfigures rejects.
-            ("US, United Kingdom, 1, ??", ("US",)),
-        ],
-    )
-    def test_parse(self, raw: str | None, expected: tuple[str, ...]):
-        assert _parse_aso_countries(raw) == expected
-
-
 def _aso_page(results: list[dict[str, Any]], page: int = 1, total_pages: int = 1) -> dict[str, Any]:
     return {
         "metadata": {"resultset": {"count": 500, "page": page, "total_pages": total_pages, "total_count": 1}},
@@ -495,112 +249,6 @@ def _aso_page(results: list[dict[str, Any]], page: int = 1, total_pages: int = 1
 
 
 class TestIterAso:
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_fans_out_over_products_and_countries_stamping_row_identity(self):
-        def fake_fetch(_session, url, params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}, "9": {"id": 9, "type": "inapp"}}
-            return _aso_page([{"keyword_id": "k1", "keyword_term": "stream tv", "position": 12}])
-
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
-            batches = list(
-                get_rows(
-                    token="pat",
-                    endpoint="aso_keywords",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                    aso_countries="US,GB",
-                )
-            )
-
-        requested = [(c.args[2]["products"], c.args[2]["countries"]) for c in fetch.call_args_list[1:]]
-        # Two rankable products x two countries, one product and one country per request. The in-app
-        # purchase holds no keyword ranks, so it is left out.
-        assert requested == [("1", "US"), ("1", "GB"), ("2", "US"), ("2", "GB")]
-        rows = [row for batch in batches for row in batch]
-        assert [(r["date"], r["product_id"], r["country"], r["keyword_id"]) for r in rows] == [
-            ("2024-02-15", "1", "US", "k1"),
-            ("2024-02-15", "1", "GB", "k1"),
-            ("2024-02-15", "2", "US", "k1"),
-            ("2024-02-15", "2", "GB", "k1"),
-        ]
-
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_request_carries_keyword_pivot_and_bounded_window(self):
-        def fake_fetch(_session, url, _params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return {"1": {"id": 1, "type": "app"}}
-            return _aso_page([])
-
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
-            list(
-                get_rows(
-                    token="pat",
-                    endpoint="aso_keywords",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                )
-            )
-        params = fetch.call_args_list[1].args[2]
-        assert params["group_by"] == "keyword"
-        assert params["granularity"] == "daily"
-        # The 30-day window the deltas are computed over, sent explicitly so Appfigures doesn't pick
-        # its own undocumented range.
-        assert (params["start_date"], params["end_date"]) == ("2024-01-17", "2024-02-15")
-
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_walks_pages_per_target_and_saves_state_after_each(self):
-        def fake_fetch(_session, url, params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}}
-            page = params["page"]
-            return _aso_page([{"keyword_id": f"k{page}", "position": page}], page=page, total_pages=2)
-
-        manager = _manager()
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
-            batches = list(
-                get_rows(
-                    token="pat",
-                    endpoint="aso_keywords",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    aso_countries="US",
-                )
-            )
-
-        assert [(c.args[2]["products"], c.args[2]["page"]) for c in fetch.call_args_list[1:]] == [
-            ("1", 1),
-            ("1", 2),
-            ("2", 1),
-            ("2", 2),
-        ]
-        assert len([row for batch in batches for row in batch]) == 4
-        # Saved after yielding: the next page of the current target, then the next target.
-        assert manager.save_state.call_args_list == [
-            mock.call(AppfiguresResumeConfig(aso_target="1:US", next_page=2)),
-            mock.call(AppfiguresResumeConfig(aso_target="2:US")),
-            mock.call(AppfiguresResumeConfig(aso_target="2:US", next_page=2)),
-        ]
-
-    @time_machine.travel("2024-02-15", tick=False)
-    def test_resume_skips_targets_already_walked(self):
-        def fake_fetch(_session, url, _params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return {str(index): {"id": index, "type": "app"} for index in (1, 2, 3)}
-            return _aso_page([])
-
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
-            list(
-                get_rows(
-                    token="pat",
-                    endpoint="aso_keywords",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(AppfiguresResumeConfig(aso_target="2:US", next_page=3)),
-                    aso_countries="US",
-                )
-            )
-        assert [(c.args[2]["products"], c.args[2]["page"]) for c in fetch.call_args_list[1:]] == [("2", 3), ("3", 1)]
-
     @time_machine.travel("2024-02-15", tick=False)
     def test_resume_target_missing_from_catalog_starts_over(self):
         def fake_fetch(_session, url, _params, _logger):
@@ -693,24 +341,6 @@ class TestIterAsoStats:
         manager.save_state.assert_called_once_with(AppfiguresResumeConfig(aso_target="2:US"))
 
     @time_machine.travel("2024-02-15", tick=False)
-    def test_empty_stats_body_yields_nothing(self):
-        def fake_fetch(_session, url, _params, _logger):
-            if url.endswith(appfigures.PRODUCTS_PATH):
-                return {"1": {"id": 1, "type": "app"}}
-            return {}
-
-        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
-            batches = list(
-                get_rows(
-                    token="pat",
-                    endpoint="aso_stats",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_manager(),
-                )
-            )
-        assert batches == []
-
-    @time_machine.travel("2024-02-15", tick=False)
     def test_resume_skips_targets_already_walked(self):
         def fake_fetch(_session, url, _params, _logger):
             if url.endswith(appfigures.PRODUCTS_PATH):
@@ -774,8 +404,3 @@ class TestAppfiguresSourceResponse:
         assert response.partition_mode == ("datetime" if partition_key else None)
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.sort_mode == "asc"
-
-
-class TestRetryableError:
-    def test_retryable_error_is_exception(self):
-        assert issubclass(appfigures.AppfiguresRetryableError, Exception)

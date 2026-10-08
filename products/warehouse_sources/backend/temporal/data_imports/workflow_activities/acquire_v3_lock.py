@@ -20,14 +20,9 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import scheduled_sync_consumes_buffer
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
@@ -36,9 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
-    is_pipeline_v3_enabled,
-)
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import min_gap_between_runs
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 LOGGER = get_logger(__name__)
 
@@ -74,6 +68,11 @@ class AcquireV3LockActivityInputs:
 class AcquireV3LockActivityOutputs:
     acquired: bool
     token: str
+    # True when the run stood down because the schema's runs keep failing, rather than because
+    # another run holds the lock. The workflow skips either way, so this only separates the two in
+    # the logs and the metrics. Defaults False so a payload that predates the field reads as the
+    # lock miss its history recorded.
+    deferred: bool = False
 
 
 @dataclasses.dataclass
@@ -85,28 +84,9 @@ class ReleaseV3LockActivityInputs:
 
 @activity.defn
 def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
-    bind_contextvars(team_id=inputs.team_id)
-    close_old_connections()
-
-    # Buffered CDC consumption requires the v3 loader, whose position resolution proves buffer
-    # files consumed, so it overrides the rollout flag: the same V3 the CDC extraction hardcodes
-    # for the jobs it creates.
-    if inputs.schema_id is not None:
-        schema = (
-            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
-            .select_related("source")
-            .first()
-        )
-        if schema is not None and scheduled_sync_consumes_buffer(schema):
-            return CheckPipelineVersionActivityOutputs(is_v3=True)
-
-    try:
-        source = ExternalDataSource.objects.get(id=inputs.source_id)
-    except ExternalDataSource.DoesNotExist:
-        return CheckPipelineVersionActivityOutputs(is_v3=False)
-
-    is_v3 = is_pipeline_v3_enabled(inputs.team_id, source.source_type)
-    return CheckPipelineVersionActivityOutputs(is_v3=is_v3)
+    # Only a workflow history recorded before the "data-imports-v3-only-2026-10" patch schedules
+    # this activity. Every run is V3 now, so the answer is fixed.
+    return CheckPipelineVersionActivityOutputs(is_v3=True)
 
 
 @activity.defn
@@ -119,6 +99,10 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     if not token:
         logger.error("v3_pipeline_lock_missing_workflow_run_id", schema_id=str(inputs.schema_id))
         return AcquireV3LockActivityOutputs(acquired=False, token="")
+
+    # Before the lock, so a stood-down run never takes one and never needs to release one.
+    if _defer_failing_schema(inputs, logger):
+        return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
     if not acquired:
@@ -142,6 +126,47 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     )
 
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
+
+
+def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+    """Whether this run stands down because the schema's runs keep failing.
+
+    The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
+    reach costs one run per gap rather than one per slot. A reset run always goes ahead, because a
+    reset is the person asking for the table to be re-read from the start.
+
+    False on any error. This decides whether a sync runs at all, and the retry cap already bounds
+    what one failing run costs, so going ahead is the safe answer.
+    """
+    try:
+        schema = (
+            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
+            .only("sync_type_config")
+            .first()
+        )
+        if schema is None or schema.reset_pipeline:
+            return False
+
+        gap = min_gap_between_runs(schema.failed_runs_in_a_row)
+        last_failed_at = schema.failure_streak_last_failed_at
+        if gap is None or last_failed_at is None:
+            return False
+
+        since_last_failure = datetime.now(UTC) - last_failed_at
+        if since_last_failure >= gap:
+            return False
+
+        logger.info(
+            "data_import_run_deferred",
+            schema_id=str(inputs.schema_id),
+            failed_runs_in_a_row=schema.failed_runs_in_a_row,
+            gap_seconds=int(gap.total_seconds()),
+            since_last_failure_seconds=int(since_last_failure.total_seconds()),
+        )
+        return True
+    except Exception as e:
+        logger.warning("data_import_run_defer_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return False
 
 
 def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, token: str, logger: Any) -> bool:
@@ -399,6 +424,8 @@ def _take_over_stale_running_job(
             status=ExternalDataJob.Status.FAILED,
             logger=takeover_logger,
             latest_error=LOCK_TAKEOVER_LATEST_ERROR,
+            # The stuck run never reported an outcome, so it says nothing about the source.
+            counts_as_source_failure=False,
         )
     except Exception as e:
         logger.warning(

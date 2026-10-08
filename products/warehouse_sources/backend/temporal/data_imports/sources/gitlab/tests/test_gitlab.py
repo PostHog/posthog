@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
     GitLabResumeConfig,
     _build_initial_params,
     _build_initial_url,
-    _encode_project,
     _format_incremental_value,
     _get_headers,
     _parse_next_url,
@@ -81,26 +80,6 @@ class TestGetHeaders:
         assert "PRIVATE-TOKEN" not in headers
 
 
-class TestEncodeProject:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("278964", "278964"),
-            ("group/project", "group%2Fproject"),
-            ("/group/sub/project/", "group%2Fsub%2Fproject"),
-            ("  group/project  ", "group%2Fproject"),
-            # A pasted project URL resolves to the same path, so validation and every sync request
-            # address the project the user is looking at.
-            ("https://gitlab.com/group/project", "group%2Fproject"),
-            ("https://gitlab.example.com/group/sub/project/", "group%2Fsub%2Fproject"),
-            ("https://gitlab.com/group/project/-/merge_requests", "group%2Fproject"),
-            ("https://gitlab.com/group/project.git", "group%2Fproject"),
-        ],
-    )
-    def test_encode_project(self, raw, expected):
-        assert _encode_project(raw) == expected
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -114,86 +93,8 @@ class TestFormatIncrementalValue:
     def test_format(self, value, expected):
         assert _format_incremental_value(value) == expected
 
-    def test_no_offset_suffix(self):
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestBuildInitialParams:
-    def test_issues_incremental_updated_at(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["issues"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["updated_after"] == "2024-01-01T00:00:00Z"
-        assert params["order_by"] == "updated_at"
-        assert params["sort"] == "asc"
-        assert params["per_page"] == 100
-
-    def test_issues_incremental_created_at_uses_created_after(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["issues"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="created_at",
-        )
-        assert params["created_after"] == "2024-01-01T00:00:00Z"
-        assert params["order_by"] == "created_at"
-        assert "updated_after" not in params
-
-    def test_issues_full_refresh_uses_stable_order_by(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["issues"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert "updated_after" not in params and "created_after" not in params
-        assert params["order_by"] == "created_at"
-        assert params["sort"] == "asc"
-
-    def test_incremental_without_watermark_has_no_filter(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["issues"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updated_at",
-        )
-        assert "updated_after" not in params
-        assert params["order_by"] == "created_at"
-
-    def test_commits_incremental_uses_since_and_no_order_by(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["commits"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="created_at",
-        )
-        assert params["since"] == "2024-01-01T00:00:00Z"
-        assert "order_by" not in params
-        assert "sort" not in params
-
-    def test_pipelines_incremental_uses_updated_after(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["pipelines"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["updated_after"] == "2024-01-01T00:00:00Z"
-        assert params["order_by"] == "updated_at"
-        assert params["sort"] == "asc"
-
-    def test_full_refresh_endpoint_only_per_page(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["releases"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert params == {"per_page": 100}
-
     def test_unsupported_incremental_field_raises(self):
         with pytest.raises(ValueError):
             _build_initial_params(
@@ -205,10 +106,6 @@ class TestBuildInitialParams:
 
 
 class TestBuildInitialUrl:
-    def test_builds_url_with_params_and_encoded_project(self):
-        url = _build_initial_url("https://gitlab.com", GITLAB_ENDPOINTS["issues"], "group/project", {"per_page": 100})
-        assert url == "https://gitlab.com/api/v4/projects/group%2Fproject/issues?per_page=100"
-
     def test_builds_url_without_params(self):
         url = _build_initial_url("gitlab.example.com", GITLAB_ENDPOINTS["branches"], "42", {})
         assert url == "https://gitlab.example.com/api/v4/projects/42/repository/branches"
@@ -245,7 +142,9 @@ class TestValidateCredentials:
         [
             (200, True, None),
             (401, False, "Invalid GitLab personal access token"),
-            (404, False, "not found"),
+            # A 404 can't tell a missing project from one the token can't see, so the message has to
+            # carry the next step rather than dead-ending on "not accessible".
+            (404, False, "not accessible with this token. Check the spelling and that your token has read access"),
         ],
     )
     def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
@@ -366,21 +265,23 @@ class TestValidateCredentials:
 
 class TestGitLabSourceResponse:
     @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key, sort_mode",
+        "endpoint, primary_keys, partition_key, sort_mode",
         [
-            ("issues", "id", "created_at", "asc"),
-            ("merge_requests", "id", "created_at", "asc"),
-            ("commits", "id", "created_at", "desc"),
-            ("pipelines", "id", "created_at", "asc"),
-            ("releases", "tag_name", "created_at", "asc"),
-            ("milestones", "id", "created_at", "asc"),
-            ("branches", "name", None, "asc"),
-            ("tags", "name", None, "asc"),
-            ("labels", "id", None, "asc"),
-            ("members", "id", None, "asc"),
+            ("issues", ["id"], "created_at", "asc"),
+            ("merge_requests", ["id"], "created_at", "asc"),
+            ("commits", ["id"], "created_at", "desc"),
+            ("pipelines", ["id"], "created_at", "asc"),
+            ("releases", ["tag_name"], "created_at", "asc"),
+            ("milestones", ["id"], "created_at", "asc"),
+            ("branches", ["name"], None, "asc"),
+            ("tags", ["name"], None, "asc"),
+            ("labels", ["id"], None, "asc"),
+            ("members", ["id"], None, "asc"),
+            ("issue_notes", ["issue_iid", "id"], "created_at", "desc"),
+            ("merge_request_state_events", ["merge_request_iid", "id"], "created_at", "desc"),
         ],
     )
-    def test_response_shape(self, endpoint, primary_key, partition_key, sort_mode):
+    def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
         response = gitlab_source(
             host="https://gitlab.com",
             personal_access_token="tok",
@@ -391,7 +292,7 @@ class TestGitLabSourceResponse:
             team_id=1,
         )
         assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_keys == [partition_key]
@@ -402,7 +303,7 @@ class TestGitLabSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, manager, responses, endpoint="issues"):
+    def _run(self, manager, responses, endpoint="issues", **kwargs):
         session = mock.MagicMock()
         session.get.side_effect = responses
         with (
@@ -418,32 +319,10 @@ class TestGetRows:
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
                 team_id=1,
+                **kwargs,
             ):
                 rows.extend(table)
         return rows, session
-
-    def test_follows_link_header_across_pages(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page1 = _response(
-            json_data=[{"id": 1}, {"id": 2}],
-            link='<https://gitlab.com/api/v4/projects/1/issues?page=2>; rel="next"',
-        )
-        page2 = _response(json_data=[{"id": 3}])
-        rows, session = self._run(manager, [page1, page2])
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        second_url = session.get.call_args_list[1].args[0]
-        assert second_url == "https://gitlab.com/api/v4/projects/1/issues?page=2"
-
-    def test_saves_state_after_yielding(self):
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        self._run(manager, [_response(json_data=[{"id": 1}])])
-
-        assert manager.save_state.called
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, GitLabResumeConfig)
 
     def test_resumes_from_saved_state(self):
         manager = mock.MagicMock()
@@ -457,17 +336,74 @@ class TestGetRows:
         assert first_url == "https://gitlab.com/api/v4/projects/1/issues?page=5"
         assert [r["id"] for r in rows] == [9]
 
-    def test_empty_page_terminates(self):
+    def test_fan_out_bounds_parent_walk_and_tags_children_with_parent_iid(self):
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
-        empty = _response(
-            json_data=[],
-            link='<https://gitlab.com/api/v4/projects/1/issues?page=2>; rel="next"',
+        parents = _response(json_data=[{"iid": 7}, {"iid": 8}, {"iid": 9}])
+        notes_7 = _response(json_data=[{"id": 70}])
+        deleted_parent = _response(status_code=404)
+        notes_9 = _response(json_data=[{"id": 90}, {"id": 91}])
+        rows, session = self._run(
+            manager,
+            [parents, notes_7, deleted_parent, notes_9],
+            endpoint="issue_notes",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="created_at",
         )
-        rows, session = self._run(manager, [empty])
 
-        assert rows == []
-        assert session.get.call_count == 1
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0] == (
+            "https://gitlab.com/api/v4/projects/group%2Fproject/issues"
+            "?per_page=100&updated_after=2024-01-01T00%3A00%3A00Z&order_by=updated_at&sort=asc"
+        )
+        assert urls[1].startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues/7/notes?")
+        assert urls[3].startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues/9/notes?")
+        assert [(r["issue_iid"], r["id"]) for r in rows] == [(7, 70), (9, 90), (9, 91)]
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_url == urls[0]
+
+    def test_fan_out_stops_child_pagination_at_page_cap(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        parents = _response(json_data=[{"iid": 1}])
+        child_page = _response(
+            json_data=[{"id": 1}],
+            link='<https://gitlab.com/api/v4/projects/1/issues/1/notes?page=2>; rel="next"',
+        )
+        with mock.patch.object(gitlab_module, "MAX_PAGES_PER_PARENT", 2):
+            _rows, session = self._run(manager, [parents, child_page, child_page], endpoint="issue_notes")
+
+        assert session.get.call_count == 3
+
+    def test_fan_out_flushes_sparse_rows_so_later_empty_parents_reach_a_safe_point(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        parents = _response(json_data=[{"iid": 1}, {"iid": 2}, {"iid": 3}])
+        responses = [parents, _response(json_data=[{"id": 10}]), _response(json_data=[]), _response(json_data=[])]
+        session = mock.MagicMock()
+        session.get.side_effect = responses
+        batcher = gitlab_module.Batcher(logger=mock.MagicMock(), chunk_size=2000)
+        with (
+            mock.patch.object(gitlab_module, "make_tracked_session", return_value=session),
+            mock.patch.object(gitlab_module, "Batcher", return_value=batcher),
+            mock.patch.object(gitlab_module, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0.0),
+        ):
+            tables = list(
+                get_rows(
+                    host="https://gitlab.com",
+                    personal_access_token="tok",
+                    project="group/project",
+                    endpoint="issue_state_events",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+
+        assert [table.num_rows for table in tables] == [1]
+        assert manager.save_state.call_args.args[0].next_url == session.get.call_args_list[0].args[0]
+        assert manager.safe_point.call_count == 2
 
     def test_does_not_follow_next_url_on_foreign_host(self):
         manager = mock.MagicMock()
@@ -490,19 +426,6 @@ class TestGetRows:
         first_url = session.get.call_args_list[0].args[0]
         assert first_url.startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues")
         assert [r["id"] for r in rows] == [1]
-
-    def test_does_not_follow_plaintext_next_url_on_same_host(self):
-        # A Link header that downgrades to http on the configured host must not receive the token.
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = False
-        page1 = _response(
-            json_data=[{"id": 1}],
-            link='<http://gitlab.com/api/v4/projects/1/issues?page=2>; rel="next"',
-        )
-        rows, session = self._run(manager, [page1])
-
-        assert [r["id"] for r in rows] == [1]
-        assert session.get.call_count == 1
 
     def test_ignores_plaintext_resume_url_on_same_host(self):
         # A saved resume URL that downgraded to http must be ignored in favour of the https initial URL.

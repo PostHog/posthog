@@ -47,7 +47,9 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                     }
                 }}
             >
-                <DropdownMenuSubTrigger>Saved filters</DropdownMenuSubTrigger>
+                <DropdownMenuSubTrigger data-attr="flat-nav-session-replay-menu-saved-filters">
+                    Saved filters
+                </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent data-lemon-skin className="min-w-48">
                     {savedFiltersLoading ? (
                         <Skeleton className="mx-2 my-1 h-4 w-32" />
@@ -59,7 +61,11 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                         )
                     ) : (
                         savedFilters.results.map((savedFilter) => (
-                            <FlatNavMenuLinkItem key={savedFilter.short_id} to={savedFilterUrl(savedFilter.short_id)}>
+                            <FlatNavMenuLinkItem
+                                key={savedFilter.short_id}
+                                to={savedFilterUrl(savedFilter.short_id)}
+                                data-attr="flat-nav-session-replay-menu-saved-filter"
+                            >
                                 {savedFilter.name || savedFilter.derived_name || 'Unnamed'}
                             </FlatNavMenuLinkItem>
                         ))
@@ -69,6 +75,7 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                             <DropdownMenuSeparator />
                             <FlatNavMenuLinkItem
                                 to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                data-attr="flat-nav-session-replay-menu-all-saved-filters"
                             >
                                 All saved filters
                             </FlatNavMenuLinkItem>
@@ -85,7 +92,9 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                         }
                     }}
                 >
-                    <DropdownMenuSubTrigger>Collections</DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger data-attr="flat-nav-session-replay-menu-collections">
+                        Collections
+                    </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent data-lemon-skin className="min-w-48">
                         {playlistsLoading ? (
                             <Skeleton className="mx-2 my-1 h-4 w-32" />
@@ -100,6 +109,7 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                                 <FlatNavMenuLinkItem
                                     key={playlist.short_id}
                                     to={urls.replayPlaylist(playlist.short_id)}
+                                    data-attr="flat-nav-session-replay-menu-collection"
                                 >
                                     {playlist.name || playlist.derived_name || 'Unnamed'}
                                 </FlatNavMenuLinkItem>
@@ -108,7 +118,10 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                         {!playlistsLoading && playlists.next && (
                             <>
                                 <DropdownMenuSeparator />
-                                <FlatNavMenuLinkItem to={urls.replay(ReplayTabs.Playlists)}>
+                                <FlatNavMenuLinkItem
+                                    to={urls.replay(ReplayTabs.Playlists)}
+                                    data-attr="flat-nav-session-replay-menu-all-collections"
+                                >
                                     All collections
                                 </FlatNavMenuLinkItem>
                             </>
@@ -117,7 +130,12 @@ export function FlatNavSessionReplayMenuItems(): JSX.Element {
                 </DropdownMenuSub>
             ) : null}
 
-            <FlatNavMenuLinkItem to={urls.replay(ReplayTabs.Home)}>All recordings</FlatNavMenuLinkItem>
+            <FlatNavMenuLinkItem
+                to={urls.replay(ReplayTabs.Home)}
+                data-attr="flat-nav-session-replay-menu-all-recordings"
+            >
+                All recordings
+            </FlatNavMenuLinkItem>
         </>
     )
 }

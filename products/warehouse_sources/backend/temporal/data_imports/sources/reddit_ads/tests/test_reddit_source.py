@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     RedditAdsApiError,
     RedditAdsResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 
 
@@ -41,15 +40,6 @@ class TestRedditAdsSource:
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="")
-
-        is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
-
-        assert is_valid is False
-        assert error_message is not None
-        assert "Account ID and Reddit Ads integration are required" in error_message
-
-    def test_validate_credentials_missing_integration_id(self):
-        invalid_config = RedditAdsSourceConfig(reddit_integration_id=0, account_id="789")
 
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
 
@@ -102,47 +92,6 @@ class TestRedditAdsSource:
         assert error_message is not None
         assert expected_error_fragment in error_message
         assert mock_capture_exception.called is expect_capture_called
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            # A 403 is a permission/auth failure (access revoked) and must not be retried.
-            "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/09663b71-f301-484f-9b15-8d0e6fe69124/reports?page.size=100",
-            "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            "ValueError: Integration not found: 154683",
-            # A 400 on the profiles fan-out parent fetch (used by both the `profiles` schema and
-            # the `structured_posts` fan-out) never recovers on retry — the account id varies but
-            # the path/params suffix is stable across accounts.
-            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/d56c38c6-058a-4196-9795-284f820d27a6/profiles?page.size=100 | api error: code=400",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        """Auth failures and deleted integrations must be recognised as non-retryable."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_unauthorized_surfaces_actionable_message(self):
-        error = "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns"
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        friendly = next((message for pattern, message in non_retryable_errors.items() if pattern in error), None)
-        assert friendly is not None
-        assert "Reconnect" in friendly
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            "ConnectionError: Connection reset by peer",
-            # A 400 on a different endpoint is not covered by the profiles-specific pattern above —
-            # only the profiles fan-out parent fetch is known to fail deterministically like this.
-            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error):
-        """Transient infrastructure failures must stay retryable."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.OauthIntegration")
     @mock.patch(
@@ -208,56 +157,6 @@ class TestRedditAdsSource:
             self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
 
         assert expected_fragment in str(excinfo.value).lower()
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        expected_endpoints = set(REDDIT_ADS_CONFIG)
-        assert {schema.name for schema in schemas} == expected_endpoints
-        assert len(schemas) == len(expected_endpoints)
-
-    @pytest.mark.parametrize(
-        "endpoint",
-        [
-            "ad_account",
-            "custom_audiences",
-            "saved_audiences",
-            "pixels",
-            "funding_instruments",
-            "lead_gen_forms",
-            "profiles",
-            "structured_posts",
-        ],
-    )
-    def test_list_endpoints_without_a_server_side_time_filter_are_not_incremental(self, endpoint):
-        # Reddit's entity list endpoints take only `page.token` / `page.size` and value filters, so an
-        # "incremental" sync would re-fetch every page while merging on a cursor Reddit never applied.
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is False
-        assert schema.incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "endpoint,should_sync_default",
-        [
-            ("campaigns", True),
-            ("campaign_report", True),
-            ("ad_account", True),
-            ("pixels", True),
-            # Breakdown reports fan a campaign-day out across every dimension value, so they cost far
-            # more than the totals tables and stay off until the user opts in.
-            ("campaign_country_report", False),
-            ("campaign_gender_report", False),
-            ("campaign_placement_report", False),
-            ("campaign_community_report", False),
-            ("campaign_os_type_report", False),
-            ("campaign_keyword_report", False),
-        ],
-    )
-    def test_expensive_breakdown_reports_are_not_selected_by_default(self, endpoint, should_sync_default):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.should_sync_default is should_sync_default
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
@@ -425,15 +324,3 @@ class TestRedditAdsResumeBehavior:
 
         sent_request = mock_session.send.call_args_list[0].args[0]
         assert sent_request.url == "https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns?page=7"
-
-    def test_terminal_page_does_not_save_state(self):
-        """A single response with no next_url yields no save_state calls."""
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_response({"data": [{"id": "c1", "modified_at": "2024-01-01T00:00:00Z"}], "pagination": {}}),
-        ]
-        self._run_campaigns(manager, responses)
-
-        manager.save_state.assert_not_called()

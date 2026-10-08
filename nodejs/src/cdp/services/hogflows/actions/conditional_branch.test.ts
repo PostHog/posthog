@@ -13,14 +13,18 @@ import {
     ConditionalBranchHandler,
     checkConditions,
     counterHogflowRekeyWake,
-    counterHogflowWaitPollOnlyAdvance,
+    counterHogflowWaitAdvancedAtMaxWait,
+    counterHogflowWaitPersonRefreshFailed,
 } from './conditional_branch'
 
-const pollOnlyAdvanceCount = async (): Promise<number> =>
-    (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.value ?? 0
+const lateAdvanceCount = async (): Promise<number> =>
+    (await counterHogflowWaitAdvancedAtMaxWait.get()).values[0]?.value ?? 0
 
-const pollOnlyAdvanceLabels = async (): Promise<Record<string, string | number> | undefined> =>
-    (await counterHogflowWaitPollOnlyAdvance.get()).values[0]?.labels
+const lateAdvanceLabels = async (): Promise<Record<string, string | number> | undefined> =>
+    (await counterHogflowWaitAdvancedAtMaxWait.get()).values[0]?.labels
+
+const personRefreshFailedCount = async (): Promise<number> =>
+    (await counterHogflowWaitPersonRefreshFailed.get()).values[0]?.value ?? 0
 
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
@@ -96,14 +100,14 @@ describe('action.conditional_branch', () => {
         // A wait arrives here already normalised into a conditional_branch, so its ceiling comes in
         // as `repark` rather than off the action. A branch without one never parks.
         describe('wait logic', () => {
-            const repark = (maxWaitDuration: string) => ({ maxWaitDuration, recheckSeconds: 60 * 60 })
+            const repark = (maxWaitDuration: string) => ({ maxWaitDuration })
 
-            it('should cap the next check at the backstop', async () => {
+            it('should park for the whole ceiling', async () => {
                 const result = await checkConditions(invocation, action, undefined, repark('2h'))
-                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ hours: 1 }) })
+                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ hours: 2 }) })
             })
 
-            it('should not schedule for later than the max wait duration', async () => {
+            it('should park a short ceiling for its own duration', async () => {
                 const result = await checkConditions(invocation, action, undefined, repark('5m'))
                 expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ minutes: 5 }) })
             })
@@ -328,6 +332,12 @@ describe('action.conditional_branch', () => {
                             type: 'branch',
                             index: 0,
                         },
+                        // The timeout edge, so a wait that reaches its ceiling unmatched has somewhere to go.
+                        {
+                            from: 'wait_until_condition',
+                            to: 'matched_target',
+                            type: 'continue',
+                        },
                     ],
                 })
                 .build()
@@ -342,8 +352,9 @@ describe('action.conditional_branch', () => {
                 getMemberCohortIds: () => Promise.resolve([]),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
-            counterHogflowWaitPollOnlyAdvance.reset()
+            counterHogflowWaitAdvancedAtMaxWait.reset()
             counterHogflowRekeyWake.reset()
+            counterHogflowWaitPersonRefreshFailed.reset()
         })
 
         it('evaluates a first wait against the refreshed person, on the invocation and the result alike', async () => {
@@ -378,19 +389,23 @@ describe('action.conditional_branch', () => {
             expect(waitInvocation.filterGlobals.person).not.toBeNull()
         })
 
-        it('keeps the cached person on a re-check of a wait that already parked', async () => {
-            const refreshPerson = jest.fn().mockResolvedValue(undefined)
-            waitInvocation.refreshPerson = refreshPerson
-            // Set once the wait parks; its re-checks run an hour apart, by when the cache expired.
-            waitInvocation.state.currentAction!.pollReparked = true
+        it('keeps the person it already had when the refresh fails, and stays parked', async () => {
+            // A failed read must not reach the executor's error handling: that follows the continue
+            // edge, which for a wait is the timeout edge, so the run would leave the wait early.
+            const before = waitInvocation.person
+            waitInvocation.refreshPerson = jest.fn().mockRejectedValue(new Error('person read failed'))
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
 
-            await handler.execute({
+            const handlerResult = await handler.execute({
                 invocation: waitInvocation,
                 action: waitAction,
-                result: createInvocationResult(waitInvocation),
+                result,
             })
 
-            expect(refreshPerson).not.toHaveBeenCalled()
+            expect(handlerResult.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            expect(handlerResult.nextAction).toBeUndefined()
+            expect(waitInvocation.person).toEqual(before)
+            expect(await personRefreshFailedCount()).toBe(1)
         })
 
         it('advances to the matched branch and clears eventMatched', async () => {
@@ -439,9 +454,8 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('re-parks a wait_until_condition on the hourly cap (backstop retained)', async () => {
-            // The re-check is kept as a reconciliation backstop, so a wait longer than an hour parks
-            // for an hour at a time rather than for its full duration.
+        it('parks a wait for its whole max_wait_duration, with no periodic re-check', async () => {
+            // The matcher is the only thing that wakes a wait, so it parks once rather than on a timer.
             waitAction.config.max_wait_duration = '4h'
 
             const result = await handler.execute({
@@ -450,12 +464,10 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 4 }))
         })
 
-        it('parks a wait shorter than the backstop for its own duration', async () => {
-            // The cap only shortens a park; a 30-minute wait must still resolve at 30 minutes rather
-            // than being stretched to the hourly re-check.
+        it('parks a short wait for its own duration too', async () => {
             waitAction.config.max_wait_duration = '30m'
 
             const result = await handler.execute({
@@ -467,31 +479,18 @@ describe('action.conditional_branch', () => {
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
         })
 
-        it('marks the wait as re-parked when its condition does not match', async () => {
-            // The default condition does not match, so the wait re-parks and records that it has
-            // polled at least once — without counting a poll-only advance.
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.scheduledAt).toBeDefined()
-            expect(waitInvocation.state.currentAction!.pollReparked).toBe(true)
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-        })
-
-        it('counts a poll-only advance when a re-parked wait matches on a later re-check', async () => {
-            // Evaluable event-name filter that matches the example invocation's `test` event.
+        it('counts a wait whose condition only matched once max_wait_duration elapsed', async () => {
+            // Nothing re-checks a wait any more, so a match at the ceiling means the condition became
+            // true earlier and no stream woke the run. That is the signal that replaces the poll.
             waitAction.config.condition = {
                 filters: {
                     bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
                     events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
                 },
             }
-            // The wait already re-parked at least once and the matcher did not wake it: the periodic
-            // re-check is what found the condition true.
-            waitInvocation.state.currentAction!.pollReparked = true
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '4h'
+            waitAction.config.max_wait_duration = '4h'
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -500,23 +499,24 @@ describe('action.conditional_branch', () => {
             })
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(1)
+            expect(await lateAdvanceCount()).toBe(1)
             // Must name the flow, not the run: attributing the residual is the counter's whole job.
-            expect(await pollOnlyAdvanceLabels()).toEqual({
+            expect(await lateAdvanceLabels()).toEqual({
                 team_id: waitInvocation.hogFlow.team_id,
                 hog_flow_id: waitInvocation.hogFlow.id,
             })
         })
 
-        it('does not count an evaluate-on-entry match (the wait never re-parked)', async () => {
-            // Evaluable event-name filter that matches the example invocation's `test` event.
+        it('does not count a wait that matched before its ceiling', async () => {
+            // The ordinary case: a stream woke the run, or it matched on entry, well inside max_wait.
             waitAction.config.condition = {
                 filters: {
                     bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
                     events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
                 },
             }
-            // pollReparked is unset: the condition was already true on entry, which polling did not catch.
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ minutes: 5 }).toMillis()
+            waitAction.config.max_wait_duration = '4h'
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -525,12 +525,37 @@ describe('action.conditional_branch', () => {
             })
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(0)
+            expect(await lateAdvanceCount()).toBe(0)
         })
 
-        it('does not count a matcher (eventMatched) wake as poll-only', async () => {
-            waitInvocation.state.currentAction!.pollReparked = true
-            waitInvocation.state.currentAction!.eventMatched = true
+        it('does not count a match woken by a sweep after the ceiling was shortened', async () => {
+            // The timing sweep moves `scheduled` with a bulk UPDATE and stamps no marker, so a run
+            // parked against a ceiling the author later cut wakes past the new one. That is an edit
+            // landing, not a wake the streams missed.
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '7d'
+            waitAction.config.max_wait_duration = '4h'
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('does not count a timeout, which takes the continue edge rather than matching', async () => {
+            // The default condition never matches, so reaching the ceiling is an ordinary timeout.
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitAction.config.max_wait_duration = '4h'
 
             await handler.execute({
                 invocation: waitInvocation,
@@ -538,29 +563,7 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-        })
-
-        // A matcher wake reaches here without eventMatched, so before this both read as poll advances.
-        it.each(['rekeyWake', 'anchorWake'] as const)('does not count a %s matcher wake as poll-only', async (flag) => {
-            waitAction.config.condition = {
-                filters: {
-                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
-                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
-                },
-            }
-            waitInvocation.state.currentAction!.pollReparked = true
-            waitInvocation.state.currentAction![flag] = true
-
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
-
-            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-            expect(await pollOnlyAdvanceCount()).toBe(0)
-            expect(waitInvocation.state.currentAction![flag]).toBe(false)
+            expect(await lateAdvanceCount()).toBe(0)
         })
 
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {

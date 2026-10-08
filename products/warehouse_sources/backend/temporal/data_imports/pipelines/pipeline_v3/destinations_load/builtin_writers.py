@@ -1,9 +1,9 @@
 """Registering the writers that ship with warehouse sources.
 
-Postgres, Redshift, Snowflake, Databricks, S3, BigQuery and Azure Blob ship here. The other destination types have writers built on batch exports'
-clients, parked on `tom/dwh-destination-writers-parked`, and each one lands in its own change
-once it has been run against that warehouse. Registering a type whose writer has never
-executed is how a customer discovers it does not work.
+Every destination type `ExternalDataDestination.Type` offers ships here: Postgres, Redshift,
+Snowflake, Databricks, S3, BigQuery and Azure Blob. A type registered here is one a person can
+pick in the UI, so a writer that has never run against its warehouse must not be added:
+registering one is how a customer discovers it does not work.
 
 Registration happens on first use rather than at a bootstrap step, so any entry point into
 delivery resolves a writer. Each writer pulls in its vendor driver, so the imports stay inside

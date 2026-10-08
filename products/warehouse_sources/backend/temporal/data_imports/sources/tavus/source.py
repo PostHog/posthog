@@ -53,7 +53,7 @@ class TavusSource(ResumableSource[TavusSourceConfig, TavusResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Tavus API key to pull your Tavus data into the PostHog Data warehouse.
 
-You can generate an API key in the [Tavus Developer Portal](https://platform.tavus.io/api-keys). This single key grants read access to your videos, replicas, personas, and conversations.
+You can generate an API key in the [Tavus Developer Portal](https://platform.tavus.io/api-keys). This single key grants read access to your videos, replicas, personas, conversations, and memory stores.
 """,
             iconPath="/static/services/tavus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tavus",

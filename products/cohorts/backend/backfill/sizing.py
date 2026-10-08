@@ -1,10 +1,14 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
 
@@ -19,6 +23,10 @@ PERSON_SEED_PER_HASH_BYTES = 38
 # `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES`. Deterministic for a given team, unlike a transport
 # failure.
 _READ_CAP_ERROR_CODES = (158, 307)
+
+# A week, so a weekend day never stands in for the weekday peak.
+BEHAVIORAL_SCAN_ESTIMATE_DAYS = 7
+_BEHAVIORAL_SCAN_ESTIMATE_MAX_SECONDS = 60
 
 
 class PersonSeedEstimateScanCapExceeded(Exception):
@@ -64,6 +72,10 @@ def estimate_person_seed_topic_bytes(
     # Collapsing versions per id before counting keeps persons whose latest in-window row is a
     # deletion out of the estimate — counting them inflates the topic-byte figure and biases the
     # budget gate toward refusing runs that would have fit.
+    #
+    # `person` is sorted by (team_id, id), so in-order aggregation streams the GROUP BY instead of
+    # holding every id in a hash table. No `readonly=True`: a configured readonly user takes
+    # precedence over the offline host.
     try:
         rows = sync_execute(
             """
@@ -82,15 +94,16 @@ def estimate_person_seed_topic_bytes(
                 "max_execution_time": max_execution_time,
                 "max_bytes_to_read": max_bytes_to_read,
                 "read_overflow_mode": "throw",
+                "optimize_aggregation_in_order": 1,
             },
+            workload=Workload.OFFLINE,
             team_id=team_id,
-            readonly=True,
         )
     except ClickHouseQueryTimeOut as error:
         # `max_execution_time` is this gate's own cap, so a timeout means the same thing as the byte
         # cap: the team's person history does not fit, and a retry pays the whole scan again for the
         # same answer. `trigger_cohort_backfill_run_task` retries every other exception three times,
-        # which at a 300 s cap is 20 minutes of scans on the user-facing cluster per cohort save.
+        # which at a 300 s cap is 20 minutes of scans per cohort save.
         raise PersonSeedEstimateScanCapExceeded(
             f"Person sizing scan for team {team_id} exceeded its {max_execution_time}s time cap"
         ) from error
@@ -108,4 +121,74 @@ def estimate_person_seed_topic_bytes(
         bytes_per_seed=bytes_per_seed,
         estimated_topic_bytes=estimated_persons * bytes_per_seed,
         budget_bytes=settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET,
+    )
+
+
+@frozen
+class BehavioralScanEstimate:
+    """A recent sample, not a bound: an older day, or a day in the run's timezone, can hold more events. The
+    seeder reads fewer rows where every condition on an event name has a row filter."""
+
+    days_sampled: int
+    peak_day: date | None
+    peak_day_events: int
+    peak_day_events_by_name: dict[str, int]
+    max_events_per_day: int
+
+    @property
+    def over_limit(self) -> bool:
+        return self.max_events_per_day > 0 and self.peak_day_events > self.max_events_per_day
+
+    def largest_events(self, count: int) -> list[tuple[str, int]]:
+        return sorted(self.peak_day_events_by_name.items(), key=lambda item: (-item[1], item[0]))[:count]
+
+    def as_preconditions(self) -> dict[str, Any]:
+        return {
+            "behavioral_scan_days_sampled": self.days_sampled,
+            "behavioral_scan_peak_day": self.peak_day.isoformat() if self.peak_day else None,
+            "behavioral_scan_peak_day_events": self.peak_day_events,
+            "behavioral_scan_max_events_per_day": self.max_events_per_day,
+        }
+
+
+def estimate_behavioral_scan_events(
+    team_id: int,
+    event_names: Sequence[str],
+    *,
+    max_events_per_day: int,
+) -> BehavioralScanEstimate:
+    """Reads `events` because that is the table the seeder scans."""
+    by_day: dict[date, dict[str, int]] = {}
+    if event_names:
+        until = django_timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        rows = sync_execute(
+            """
+            SELECT toDate(timestamp) AS day, event, count() AS events
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(since)s
+              AND timestamp < %(until)s
+              AND event IN %(event_names)s
+            GROUP BY day, event
+            """,
+            {
+                "team_id": team_id,
+                "since": until - timedelta(days=BEHAVIORAL_SCAN_ESTIMATE_DAYS),
+                "until": until,
+                "event_names": list(event_names),
+            },
+            settings={"max_execution_time": _BEHAVIORAL_SCAN_ESTIMATE_MAX_SECONDS},
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
+        for day, event, count in rows:
+            by_day.setdefault(day, {})[event] = int(count)
+    peak_day = max(by_day, key=lambda day: (sum(by_day[day].values()), day), default=None)
+    peak_day_events_by_name = by_day[peak_day] if peak_day is not None else {}
+    return BehavioralScanEstimate(
+        days_sampled=BEHAVIORAL_SCAN_ESTIMATE_DAYS,
+        peak_day=peak_day,
+        peak_day_events=sum(peak_day_events_by_name.values()),
+        peak_day_events_by_name=peak_day_events_by_name,
+        max_events_per_day=max_events_per_day,
     )

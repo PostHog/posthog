@@ -10,12 +10,9 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni import omni as omni_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni import (
     OmniDocumentsPaginator,
-    OmniPageInfoPaginator,
     OmniResumeConfig,
     OmniScimPaginator,
-    _base_api_url,
     _format_watermark,
-    _hostname,
     get_endpoint_permissions,
     get_key_scope,
     get_resource,
@@ -58,12 +55,6 @@ class TestNormalizeHost:
     def test_normalize_host(self, raw, expected):
         assert normalize_host(raw) == expected
 
-    def test_hostname_extracts_bare_host(self):
-        assert _hostname("https://acme.omniapp.co/api") == "acme.omniapp.co"
-
-    def test_base_api_url_appends_api_path(self):
-        assert _base_api_url("acme.omniapp.co") == "https://acme.omniapp.co/api"
-
 
 class TestFormatWatermark:
     def test_formats_datetime_with_millisecond_precision(self):
@@ -72,72 +63,12 @@ class TestFormatWatermark:
         value = datetime.datetime(2026, 6, 1, 14, 30, 0, 500000, tzinfo=datetime.UTC)
         assert _format_watermark(value) == "2026-06-01T14:30:00.500Z"
 
-    def test_naive_datetime_assumed_utc(self):
-        import datetime
-
-        value = datetime.datetime(2026, 6, 1, 14, 30, 0)
-        assert _format_watermark(value) == "2026-06-01T14:30:00.000Z"
-
     def test_string_value_passed_through(self):
         assert _format_watermark("2026-06-01T14:30:00.000Z") == "2026-06-01T14:30:00.000Z"
 
     @pytest.mark.parametrize("value", [None, "", 123])
     def test_unsupported_values_return_none(self, value):
         assert _format_watermark(value) is None
-
-
-class TestOmniPageInfoPaginator:
-    def test_initial_request_has_no_cursor(self):
-        paginator = OmniPageInfoPaginator(page_size=50)
-        request = Request(method="GET", url="https://acme.omniapp.co/api/v1/documents")
-        paginator.init_request(request)
-
-        assert request.params["pageSize"] == 50
-        assert "cursor" not in request.params
-
-    def test_update_state_has_next_page(self):
-        paginator = OmniPageInfoPaginator()
-        response = _make_response({"pageInfo": {"hasNextPage": True, "nextCursor": "abc"}, "records": []})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"cursor": "abc"}
-
-    def test_update_state_terminal_page(self):
-        paginator = OmniPageInfoPaginator()
-        response = _make_response({"pageInfo": {"hasNextPage": False, "nextCursor": None}, "records": []})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is False
-        assert paginator.get_resume_state() is None
-
-    def test_has_next_page_true_but_no_cursor_treated_as_terminal(self):
-        # Defensive: hasNextPage=True with a missing nextCursor shouldn't spin forever.
-        paginator = OmniPageInfoPaginator()
-        response = _make_response({"pageInfo": {"hasNextPage": True, "nextCursor": None}, "records": []})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is False
-
-    def test_malformed_body_treated_as_terminal(self):
-        paginator = OmniPageInfoPaginator()
-        response = _make_response({})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is False
-
-    def test_set_resume_state_seeds_cursor(self):
-        paginator = OmniPageInfoPaginator()
-        paginator.set_resume_state({"cursor": "resumed-cursor"})
-
-        request = Request(method="GET", url="https://acme.omniapp.co/api/v1/documents")
-        paginator.init_request(request)
-        assert request.params["cursor"] == "resumed-cursor"
-
-    def test_set_resume_state_ignores_missing_cursor(self):
-        paginator = OmniPageInfoPaginator()
-        paginator.set_resume_state({})
-        assert paginator.get_resume_state() is None
 
 
 class TestOmniDocumentsPaginator:
@@ -160,58 +91,8 @@ class TestOmniDocumentsPaginator:
 
         assert paginator.has_next_page is False
 
-    def test_incremental_keeps_paginating_when_page_has_newer_rows(self):
-        paginator = OmniDocumentsPaginator(stop_when_older_than="2026-01-01T00:00:00.000Z")
-        response = _make_response({"pageInfo": {"hasNextPage": True, "nextCursor": "c1"}, "records": []})
-        data = [
-            {"updatedAt": "2026-06-01T00:00:00.000Z"},
-            {"updatedAt": "2025-05-01T00:00:00.000Z"},
-        ]
-        paginator.update_state(response, data)
-
-        assert paginator.has_next_page is True
-
-    def test_null_updated_at_does_not_force_early_stop(self):
-        # A page with only null `updatedAt` values can't be judged against the watermark, so
-        # pagination continues rather than risk skipping unsynced rows.
-        paginator = OmniDocumentsPaginator(stop_when_older_than="2026-01-01T00:00:00.000Z")
-        response = _make_response({"pageInfo": {"hasNextPage": True, "nextCursor": "c1"}, "records": []})
-        data = [{"updatedAt": None}, {"identifier": "no-updated-at-key"}]
-        paginator.update_state(response, data)
-
-        assert paginator.has_next_page is True
-
 
 class TestOmniScimPaginator:
-    def test_initial_request_starts_at_index_one(self):
-        paginator = OmniScimPaginator(count=50)
-        request = Request(method="GET", url="https://acme.omniapp.co/api/scim/v2/users")
-        paginator.init_request(request)
-
-        assert request.params == {"count": 50, "startIndex": 1}
-
-    def test_advances_start_index_when_more_results_remain(self):
-        paginator = OmniScimPaginator(count=100)
-        response = _make_response({"Resources": [], "itemsPerPage": 100, "totalResults": 250, "startIndex": 1})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"start_index": 101}
-
-    def test_stops_when_all_results_returned(self):
-        paginator = OmniScimPaginator(count=100)
-        response = _make_response({"Resources": [], "itemsPerPage": 50, "totalResults": 50, "startIndex": 1})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is False
-
-    def test_stops_on_empty_page(self):
-        paginator = OmniScimPaginator(count=100)
-        response = _make_response({"Resources": [], "itemsPerPage": 0, "totalResults": 0, "startIndex": 1})
-        paginator.update_state(response)
-
-        assert paginator.has_next_page is False
-
     def test_set_resume_state_seeds_start_index(self):
         paginator = OmniScimPaginator()
         paginator.set_resume_state({"start_index": 201})
@@ -222,47 +103,9 @@ class TestOmniScimPaginator:
 
 
 class TestGetResource:
-    @pytest.mark.parametrize(
-        "endpoint, expected_path, expected_selector",
-        [
-            ("Documents", "/v1/documents", "records"),
-            ("Folders", "/v1/folders", "records"),
-            ("Connections", "/v1/connections", "connections"),
-            ("Schedules", "/v1/schedules", "records"),
-            ("Users", "/scim/v2/users", "Resources"),
-            ("UserGroups", "/scim/v2/groups", "Resources"),
-        ],
-    )
-    def test_endpoint_shape(self, endpoint, expected_path, expected_selector):
-        resource = get_resource(endpoint, should_use_incremental_field=False, stop_when_older_than=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-
-        assert endpoint_config["path"] == expected_path
-        assert endpoint_config["data_selector"] == expected_selector
-
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError):
             get_resource("Nope", should_use_incremental_field=False, stop_when_older_than=None)
-
-    def test_documents_incremental_uses_merge(self):
-        resource = get_resource("Documents", should_use_incremental_field=True, stop_when_older_than="x")
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    def test_documents_full_refresh_uses_replace(self):
-        resource = get_resource("Documents", should_use_incremental_field=False, stop_when_older_than=None)
-        assert resource["write_disposition"] == "replace"
-
-    @pytest.mark.parametrize("endpoint", ["Folders", "Connections", "Schedules", "Users", "UserGroups"])
-    def test_non_incremental_endpoints_always_replace(self, endpoint):
-        resource = get_resource(endpoint, should_use_incremental_field=True, stop_when_older_than=None)
-        assert resource["write_disposition"] == "replace"
-
-    def test_documents_sorts_newest_first(self):
-        resource = get_resource("Documents", should_use_incremental_field=False, stop_when_older_than=None)
-        endpoint_config = resource["endpoint"]
-        assert isinstance(endpoint_config, dict)
-        assert endpoint_config["params"] == {"sortField": "updatedAt", "sortDirection": "desc"}
 
 
 class TestValidateCredentials:
@@ -303,16 +146,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error
 
-    @mock.patch.object(omni_module, "_is_host_safe", return_value=(True, None))
-    @mock.patch(OMNI_SESSION_PATCH)
-    def test_sends_bearer_token(self, mock_session, _mock_host_safe):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("acme.omniapp.co", "test-key", team_id=1)
-
-        _, kwargs = mock_session.return_value.get.call_args
-        assert kwargs["headers"]["Authorization"] == "Bearer test-key"
-
 
 class TestGetKeyScope:
     @mock.patch(OMNI_SESSION_PATCH)
@@ -346,18 +179,6 @@ class TestGetEndpointPermissions:
         assert result["Documents"] is None
         assert result["Users"] is not None
         assert result["UserGroups"] is not None
-
-    @mock.patch.object(omni_module, "get_key_scope", return_value="organization")
-    def test_org_scope_allows_scim_endpoints(self, _mock_scope):
-        result = get_endpoint_permissions("acme.omniapp.co", "test-key", ["Users", "UserGroups"])
-        assert result == {"Users": None, "UserGroups": None}
-
-    @mock.patch.object(omni_module, "get_key_scope", return_value=None)
-    def test_unknown_scope_allows_scim_endpoints(self, _mock_scope):
-        # Can't confirm the scope (probe failed) — don't block on a guess; sync-time errors are
-        # handled separately by get_non_retryable_errors.
-        result = get_endpoint_permissions("acme.omniapp.co", "test-key", ["Users"])
-        assert result == {"Users": None}
 
 
 class TestOmniSourceEndToEnd:

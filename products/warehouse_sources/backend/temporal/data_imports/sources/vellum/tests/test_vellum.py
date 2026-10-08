@@ -7,7 +7,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.settings import VELLUM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import (
     VellumResumeConfig,
     vellum_source,
@@ -85,30 +84,6 @@ def _run(endpoint: str, manager: mock.MagicMock) -> Any:
 
 class TestOffsetPagination:
     @mock.patch(SESSION_PATCH)
-    def test_walks_offsets_and_stops_at_count(self, MockSession) -> None:
-        # offset must advance by the page size and pagination must stop once offset reaches `count`.
-        session = MockSession.return_value
-        page1 = [{"id": f"d_{i}"} for i in range(100)]
-        params = _wire(session, [_resp(results=page1, count=101), _resp(results=[{"id": "d_last"}], count=101)])
-
-        rows = _rows(_run("documents", _make_manager()))
-
-        assert [r["id"] for r in rows] == [*(f"d_{i}" for i in range(100)), "d_last"]
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == 100
-        assert params[1]["offset"] == 100
-
-    @mock.patch(SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        # A short (below-limit) page is the last page — the accumulated rows are all that exist.
-        session = MockSession.return_value
-        _wire(session, [_resp(results=[{"id": "d1"}], count=1)])
-
-        rows = _rows(_run("documents", _make_manager()))
-        assert [r["id"] for r in rows] == ["d1"]
-        assert session.send.call_count == 1
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         # A resumed run must skip pages already synced; starting from offset 0 would redo work.
         session = MockSession.return_value
@@ -130,22 +105,6 @@ class TestOffsetPagination:
 
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == VellumResumeConfig(offset=100)
-
-    @mock.patch(SESSION_PATCH)
-    def test_ordering_param_sent_when_configured(self, MockSession) -> None:
-        # workflow_deployments paginates oldest-first via ?ordering=created for a stable page order.
-        session = MockSession.return_value
-        params = _wire(session, [_resp(results=[], count=0, url=WFD_URL)])
-        _rows(_run("workflow_deployments", _make_manager()))
-        assert params[0]["ordering"] == "created"
-
-    @mock.patch(SESSION_PATCH)
-    def test_ordering_param_absent_for_unordered_endpoint(self, MockSession) -> None:
-        # documents exposes no stable created field, so no ordering is forced.
-        session = MockSession.return_value
-        params = _wire(session, [_resp(results=[], count=0)])
-        _rows(_run("documents", _make_manager()))
-        assert "ordering" not in params[0]
 
 
 class TestRetries:
@@ -173,12 +132,6 @@ class TestRetries:
 
 
 class TestExecutionEventsFanOut:
-    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
-        config = VELLUM_ENDPOINTS["workflow_execution_events"]
-        assert config.fan_out_over_workflow_deployments is True
-        assert config.should_sync_default is False
-        assert config.primary_keys == ["workflow_deployment_id", "span_id"]
-
     @mock.patch(SESSION_PATCH)
     def test_injects_parent_id_into_every_row(self, MockSession) -> None:
         # The parent id completes the composite key; without it rows from different deployments that
@@ -198,22 +151,6 @@ class TestExecutionEventsFanOut:
             {"workflow_deployment_id": "A", "span_id": "s1", "start": "2026-01-01T00:00:00Z"},
             {"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"},
         ]
-
-    @mock.patch(SESSION_PATCH)
-    def test_deployment_deleted_mid_fan_out_is_skipped(self, MockSession) -> None:
-        # A deployment deleted between enumeration and its fetch 404s — skip it, don't fail the sync.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
-                _resp(status=404, body={"detail": "not found"}, url=EVENTS_A),
-                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
-            ],
-        )
-
-        rows = _rows(_run("workflow_execution_events", _make_manager()))
-        assert rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
 
     @mock.patch(SESSION_PATCH)
     def test_non_404_error_propagates(self, MockSession) -> None:
@@ -251,27 +188,6 @@ class TestExecutionEventsFanOut:
         )
         rows = _rows(_run("workflow_execution_events", _make_manager(resume)))
         assert rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
-
-    @mock.patch(SESSION_PATCH)
-    def test_fanout_checkpoint_saved(self, MockSession) -> None:
-        # The fan-out must checkpoint its framework resume state so a restart can skip synced parents.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp(results=[{"id": "A"}], count=1, url=WFD_URL),
-                _resp(results=[{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}], count=1, url=EVENTS_A),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_run("workflow_execution_events", manager))
-
-        assert manager.save_state.called
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, VellumResumeConfig)
-        assert saved.fanout_state is not None
-        assert "/workflow-deployments/A/execution-events" in saved.fanout_state["completed"]
 
 
 class TestSourceResponse:

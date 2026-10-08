@@ -12,8 +12,8 @@ sees, because the pod dies before a single Arrow table reaches it.
 What actually bounds memory here is the fetch, not the flush. `fetch(n)` materialises all `n`
 rows before it returns — for a Postgres server cursor that is a `FETCH FORWARD n` whose whole
 result libpq buffers client-side — so a page is resident in full before any batch is yielded.
-The old loop asked for `chunk_size` rows however wide they were, which is precisely how a heavy
-region became gigabytes. Two bounds, then, doing two different jobs:
+A loop that asks for `chunk_size` rows however wide they are is precisely how a heavy region
+becomes gigabytes. Two bounds, then, doing two different jobs:
 
 * `max_page_rows` bounds one fetch, so what is resident before the first yield is bounded. This
   is the memory bound. Callers that can measure their own rows pass a size derived from that
@@ -29,9 +29,6 @@ read, so an abrupt jump in row size is paid for at whatever page size preceded i
 that page small enough to survive is `max_page_rows` — either a driver's own measurement of its
 widest row, or `MAX_FETCH_PAGE_ROWS` when it has none. A single row larger than the budget is
 yielded on its own, the same way `_split_table` yields a lone oversized row.
-
-`byte_bounded` carries the rollout gate. With it off nothing is measured and both bounds come
-off `max_rows` alone, which is the fetch-a-chunk-and-yield-it loop every driver ran before.
 """
 
 from __future__ import annotations
@@ -48,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 RowT = TypeVar("RowT")
 
 # Payload a batch may accumulate before it is flushed. The same budget the row-count estimate
-# was derived from, so a table of evenly sized rows keeps batching exactly as it did before.
+# is derived from, so a table of evenly sized rows fills a batch at that row count.
 EXTRACT_BATCH_MAX_BYTES = DEFAULT_TABLE_SIZE_BYTES
 
 # Default rows per fetch for a driver that passes no `max_page_rows` of its own. A fetch is the
@@ -124,9 +121,9 @@ def _value_bytes(value: Any) -> int:
     return _SCALAR_VALUE_BYTES
 
 
-def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int | None, max_page_rows: int) -> int:
+def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int, max_page_rows: int) -> int:
     ceiling = min(max_rows, max_page_rows)
-    if max_bytes is None or largest_row_bytes <= 0:
+    if largest_row_bytes <= 0:
         return ceiling
     return max(1, min(ceiling, max_bytes // largest_row_bytes))
 
@@ -135,23 +132,21 @@ def fetch_row_batches(
     fetch: Callable[[int], Sequence[RowT] | None],
     *,
     max_rows: int,
-    byte_bounded: bool,
     max_bytes: int | None = None,
     max_page_rows: int | None = None,
 ) -> Iterator[list[RowT]]:
-    """Yield row batches bounded by `max_rows`, and by accumulated bytes when `byte_bounded`.
+    """Yield row batches bounded by `max_rows` and by accumulated bytes.
 
     `fetch(n)` returns up to `n` rows, and an empty sequence (or None, which some DB-API
     drivers return instead) once the result set is drained — `cursor.fetchmany` for a driver,
     `iter_row_batches` for an already-streaming source.
-    Under `byte_bounded` it is called with a page size derived from the widest row seen so far,
-    never with `max_rows` outright, so the caller's chunk size bounds the batch and not the fetch.
+    It is called with a page size derived from the widest row seen so far, never with
+    `max_rows` outright, so the caller's chunk size bounds the batch and not the fetch.
 
-    `max_page_rows` is a caller-imposed ceiling that holds either way, for a driver whose own
-    limits cap a single fetch.
+    `max_page_rows` is a caller-imposed ceiling, for a driver whose own limits cap a single fetch.
     """
-    budget = (EXTRACT_BATCH_MAX_BYTES if max_bytes is None else max_bytes) if byte_bounded else None
-    page_ceiling = max_page_rows or (MAX_FETCH_PAGE_ROWS if byte_bounded else max_rows)
+    budget = EXTRACT_BATCH_MAX_BYTES if max_bytes is None else max_bytes
+    page_ceiling = max_page_rows or MAX_FETCH_PAGE_ROWS
 
     batch: list[RowT] = []
     batch_bytes = 0
@@ -165,14 +160,14 @@ def fetch_row_batches(
 
         widest_in_page = 0
         page_bytes = 0
-        measured, fixed_bytes = _measure_plan(page[0]) if budget is not None else ((), 0)
+        measured, fixed_bytes = _measure_plan(page[0])
         for row in page:
-            row_bytes = _planned_row_bytes(row, measured, fixed_bytes) if budget is not None else 0
+            row_bytes = _planned_row_bytes(row, measured, fixed_bytes)
             widest_in_page = max(widest_in_page, row_bytes)
             page_bytes += row_bytes
             # Flush *before* appending whatever would overflow, never after, or a nearly full
             # batch could still take a further full-sized row (mirrors the repartition rewrite).
-            if batch and budget is not None and batch_bytes + row_bytes > budget:
+            if batch and batch_bytes + row_bytes > budget:
                 yield batch
                 batch = []
                 batch_bytes = 0
@@ -191,7 +186,7 @@ def fetch_row_batches(
         # the same estimate as the one just read, which is what makes its size predictable enough
         # to budget for. Below that, a batch still spans as many fetches as it takes to fill —
         # a driver reading 1000 rows at a time would otherwise yield a batch per fetch.
-        if batch and budget is not None and batch_bytes + page_bytes > budget:
+        if batch and batch_bytes + page_bytes > budget:
             yield batch
             batch = []
             batch_bytes = 0
@@ -210,7 +205,6 @@ def iter_row_batches(
     rows: Iterable[RowT],
     *,
     max_rows: int,
-    byte_bounded: bool,
     max_bytes: int | None = None,
     max_page_rows: int | None = None,
 ) -> Iterator[list[RowT]]:
@@ -219,7 +213,6 @@ def iter_row_batches(
     return fetch_row_batches(
         lambda n: list(islice(row_iterator, n)),
         max_rows=max_rows,
-        byte_bounded=byte_bounded,
         max_bytes=max_bytes,
         max_page_rows=max_page_rows,
     )

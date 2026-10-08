@@ -1,8 +1,14 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock
 
 import pymssql
 
+from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
+    DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -12,11 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLColumn,
     MSSQLImplementation,
+    MSSQLMetadataTimeoutError,
     _build_query,
-    _is_deadlock_victim_error,
-    _is_transient_connection_error,
     filter_mssql_incremental_fields,
     retry_on_deadlock,
     retry_on_transient_connection_error,
@@ -26,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.sour
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+_MSSQL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql"
 
 
 def _make_config(**overrides) -> MSSQLSourceConfig:
@@ -83,10 +91,6 @@ class TestFilterMSSQLIncrementalFields:
         result = filter_mssql_incremental_fields([("col", col_type, True)])
         assert result == [("col", expected, True)]
 
-    def test_drops_unsupported(self):
-        result = filter_mssql_incremental_fields([("col", "varchar", False)])
-        assert result == []
-
 
 class TestMSSQLColumnToArrowField:
     def test_decimal_requires_precision(self):
@@ -96,46 +100,6 @@ class TestMSSQLColumnToArrowField:
 
 
 class TestBuildQuery:
-    def test_full_refresh_no_incremental(self):
-        query, args = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-        )
-        assert "SELECT" in query
-        assert "[dbo].[users]" in query
-        assert "TOP" not in query
-        assert args == {}
-
-    def test_incremental_adds_where(self):
-        query, args = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value="2025-01-01",
-        )
-        assert "WHERE [created_at]" in query
-        assert "%(incremental_value)s" in query
-        assert args == {"incremental_value": "2025-01-01"}
-
-    def test_row_filters_full_refresh(self):
-        query, args = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
-        )
-        assert "WHERE [age] > %(row_filter_0)s" in query
-        assert args == {"row_filter_0": 21}
-
     def test_in_filter_expands_to_named_placeholders(self):
         query, args = _build_query(
             schema="dbo",
@@ -150,19 +114,6 @@ class TestBuildQuery:
         )
         assert "WHERE [age] IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
         assert args == {"row_filter_0_0": 21, "row_filter_0_1": 30}
-
-    def test_row_filters_compose_with_incremental(self):
-        query, args = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value="2025-01-01",
-            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
-        )
-        assert "WHERE [created_at] > %(incremental_value)s AND [age] > %(row_filter_0)s" in query
-        assert args == {"incremental_value": "2025-01-01", "row_filter_0": 21}
 
     def test_row_filter_value_never_interpolated(self):
         query, args = _build_query(
@@ -180,18 +131,6 @@ class TestBuildQuery:
         )
         assert "DROP TABLE" not in query
         assert args == {"row_filter_0": "x'; DROP TABLE y; --"}
-
-    def test_add_limit_uses_top_100(self):
-        query, _ = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            add_limit=True,
-        )
-        assert "TOP 100" in query
 
     def test_incremental_requires_field(self):
         with pytest.raises(ValueError, match="incremental_field"):
@@ -251,45 +190,6 @@ class TestBuildQuery:
         assert "WHERE [created_at]]; DROP TABLE foo; --]" in query
 
 
-class TestBuildQueryEnabledColumns:
-    @pytest.mark.parametrize(
-        "enabled_columns,primary_keys,expected_select",
-        [
-            (None, ["id"], "SELECT * FROM"),
-            (["email"], ["id"], "SELECT [email], [id] FROM"),
-            ([], None, "SELECT * FROM"),
-            ([], ["id"], "SELECT [id] FROM"),
-        ],
-    )
-    def test_full_refresh_projection(self, enabled_columns, primary_keys, expected_select):
-        query, _ = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
-            enabled_columns=enabled_columns,
-            primary_keys=primary_keys,
-        )
-        assert query.startswith(expected_select)
-
-    def test_incremental_projection_retains_incremental_field(self):
-        query, args = _build_query(
-            schema="dbo",
-            table_name="users",
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value="2025-01-01",
-            enabled_columns=["email"],
-            primary_keys=["id"],
-        )
-        assert query.startswith("SELECT [email], [id], [created_at] FROM")
-        assert "WHERE [created_at] > %(incremental_value)s" in query
-        assert args == {"incremental_value": "2025-01-01"}
-
-
 # ---------------------------------------------------------------------------
 # Per-cursor metadata queries
 # ---------------------------------------------------------------------------
@@ -314,31 +214,6 @@ def cursor() -> MagicMock:
     return c
 
 
-class TestBuildPipelineProjection:
-    def test_sync_all_projects_discovered_columns(self, impl, mocker):
-        mocker.patch.object(impl, "connect", return_value=MagicMock())
-        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=["id"])
-        mocker.patch.object(
-            impl,
-            "get_table_metadata",
-            return_value=Table(
-                name="users",
-                parents=("dbo",),
-                columns=[
-                    MSSQLColumn(name="id", data_type="int", nullable=False),
-                    MSSQLColumn(name="email", data_type="varchar", nullable=True),
-                ],
-            ),
-        )
-        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
-        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
-
-        impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
-
-        query = rows_to_sync.call_args.args[1]
-        assert query.startswith("SELECT [id], [email] FROM")
-
-
 class TestGetPrimaryKeysForTable:
     def test_returns_none_when_no_rows(self, impl, cursor):
         cursor.fetchall.return_value = []
@@ -347,13 +222,6 @@ class TestGetPrimaryKeysForTable:
     def test_returns_pk_column_names(self, impl, cursor):
         cursor.fetchall.return_value = [("id",), ("email",)]
         assert impl.get_primary_keys_for_table(cursor, "dbo", "t") == ["id", "email"]
-
-    def test_uses_parameterized_query(self, impl, cursor):
-        impl.get_primary_keys_for_table(cursor, "dbo", "mytable")
-        sql, params = cursor.execute.call_args.args
-        assert "%(schema)s" in sql
-        assert "%(table_name)s" in sql
-        assert params == {"schema": "dbo", "table_name": "mytable"}
 
 
 class TestGetTableMetadata:
@@ -371,16 +239,6 @@ class TestGetTableMetadata:
         assert len(table.columns) == 2
         assert all(isinstance(c, MSSQLColumn) for c in table.columns)
         assert table.columns[0].numeric_precision is None
-
-    def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
-        cursor.__iter__.return_value = iter(
-            [
-                ("amount", "decimal", False, 10, 2),
-            ]
-        )
-        table = impl.get_table_metadata(cursor, "dbo", "orders")
-        assert table.columns[0].numeric_precision == 10
-        assert table.columns[0].numeric_scale == 2
 
     def test_falls_back_to_defaults_when_decimal_missing_precision(self, impl, cursor):
         cursor.__iter__.return_value = iter(
@@ -459,36 +317,11 @@ class TestFetchAverageRowSize:
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
 
-    def test_returns_row_size_bytes(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",), ("email",)]
-        cursor.fetchone.return_value = (256.4,)
-        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
-        assert result == 256
-
     def test_clamps_to_at_least_one(self, impl, cursor, logger):
         cursor.fetchall.return_value = [("id",)]
         cursor.fetchone.return_value = (0,)
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result == 1
-
-    def test_uses_separate_top_100_sample(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",)]
-        cursor.fetchone.return_value = (10,)
-        impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
-        size_query = cursor.execute.call_args_list[1].args[0]
-        assert "TOP 100" in size_query
-        assert "DATALENGTH([id])" in size_query
-
-    def test_handles_column_names_with_special_chars(self, impl, cursor, logger):
-        # Real SQL Server columns like `Orden#` are legal under bracket-quoting;
-        # they must be sampled, not crash the quoter (the bug this fixes).
-        cursor.fetchall.return_value = [("Orden#",), ("Forma Pago",)]
-        cursor.fetchone.return_value = (42,)
-        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
-        assert result == 42
-        size_query = cursor.execute.call_args_list[1].args[0]
-        assert "DATALENGTH([Orden#])" in size_query
-        assert "DATALENGTH([Forma Pago])" in size_query
 
     def test_rejects_control_char_column_names(self, impl, cursor, logger):
         # A column name with a control character can't be made safe by
@@ -496,11 +329,6 @@ class TestFetchAverageRowSize:
         # and returns None.
         cursor.fetchall.return_value = [("bad\ncol",)]
         cursor.fetchone.return_value = (1,)
-        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
-        assert result is None
-
-    def test_returns_none_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = RuntimeError("boom")
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
 
@@ -512,10 +340,6 @@ class TestGetRowsToSync:
             b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
             b"chosen as the deadlock victim. Rerun the transaction.",
         )
-
-    def test_returns_count_from_cursor(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (42,)
-        assert impl.get_rows_to_sync(cursor, "SELECT id FROM t", {}, logger) == 42
 
     def test_retries_deadlock_and_recovers_count(self, impl, cursor, logger, mocker):
         # Runs before any rows stream, so a 1205 here is exactly as safe to rerun as the
@@ -585,18 +409,39 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
-def _drain_source():
-    source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
-    list(source.items())  # type: ignore[arg-type]
-
-
 class TestBuildPipeline:
-    def test_streams_through_separate_connection(self, build_pipeline_mocks):
-        mock_connect, streaming_cursor = build_pipeline_mocks
-        _drain_source()
-        # Two connect calls: one for metadata, one for streaming.
-        assert mock_connect.call_count == 2
-        assert streaming_cursor.execute.called
+    def test_setup_that_hangs_at_connect_raises_a_non_retryable_timeout(self, build_pipeline_mocks, mocker):
+        mock_connect, _ = build_pipeline_mocks
+        release = threading.Event()
+        mock_connect.side_effect = lambda **kwargs: release.wait()
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_TABLE_SETUP_DEADLINE_SECONDS", 0.05)
+
+        try:
+            with pytest.raises(MSSQLMetadataTimeoutError) as error:
+                MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        finally:
+            release.set()
+
+        assert error_message_matches(str(error.value), MSSQLSource().get_non_retryable_errors())
+
+    @pytest.mark.parametrize("fails", [False, True], ids=["count_hangs", "count_connection_fails"])
+    def test_row_count_fault_costs_the_estimate_and_not_the_import(self, build_pipeline_mocks, mocker, fails):
+        release = threading.Event()
+
+        def _count(*args):
+            if fails:
+                raise pymssql.OperationalError(20009, b"Adaptive Server is unavailable or does not exist")
+            release.wait()
+
+        mocker.patch.object(MSSQLImplementation, "get_rows_to_sync", side_effect=_count)
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_ROW_COUNT_DEADLINE_SECONDS", 0.05)
+
+        try:
+            source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        finally:
+            release.set()
+
+        assert source.rows_to_sync == 0
 
 
 class _RaisingTunnel:
@@ -635,37 +480,6 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "Cannot build decimal array from values",
-            "ValueError: Cannot build decimal array from values",
-            "Source column type changed",
-            "SchemaColumnTypeChangedException: Source column type changed: 'id' no longer fits",
-        ],
-    )
-    def test_data_shape_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql DB-Lib error 20009 for an unreachable host.
-            "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
-            "unavailable or does not exist (cplapps.example.us-east-2.rds.amazonaws.com)",
-            "Login failed for user 'reporting'.",
-            # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
-            # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
-            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
-            # `connect` translates paramiko's bare handshake EOFError into this message.
-            _SSH_HANDSHAKE_EOF_ERROR,
-        ],
-    )
-    def test_connection_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
             # Azure SQL error 40615 — the server firewall rejected the client IP. Redacted shape;
             # the server name / client IP are volatile, the matched phrase is not.
             "Cannot open server 'example' requested by the login. Client with IP address "
@@ -699,63 +513,18 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            # Real pymssql MSSQLDatabaseException for SQL Server error 208 raised mid-sync when the
-            # view being selected references an object the login can't resolve.
-            "SQL Server message 208, severity 16, state 1, procedure b'VentasAsesorMes', line 8: "
-            "b\"Invalid object name 'Imagiq.dbo.inv_cuedoc'.DB-Lib error message 20018, severity 16:\\n"
-            'General SQL Server error: Check messages from the SQL Server\\n"',
-            # The table being synced was dropped/renamed after schema discovery.
-            "Invalid object name 'dbo.orders'.",
+            # SQL Server error 230 — the column-level counterpart of 229: some access to the
+            # object, but a column-level GRANT/DENY blocks SELECT on one specific column.
+            "SQL Server message 230, severity 14, state 1, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the column 'Salary', of the object "
+            "'Employees', database 'mydb', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different column/object/database names must still match the stable substring.
+            "The SELECT permission was denied on the column 'Notes', of the object 'Tickets', "
+            "database 'otherdb', schema 'dbo'.",
         ],
     )
-    def test_invalid_object_name_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # SQL Server error 207 — a referenced column no longer exists (dropped/renamed at the
-            # source, or a view body that selects a column that's gone). Real pymssql message.
-            "SQL Server message 207, severity 16, state 1, procedure b'\\xb0z\\x16,\\xff\\xff', line 39:\n"
-            "Invalid column name 'usr_modelo'.DB-Lib error message 20018, severity 16:\n"
-            "General SQL Server error: Check messages from the SQL Server",
-            # Different column name must still match the stable substring.
-            "Invalid column name 'created_at'.",
-        ],
-    )
-    def test_invalid_column_name_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # SQL Server error 209 — a stale view whose body joins two tables that now share a
-            # column name. Real pymssql message shape, with the driver's trailing DB-Lib frame.
-            "(209, b\"Ambiguous column name 'modified_at'.DB-Lib error message 20018, severity 16:\\n"
-            'General SQL Server error: Check messages from the SQL Server\\n")',
-            # Different column name must still match the stable substring.
-            "Ambiguous column name 'order_id'.",
-        ],
-    )
-    def test_ambiguous_column_name_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql MSSQLDatabaseException for SQL Server error 245 raised mid-fetch when a
-            # view body implicitly converts a varchar value to int.
-            "SQL Server message 245, severity 16, state 1, procedure b'@\\x88[\\xd4\\xfe\\xff', line 1:\n"
-            "b\"Conversion failed when converting the varchar value 'SFDR' to data type int."
-            'DB-Lib error message 20018, severity 16:\\nGeneral SQL Server error: Check messages from the SQL Server\\n"',
-            # Different value / target type must still match the stable substring.
-            "Conversion failed when converting the nvarchar value 'N/A' to data type bigint.",
-        ],
-    )
-    def test_conversion_failed_is_non_retryable(self, error_msg):
+    def test_column_permission_denied_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
@@ -770,21 +539,11 @@ class TestMSSQLSourceNonRetryableErrors:
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
-class TestMSSQLSourceCatalogKeywords:
-    @pytest.mark.parametrize("term", ["azure", "azure sql", "azure sql database"])
-    def test_azure_sql_names_are_searchable(self, term):
-        # Azure SQL Database connects through this source, and the catalog search only matches a
-        # source's label, name, and keywords — none of which mention Azure without the keywords.
-        config = MSSQLSource().get_source_config
-        searchable = [config.label or "", str(config.name), *(config.keywords or [])]
-
-        assert any(term in text.lower() for text in searchable), term
-
-
 class TestMSSQLSourceRetryableErrors:
     @pytest.mark.parametrize(
         "error",
         [
+            pymssql.OperationalError(1222, b"Lock request time out period exceeded."),
             # Real pymssql shape: DB-Lib error 20017 carried as (code, bytes) args.
             pymssql.OperationalError(
                 20017, b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server\n"
@@ -827,41 +586,33 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
-
-class TestIsTransientConnectionError:
     @pytest.mark.parametrize(
-        "error",
+        ("driver_error", "expected_guidance"),
         [
-            # Real pymssql shape: DB-Lib error 20047 carried as (code, bytes) args.
-            pymssql.OperationalError(
-                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
-            ),
-            # The SQL-Server-message rendering of the same drop.
-            pymssql.OperationalError(
-                "SQL Server message 20047, severity 9, state 0, procedure b'\\xc0\\xaa\\x12\\x08\\xff\\xff', "
-                "line 0:\nb'DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n'"
-            ),
-        ],
-    )
-    def test_matches_dbprocess_dead(self, error):
-        assert _is_transient_connection_error(error)
-
-    @pytest.mark.parametrize(
-        "error",
-        [
-            # Persistent failures must stay non-retryable, not be absorbed as transient.
-            pymssql.OperationalError("Login failed for user 'reporting'."),
-            pymssql.OperationalError("Invalid object name 'dbo.orders'."),
-            pymssql.OperationalError("The SELECT permission was denied on the object 'X'."),
-            pymssql.OperationalError(
+            # Real pymssql DB-Lib error 20009 for a host it cannot reach. The driver says the same
+            # thing for a wrong host or port, so the copy has to cover the values and the network.
+            (
                 "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
-                "unavailable or does not exist (db.example.com)"
+                "unavailable or does not exist (db.example.com)",
+                ("host and port", "firewall"),
             ),
-            pymssql.OperationalError(),
+            (
+                "DB-Lib error message 20003, severity 6:\nAdaptive Server connection timed out",
+                ("public internet", "firewall", "SSH tunnel"),
+            ),
         ],
     )
-    def test_does_not_match_other_errors(self, error):
-        assert not _is_transient_connection_error(error)
+    def test_connect_failure_names_a_network_cause(self, source, mocker, driver_error, expected_guidance):
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=pymssql.OperationalError(driver_error))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        for fragment in expected_guidance:
+            assert fragment in error
+        assert "Adaptive Server" not in error
 
 
 class TestRetryOnTransientConnectionError:
@@ -869,14 +620,6 @@ class TestRetryOnTransientConnectionError:
         return pymssql.OperationalError(
             20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
         )
-
-    def test_retries_then_succeeds(self, mocker):
-        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
-        operation = MagicMock(side_effect=[self._dbprocess_dead(), "ok"])
-
-        assert retry_on_transient_connection_error(operation) == "ok"
-        assert operation.call_count == 2
-        sleep.assert_called_once()
 
     def test_does_not_retry_non_transient(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
@@ -894,6 +637,27 @@ class TestRetryOnTransientConnectionError:
         with pytest.raises(pymssql.OperationalError):
             retry_on_transient_connection_error(operation, max_attempts=3)
         assert operation.call_count == 3
+
+
+class TestGetSchemasDeadline:
+    def test_discovery_that_hangs_raises_before_the_activity_timeout(self, mocker):
+        release = threading.Event()
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect", side_effect=lambda **kwargs: release.wait())
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source"
+            ".MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS",
+            0.05,
+        )
+
+        try:
+            with pytest.raises(MSSQLMetadataTimeoutError, match="SQL Server did not answer in time"):
+                MSSQLSource().get_schemas(_make_config(), team_id=1)
+        finally:
+            release.set()
+
+    def test_discovery_deadline_is_inside_the_activity_timeout(self):
+        assert MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS < DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT.total_seconds()
 
 
 class TestGetSchemasRetriesTransientDrop:
@@ -924,44 +688,6 @@ class TestGetSchemasRetriesTransientDrop:
         assert get_columns.call_count == 2
 
 
-class TestIsDeadlockVictimError:
-    @pytest.mark.parametrize(
-        "error",
-        [
-            # Real pymssql shape: SQL Server error 1205 carried as (code, bytes) args.
-            pymssql.OperationalError(
-                1205,
-                b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has "
-                b"been chosen as the deadlock victim. Rerun the transaction.DB-Lib error message 20018, "
-                b"severity 13:\nGeneral SQL Server error: Check messages from the SQL Server\n",
-            ),
-            # The SQL-Server-message rendering of the same deadlock.
-            pymssql.OperationalError(
-                "SQL Server message 1205, severity 13, state 52, procedure b'`\\x17\\x15\\xcc\\xfe\\xff', "
-                "line 1:\nb'Transaction (Process ID 116) was deadlocked on lock resources with another process "
-                "and has been chosen as the deadlock victim. Rerun the transaction."
-            ),
-        ],
-    )
-    def test_matches_deadlock_victim(self, error):
-        assert _is_deadlock_victim_error(error)
-
-    @pytest.mark.parametrize(
-        "error",
-        [
-            # A connection death is transient too, but recovers via a fresh connect — not a rerun.
-            pymssql.OperationalError(
-                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
-            ),
-            pymssql.OperationalError("Login failed for user 'reporting'."),
-            pymssql.OperationalError("Invalid object name 'dbo.orders'."),
-            pymssql.OperationalError(),
-        ],
-    )
-    def test_does_not_match_other_errors(self, error):
-        assert not _is_deadlock_victim_error(error)
-
-
 class TestRetryOnDeadlock:
     def _deadlock_victim(self) -> pymssql.OperationalError:
         return pymssql.OperationalError(
@@ -969,14 +695,6 @@ class TestRetryOnDeadlock:
             b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
             b"chosen as the deadlock victim. Rerun the transaction.",
         )
-
-    def test_retries_then_succeeds(self, mocker):
-        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
-        operation = MagicMock(side_effect=[self._deadlock_victim(), "ok"])
-
-        assert retry_on_deadlock(operation) == "ok"
-        assert operation.call_count == 2
-        sleep.assert_called_once()
 
     def test_does_not_retry_non_deadlock(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")

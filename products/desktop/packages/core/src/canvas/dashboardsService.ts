@@ -8,6 +8,7 @@ import {
 import {
   type CanvasActionDefinition,
   type CanvasActionResult,
+  type CanvasAvailability,
   type CanvasConnectorCallResult,
   type CanvasCreator,
   type CanvasDraft,
@@ -19,6 +20,8 @@ import {
   type CanvasView,
   canvasSourceProjectSchema,
   type DashboardRecord,
+  type PublishProjectInput,
+  type PublishProjectResult,
 } from "./dashboardSchemas";
 import {
   type CanvasAgentRequestResult,
@@ -187,11 +190,24 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
+  // Null for both "no such canvas here" (404) and "its space is not shared with
+  // you" (403): neither is an error the caller can retry, and `availability`
+  // names which one it was for the surface that has to explain it.
   async get(id: string): Promise<DashboardRecord | null> {
     const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
-    if (res.status === 404) return null;
+    if (res.status === 404 || res.status === 403) return null;
     if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
     return toRecord((await res.json()) as ApiCanvas);
+  }
+
+  // Why a canvas would not open. Read on the dead-end path only, so it costs a
+  // request nobody makes while canvases are opening normally.
+  async availability(id: string): Promise<CanvasAvailability> {
+    const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
+    if (res.ok) return "ok";
+    if (res.status === 403) return "no_access";
+    if (res.status === 404) return "missing";
+    throw new Error(`Failed to load canvas (${res.status})`);
   }
 
   // Everything needed to open a canvas, in one round trip: the record, the
@@ -567,6 +583,54 @@ export class DashboardsService {
 
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
+  }
+
+  async publishProject(
+    input: PublishProjectInput,
+  ): Promise<PublishProjectResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/publish/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project: input.project,
+          prompt: input.prompt ?? "Edited blocks",
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      attr?: string | null;
+      current_version_id?: string | null;
+      diagnostics?: Array<{
+        severity?: string;
+        message?: string;
+        path?: string;
+      }>;
+    };
+    if (res.status === 409) {
+      return {
+        status: "conflict",
+        currentVersionId: body.current_version_id ?? null,
+      };
+    }
+    if (!res.ok || !body.current_version_id) {
+      const firstError = body.diagnostics?.find(
+        (diagnostic) => diagnostic.severity === "error" && diagnostic.message,
+      );
+      const reason = firstError
+        ? `${firstError.path ? `${firstError.path}: ` : ""}${firstError.message}`
+        : body.attr
+          ? `${body.attr}: ${body.detail}`
+          : body.detail;
+      throw new ProjectApiError(
+        reason ?? `Failed to save the canvas (${res.status})`,
+        res.status,
+      );
+    }
+    return { status: "saved", currentVersionId: body.current_version_id };
   }
 
   // Read the canvas's source project — the head, or a historical version.

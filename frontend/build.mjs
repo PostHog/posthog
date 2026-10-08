@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    commonConfig,
     copyIndexHtml,
     copyPublicFolder,
     copyRRWebWorkerFiles,
@@ -15,6 +16,10 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { writeStableChunks } from './bin/stableChunkNames.mjs'
+import { buildCssGroups } from './bin/stableCss.mjs'
+import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
+import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -37,6 +42,7 @@ copyRRWebWorkerFiles(__dirname)
 writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
+writeInfrastructureAdminHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -57,12 +63,13 @@ await buildInParallel(
             heavy: true,
             ...common,
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
             ...common,
+            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
             name: 'Exporter',
@@ -82,6 +89,13 @@ await buildInParallel(
             entryPoints: ['src/render-query/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
+            ...common,
+        },
+        {
+            name: 'Infrastructure Admin',
+            entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
             ...common,
         },
         {
@@ -106,22 +120,51 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
+                let stable = null
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    writePreloadManifest(buildResponse.outputs)
+                    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+                    // A throw here must fail the build: it reaches buildInParallel's catch, which
+                    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+                    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+                    const cssPlan = planCssGroups(buildResponse)
+                    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
+                    stable = writeStableChunks({
+                        absWorkingDir: __dirname,
+                        outputs: buildResponse.outputs,
+                        chunks,
+                        entrypoints,
+                        preloadManifest,
+                        preludes: new Map(
+                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                file,
+                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
+                            ])
+                        ),
+                        extraImports: Object.fromEntries(
+                            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+                        ),
+                        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+                    })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
                 }
-                writeIndexHtml(chunks, entrypoints)
+                writeIndexHtml(chunks, entrypoints, stable)
             }
 
             if (config.name === 'Exporter') {
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/exporter/index.tsx')
                 }
                 writeExporterHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Infrastructure Admin') {
+                writeInfrastructureAdminHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -184,6 +227,7 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+    return manifest
 }
 
 // EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse
@@ -198,13 +242,26 @@ function copyEmojibaseData() {
     }
 }
 
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
+    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
+        'dist/infrastructure_admin.html',
+        'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {

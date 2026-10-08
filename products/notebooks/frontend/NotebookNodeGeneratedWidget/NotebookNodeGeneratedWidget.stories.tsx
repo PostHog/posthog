@@ -41,7 +41,7 @@ const meta: Meta = {
     component: WidgetNotebook,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS],
+        featureFlags: [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS, FEATURE_FLAGS.DASHBOARD_WIDGETS],
         testOptions: {
             waitForSelector: '[data-attr="notebook-generated-widget-run-button"]',
         },

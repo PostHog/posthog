@@ -16,7 +16,7 @@ from rest_framework.settings import api_settings
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, DataQualityScheduleInterval, SubjectType
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
 
@@ -324,7 +324,9 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
     SCHEDULE_FIELDS = ("interval", "enabled")
 
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the subject run."
+        choices=DataQualityScheduleInterval.choices,
+        required=False,
+        help_text="How often all enabled checks on the subject run.",
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
 
@@ -336,7 +338,7 @@ class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
 class DataQualityCheckScheduleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Schedule identifier.")
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), read_only=True, help_text="How often the checks run."
+        choices=DataQualityScheduleInterval.choices, read_only=True, help_text="How often the checks run."
     )
     enabled = serializers.BooleanField(read_only=True, help_text="Whether the schedule runs automatically.")
     next_run_at = serializers.DateTimeField(
@@ -420,6 +422,7 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
             "failed_row_count",
             "observed_value",
             "compiled_query",
+            "audited_staged_refresh",
             "error",
             "duration_ms",
             "started_at",
@@ -430,7 +433,12 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "failed_row_count": {"help_text": "Rows violating the assertion. Null for bounds checks like row_count."},
             "observed_value": {"help_text": "The check's headline number, recorded on passes too."},
-            "compiled_query": {"help_text": "The HogQL that ran. Re-run it to see the offending rows."},
+            "compiled_query": {
+                "help_text": "HogQL selecting the failing rows. Re-run it to see them. For a run that audited a "
+                "staged refresh it inlines the view's definition, so it reads the source tables rather than "
+                "the published table. Empty when there is nothing to replay: retention cleared it, or a staged "
+                "run could not build its replay query."
+            },
             "error": {"help_text": "Compilation or execution failure, when status is 'errored'."},
         }
 

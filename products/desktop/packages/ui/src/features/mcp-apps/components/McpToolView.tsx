@@ -4,16 +4,12 @@ import {
   isPostHogExecTool,
 } from "@posthog/core/sessions/posthogExecDisplay";
 import { readMcpToolDescriptor } from "@posthog/shared";
-import { useChatThreadChrome } from "../../sessions/components/chat-thread/chatThreadChrome";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
-  ContentPre,
   compactInput,
-  formatInput,
-  getContentText,
-  stripCodeFences,
   ToolTitle,
   type ToolViewProps,
+  toolCallDetails,
   truncateText,
   useToolCallStatus,
 } from "../../sessions/components/session-update/toolCallUtils";
@@ -38,10 +34,6 @@ export function McpToolView({
     turnCancelled,
     turnComplete,
   );
-  // New thread restyles the MCP header/output; the legacy thread keeps its original colours + the
-  // input/output divider so ConversationView is unchanged when the chat thread is toggled off.
-  const chatChrome = useChatThreadChrome();
-
   const { serverName: defaultServerName, toolName: defaultToolName } =
     parseMcpToolKey(mcpToolName);
   const descriptor = readMcpToolDescriptor(toolCall._meta);
@@ -59,32 +51,6 @@ export function McpToolView({
         )
       : undefined
     : compactInput(rawInput);
-  const fullInput = formatInput(rawInput);
-
-  const output = stripCodeFences(getContentText(content) ?? "");
-  const hasOutput = output.trim().length > 0;
-  // Surface output for failures too, otherwise a failed call shows "(Failed)"
-  // with no reason — the error text lives in `content`.
-  const showOutput = (isComplete || isFailed) && hasOutput;
-
-  const body =
-    fullInput || showOutput ? (
-      <>
-        {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput &&
-          (chatChrome ? (
-            <ContentPre>{output}</ContentPre>
-          ) : (
-            <div className={fullInput ? "border-gray-6 border-t" : undefined}>
-              <ContentPre>{output}</ContentPre>
-            </div>
-          ))}
-      </>
-    ) : undefined;
-
-  const previewClass = chatChrome
-    ? "text-muted-foreground/50"
-    : "text-accent-11";
 
   return (
     <ToolRow
@@ -93,12 +59,12 @@ export function McpToolView({
       isFailed={isFailed}
       wasCancelled={wasCancelled}
       defaultOpen={expanded}
-      content={body}
+      content={toolCallDetails({ rawInput, content, isComplete, isFailed })}
     >
       <ToolTitle>{displayName}</ToolTitle>
       {inputPreview && (
         <ToolTitle>
-          <span className={previewClass}>{inputPreview}</span>
+          <span className="text-muted-foreground/50">{inputPreview}</span>
         </ToolTitle>
       )}
     </ToolRow>

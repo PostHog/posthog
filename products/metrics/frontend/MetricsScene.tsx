@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -18,15 +17,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { MetricsCatalog } from './components/MetricsCatalog'
 import { metricsCatalogLogic } from './components/metricsCatalogLogic'
-import { MetricsFundamentals } from './components/MetricsFundamentals'
-import { metricsFundamentalsLogic } from './components/metricsFundamentalsLogic'
 import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
-import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
@@ -37,7 +34,6 @@ const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[]
     { key: 'explore', label: 'Explore', 'data-attr': 'metrics-scene-tab-explore' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
-    { key: 'fundamentals', label: 'Fundamentals', 'data-attr': 'metrics-scene-tab-fundamentals' },
 ]
 
 export const scene: SceneExport = {
@@ -60,13 +56,6 @@ export function MetricsScene(): JSX.Element {
 const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
-    // Fundamentals checks the viewer's own reductions against the raw samples, so it is
-    // built for the people who work on the viewer rather than for the teams on the alpha.
-    const fundamentalsEnabled = useFeatureFlag('METRICS_FUNDAMENTALS')
-    const visibleTabs = fundamentalsEnabled ? TABS : TABS.filter((tab) => tab.key !== 'fundamentals')
-    // A guessed ?activeTab=fundamentals must not render the tab either, so fall back to the
-    // default tab instead of leaving the scene with no visible content.
-    const effectiveTab = activeTab === 'fundamentals' && !fundamentalsEnabled ? DEFAULT_ACTIVE_TAB : activeTab
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
@@ -80,7 +69,6 @@ const MetricsSceneContent = (): JSX.Element => {
         explore: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
-        fundamentals: metricsViewerDisabledReason,
     }
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
@@ -88,11 +76,9 @@ const MetricsSceneContent = (): JSX.Element => {
     // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
     // races the has_metrics check instead of waiting on the setup prompt to resolve.
     useMountedLogic(metricNamePickerLogic)
-    // These two hold cross-tab state: a catalog card click preloads the viewer, and
-    // the viewer's explain button preloads fundamentals. Mounted here, a tab flip
-    // cannot unmount the logic and reset the handoff before the destination reads it.
+    // Holds cross-tab state: a catalog card click preloads the viewer. Mounted here, a tab
+    // flip cannot unmount the logic and reset the handoff before the destination reads it.
     useMountedLogic(metricsCatalogLogic)
-    useMountedLogic(metricsFundamentalsLogic)
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -124,24 +110,23 @@ const MetricsSceneContent = (): JSX.Element => {
                 Metrics is in alpha. Please share feedback on how to improve the product.
             </LemonBanner>
             <LemonTabs<MetricsSceneActiveTab>
-                activeKey={effectiveTab}
+                activeKey={activeTab}
                 onChange={(tab) => {
                     if (!tabDisabledReasons[tab]) {
                         setActiveTab(tab)
                     }
                 }}
-                tabs={visibleTabs.map((tab) => ({
+                tabs={TABS.map((tab) => ({
                     ...tab,
                     disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
             />
             <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                {effectiveTab === 'overview' && <MetricsOverview />}
-                {effectiveTab === 'explore' && <MetricsCatalog />}
-                {effectiveTab === 'viewer' && <MetricsViewer />}
-                {effectiveTab === 'sql' && <MetricsSqlEditor />}
-                {effectiveTab === 'fundamentals' && <MetricsFundamentals />}
+                {activeTab === 'overview' && <MetricsOverview />}
+                {activeTab === 'explore' && <MetricsCatalog />}
+                {activeTab === 'viewer' && <MetricsViewer />}
+                {activeTab === 'sql' && <MetricsSqlEditor />}
             </div>
         </>
     )

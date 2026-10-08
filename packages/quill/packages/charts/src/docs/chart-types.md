@@ -34,7 +34,7 @@ A thin wrapper over grouped `BarChart` that owns the funnel look: hatched `track
 - `steps` is a `string[]` of display labels; duplicates are fine, bands are keyed by step index.
 - Each `Series.data[stepIndex]` is the conversion from the first step as a percent (0..100). `funnelFromCounts` builds the single-series case from raw `{ label, count }` steps (a zero basis yields 0, not `NaN`).
 - `onStepClick` replaces `onPointClick` and reports `{ stepIndex, converted }`; `converted: false` means the hatched drop-off track above the bar was clicked.
-- `stepFooter(stepIndex)` renders per-step content in a row below the plot, pixel-aligned under each step's bars, and hides the built-in step labels. Use it for step legends richer than an axis label.
+- `stepFooter(stepIndex)` renders per-step content in a row below the plot, pixel-aligned under each step's bars, and hides the built-in step labels. Use it for step legends richer than an axis label. A cell starts at the bars' left edge and runs over the gap to the right; set `stepFooterAlign: 'center'` in the config to center each cell on its bars instead, for centered footer content.
 - Config: `hideStepLabels`, `hideValueAxis`, `barCornerRadius`, `bandPadding`, `minBarSize` (hover and click floor for near-zero bars; default `FUNNEL_MIN_BAR_SIZE` of 4px, applied with `minBarSizeScope: 'hover'` so the resting bar keeps its true size and grows to a clickable nub under the cursor; pass 0 to disable), `maxBandRange` (cluster a two or three step funnel instead of stretching it), `chartMinHeight` (floor the plot height when `stepFooter` is set, so a tall footer cannot starve the canvas to zero height in a height-constrained column), plus the usual `tooltip`, `legend`, `margins`.
 - Compare mode uses `trackData` to draw a shorter period's volume gap as empty space; see [bars.md](./bars.md).
 
@@ -60,6 +60,19 @@ Part of whole, one value per series (`data[0]`).
 - `config.legend` renders the built-in legend; a toggled-off slice is removed and the rest rescale to the full circle.
 - `theme.backgroundColor` is required for the hover pop-out mask; without it the pop-out is skipped. `disableHoverOffset` turns the pop-out off.
 - Children read `useRadialLayout()` for `layout.slices`, `innerRadius`, `outerRadius`, `cx`, `cy`, and `centroidAngle`.
+
+## ProportionBar
+
+Part of whole as one horizontal bar that fills 100% of its width, with no axes.
+It takes the same `series` as `PieChart` and sizes each part the same way as a pie with the default slice value.
+
+- It is a preset over `BarChart` with `barLayout: 'percent'` and `axisOrientation: 'horizontal'`, like `Sparkline` is a preset over `BarChart` and `LineChart`.
+- It shares these props with `PieChart`: `series`, `valueFormatter`, `tooltip`, `onSliceClick`, and `config.legend`.
+- It has no `isPercent`, `sliceValueDisplay` or `config.sliceValue`. The bar always shows each part's share and value, and always values a part as the sum of its data. A pie that sets any of these does not swap to a bar unchanged.
+- A part thinner than about a pixel cannot be hovered or clicked. Its legend row still shows its share, and the legend can isolate it.
+- The legend shows below the bar by default. Each row shows `share · value` as its `secondaryLabel`, because the bar has no axis to read a size from. A part hidden through the legend leaves the total, and its row shows no share.
+- A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
+- `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
 ## BoxPlot
 

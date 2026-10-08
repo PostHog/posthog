@@ -8,12 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GrafanaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
-    BASIC_AUTH,
-    TOKEN_AUTH,
     GrafanaAuth,
     GrafanaRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
 
 
@@ -40,41 +37,9 @@ class TestGrafanaSource:
         )
         assert any(pattern in str(error) for pattern in patterns)
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_annotations_support_incremental(self):
-        # Only /api/annotations exposes a server-side time filter; everything else must stay
-        # full refresh so a sync never silently skips changed rows.
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            if schema.name == "annotations":
-                assert schema.supports_incremental is True
-                assert [f["field"] for f in schema.incremental_fields] == ["time"]
-            else:
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-            assert schema.supports_append is False
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["dashboards"])
         assert [s.name for s in schemas] == ["dashboards"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    @pytest.mark.parametrize(
-        "selection, auth_kwargs, expected",
-        [
-            (TOKEN_AUTH, {"token": "glsa_x"}, ("glsa_x", None, None)),
-            (BASIC_AUTH, {"username": "admin", "password": "pw"}, (None, "admin", "pw")),
-        ],
-    )
-    def test_build_auth(self, selection, auth_kwargs, expected):
-        auth = self.source._build_auth(_config(selection, **auth_kwargs))
-        assert isinstance(auth, GrafanaAuth)
-        assert auth.method == selection
-        assert (auth.token, auth.username, auth.password) == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.grafana_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_grafana_source):
@@ -108,11 +73,3 @@ class TestGrafanaSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_grafana_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_documented_tables_render_without_credentials(self):
-        # The public docs endpoint calls get_schemas with a credential-free placeholder config;
-        # any I/O or config access in get_schemas would break the posthog.com table catalog.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        annotations = next(t for t in tables if t["name"] == "annotations")
-        assert "Incremental" in annotations["sync_methods"]

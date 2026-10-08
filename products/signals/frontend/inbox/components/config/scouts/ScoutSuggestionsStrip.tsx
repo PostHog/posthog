@@ -90,7 +90,7 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
     )
 }
 
-/** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the cards. */
+/** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the rows. */
 function StripBody(): JSX.Element {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
@@ -114,7 +114,7 @@ function StripBody(): JSX.Element {
     }
     return (
         <>
-            <SuggestionGrid surface="strip" />
+            <SuggestionList surface="strip" />
             {isRefreshing && <ScanningNote />}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 {batchStatus === 'stale' && (
@@ -140,7 +140,7 @@ function StripBody(): JSX.Element {
     )
 }
 
-/** The suggestion cards on their own, for the empty state's body. */
+/** The suggestion rows on their own, for the empty state's body. */
 export function ScoutSuggestionsEmptyStateCards(): JSX.Element | null {
     const { hasPicks } = useValues(scoutSuggestionsLogic)
     useReportSuggestionsShown('empty_state')
@@ -151,24 +151,17 @@ export function ScoutSuggestionsEmptyStateCards(): JSX.Element | null {
 
     return (
         <div className="flex w-full flex-col gap-3">
-            <SuggestionGrid surface="empty_state" columns={2} />
+            <SuggestionList surface="empty_state" />
             <ScoutSuggestionCreateHost surface="empty_state" />
         </div>
     )
 }
 
-function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurface; columns?: 2 | 3 }): JSX.Element {
+/** Full-width rows with dividers, the same shape as the roster rows under the strip. */
+function SuggestionList({ surface }: { surface: ScoutSuggestionSurface }): JSX.Element {
     const { suggestions } = useValues(scoutSuggestionsLogic)
     return (
-        <div
-            className={cn(
-                // Top-aligned, so a longer motivation cannot stretch its neighbours into empty boxes.
-                'grid grid-cols-1 items-start gap-2',
-                // One card in a three-across grid stretches to a third of the row and reads as a
-                // gap where the other two should be, so a lone card keeps a single narrow column.
-                suggestions.length === 1 ? 'max-w-md' : ['@2xl:grid-cols-2', columns === 3 && '@3xl:grid-cols-3']
-            )}
-        >
+        <div className="@container divide-y divide-primary overflow-hidden rounded border border-primary bg-surface-primary">
             {suggestions.map((item) => (
                 <ScoutSuggestionCard key={item.id} item={item} surface={surface} />
             ))}
@@ -203,13 +196,12 @@ function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
 
 function SuggestionsSkeleton(): JSX.Element {
     return (
-        <div className="grid grid-cols-1 gap-2 @2xl:grid-cols-2 @3xl:grid-cols-3">
+        <div className="divide-y divide-primary rounded border border-primary bg-surface-primary">
             {[0, 1, 2].map((index) => (
-                <div key={index} className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3">
-                    <LemonSkeleton className="h-3.5 w-16" />
-                    <LemonSkeleton className="h-3.5 w-4/5" />
-                    <LemonSkeleton className="h-3 w-full" />
-                    <LemonSkeleton className="h-6 w-24 rounded" />
+                <div key={index} className="flex flex-col gap-1.5 px-3 py-2.5">
+                    <LemonSkeleton className="h-3.5 w-1/3" />
+                    <LemonSkeleton className="h-3 w-4/5" />
+                    <LemonSkeleton className="h-3 w-24" />
                 </div>
             ))}
         </div>

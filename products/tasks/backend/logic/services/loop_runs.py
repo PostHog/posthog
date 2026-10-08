@@ -14,7 +14,6 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -203,15 +202,10 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team the user may see.
+    """Whether `canvas_id` is a canvas in this team the user may see."""
+    from products.canvas.backend.facade import access as canvas_facade
 
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = Channel.visible_to_q(user_id, relation="channel")
-    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+    return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
@@ -970,3 +964,58 @@ def dispatch_loop_run_terminal_notification(loop_id: str, team_id: int, event: s
         if isinstance(final_message, str) and final_message:
             payload = {**payload, "report": final_message}
     dispatch_loop_event(loop, event, payload)
+
+
+LOOP_PR_EVENTS = ("pr_created", "pr_merged", "pr_closed")
+LOOP_NOTIFIED_PR_EVENTS_STATE_KEY = "loop_notified_pr_events"
+_LOOP_PR_EVENT_BODIES = {
+    "pr_created": "Opened {pr_url}",
+    "pr_merged": "Merged {pr_url}",
+    "pr_closed": "Closed without merging: {pr_url}",
+}
+
+
+def dispatch_loop_pr_notification(run_id: str, event: str, pr_url: str) -> bool:
+    """Notify a loop's channels that one of its runs opened, merged, or closed a PR.
+
+    Returns True when the event went out. Each ``(event, pr_url)`` goes out once per run, because
+    GitHub can redeliver a webhook.
+    """
+    if event not in LOOP_PR_EVENTS:
+        return False
+    task_run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    if task_run is None:
+        return False
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    loop_id = task_run.task.loop_id or state.get("loop_id")
+    if not loop_id:
+        return False
+    # Scoped to the run's team for the same reason as handle_loop_run_terminal: run state is
+    # writable through the run-update endpoint.
+    loop = Loop.objects.for_team(task_run.team_id, canonical=True).filter(id=loop_id).first()
+    if loop is None:
+        return False
+
+    dedupe_key = f"{event}:{pr_url}"
+    with transaction.atomic():
+        locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+        locked_state = locked.state if isinstance(locked.state, dict) else {}
+        notified = locked_state.get(LOOP_NOTIFIED_PR_EVENTS_STATE_KEY)
+        notified = notified if isinstance(notified, list) else []
+        if dedupe_key in notified:
+            return False
+        locked.state = {**locked_state, LOOP_NOTIFIED_PR_EVENTS_STATE_KEY: [*notified, dedupe_key]}
+        locked.save(update_fields=["state", "updated_at"])
+
+    dispatch_loop_event(
+        loop,
+        event,
+        {
+            "task_id": str(task_run.task_id),
+            "task_run_id": str(task_run.id),
+            "url": pr_url,
+            "body": _LOOP_PR_EVENT_BODIES[event].format(pr_url=pr_url),
+            "dedupe_key": dedupe_key,
+        },
+    )
+    return True

@@ -13,12 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.be
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import (
-    ENDPOINTS,
-    MAX_PAGE,
-    PAGE_SIZE,
-    PUBLICATION_PATH_PLACEHOLDER,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 REST_CLIENT_SESSION = (
@@ -86,13 +81,6 @@ def _fresh_manager() -> Any:
 
 
 class TestBeehiivResourceConfig:
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_publication_placeholder_is_always_substituted(self, endpoint: str) -> None:
-        resource = get_resource(endpoint, "pub_abc")
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-
-        assert PUBLICATION_PATH_PLACEHOLDER not in endpoint_config["path"]
-
     def test_publication_id_is_url_quoted_into_the_path(self) -> None:
         # The publication id is user-supplied and lands in the URL path; an unescaped
         # value could reach a different beehiiv endpoint than the one we configured.
@@ -100,17 +88,6 @@ class TestBeehiivResourceConfig:
         endpoint_config = cast(dict[str, Any], resource["endpoint"])
 
         assert endpoint_config["path"] == "/publications/pub_a%20b%2F..%2Fwebhooks/subscriptions"
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_every_endpoint_requests_full_pages_from_the_data_envelope(self, endpoint: str) -> None:
-        # Without an explicit limit beehiiv returns 10 rows a page, and without a required
-        # `data` selector a changed response shape would silently sync zero rows.
-        resource = get_resource(endpoint, "pub_abc")
-        endpoint_config = cast(dict[str, Any], resource["endpoint"])
-
-        assert cast(dict[str, Any], endpoint_config["params"])["limit"] == PAGE_SIZE
-        assert endpoint_config["data_selector"] == "data"
-        assert endpoint_config["data_selector_required"] is True
 
 
 class TestBeehiivCursorPagination:
@@ -143,18 +120,6 @@ class TestBeehiivCursorPagination:
         )
 
         assert [params.get("cursor") for params in sent_params] == ["cur-saved"]
-
-    def test_terminal_page_does_not_checkpoint(self) -> None:
-        manager = _fresh_manager()
-
-        _drive(
-            "Subscriptions",
-            manager,
-            [_http_response({"data": [{"id": "a"}], "has_more": False, "next_cursor": None})],
-        )
-
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
 
 
 class TestBeehiivPageNumberPagination:

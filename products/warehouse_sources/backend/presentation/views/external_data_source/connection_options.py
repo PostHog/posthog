@@ -7,6 +7,7 @@ from typing import Any, cast
 from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from opentelemetry import trace
 from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base, helpers
+
+tracer = trace.get_tracer(__name__)
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -236,14 +239,16 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
     def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Source types the user can add as a direct connection, driven by the direct-SQL capability
         surface so the picker never drifts from the engines we actually support."""
-        direct_types = direct_capable_source_types()
+        with tracer.start_as_current_span("warehouse_sources.direct_connection_options.catalog"):
+            direct_types = direct_capable_source_types()
+            configs = build_source_configs(include_tables=False)
         options = [
             {
                 "source_type": source_type,
                 "label": config.get("label") or source_type,
                 "icon_path": config.get("iconPath"),
             }
-            for source_type, config in build_source_configs(include_tables=False).items()
+            for source_type, config in configs.items()
             if source_type in direct_types
         ]
         options.sort(key=lambda option: str(option["label"]).lower())

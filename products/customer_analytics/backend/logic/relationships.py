@@ -3,9 +3,13 @@ Assign/end transactions for account relationships: the one write path for every 
 writer (UI API, external API, AI tool, workflows, management commands). Each mutation locks the
 Account row, applies the controlled-relationship policy, advances the control timestamp when
 customer analytics controls that relationship on the account, and writes its activity row inside
-the same transaction, so a mutation without an audit record cannot commit. The Salesforce claim
-procedure in ``logic/ownership_claims.py`` writes through the public helpers here under the same
-lock and audit rules.
+the same transaction, so a mutation without an audit record cannot commit. A person's change to a
+controlled relationship on a linked account first enrolls the account under every controlled
+definition. The enrollment for a person's edit locks definitions before the account, so a caller
+that already holds either lock must not pass a person as the actor. An accepted Salesforce claim
+enrolls the account in the same way, under locks the claim procedure in
+``logic/ownership_claims.py`` takes itself, and writes through the public helpers here under the
+same lock and audit rules. Accounts thus reach managed ownership without a manual adoption run.
 """
 
 import dataclasses
@@ -13,7 +17,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.db.models.signals import post_save
 from django.utils import timezone
 
@@ -99,8 +103,11 @@ def assign(
 ) -> AccountRelationship:
     """Assign the user. A single-holder definition hands off from the previous holder in the same
     transaction unless ``replace_active`` is False, in which case an occupied role raises. Assigning
-    the current holder again is a no-op that records nothing."""
+    the current holder again records no change and leaves the fence where it is. When a person does
+    this to a controlled relationship on a linked account that is not fully enrolled, the call
+    enrolls the account."""
     with transaction.atomic():
+        _enroll_on_human_edit(team_id, account.id, definition.id, actor)
         locked_account = _lock_or_raise(team_id, account.id)
         control = ownership.control_for(locked_account, definition)
         _enforce_managed_role_policy(control, actor)
@@ -154,6 +161,7 @@ def end_active(
     and the confirmation is recorded, so a later automated claim cannot treat it as never reviewed.
     """
     with transaction.atomic():
+        _enroll_on_human_edit(team_id, account.id, definition.id, actor)
         locked_account = _lock_or_raise(team_id, account.id)
         control = ownership.control_for(locked_account, definition)
         _enforce_managed_role_policy(control, actor)
@@ -200,6 +208,14 @@ def end_relationship(
     emit_event: bool = True,
 ) -> AccountRelationship:
     with transaction.atomic():
+        definition_id = (
+            AccountRelationship.objects.for_team(team_id)
+            .filter(id=relationship_id, account_id=account_id, ended_at__isnull=True)
+            .values_list("definition_id", flat=True)
+            .first()
+        )
+        if definition_id is not None:
+            _enroll_on_human_edit(team_id, account_id, definition_id, actor)
         locked_account = _lock_or_raise(team_id, account_id, missing_id=relationship_id)
         relationship = (
             AccountRelationship.objects.for_team(team_id)
@@ -300,24 +316,80 @@ def enroll(
         if locked_definition is None or not locked_definition.is_controlled:
             raise DefinitionNotControlledError(str(definition.id))
         locked_account = _lock_or_raise(team_id, account.id)
-        control = ownership.control_for(locked_account, locked_definition)
-        if control is not None:
-            return control
-        holder = active_relationships(team_id, locked_account, locked_definition).first()
-        holder_user = holder.user if holder is not None else None
-        control = ownership.enroll(locked_account, locked_definition, actor.user)
-        record_transition(
-            account=locked_account,
-            actor=actor,
-            activity="role_enrolled",
-            definition=locked_definition,
-            relationship=holder,
-            previous_user=holder_user,
-            current_user=holder_user,
-            controlled_at=control.controlled_at,
-            emit_event=False,
-        )
+        return enroll_locked(team_id, locked_account, locked_definition, actor)
+
+
+def _enroll_on_human_edit(team_id: int, account_id: str | UUID, definition_id: UUID, actor: Actor) -> None:
+    """Before a person changes one of the account's controlled relationships, enroll the account
+    under every controlled definition it lacks.
+
+    Every controlled definition is enrolled, not only the edited one, because a consumer takes over
+    an account only once all its controlled relationships are managed. An account without an
+    ``external_id`` stays unenrolled, as reviewed adoption leaves it. No consumer can find such an
+    account, and enrolling it would add a managed account whose identity changes when it is linked.
+
+    Call inside the mutation's transaction, before the mutation locks the account. The definitions
+    are locked first, in id order, the order every writer takes. The first checks take no lock. An
+    edit by another writer, an edit of an uncontrolled relationship, and an edit on a fully enrolled
+    account stop there. The controlled check repeats under the definition locks, because a
+    definition can stop being controlled between the two reads. The link is read only under the
+    account lock, so an edit that races the linking of its account still sees the link. An edit on
+    an unlinked account therefore takes the definition locks before it stops. A definition that
+    becomes controlled after the first read is not enrolled here. The next edit by a person enrolls
+    it.
+    """
+    if actor.source != AccountRelationshipSource.HUMAN:
+        return
+    controlled_ids = set(ownership.controlled_definitions(team_id).values_list("id", flat=True))
+    if definition_id not in controlled_ids:
+        return
+    enrolled_ids = set(
+        AccountRelationshipControl.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .values_list("definition_id", flat=True)
+    )
+    if controlled_ids <= enrolled_ids:
+        return
+
+    definitions = [
+        definition for definition in ownership.lock_definitions(team_id, controlled_ids) if definition.is_controlled
+    ]
+    if definition_id not in {definition.id for definition in definitions}:
+        return
+    account = lock_account(team_id, account_id)
+    if account is None or not account.external_id:
+        return
+    for definition in definitions:
+        enroll_locked(team_id, account, definition, actor)
+
+
+def enroll_locked(
+    team_id: int,
+    account: Account,
+    definition: AccountRelationshipDefinition,
+    actor: Actor,
+    controlled_at: datetime | None = None,
+) -> AccountRelationshipControl:
+    """Enroll under the definition and Account locks the caller holds. ``controlled_at`` is the
+    instant control starts from when it is not the database clock's now."""
+    control = ownership.control_for(account, definition)
+    if control is not None:
         return control
+    holder = active_relationships(team_id, account, definition).first()
+    holder_user = holder.user if holder is not None else None
+    control = ownership.enroll(account, definition, actor.user, controlled_at)
+    record_transition(
+        account=account,
+        actor=actor,
+        activity="role_enrolled",
+        definition=definition,
+        relationship=holder,
+        previous_user=holder_user,
+        current_user=holder_user,
+        controlled_at=control.controlled_at,
+        emit_event=False,
+    )
+    return control
 
 
 def end_rows(team_id: int, rows: list[AccountRelationship]) -> None:
@@ -390,6 +462,17 @@ def active_relationships(
         .select_related("user")
         .order_by("started_at")
     )
+
+
+def last_change_at(team_id: int, account: Account, definition: AccountRelationshipDefinition) -> datetime | None:
+    """When any writer last assigned or ended the relationship on the account, or None when it never
+    had one."""
+    latest = (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account=account, definition=definition)
+        .aggregate(started=Max("started_at"), ended=Max("ended_at"))
+    )
+    return max((value for value in latest.values() if value is not None), default=None)
 
 
 def _enforce_managed_role_policy(control: AccountRelationshipControl | None, actor: Actor) -> None:

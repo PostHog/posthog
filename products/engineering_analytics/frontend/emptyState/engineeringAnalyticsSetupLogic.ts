@@ -13,6 +13,8 @@ import { engineeringAnalyticsSources } from '../generated/api'
 export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ENGINEERING_ANALYTICS,
     path: ['products', 'engineering_analytics', 'frontend', 'emptyState', 'engineeringAnalyticsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const sources = await engineeringAnalyticsSources(projectId)

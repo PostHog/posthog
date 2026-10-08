@@ -3,7 +3,7 @@
 ## Identity
 
 The connected Google account's OAuth `sub`, under the key `google_workspace:account:<sub>`, because Gmail and Calendar meter quota per user per project.
-A caller with no account in scope, such as the Google OAuth diagnostics in `ee/api/google_oauth_diagnostics.py`, passes no scope and records volume only.
+A caller with no account in scope passes no scope and records volume only.
 
 ## Budget
 

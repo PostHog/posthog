@@ -41,7 +41,19 @@ class PersonaFanout:
     parent_key_prefix: str
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
+class PersonaChildList:
+    """A list endpoint Persona only serves for one parent at a time, via a required parent filter.
+
+    Each parent from the list walk gets its own paginated `GET {path}?filter[{parent_filter}]=<id>`.
+    """
+
+    path: str
+    parent_filter: str
+    parent_key: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class PersonaEndpointConfig:
     name: str
     # For a fan-out endpoint this is the parent's list path, not the child's.
@@ -58,6 +70,7 @@ class PersonaEndpointConfig:
     should_sync_default: bool = True
     # Set when the rows come from hydrating each parent rather than from the list response itself.
     fanout: Optional[PersonaFanout] = None
+    child_list: Optional[PersonaChildList] = None
 
 
 PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
@@ -109,6 +122,21 @@ PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
         path="/inquiry-templates",
         supports_incremental=False,
         partition_key=None,
+    ),
+    # Persona has no cross-template list of versions, so this walks the templates and lists each
+    # one's versions. The endpoint takes no created-at window, so it is full refresh only. It is off
+    # by default because Persona does not serve template versions to sandbox API keys.
+    "inquiry_template_versions": PersonaEndpointConfig(
+        name="inquiry_template_versions",
+        path="/inquiry-templates",
+        child_list=PersonaChildList(
+            path="/inquiry-template-versions",
+            parent_filter="inquiry-template-id",
+            parent_key="inquiry-template-id",
+        ),
+        supports_incremental=False,
+        partition_key=None,
+        should_sync_default=False,
     ),
 }
 

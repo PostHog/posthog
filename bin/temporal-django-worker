@@ -2,11 +2,28 @@
 
 set -e
 
+# The worker can lose a SIGTERM (for example when its asyncio signal pipe is full), and then it
+# keeps polling for new work until the pod is killed. The worker handles a repeated SIGTERM as a
+# no-op, so this sends it again until the worker exits.
+SIGTERM_RESEND_INTERVAL_SECONDS="${TEMPORAL_WORKER_SIGTERM_RESEND_INTERVAL_SECONDS:-30}"
+resender_pid=""
+
+resend_sigterm_until_exit() {
+    while kill -0 "$worker_pid" >/dev/null 2>&1; do
+        sleep "$SIGTERM_RESEND_INTERVAL_SECONDS"
+        kill -SIGTERM "$worker_pid" >/dev/null 2>&1 || true
+    done
+}
+
 cleanup() {
     if kill -0 "$worker_pid" >/dev/null 2>&1; then
         echo "Signaling worker to initialize graceful shutdown"
         kill -SIGTERM "$worker_pid"
         echo "Worker signaled for graceful shutdown"
+        if [ -z "$resender_pid" ]; then
+            resend_sigterm_until_exit &
+            resender_pid=$!
+        fi
     else
         echo "Could not initiate graceful shutdown as worker process is not running"
     fi

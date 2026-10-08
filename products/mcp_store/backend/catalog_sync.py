@@ -214,7 +214,8 @@ def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | No
     return replace(
         entry,
         name="Slack via PostHog (dev)",
-        description="Search public Slack channels with the internal PostHog development app.",
+        description="Search public Slack channels and read messages, user profiles, and canvases you can access.",
+        oauth_scope_allowlist=(entry.oauth_scope_allowlist or ()) + ("canvases:read",),
         oauth_credentials_source="slack_dev_app",
         disabled=not dev_enabled,
     )

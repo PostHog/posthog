@@ -6,14 +6,19 @@ import {
   type ChannelItemGrouping,
   type ChannelItemSort,
   type CreatedByFilter,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   type EnvironmentFilter,
   type KindFilter,
   type PinnedFilter,
+  type SourceFilter,
+  sameSources,
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
   cn,
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
@@ -87,6 +92,23 @@ const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
   { value: "alpha", label: "Name" },
 ];
 
+const SOURCE_LABELS: Record<string, string> = {
+  [DESKTOP_SOURCE]: "Desktop",
+  hogdesk: "HogDesk",
+  mcp_analytics: "MCP analytics",
+  posthog_ai: "PostHog AI",
+  posthog_code: "PostHog Desktop",
+  review_hog: "ReviewHog",
+};
+
+function sourceLabel(source: string): string {
+  const known = getOriginProductMeta(source)?.label ?? SOURCE_LABELS[source];
+  if (known) return known;
+
+  const words = source.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function labelOf<T extends string>(
   options: readonly Option<T>[],
   value: T,
@@ -109,6 +131,27 @@ function OptionDot({ tone }: { tone: DotTone }) {
   );
 }
 
+function SubmenuTrigger({
+  label,
+  value,
+  narrowed,
+}: {
+  label: string;
+  value: string;
+  narrowed: boolean;
+}) {
+  return (
+    <DropdownMenuSubTrigger className="pr-1">
+      <span>{label}</span>
+      <span
+        className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
+      >
+        {value}
+      </span>
+    </DropdownMenuSubTrigger>
+  );
+}
+
 /**
  * One filter as a submenu: its name, the choice currently in force, and the
  * radio group behind it. A group per submenu keeps the top level a list of
@@ -118,27 +161,27 @@ function FilterSubmenu<T extends string>({
   label,
   options,
   value,
+  defaultValue = options[0]?.value,
   onChange,
 }: {
   label: string;
   options: readonly Option<T>[];
   value: T;
+  /** The value the list starts with. The trigger highlights any other value. */
+  defaultValue?: T;
   onChange: (value: T) => void;
 }) {
-  // Every list leads with its own "everything" option, so a value that isn't the
-  // first one is a choice someone made, and the trigger says so.
-  const narrowed = value !== options[0]?.value;
+  // A list can start narrowed, so its first option is not always its default.
+  // A highlighted default looks like a filter the person set and must clear.
+  const narrowed = value !== defaultValue;
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
-        <span>{label}</span>
-        <span
-          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
-        >
-          {labelOf(options, value)}
-        </span>
-      </DropdownMenuSubTrigger>
+      <SubmenuTrigger
+        label={label}
+        value={labelOf(options, value)}
+        narrowed={narrowed}
+      />
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
@@ -158,6 +201,66 @@ function FilterSubmenu<T extends string>({
   );
 }
 
+function sourcesLabel(
+  options: readonly Option<string>[],
+  value: SourceFilter,
+): string {
+  if (value.length === 0) return "Any source";
+  if (value.length > 2) return `${value.length} sources`;
+  return options
+    .filter((option) => value.includes(option.value))
+    .map((option) => option.label)
+    .join(", ");
+}
+
+function SourceSubmenu({
+  options,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  options: readonly Option<string>[];
+  value: SourceFilter;
+  defaultValue: SourceFilter;
+  onChange: (value: SourceFilter) => void;
+}) {
+  return (
+    <DropdownMenuSub>
+      <SubmenuTrigger
+        label="Source"
+        value={sourcesLabel(options, value)}
+        narrowed={!sameSources(value, defaultValue)}
+      />
+      <DropdownMenuSubContent>
+        <DropdownMenuCheckboxItem
+          checked={value.length === 0}
+          closeOnClick={false}
+          onCheckedChange={() => onChange(ANY_SOURCE)}
+        >
+          Any source
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={value.includes(option.value)}
+            closeOnClick={false}
+            onCheckedChange={(checked) =>
+              onChange(
+                checked
+                  ? [...value, option.value]
+                  : value.filter((source) => source !== option.value),
+              )
+            }
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
 /**
  * The sessions list's filters and sort order, behind the funnel button.
  *
@@ -169,6 +272,7 @@ export function ChannelFilterMenu({
   filters,
   onFilterChange,
   onClearFilters,
+  defaultFilters = DEFAULT_CHANNEL_ITEM_FILTERS,
   sort,
   onSortChange,
   grouping,
@@ -195,6 +299,8 @@ export function ChannelFilterMenu({
     value: ChannelItemFilters[K],
   ) => void;
   onClearFilters: () => void;
+  /** What "Clear filters" restores. A value that matches it is not highlighted. */
+  defaultFilters?: ChannelItemFilters;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
   /** What the list's section headers stand for. */
@@ -217,15 +323,12 @@ export function ChannelFilterMenu({
     groupings ?? (showRunFilters ? DEFAULT_GROUPINGS : [])
   ).map((value) => ({ value, label: GROUPING_LABELS[value] }));
 
-  const sourceOptions: Option<string>[] = [
-    { value: ANY_SOURCE, label: "Any source" },
-    ...sources.map((source) => ({
-      value: source,
-      // A source we have no name for still filters — the raw key is a worse
-      // label than "Slack", but a missing option would be a worse answer.
-      label: getOriginProductMeta(source)?.label ?? source,
-    })),
-  ];
+  const sourceOptions: Option<string>[] = Array.from(
+    new Set([DESKTOP_SOURCE, ...sources]),
+  ).map((source) => ({
+    value: source,
+    label: sourceLabel(source),
+  }));
 
   return (
     <DropdownMenu>
@@ -274,6 +377,7 @@ export function ChannelFilterMenu({
             label="Type"
             options={KIND_OPTIONS}
             value={filters.kind}
+            defaultValue={defaultFilters.kind}
             onChange={(value) => onFilterChange("kind", value)}
           />
         )}
@@ -282,6 +386,7 @@ export function ChannelFilterMenu({
             label="Status"
             options={ATTENTION_OPTIONS}
             value={filters.attention}
+            defaultValue={defaultFilters.attention}
             onChange={(value) => onFilterChange("attention", value)}
           />
         )}
@@ -293,6 +398,7 @@ export function ChannelFilterMenu({
             label="Created by"
             options={CREATED_BY_OPTIONS}
             value={filters.createdBy}
+            defaultValue={defaultFilters.createdBy}
             onChange={(value) => onFilterChange("createdBy", value)}
           />
         )}
@@ -300,6 +406,7 @@ export function ChannelFilterMenu({
           label="Pinned"
           options={PINNED_OPTIONS}
           value={filters.pinned}
+          defaultValue={defaultFilters.pinned}
           onChange={(value) => onFilterChange("pinned", value)}
         />
         {showRunFilters && (
@@ -308,13 +415,14 @@ export function ChannelFilterMenu({
               label="Environment"
               options={ENVIRONMENT_OPTIONS}
               value={filters.environment}
+              defaultValue={defaultFilters.environment}
               onChange={(value) => onFilterChange("environment", value)}
             />
-            <FilterSubmenu
-              label="Source"
+            <SourceSubmenu
               options={sourceOptions}
-              value={filters.source}
-              onChange={(value) => onFilterChange("source", value)}
+              value={filters.sources}
+              defaultValue={defaultFilters.sources}
+              onChange={(value) => onFilterChange("sources", value)}
             />
           </>
         )}

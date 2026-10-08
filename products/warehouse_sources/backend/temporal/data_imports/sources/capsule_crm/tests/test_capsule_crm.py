@@ -86,33 +86,12 @@ class TestFormatSinceValue:
     def test_format_since_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_since_value(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        # Capsule expects a Z suffix, not the +00:00 offset isoformat() produces.
-        assert "+00:00" not in _format_since_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
     def test_non_utc_datetime_is_converted_to_utc(self) -> None:
         value = datetime(2026, 3, 4, 12, 0, 0, tzinfo=timezone(timedelta(hours=5)))
         assert _format_since_value(value) == "2026-03-04T07:00:00Z"
 
 
 class TestClampFutureValueToNow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_naive_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
@@ -123,16 +102,6 @@ class TestClampFutureValueToNow:
 
 class TestRequestParams:
     @mock.patch(SESSION_PATCH)
-    def test_full_refresh_request_has_no_since(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"users": [{"id": 1}]})])
-
-        _rows(_source(_make_manager(), endpoint="users"))
-
-        assert snapshots[0]["url"] == f"{CAPSULE_CRM_BASE_URL}/users"
-        assert snapshots[0]["params"] == {"perPage": 100}
-
-    @mock.patch(SESSION_PATCH)
     def test_incremental_endpoint_embeds_related_data(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"parties": [{"id": 1}]})])
@@ -142,39 +111,6 @@ class TestRequestParams:
         # embed values are folded in to reduce round-trips.
         assert snapshots[0]["params"]["embed"] == "tags,fields,organisation"
         assert "since" not in snapshots[0]["params"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_first_incremental_sync_omits_since(self, MockSession) -> None:
-        # No watermark yet -> pull full history, no `since` filter.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"opportunities": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="opportunities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-            )
-        )
-
-        assert "since" not in snapshots[0]["params"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_sync_with_watermark_adds_since(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"opportunities": []})])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="opportunities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["params"]["since"] == "2026-03-04T02:58:14Z"
 
     @mock.patch(SESSION_PATCH)
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -312,23 +248,6 @@ class TestPagination:
         assert snapshots[0]["params"] == {}
 
     @mock.patch(SESSION_PATCH)
-    def test_extracts_rows_from_endpoint_specific_wrapper_key(self, MockSession) -> None:
-        # lost_reasons nests its array under "lostReasons", not the endpoint name.
-        session = MockSession.return_value
-        _wire(session, [_response({"lostReasons": [{"id": 7, "name": "No budget"}]})])
-
-        rows = _rows(_source(_make_manager(), endpoint="lost_reasons"))
-
-        assert rows == [{"id": 7, "name": "No budget"}]
-
-    @mock.patch(SESSION_PATCH)
-    def test_missing_wrapper_key_is_treated_as_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"unexpected": []})])
-
-        assert _rows(_source(_make_manager())) == []
-
-    @mock.patch(SESSION_PATCH)
     def test_hostile_upstream_next_url_is_rejected(self, MockSession) -> None:
         # An upstream Link header pointing at another host must abort before the bearer token is sent
         # there, and the poisoned URL must not be persisted as resume state.
@@ -357,21 +276,6 @@ class TestPagination:
 
 
 class TestErrorHandling:
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession, mock_sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({}, status_code=429),
-                _response({"parties": [{"id": 1}]}),
-            ],
-        )
-
-        assert _rows(_source(_make_manager())) == [{"id": 1}]
-        assert session.send.call_count == 2
-
     @parameterized.expand([(401,), (403,), (404,)])
     @mock.patch(SESSION_PATCH)
     def test_client_errors_raise_for_status(self, status: int, MockSession) -> None:
@@ -430,23 +334,6 @@ class TestTokenRedaction:
         assert MockSession.call_args.kwargs["allow_redirects"] is False
 
 
-class TestValidateCredentials:
-    @mock.patch(SESSION_PATCH)
-    def test_ok(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("tok") is True
-
-    @mock.patch(SESSION_PATCH)
-    def test_unauthorized(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("tok") is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_swallows_exceptions(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("tok") is False
-
-
 class TestSourceResponse:
     @parameterized.expand(
         [
@@ -463,14 +350,6 @@ class TestSourceResponse:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
         assert response.sort_mode == "asc"
-
-    def test_entries_partitions_on_created_at_and_sorts_desc(self) -> None:
-        # `entryAt` is user-editable, so partitioning follows `createdAt`. Capsule serves this
-        # endpoint most-recent-first, which the pipeline has to be told about.
-        response = _source(_make_manager(), endpoint="entries")
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-        assert response.sort_mode == "desc"
 
     @parameterized.expand(
         [

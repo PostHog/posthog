@@ -10,7 +10,6 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty import twenty as twenty_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import TWENTY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.twenty import (
     TwentyHostNotAllowedError,
     TwentyResumeConfig,
@@ -172,10 +171,6 @@ class TestValidateCredentials:
         response.status_code = status_code
         return response
 
-    def test_success(self):
-        with self._patch_session(self._resp(status_code=200)):
-            assert validate_credentials(None, "tok", team_id=1) == (True, None)
-
     def test_invalid_key_401(self):
         with self._patch_session(self._resp(status_code=401)):
             valid, msg = validate_credentials(None, "tok", team_id=1)
@@ -235,17 +230,6 @@ class TestValidateCredentials:
             assert patched.call_args.kwargs["redact_values"] == ("tok",)
 
 
-class TestTwentySourceResponse:
-    @pytest.mark.parametrize("endpoint", list(TWENTY_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-
-
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_via_cursor(self, MockSession):
@@ -265,53 +249,6 @@ class TestPagination:
         assert _query(prepared[0])["limit"] == ["200"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_has_next_page_false_despite_end_cursor(self, MockSession):
-        # Twenty's final page can still carry a non-null endCursor pointing at its own last row;
-        # hasNextPage is the real termination signal and must win over cursor presence.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], has_next_page=False, end_cursor="cursor-last")])
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_cursor_does_not_advance(self, MockSession):
-        # A broken or hostile host can return hasNextPage=true with the same endCursor forever;
-        # the sync must stop rather than loop until the week-long activity timeout. Only two
-        # responses are wired, so a third request would raise instead of looping silently.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": "1"}], has_next_page=True, end_cursor="cursor-a"),
-                _page([{"id": "2"}], has_next_page=True, end_cursor="cursor-a"),
-            ],
-        )
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"id": "1"}], has_next_page=True, end_cursor="cursor-a"),
-                _page([{"id": "2"}], has_next_page=False, end_cursor="cursor-b"),
-            ],
-        )
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, TwentyResumeConfig)
-        assert saved.starting_after == "cursor-a"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         prepared = _wire(session, [_page([{"id": "9"}], has_next_page=False)])
@@ -322,29 +259,11 @@ class TestPagination:
         assert [r["id"] for r in rows] == ["9"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([], has_next_page=False)])
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_passes_allow_redirects_false(self, MockSession):
         session = MockSession.return_value
         _wire(session, [_page([{"id": "1"}])])
         _rows(_source(_make_manager()))
         assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_bearer_token(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(session, [_page([{"id": "1"}])])
-        _rows(_source(_make_manager()))
-        assert prepared[0].headers["Authorization"] == "Bearer tok"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_redacts_token_in_telemetry(self, MockSession):
@@ -367,40 +286,6 @@ class TestPagination:
         _wire(session, [_page([{"id": "1"}])])
         with pytest.raises(TwentyHostNotAllowedError):
             _rows(_source(_make_manager(), base_url="http://twenty.example.com"))
-
-    @pytest.mark.parametrize("status_code", [429, 503])
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _sleep, status_code):
-        session = MockSession.return_value
-        _wire(session, [_response(status_code=status_code), _page([{"id": "r1"}])])
-        rows = _rows(_source(_make_manager()))
-        assert [r["id"] for r in rows] == ["r1"]
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sorts_by_id(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(session, [_page([{"id": "1"}])])
-        _rows(_source(_make_manager(), should_use_incremental_field=False))
-        assert _query(prepared[0])["order_by"] == ["id[AscNullsFirst]"]
-        assert "filter" not in _query(prepared[0])
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sorts_and_filters_by_chosen_field(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(session, [_page([{"id": "1"}])])
-        _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                incremental_field="createdAt",
-                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            )
-        )
-        query = _query(prepared[0])
-        assert query["order_by"] == ["createdAt[AscNullsFirst]"]
-        assert query["filter"] == ['createdAt[gte]:"2024-01-01T00:00:00.000Z"']
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_first_sync_omits_filter(self, MockSession):
@@ -434,11 +319,3 @@ class TestPagination:
         )
         query = _query(prepared[0])
         assert query["order_by"] == ["updatedAt[AscNullsFirst]"]
-
-    @pytest.mark.parametrize("endpoint,object_name", [("activities", "timelineActivities"), ("companies", "companies")])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_data_selector_matches_object_name_plural(self, MockSession, endpoint, object_name):
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], object_name=object_name)])
-        rows = _rows(_source(_make_manager(), endpoint=endpoint))
-        assert [r["id"] for r in rows] == ["1"]

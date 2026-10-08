@@ -2,7 +2,7 @@ import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -10,8 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.utils import (
     resolve_request_url,
 )
@@ -25,9 +27,10 @@ SAFETYCULTURE_BASE_URL = "https://api.safetyculture.io"
 # Cheap feed used to confirm an API token is genuine. Feed access is permission-scoped, so a 403
 # here still proves the token itself is valid (see `validate_credentials` on the source class).
 DEFAULT_PROBE_PATH = "/feed/users"
+STRUCTURES_PAGE_SIZE = 100  # Documented maximum for Search structures.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SafetyCultureResumeConfig:
     # The next page to fetch, resolved from the API's `metadata.next_page` (the docs forbid
     # constructing it yourself). It embeds every filter — including `modified_after` on an
@@ -35,6 +38,9 @@ class SafetyCultureResumeConfig:
     # dedupes the re-pulled page on `id`. Historic saves stored a relative path; the paginator
     # resolves either form against the API host on load.
     next_page: str | None = None
+    # Structures search only: the structure type being walked and the page token within it.
+    structure_type_index: int | None = None
+    page_token: str | None = None
 
 
 def _format_modified_after(value: Any) -> str:
@@ -78,6 +84,62 @@ class SafetyCultureFeedPaginator(JSONResponsePaginator):
             self._next_url = resolve_request_url(SAFETYCULTURE_BASE_URL, self._next_url)
 
 
+class SafetyCultureStructuresPaginator(BasePaginator):
+    """Walks Search structures once per structure type.
+
+    Every search is scoped to one type, and the page token sits inside the JSON body at
+    `params.page.page_token`. When a type's `next_page_token` runs out, the paginator moves on to
+    the next type with a fresh first-page request. An empty page or a repeated token also ends a
+    type, so a lingering token can never loop forever.
+    """
+
+    def __init__(self, structure_types: tuple[str, ...]) -> None:
+        super().__init__()
+        self._structure_types = structure_types
+        self._type_index = 0
+        self._page_token: Optional[str] = None
+        self._has_next_page = bool(structure_types)
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        body = response.json()
+        token = body.get("next_page_token") if isinstance(body, dict) else None
+        if data and token and token != self._page_token:
+            self._page_token = token
+            return
+        self._page_token = None
+        self._type_index += 1
+        self._has_next_page = self._type_index < len(self._structure_types)
+
+    def update_request(self, request: Request) -> None:
+        if self._has_next_page:
+            self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {"structure_type_index": self._type_index, "page_token": self._page_token}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        index = state.get("structure_type_index")
+        if isinstance(index, int) and 0 <= index < len(self._structure_types):
+            self._type_index = index
+            self._page_token = state.get("page_token") or None
+
+    def _apply(self, request: Request) -> None:
+        body = dict(request.json or {})
+        params = dict(body.get("params") or {})
+        page: dict[str, Any] = {"page_size": STRUCTURES_PAGE_SIZE}
+        if self._page_token:
+            page["page_token"] = self._page_token
+        params["page"] = page
+        body["params"] = params
+        body["structure_type"] = {"system_structure_type": self._structure_types[self._type_index]}
+        request.json = body
+
+
 def safetyculture_source(
     api_token: str,
     endpoint: str,
@@ -95,6 +157,27 @@ def safetyculture_source(
     params: dict[str, Any] = dict(config.params)
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
         params["modified_after"] = _format_modified_after(db_incremental_field_last_value)
+
+    endpoint_config: Endpoint
+    if config.structure_types:
+        # An empty query lists every structure of the type. Field values carry the org's custom
+        # structure fields, the main reason to sync structures over the sites and groups feeds.
+        endpoint_config = {
+            "path": config.path,
+            "method": "POST",
+            "json": {"params": {"query": "", "include_fields": True}},
+            "paginator": SafetyCultureStructuresPaginator(config.structure_types),
+            "data_selector": "results",
+        }
+    else:
+        endpoint_config = {
+            "path": config.path,
+            "params": params,
+            "data_selector": "data",
+            # A 200 whose body isn't the documented {"metadata", "data": [...]} envelope is
+            # treated as transient (a truncating proxy, a flaky gateway) and retried.
+            "data_selector_malformed_retryable": True,
+        }
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -114,14 +197,7 @@ def safetyculture_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    "data_selector": "data",
-                    # A 200 whose body isn't the documented {"metadata", "data": [...]} envelope is
-                    # treated as transient (a truncating proxy, a flaky gateway) and retried.
-                    "data_selector_malformed_retryable": True,
-                },
+                "endpoint": endpoint_config,
             }
         ],
     }
@@ -129,14 +205,28 @@ def safetyculture_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_page:
+        if config.structure_types:
+            if resume is not None and resume.structure_type_index is not None:
+                initial_paginator_state = {
+                    "structure_type_index": resume.structure_type_index,
+                    "page_token": resume.page_token,
+                }
+        elif resume is not None and resume.next_page:
             initial_paginator_state = {"next_url": resume.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist AFTER a page is yielded and only while a next page remains, so a crash re-fetches
         # the next page (merge dedupes) rather than skipping it. A null `next_page` (feed end) or an
         # empty page yields state=None and nothing is saved.
-        if state and state.get("next_url"):
+        if not state:
+            return
+        if state.get("structure_type_index") is not None:
+            resumable_source_manager.save_state(
+                SafetyCultureResumeConfig(
+                    structure_type_index=state["structure_type_index"], page_token=state.get("page_token")
+                )
+            )
+        elif state.get("next_url"):
             resumable_source_manager.save_state(SafetyCultureResumeConfig(next_page=state["next_url"]))
 
     resource = rest_api_resource(
@@ -164,8 +254,13 @@ def safetyculture_source(
     )
 
 
-def check_access(api_token: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def check_access(
+    api_token: str, path: str = DEFAULT_PROBE_PATH, structure_type: Optional[str] = None
+) -> tuple[int, Optional[str]]:
     """Probe a single feed to validate the API token.
+
+    With ``structure_type`` set, ``path`` is the Search structures endpoint, which only answers a
+    POST scoped to one structure type.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
@@ -175,7 +270,17 @@ def check_access(api_token: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, O
         redact_values=(api_token,),
     )
     try:
-        response = session.get(f"{SAFETYCULTURE_BASE_URL}{path}", timeout=15)
+        if structure_type:
+            response = session.post(
+                f"{SAFETYCULTURE_BASE_URL}{path}",
+                json={
+                    "structure_type": {"system_structure_type": structure_type},
+                    "params": {"page": {"page_size": 1}},
+                },
+                timeout=15,
+            )
+        else:
+            response = session.get(f"{SAFETYCULTURE_BASE_URL}{path}", timeout=15)
     except Exception as e:
         return 0, f"Could not connect to SafetyCulture: {e}"
 

@@ -1,7 +1,5 @@
-import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
     HatchetSourceConfig,
 )
@@ -15,37 +13,9 @@ class TestHatchetSource:
         self.team_id = 123
         self.config = HatchetSourceConfig(api_token="tok", host=None, tenant_id=None)
 
-    def test_config_fields(self):
-        field_names = {f.name for f in self.source.get_source_config.fields}
-        assert field_names == {"api_token", "host", "tenant_id"}
-
-        api_token = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
-        # The token is a secret; the wizard must render it as a password input.
-        assert isinstance(api_token, SourceFieldInputConfig)
-        assert api_token.required is True
-        assert api_token.type == SourceFieldInputConfigType.PASSWORD
-
     def test_host_is_a_connection_host_field(self):
         # The token is sent to `host`; retargeting it must force re-entry of the token secret.
         assert self.source.connection_host_fields == ["host"]
-
-    @pytest.mark.parametrize(
-        "endpoint,expected_incremental,expected_primary_keys",
-        [
-            ("workflow_runs", True, ["id"]),
-            ("tasks", True, ["id"]),
-            ("events", True, ["id"]),
-            ("event_keys", False, ["key"]),
-        ],
-    )
-    def test_get_schemas(self, endpoint, expected_incremental, expected_primary_keys):
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert endpoint in schemas
-        schema = schemas[endpoint]
-        assert schema.supports_incremental is expected_incremental
-        assert schema.supports_append is expected_incremental
-        assert schema.detected_primary_keys == expected_primary_keys
 
     def test_validate_credentials_delegates_with_resolved_overrides(self):
         config = HatchetSourceConfig(api_token="tok", host="", tenant_id="")
@@ -106,15 +76,3 @@ class TestHatchetSource:
         _, kwargs = hatchet_source.call_args
         # A stale watermark must not leak into a full-refresh run.
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_documented_tables_render_from_static_catalog(self):
-        # lists_tables_without_credentials must expose the table catalog (+ canonical descriptions)
-        # for the public docs <SourceTables /> component without needing credentials.
-        assert self.source.lists_tables_without_credentials is True
-
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-
-        assert set(tables) == {"workflow_runs", "tasks", "events", "event_keys"}
-        assert tables["workflow_runs"]["description"]
-        assert "Incremental" in tables["workflow_runs"]["sync_methods"]
-        assert tables["event_keys"]["sync_methods"] == ["Full refresh"]

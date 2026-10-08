@@ -34,6 +34,7 @@ import {
     SEVERITY_LEVEL_FILTER,
     setFacetIncluded,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { pinColumnFilters } from 'products/logs/frontend/components/LogsViewer/Filters/columnFilters'
 import {
     LogsFilterTarget,
     mergeFilterIntoValues,
@@ -316,10 +317,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
                 setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                    filterGroup && filterGroup.values ? pinColumnFilters(filterGroup) : DEFAULT_UNIVERSAL_GROUP_FILTER,
                 setFilters: (state, { filters }) =>
                     foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
+                        filters.filterGroup && filters.filterGroup.values
+                            ? pinColumnFilters(filters.filterGroup)
+                            : state,
                         filters
                     ),
             },

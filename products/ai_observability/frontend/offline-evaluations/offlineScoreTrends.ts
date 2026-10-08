@@ -1,0 +1,339 @@
+import type { ScatterSeries } from '@posthog/quill-charts'
+
+import { dayjs } from 'lib/dayjs'
+import { componentsToDayJs, dateStringToComponents } from 'lib/utils/dateFilters'
+
+import type {
+    OfflineHistoryPageApi,
+    OfflineHistoryPointApi,
+    OfflineScorerSummaryApi,
+    OfflineScorerVersionReadApi,
+} from '../generated/api.schemas'
+import {
+    offlineBooleanPolarity,
+    offlineCategoricalPassingRule,
+    offlineNumericPassingRule,
+    offlineScoreHasPassingRule,
+} from './offlineScoreInterpretation'
+
+export interface OfflineDateRange {
+    dateFrom?: string
+    dateTo: string
+}
+
+export interface OfflineTrendPeriod {
+    key: string
+    label: string
+    points: OfflineHistoryPointApi[]
+    dateFrom?: string
+    dateTo?: string
+}
+
+export interface OfflineTrendPointMeta {
+    point: OfflineHistoryPointApi
+    period: string
+    metric: string
+    percentage: boolean
+}
+
+export interface OfflineTrendPanel {
+    key: string
+    label: string
+    series: ScatterSeries<OfflineTrendPointMeta>[]
+    percentage: boolean
+    elapsed: boolean
+    xDomain?: [number, number]
+    yDomain?: [number, number]
+    passingRule: ReturnType<typeof offlineNumericPassingRule>
+}
+
+export type OfflineScoreSummary = Pick<
+    OfflineScorerSummaryApi,
+    'scorer' | 'mean' | 'true_rate' | 'categories' | 'pass_count' | 'fail_count' | 'pass_rate'
+> & {
+    status_counts: Pick<OfflineScorerSummaryApi['status_counts'], 'ok'>
+}
+
+export interface OfflineScoreHistorySummary extends OfflineScoreSummary {
+    experimentCount: number
+}
+
+export function resolveOfflineDateRange(
+    dateFrom: string | null,
+    dateTo: string | null,
+    now: string = dayjs().toISOString(),
+    timezone: string = 'UTC'
+): OfflineDateRange {
+    const anchor = dayjs(now).tz(timezone)
+    const resolve = (value: string, end: boolean): string => {
+        if (value === 'now') {
+            return anchor.toISOString()
+        }
+        const components = dateStringToComponents(value)
+        if (components) {
+            const subDay = ['hour', 'minute', 'second'].includes(components.unit)
+            const relative = componentsToDayJs(components, subDay ? anchor : anchor.startOf('day'), timezone)
+            const date = subDay ? relative : dayjs.tz(relative.format('YYYY-MM-DDTHH:mm:ss.SSS'), timezone)
+            return (components.clip === 'End' ? date.add(1, 'millisecond') : date).toISOString()
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            const date = dayjs.tz(value, timezone)
+            // Resolve the next calendar midnight again so daylight-saving changes keep their local boundary.
+            return (end ? dayjs.tz(date.add(1, 'day').format('YYYY-MM-DD'), timezone) : date).toISOString()
+        }
+        const date = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? dayjs(value) : dayjs.tz(value, timezone)
+        if (!date.isValid()) {
+            throw new Error('Choose a valid date range.')
+        }
+        return date.toISOString()
+    }
+    const range = {
+        dateFrom: dateFrom && dateFrom !== 'all' ? resolve(dateFrom, false) : undefined,
+        dateTo: dateTo ? resolve(dateTo, true) : anchor.toISOString(),
+    }
+    if (range.dateFrom && range.dateFrom >= range.dateTo) {
+        throw new Error('The end of the date range must be after the start.')
+    }
+    return range
+}
+
+export function previousOfflinePeriod(range: OfflineDateRange): OfflineDateRange | null {
+    if (!range.dateFrom) {
+        return null
+    }
+    const duration = dayjs(range.dateTo).valueOf() - dayjs(range.dateFrom).valueOf()
+    return { dateFrom: dayjs(range.dateFrom).subtract(duration, 'millisecond').toISOString(), dateTo: range.dateFrom }
+}
+
+export function offlineScoreMetricLabel(scorer: OfflineScorerVersionReadApi): string {
+    if (scorer.kind === 'numeric') {
+        return 'Mean score'
+    }
+    if (scorer.kind === 'boolean') {
+        return 'Pass rate'
+    }
+    return 'Category rates'
+}
+
+function weightedOfflineNumericMean(summaries: OfflineScorerSummaryApi[], count: number): number {
+    const scale = Math.max(...summaries.map((summary) => Math.abs(summary.mean ?? 0)))
+    if (scale === 0) {
+        return 0
+    }
+    const normalizedMean = summaries.reduce(
+        (total, summary) => total + ((summary.mean ?? 0) / scale) * (summary.status_counts.ok / count),
+        0
+    )
+    // Rounding can exceed the input magnitude and overflow when scores approach the largest finite number.
+    return Math.max(-1, Math.min(1, normalizedMean)) * scale
+}
+
+export function aggregateOfflineScoreHistory(points: OfflineHistoryPointApi[]): OfflineScoreHistorySummary | null {
+    const first = points[0]?.summary
+    if (!first) {
+        return null
+    }
+    const successful = points.map(({ summary }) => summary).filter((summary) => summary.status_counts.ok > 0)
+    const count = successful.reduce((total, summary) => total + summary.status_counts.ok, 0)
+    const graded = offlineScoreHasPassingRule(first.scorer)
+        ? successful.filter((summary) => summary.pass_count != null && summary.fail_count != null)
+        : []
+    const passCount = graded.reduce((total, summary) => total + (summary.pass_count ?? 0), 0)
+    const failCount = graded.reduce((total, summary) => total + (summary.fail_count ?? 0), 0)
+    return {
+        scorer: first.scorer,
+        experimentCount: new Set(points.map(({ experiment }) => experiment.id)).size,
+        status_counts: { ok: count },
+        pass_count: offlineScoreHasPassingRule(first.scorer) ? passCount : null,
+        fail_count: offlineScoreHasPassingRule(first.scorer) ? failCount : null,
+        pass_rate: passCount + failCount > 0 ? passCount / (passCount + failCount) : null,
+        mean: first.scorer.kind === 'numeric' && count > 0 ? weightedOfflineNumericMean(successful, count) : null,
+        true_rate:
+            first.scorer.kind === 'boolean' && count > 0
+                ? successful.reduce((total, summary) => total + (summary.true_count ?? 0), 0) / count
+                : null,
+        categories: first.categories.map((category) => {
+            const selectedCount = successful.reduce(
+                (total, summary) => total + (summary.categories.find(({ key }) => key === category.key)?.count ?? 0),
+                0
+            )
+            return { ...category, count: selectedCount, rate: count > 0 ? selectedCount / count : null }
+        }),
+    }
+}
+
+export function formatOfflineScore(summary: OfflineScoreSummary): string {
+    if (summary.status_counts.ok === 0) {
+        return 'No successful results'
+    }
+    if (summary.scorer.kind === 'numeric') {
+        return summary.mean === null
+            ? 'No score'
+            : formatOfflineNumericScore(summary.mean, offlineNumericPassingRule(summary.scorer))
+    }
+    if (summary.scorer.kind === 'boolean') {
+        return summary.pass_rate == null ? 'No score' : formatOfflinePercentage(summary.pass_rate)
+    }
+    return summary.categories
+        .map(({ label, rate }) => `${label}: ${rate === null ? 'No score' : formatOfflinePercentage(rate)}`)
+        .join(', ')
+}
+
+export function formatOfflineNumericScore(
+    value: number,
+    rule: ReturnType<typeof offlineNumericPassingRule> = null
+): string {
+    let precision = 6
+    if (rule) {
+        const passes = (score: number): boolean =>
+            rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
+        while (precision < 17 && passes(Number(value.toPrecision(precision))) !== passes(value)) {
+            precision++
+        }
+    }
+    return value.toLocaleString(undefined, { maximumSignificantDigits: precision })
+}
+
+export function formatOfflinePercentage(rate: number): string {
+    return rate.toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 2 })
+}
+
+export function offlineScoreConfigurationLabel(scorer: Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>): string {
+    const { config } = scorer
+    const passingRule = offlineScorePassingRuleLabel(scorer)
+    if (scorer.kind === 'numeric') {
+        return `Minimum: ${'min' in config && config.min !== null && config.min !== undefined ? formatOfflineNumericScore(config.min) : 'Unbounded'} · Maximum: ${'max' in config && config.max !== null && config.max !== undefined ? formatOfflineNumericScore(config.max) : 'Unbounded'}${'step' in config && config.step != null ? ` · Step: ${formatOfflineNumericScore(config.step)}` : ''} · ${passingRule ?? 'No passing rule'}`
+    }
+    if (scorer.kind === 'boolean') {
+        return `True: ${'true_label' in config ? config.true_label || 'True' : 'True'} · False: ${'false_label' in config ? config.false_label || 'False' : 'False'} · ${passingRule ?? 'No passing rule'}`
+    }
+    if ('options' in config) {
+        return `${config.selection_mode === 'multiple' ? 'Multiple selections' : 'Single selection'} · ${config.options.map(({ label, key }) => `${label} (${key})`).join(', ')}${passingRule ? ` · ${passingRule}` : ''}`
+    }
+    return ''
+}
+
+export function offlineScorePassingRuleLabel(
+    scorer: Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>
+): string | null {
+    const polarity = offlineBooleanPolarity(scorer)
+    if (polarity !== null) {
+        return `${polarity ? 'False' : 'True'} counts as a pass`
+    }
+    const rule = offlineNumericPassingRule(scorer)
+    const categories = offlineCategoricalPassingRule(scorer)
+    if (categories !== null) {
+        const options = 'options' in scorer.config ? scorer.config.options : []
+        return categories.length
+            ? `Pass when every selected category is one of: ${categories.map((key) => options.find((option) => option.key === key)?.label || key).join(', ')}`
+            : 'No selected categories count as a pass'
+    }
+    return rule ? `Pass when score ${rule.operator === 'gte' ? '≥' : '≤'} ${rule.threshold}` : null
+}
+
+export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone: string = 'UTC'): string {
+    const dates = page.results.map(({ experiment }) => experiment.started_at).sort()
+    const span = dates.length
+        ? ` · ${dayjs(dates[0]).tz(timezone).format('MMM D, YYYY')} to ${dayjs(dates[dates.length - 1])
+              .tz(timezone)
+              .format('MMM D, YYYY')}`
+        : ''
+    return `${page.results.length} of ${page.count} experiment/version results${span}${page.count > page.results.length ? ' · Partial history' : ''}`
+}
+
+export function buildOfflineTrendPanels(periods: OfflineTrendPeriod[]): OfflineTrendPanel[] {
+    const durations = periods.map((period) =>
+        period.dateFrom && period.dateTo ? Date.parse(period.dateTo) - Date.parse(period.dateFrom) : null
+    )
+    const elapsed =
+        periods.length > 1 && durations[0] !== null && durations.every((duration) => duration === durations[0])
+    const panels = new Map<string, OfflineTrendPanel>()
+    const domains = new Map<string, number[]>()
+    for (const [periodIndex, period] of periods.entries()) {
+        for (const point of period.points) {
+            const { summary } = point
+            const scorer = summary.scorer
+            const configuration = `${scorer.kind}:${JSON.stringify(scorer.config)}`
+            const panelKey = `${configuration}:${elapsed ? 'overlay' : period.key}`
+            let panel = panels.get(panelKey)
+            if (!panel) {
+                panel = {
+                    key: panelKey,
+                    label: `${periods.length > 1 && !elapsed ? `${period.label} · ` : ''}${offlineScoreMetricLabel(scorer)}`,
+                    series: [],
+                    percentage: scorer.kind !== 'numeric',
+                    passingRule: offlineNumericPassingRule(scorer),
+                    elapsed,
+                    xDomain:
+                        period.dateFrom && period.dateTo
+                            ? elapsed
+                                ? [0, Date.parse(period.dateTo) - Date.parse(period.dateFrom)]
+                                : [Date.parse(period.dateFrom), Date.parse(period.dateTo)]
+                            : undefined,
+                }
+                panels.set(panelKey, panel)
+            }
+            const metrics =
+                scorer.kind === 'categorical'
+                    ? summary.categories.map((category) => ({
+                          key: category.key,
+                          label: category.label,
+                          value: category.rate,
+                      }))
+                    : [
+                          {
+                              key: 'score',
+                              label: offlineScoreMetricLabel(scorer),
+                              value: scorer.kind === 'numeric' ? summary.mean : summary.pass_rate,
+                          },
+                      ]
+            for (const metric of metrics) {
+                const key = `${period.key}:${scorer.id}:${metric.key}`
+                let series = panel.series.find((candidate) => candidate.key === key)
+                if (!series) {
+                    series = {
+                        key,
+                        label: `${periods.length > 1 ? `${period.label} · ` : ''}v${scorer.version}${scorer.kind === 'categorical' ? ` · ${metric.label}` : ''}`,
+                        points: [],
+                        shape: periodIndex === 0 ? 'circle' : 'square',
+                    }
+                    panel.series.push(series)
+                }
+                if (metric.value == null || !Number.isFinite(metric.value)) {
+                    continue
+                }
+                series.points.push({
+                    x: Date.parse(point.experiment.started_at) - (elapsed ? Date.parse(period.dateFrom!) : 0),
+                    y: metric.value,
+                    label: point.experiment.name,
+                    meta: { point, period: period.label, metric: metric.label, percentage: scorer.kind !== 'numeric' },
+                })
+                domains.set(configuration, [...(domains.get(configuration) || []), metric.value])
+            }
+        }
+    }
+    for (const [key, panel] of panels) {
+        if (!panel.xDomain) {
+            const timestamps = panel.series.flatMap((series) => series.points.map((point) => point.x))
+            if (timestamps.length) {
+                const min = Math.min(...timestamps)
+                const max = Math.max(...timestamps)
+                panel.xDomain = min === max ? [min - 43200000, max + 43200000] : [min, max]
+            }
+        }
+        const configuration = key.slice(0, key.lastIndexOf(':'))
+        const values = [
+            ...(domains.get(configuration) || []),
+            ...(panel.passingRule ? [panel.passingRule.threshold] : []),
+        ]
+        if (panel.percentage) {
+            panel.yDomain = [0, 1]
+        } else if (values.length) {
+            const min = Math.min(...values)
+            const max = Math.max(...values)
+            const padding = (max - min || Math.abs(max) || 1) * 0.05
+            panel.yDomain = [min - padding, max + padding]
+        }
+    }
+    return [...panels.values()]
+}

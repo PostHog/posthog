@@ -10,7 +10,7 @@ name: Auto-resolve PR conflicts
 # running both would be redundant rather than harmful. To fall back to this implementation, restore
 # the `schedule:` trigger below and pause the Loop.
 #
-# Deterministic fixes (lockfiles, migration numbering, generated types) skip the model; the backend
+# Deterministic fixes (lockfiles, migration numbering, generated types, generated MCP files) skip the model; the backend
 # stack comes up only for `build:openapi`. A marker comment records the last-attempted (head, master)
 # so nothing re-runs on an unchanged conflict. Runs on GitHub-hosted runners (cheapest for a public
 # repo).
@@ -46,10 +46,35 @@ env:
         uv.lock
         frontend/src/generated/**
         products/**/frontend/generated/**
+        frontend/src/lib/agentScopes.generated.ts
+        services/mcp/src/api/generated.ts
+        services/mcp/src/generated/**
+        services/mcp/src/tools/generated/**
+        services/mcp/schema/generated-tool-definitions.json
+        services/mcp/schema/tool-definitions-all.json
+        services/mcp/schema/exec-command-reference.md
+        services/mcp/schema/tool-inputs.json
+        services/mcp/src/resources/ui-apps.generated.ts
+        services/mcp/src/ui-apps/generated/**
+        services/mcp/src/ui-apps/apps/generated/**
     # Subset of GENERATED_GLOBS whose regen needs the backend stack (build:openapi).
+    # The MCP files here are the ones build:openapi writes from the OpenAPI spec.
     API_TYPE_GLOBS: >-
         frontend/src/generated/**
         products/**/frontend/generated/**
+        frontend/src/lib/agentScopes.generated.ts
+        services/mcp/src/api/generated.ts
+        services/mcp/src/generated/**
+        services/mcp/src/tools/generated/**
+        services/mcp/schema/generated-tool-definitions.json
+        services/mcp/schema/tool-definitions-all.json
+        services/mcp/schema/exec-command-reference.md
+    # Subset of GENERATED_GLOBS regenerated from MCP YAML and Zod alone (no backend stack).
+    MCP_LOCAL_GLOBS: >-
+        services/mcp/schema/tool-inputs.json
+        services/mcp/src/resources/ui-apps.generated.ts
+        services/mcp/src/ui-apps/generated/**
+        services/mcp/src/ui-apps/apps/generated/**
 
 jobs:
     detect:
@@ -218,7 +243,7 @@ jobs:
                   #  needs_backend     = any conflict is a generated API type (build:openapi needs the stack)
                   # The agent (source) runs first; the deterministic regen then derives the generated
                   # files from the resolved source.
-                  run_deterministic=false; run_agent=false; needs_backend=false
+                  run_deterministic=false; run_agent=false; needs_backend=false; needs_mcp_local=false
                   : > "$RUNNER_TEMP/conflicts_source.txt"
                   set -f # the *_GLOBS are case patterns; never let the shell expand them against the tree
                   while IFS= read -r f; do
@@ -235,13 +260,17 @@ jobs:
                     for glob in $API_TYPE_GLOBS; do
                       case "$f" in $glob) needs_backend=true; break;; esac
                     done
+                    for glob in $MCP_LOCAL_GLOBS; do
+                      case "$f" in $glob) needs_mcp_local=true; break;; esac
+                    done
                   done < "$RUNNER_TEMP/conflicts.txt"
                   {
                     echo "run_deterministic=$run_deterministic"
                     echo "run_agent=$run_agent"
                     echo "needs_backend=$needs_backend"
+                    echo "needs_mcp_local=$needs_mcp_local"
                   } >> "$GITHUB_OUTPUT"
-                  echo "deterministic=$run_deterministic agent=$run_agent backend=$needs_backend"
+                  echo "deterministic=$run_deterministic agent=$run_agent backend=$needs_backend mcp_local=$needs_mcp_local"
 
             # Heavy path only. build:openapi needs only Postgres + ClickHouse — the same trim as
             # ci-backend.yml's "Validate OpenAPI types" job (no migrations; zookeeper rides along as
@@ -280,7 +309,7 @@ jobs:
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
             - name: Install Python dependencies
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -361,6 +390,7 @@ jobs:
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.run_deterministic == 'true' && steps.agent_outcome.outputs.abort != 'true'
               env:
                   NEEDS_BACKEND: ${{ steps.merge.outputs.needs_backend }}
+                  NEEDS_MCP_LOCAL: ${{ steps.merge.outputs.needs_mcp_local }}
               run: |
                   set -euo pipefail
                   # Lockfiles + migration numbering: cheap, no services.
@@ -368,6 +398,13 @@ jobs:
                   # API types: regenerate against the already-up stack (hogli's `services:` are display-only).
                   if [ "$NEEDS_BACKEND" = "true" ]; then
                     bin/hogli build:openapi
+                  fi
+                  # MCP files that come from YAML and Zod only. They run after build:openapi so they
+                  # read the regenerated tool files.
+                  if [ "$NEEDS_MCP_LOCAL" = "true" ]; then
+                    # Same commands hogli build:schema-mcp runs, called directly: this path has no Python.
+                    (cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json)
+                    pnpm --filter=@posthog/mcp run generate:ui-apps
                   fi
 
             # --- Final status: agent abort, else leftover markers in any conflicted file ---

@@ -20,6 +20,7 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
 from products.approvals.backend.services import ChangeRequestService
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
@@ -390,6 +391,26 @@ class TestCheckStaleness(APIBaseTest):
         result = UpdateFeatureFlagAction.check_staleness(intent, {})
 
         assert result is True
+
+    @parameterized.expand(
+        [
+            ("adopted by an experiment", "unowned", True, True),
+            ("released by its experiment", "experiment", False, True),
+            ("owner unchanged", "unowned", False, False),
+            ("still owned by the same experiment", "experiment", True, False),
+            ("never classified", None, True, False),
+        ]
+    )
+    def test_staleness_by_owner(self, _name, recorded, owned_now, expected_stale):
+        flag = self._create_flag()
+        if owned_now:
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        intent = {"preconditions": {"version": flag.version}}
+        context = {"instance": flag, "recorded_owner_kind": recorded}
+
+        assert EnableFeatureFlagAction.check_staleness(intent, context) is expected_stale
+        assert UpdateFeatureFlagAction.check_staleness(intent, context) is expected_stale
 
     def test_base_action_check_staleness_always_returns_false(self):
         from products.approvals.backend.actions.base import BaseAction

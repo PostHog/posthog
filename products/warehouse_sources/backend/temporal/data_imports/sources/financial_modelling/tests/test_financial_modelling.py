@@ -1,9 +1,10 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -12,9 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.financial_modelling import (
     FinancialModellingError,
     FinancialModellingResumeConfig,
-    _build_url,
     _extract_rows,
     _fetch_page,
+    _FiscalQuarter,
+    _recent_quarters,
     _to_date,
     _window_params,
     financial_modelling_source,
@@ -43,19 +45,6 @@ class TestParseSymbols:
         assert parse_symbols(raw) == expected
 
 
-class TestBuildUrl:
-    def test_appends_apikey_and_params(self) -> None:
-        url = _build_url("profile", {"symbol": "AAPL"}, "secret_key")
-        assert url.startswith("https://financialmodelingprep.com/stable/profile?")
-        assert "symbol=AAPL" in url
-        assert "apikey=secret_key" in url
-
-    def test_url_encodes_param_values(self) -> None:
-        url = _build_url("earnings-calendar", {"from": "2024-01-01", "to": "2024-12-31"}, "k")
-        assert "from=2024-01-01" in url
-        assert "to=2024-12-31" in url
-
-
 class TestFetchPage:
     def test_client_error_does_not_leak_api_key(self) -> None:
         response = MagicMock()
@@ -76,13 +65,6 @@ class TestFetchPage:
 
 
 class TestExtractRows:
-    def test_bare_array_returned_as_is(self) -> None:
-        assert _extract_rows([{"a": 1}, {"a": 2}], None) == [{"a": 1}, {"a": 2}]
-
-    def test_wrapped_array_read_from_response_key(self) -> None:
-        data = {"symbol": "AAPL", "historical": [{"date": "2024-01-01"}]}
-        assert _extract_rows(data, "historical") == [{"date": "2024-01-01"}]
-
     def test_single_object_is_wrapped(self) -> None:
         assert _extract_rows({"symbol": "AAPL", "price": 1}, None) == [{"symbol": "AAPL", "price": 1}]
 
@@ -122,29 +104,29 @@ class TestWindowParams:
         with time_machine.travel("2024-06-15", tick=False):
             yield
 
-    def test_non_windowed_endpoint_returns_empty(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["company_profiles"]
-        assert (
-            _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2024-01-01")
-            == {}
-        )
-
-    def test_incremental_uses_last_value_as_from(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["historical_prices"]
-        params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2024-05-01")
-        assert params == {"from": "2024-05-01", "to": "2024-06-15"}
-
     def test_future_cursor_is_clamped_to_today(self) -> None:
         config = FINANCIAL_MODELLING_ENDPOINTS["historical_prices"]
         params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value="2030-01-01")
         assert params == {"from": "2024-06-15", "to": "2024-06-15"}
 
-    def test_first_sync_falls_back_to_lookback(self) -> None:
-        config = FINANCIAL_MODELLING_ENDPOINTS["earnings_calendar"]
-        params = _window_params(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
-        # default_lookback_days = 365 * 2 -> two years before the frozen "today"
-        assert params["to"] == "2024-06-15"
-        assert params["from"] == "2022-06-16"
+
+def _quarters(*pairs: tuple[int, int]) -> list[_FiscalQuarter]:
+    return [_FiscalQuarter(year=year, quarter=quarter) for year, quarter in pairs]
+
+
+class TestRecentQuarters:
+    @parameterized.expand(
+        [
+            # The quarter `today` falls in is still open, so the walk starts at the one before it.
+            ("mid_q2", date(2024, 5, 20), ((2024, 1), (2023, 4), (2023, 3))),
+            ("first_day_of_q1_rolls_back_a_year", date(2024, 1, 1), ((2023, 4), (2023, 3), (2023, 2))),
+            ("last_day_of_q4", date(2024, 12, 31), ((2024, 3), (2024, 2), (2024, 1))),
+        ]
+    )
+    def test_walks_back_from_the_last_completed_quarter(
+        self, _name: str, today: date, expected: tuple[tuple[int, int], ...]
+    ) -> None:
+        assert _recent_quarters(3, today) == _quarters(*expected)
 
 
 class _FakeResumableManager:
@@ -163,53 +145,41 @@ class _FakeResumableManager:
 
 
 def _collect(
-    endpoint: str, symbols: list[str], manager: _FakeResumableManager, monkeypatch: Any, by_symbol: dict[str, Any]
+    endpoint: str, symbols: list[str], manager: _FakeResumableManager, by_symbol: dict[str, Any]
 ) -> list[dict]:
     def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
         key = params.get("symbol", path)
         return by_symbol[key]
 
-    monkeypatch.setattr(financial_modelling, "_fetch_page", fake_fetch)
-
     rows: list[dict] = []
-    for table in get_rows(
-        api_key="k",
-        endpoint=endpoint,
-        symbols=symbols,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(table.to_pylist())
+    with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+        for table in get_rows(
+            api_key="k",
+            endpoint=endpoint,
+            symbols=symbols,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
     return rows
 
 
 class TestGetRowsFanOut:
-    def test_fans_out_over_each_symbol_and_injects_symbol(self, monkeypatch: Any) -> None:
+    def test_fans_out_over_each_symbol_and_injects_symbol(self) -> None:
         by_symbol = {
             "AAPL": [{"symbol": "AAPL", "companyName": "Apple"}],
             "MSFT": [{"symbol": "MSFT", "companyName": "Microsoft"}],
         }
-        rows = _collect("company_profiles", ["AAPL", "MSFT"], _FakeResumableManager(), monkeypatch, by_symbol)
+        rows = _collect("company_profiles", ["AAPL", "MSFT"], _FakeResumableManager(), by_symbol)
         assert {r["symbol"] for r in rows} == {"AAPL", "MSFT"}
 
-    def test_symbol_injected_when_missing_from_row(self, monkeypatch: Any) -> None:
+    def test_symbol_injected_when_missing_from_row(self) -> None:
         # historical_prices rows arrive without a symbol; the fan-out injects it.
         by_symbol = {"AAPL": {"symbol": "AAPL", "historical": [{"date": "2024-01-02", "close": 10}]}}
-        rows = _collect("historical_prices", ["AAPL"], _FakeResumableManager(), monkeypatch, by_symbol)
+        rows = _collect("historical_prices", ["AAPL"], _FakeResumableManager(), by_symbol)
         assert rows == [{"date": "2024-01-02", "close": 10, "symbol": "AAPL"}]
 
-    def test_saves_resume_state_advancing_per_symbol(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        by_symbol = {
-            "AAPL": [{"symbol": "AAPL"}],
-            "MSFT": [{"symbol": "MSFT"}],
-            "GOOGL": [{"symbol": "GOOGL"}],
-        }
-        _collect("company_profiles", ["AAPL", "MSFT", "GOOGL"], manager, monkeypatch, by_symbol)
-        # State is saved after every symbol except the last (no point bookmarking past the end).
-        assert [s.symbol_index for s in manager.saved] == [1, 2]
-
-    def test_resumes_from_saved_symbol_index(self, monkeypatch: Any) -> None:
+    def test_resumes_from_saved_symbol_index(self) -> None:
         manager = _FakeResumableManager(FinancialModellingResumeConfig(symbol_index=1))
         fetched: list[str] = []
 
@@ -217,27 +187,147 @@ class TestGetRowsFanOut:
             fetched.append(params["symbol"])
             return [{"symbol": params["symbol"]}]
 
-        monkeypatch.setattr(financial_modelling, "_fetch_page", fake_fetch)
-        list(
-            get_rows(
-                api_key="k",
-                endpoint="company_profiles",
-                symbols=["AAPL", "MSFT", "GOOGL"],
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint="company_profiles",
+                    symbols=["AAPL", "MSFT", "GOOGL"],
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
             )
-        )
         # AAPL (index 0) is skipped because the bookmark resumes at index 1.
         assert fetched == ["MSFT", "GOOGL"]
 
 
-class TestGetRowsMarketWide:
-    def test_single_request_no_symbol(self, monkeypatch: Any) -> None:
+class TestGetRowsRequestParams:
+    def _params_for(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
+            captured.update(params)
+            return []
+
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint=endpoint,
+                    symbols=["AAPL"],
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    **kwargs,
+                )
+            )
+        return captured
+
+    @parameterized.expand(
+        [
+            ("key_metrics",),
+            ("ratios",),
+            ("dividends",),
+            ("earnings",),
+            ("splits",),
+            ("historical_market_capitalization",),
+        ]
+    )
+    def test_requests_the_maximum_page_size(self, endpoint: str) -> None:
+        # These endpoints have no page cursor, so dropping `limit` truncates the symbol's history
+        # to FMP's small default instead of failing.
+        assert self._params_for(endpoint)["limit"] == "1000"
+
+    @parameterized.expand(
+        [
+            ("key_metrics",),
+            ("ratios",),
+            ("dividends",),
+            ("earnings",),
+            ("key_metrics_ttm",),
+            ("splits",),
+            ("market_capitalization",),
+        ]
+    )
+    def test_no_date_window_is_sent(self, endpoint: str) -> None:
+        # None of these accept `from`/`to`, so a watermark must not leak into the query.
+        params = self._params_for(
+            endpoint,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01",
+        )
+        assert "from" not in params
+        assert "to" not in params
+
+    @parameterized.expand([("company_profiles",), ("splits",), ("market_capitalization",)])
+    def test_non_quarterly_endpoints_send_no_period(self, endpoint: str) -> None:
+        params = self._params_for(endpoint)
+        assert "year" not in params
+        assert "quarter" not in params
+
+
+class TestWindowFitsInsideTheLimit:
+    @parameterized.expand(
+        [
+            (name,)
+            for name, config in FINANCIAL_MODELLING_ENDPOINTS.items()
+            if config.default_lookback_days is not None and "limit" in config.extra_params
+        ]
+    )
+    def test_first_window_cannot_outgrow_the_page(self, endpoint: str) -> None:
+        # These endpoints do not paginate, so a lookback wider than `limit` rows silently drops the
+        # oldest days and the watermark then skips past them for good.
+        config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
+        assert config.default_lookback_days is not None
+        assert config.default_lookback_days <= int(config.extra_params["limit"])
+
+
+class TestGetRowsQuarterFanOut:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2024-06-15", tick=False):
+            yield
+
+    def _requests_for(self, endpoint: str, symbols: list[str], manager: _FakeResumableManager) -> list[dict[str, Any]]:
+        captured: list[dict[str, Any]] = []
+
+        def fake_fetch(session: Any, path: str, params: dict[str, Any], api_key: str, logger: Any) -> Any:
+            captured.append(dict(params))
+            return []
+
+        with patch.object(financial_modelling, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="k",
+                    endpoint=endpoint,
+                    symbols=symbols,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+        return captured
+
+    def test_bookmark_advances_once_per_symbol_not_per_quarter(self) -> None:
+        # Resume state indexes symbols; saving per quarter would skip the rest of a symbol's series
+        # after an interruption.
         manager = _FakeResumableManager()
-        by_path = {"earnings-calendar": [{"symbol": "AAPL", "date": "2024-01-01"}]}
-        rows = _collect("earnings_calendar", [], manager, monkeypatch, by_path)
-        assert rows == [{"symbol": "AAPL", "date": "2024-01-01"}]
-        # Market-wide endpoints fan out over nothing, so no resume bookmark is saved.
+        self._requests_for("institutional_positions_summary", ["AAPL", "MSFT", "GOOGL"], manager)
+        assert [state.symbol_index for state in manager.saved] == [1, 2]
+
+
+class TestGetRowsMarketWide:
+    @parameterized.expand(
+        [
+            ("earnings_calendar", "earnings-calendar", {"symbol": "AAPL", "date": "2024-01-01"}),
+            ("available_exchanges", "available-exchanges", {"exchange": "AMEX", "name": "NYSE Arca"}),
+            ("available_sectors", "available-sectors", {"sector": "Basic Materials"}),
+            ("available_industries", "available-industries", {"industry": "Steel"}),
+        ]
+    )
+    def test_single_request_no_symbol(self, endpoint: str, path: str, row: dict[str, Any]) -> None:
+        # These endpoints take no symbol, so the row must not gain one and no bookmark is saved.
+        manager = _FakeResumableManager()
+        rows = _collect(endpoint, [], manager, {path: [row]})
+        assert rows == [row]
         assert manager.saved == []
 
 
@@ -262,6 +352,13 @@ class TestFinancialModellingSourceResponse:
         [
             ("stock_list", ["symbol"]),
             ("income_statements", ["symbol", "date", "period"]),
+            ("key_metrics", ["symbol", "date", "period"]),
+            ("ratios", ["symbol", "date", "period"]),
+            # The TTM endpoints return one always-current row per symbol, with no fiscal date.
+            ("key_metrics_ttm", ["symbol"]),
+            ("ratios_ttm", ["symbol"]),
+            ("dividends", ["symbol", "date"]),
+            ("earnings", ["symbol", "date"]),
             ("historical_prices", ["symbol", "date"]),
             ("earnings_calendar", ["symbol", "date"]),
         ]
@@ -276,21 +373,11 @@ class TestFinancialModellingSourceResponse:
         )
         assert response.primary_keys == expected_keys
 
-    def test_partitioned_endpoint_has_datetime_partitioning(self) -> None:
+    @parameterized.expand([("company_profiles",), ("key_metrics_ttm",), ("ratios_ttm",)])
+    def test_unpartitioned_endpoint_has_no_partitioning(self, endpoint: str) -> None:
         response = financial_modelling_source(
             api_key="k",
-            endpoint="historical_prices",
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint="company_profiles",
+            endpoint=endpoint,
             symbols=["AAPL"],
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),

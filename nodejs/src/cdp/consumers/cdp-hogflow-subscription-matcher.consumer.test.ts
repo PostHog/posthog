@@ -546,7 +546,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     id: 'flow-1',
                     exit_condition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: null,
                         filters: {},
                         bytecode: [],
                         events: [

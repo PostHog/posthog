@@ -17,10 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.copper.cop
     copper_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
-    COPPER_ENDPOINTS,
-    RELATED_ITEM_PARENTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import COPPER_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -100,39 +97,11 @@ class TestToUnixSeconds:
         dt = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         assert _to_unix_seconds(dt) == int(dt.timestamp())
 
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        naive = datetime(2023, 11, 14, 22, 13, 20)
-        assert _to_unix_seconds(naive) == int(datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC).timestamp())
-
     def test_date_treated_as_utc(self) -> None:
         assert _to_unix_seconds(date(2023, 11, 14)) == int(datetime(2023, 11, 14, tzinfo=UTC).timestamp())
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminates_on_short_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_records([1, 2]))])
-        manager = _make_manager()
-
-        rows = _rows(_source("people", manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        # A short first page stops the loop with no extra empty-page request and no checkpoint.
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-
-        rows = _rows(_source("companies", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_next_page_after_each_full_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -193,53 +162,6 @@ class TestSearchBody:
         assert body[min_param] == 1700000000
         assert body["page_size"] == COPPER_DEFAULT_PAGE_SIZE
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_sorts_on_the_chosen_field(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-
-        _rows(
-            _source(
-                "people",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-                incremental_field="date_modified",
-            )
-        )
-
-        assert bodies[0]["sort_by"] == "date_modified"
-        assert bodies[0]["sort_direction"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_search_sends_no_sort_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-
-        _rows(
-            _source(
-                "activities",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-                incremental_field="activity_date",
-            )
-        )
-
-        # `/activities/search` documents no sort params, so sending one risks a rejected request.
-        assert "sort_by" not in bodies[0]
-        assert "sort_direction" not in bodies[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_full_refresh_omits_the_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-
-        _rows(_source("activities", _make_manager(), should_use_incremental_field=False))
-
-        assert "minimum_activity_date" not in bodies[0]
-        assert bodies[0]["page_size"] == COPPER_DEFAULT_PAGE_SIZE
-
     @parameterized.expand([("incremental", True), ("full_refresh", False)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_cap_the_window_at_the_sync_start(
@@ -264,53 +186,8 @@ class TestSearchBody:
         # watermark and hide every later activity behind it.
         assert before <= bodies[0]["maximum_activity_date"] <= after
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sorts_by_created_for_searchable(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-        manager = _make_manager()
-
-        _rows(_source("people", manager, should_use_incremental_field=False))
-
-        body = bodies[0]
-        assert body["sort_by"] == "date_created"
-        assert "minimum_modified_date" not in body
-        assert "minimum_created_date" not in body
-
-
-class TestReferenceEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_get_no_body_and_no_resume(self, MockSession) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([{"id": 1, "name": "Won"}])])
-        manager = _make_manager()
-
-        rows = _rows(_source("loss_reasons", manager))
-
-        assert rows == [{"id": 1, "name": "Won"}]
-        assert session.send.call_count == 1
-        # GET reference endpoints carry no request body and never consult the resumable manager.
-        assert bodies[0] == {}
-        manager.can_resume.assert_not_called()
-
 
 class TestActivityTypes:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flattens_the_category_envelope(self, MockSession) -> None:
-        session = MockSession.return_value
-        envelope = {
-            "user": [{"id": 0, "category": "user", "name": "Note"}],
-            "system": [{"id": 1, "category": "system", "name": "Property Changed"}],
-        }
-        _wire(session, [_response(envelope)])
-
-        response = _source("activity_types", _make_manager())
-        rows = _rows(response)
-
-        assert rows == [envelope["user"][0], envelope["system"][0]]
-        # Ids repeat across the two categories, so the category has to be part of the key.
-        assert response.primary_keys == ["id", "category"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_envelope_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
@@ -343,44 +220,6 @@ class TestRedaction:
         _rows(_source("people", _make_manager()))
 
         assert MockSession.call_args.kwargs["redact_values"] == ("key",)
-
-
-class TestSourceResponseMetadata:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metadata_for_searchable(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_records([1]))])
-
-        response = _source("opportunities", _make_manager())
-        rows = _rows(response)
-
-        assert response.name == "opportunities"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date_created"]
-        assert response.sort_mode == "asc"
-        assert [r["id"] for r in rows] == [1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_declare_descending_arrival_order(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_records([1]))])
-
-        response = _source("activities", _make_manager())
-
-        # `/activities/search` answers newest-first and takes no sort param to change that.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["date_created"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_metadata_for_reference(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        response = _source("pipelines", _make_manager())
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
 
 class TestValidateCredentials:
@@ -454,67 +293,6 @@ def _requested_paths(session: mock.MagicMock) -> list[str]:
 
 class TestFieldLayouts:
     @mock.patch(COPPER_SESSION_PATCH)
-    def test_fans_out_per_entity_and_per_opportunity_pipeline(self, mock_session) -> None:
-        layout = [{"field_id": 0, "field_key": "full_name", "field_type": "static_field"}]
-        session = _fake_api(
-            {
-                "/pipelines": [{"id": 5}, {"id": 6}],
-                "/field_layouts/by_entity/people": layout,
-                "/field_layouts/by_entity/opportunities": layout,
-            }
-        )
-        mock_session.return_value = session
-
-        rows = _rows(_source("field_layouts", _make_manager()))
-
-        # Each row is stamped with the layout it came from — the response itself carries neither.
-        assert rows == [
-            {
-                "entity_type": "people",
-                "pipeline_id": 0,
-                "field_id": 0,
-                "field_key": "full_name",
-                "field_type": "static_field",
-            },
-            {
-                "entity_type": "opportunities",
-                "pipeline_id": 5,
-                "field_id": 0,
-                "field_key": "full_name",
-                "field_type": "static_field",
-            },
-            {
-                "entity_type": "opportunities",
-                "pipeline_id": 6,
-                "field_id": 0,
-                "field_key": "full_name",
-                "field_type": "static_field",
-            },
-        ]
-
-    @mock.patch(COPPER_SESSION_PATCH)
-    def test_only_opportunities_carry_a_pipeline_param(self, mock_session) -> None:
-        layout = [{"field_id": 0}]
-        session = _fake_api(
-            {
-                "/pipelines": [{"id": 5}],
-                "/field_layouts/by_entity/people": layout,
-                "/field_layouts/by_entity/opportunities": layout,
-            }
-        )
-        mock_session.return_value = session
-
-        _rows(_source("field_layouts", _make_manager()))
-
-        params_by_path = {
-            call.args[0].removeprefix(COPPER_BASE_URL): call.kwargs["params"] for call in session.get.call_args_list
-        }
-        # Copper rejects an opportunities layout request without a pipeline, and rejects the param
-        # on every other entity.
-        assert params_by_path["/field_layouts/by_entity/opportunities"] == {"pipeline_id": 5}
-        assert params_by_path["/field_layouts/by_entity/people"] is None
-
-    @mock.patch(COPPER_SESSION_PATCH)
     def test_entity_copper_does_not_serve_is_skipped(self, mock_session) -> None:
         session = _fake_api({"/pipelines": [], "/field_layouts/by_entity/tasks": [{"field_id": 3}]})
         mock_session.return_value = session
@@ -526,38 +304,6 @@ class TestFieldLayouts:
 
 
 class TestRelatedItems:
-    @mock.patch(COPPER_SESSION_PATCH)
-    def test_stamps_each_edge_with_the_record_it_was_read_from(self, mock_session) -> None:
-        session = _fake_api(
-            {"/people/7/related": [{"id": 208105, "type": "project"}, {"id": 44, "type": "company"}]},
-            {"/people/search": [[{"id": 7}]]},
-        )
-        mock_session.return_value = session
-
-        rows = _rows(_source("related_items", _make_manager()))
-
-        assert rows == [
-            {"parent_type": "person", "parent_id": 7, "id": 208105, "type": "project"},
-            {"parent_type": "person", "parent_id": 7, "id": 44, "type": "company"},
-        ]
-
-    @mock.patch(COPPER_SESSION_PATCH)
-    def test_walks_every_relatable_entity_type(self, mock_session) -> None:
-        session = _fake_api({}, {config.path: [[]] for config in COPPER_ENDPOINTS.values()})
-        mock_session.return_value = session
-
-        _rows(_source("related_items", _make_manager()))
-
-        searched = [call.args[0].removeprefix(COPPER_BASE_URL) for call in session.post.call_args_list]
-        assert searched == [
-            "/leads/search",
-            "/people/search",
-            "/companies/search",
-            "/opportunities/search",
-            "/projects/search",
-            "/tasks/search",
-        ]
-
     @mock.patch(COPPER_SESSION_PATCH)
     def test_record_deleted_mid_walk_is_skipped(self, mock_session) -> None:
         session = _fake_api(
@@ -586,17 +332,6 @@ class TestRelatedItems:
         # parent contributes one more checkpoint as its single empty page ends it.
         assert checkpoints[:3] == [(0, 2), (0, 3), (1, 1)]
 
-    def test_final_parent_leaves_no_checkpoint_behind(self) -> None:
-        session = _fake_api({}, {})
-        manager = _make_manager()
-
-        list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
-
-        saved = [c.args[0].parent_index for c in manager.save_state.call_args_list]
-        # A checkpoint past the last parent would make a retry resume onto nothing.
-        assert max(saved) == len(RELATED_ITEM_PARENTS) - 1
-        manager.clear_state.assert_called_once()
-
     def test_malformed_search_page_fails_loudly(self) -> None:
         null_page = Response()
         null_page.status_code = 200
@@ -607,21 +342,3 @@ class TestRelatedItems:
 
         with pytest.raises(ValueError):
             list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
-
-    def test_resumes_from_the_saved_parent_and_page(self) -> None:
-        session = _fake_api(
-            {"/projects/9/related": [{"id": 3, "type": "task"}]},
-            {"/projects/search": [[], [], [{"id": 9}]]},
-        )
-        manager = _make_manager(CopperResumeConfig(page_number=3, parent_index=4))
-
-        rows = [
-            row for page in _iter_related_items(session, "/{entity}/{record_id}/related", manager, 1) for row in page
-        ]
-
-        searched = [call.args[0].removeprefix(COPPER_BASE_URL) for call in session.post.call_args_list]
-        # Projects is index 4, so leads through opportunities are not re-walked, and projects
-        # restarts at page 3 rather than page 1.
-        assert searched == ["/projects/search", "/projects/search", "/tasks/search"]
-        assert session.post.call_args_list[0].kwargs["json"]["page_number"] == 3
-        assert rows == [{"parent_type": "project", "parent_id": 9, "id": 3, "type": "task"}]

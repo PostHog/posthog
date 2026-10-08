@@ -147,7 +147,7 @@ class ClickHouseTestProducer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str] | None]] | None = None,
+        filters: list[dict[str, str | bool | list[str] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         is_workflows: bool = False,
         **parameters,

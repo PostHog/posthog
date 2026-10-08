@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product tracing
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product tracing
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Tracing
 feature: tracing
 url_prefix: /tracing
@@ -205,12 +203,6 @@ tools:
         response:
             include:
                 - results
-    organizations-projects-tracing-config-partial-update:
-        operation: organizations_projects_tracing_config_partial_update
-        enabled: false
-    organizations-projects-tracing-config-retrieve:
-        operation: organizations_projects_tracing_config_retrieve
-        enabled: false
     query-apm-spans:
         operation: tracing_spans_query_create
         enabled: true
@@ -227,33 +219,3 @@ tools:
         response:
             include:
                 - results
-    tracing-spans-error-counts-create:
-        operation: tracing_spans_error_counts_create
-        enabled: false
-    tracing-spans-has-spans-retrieve:
-        operation: tracing_spans_has_spans_retrieve
-        enabled: false
-    tracing-spans-impact-create:
-        operation: tracing_spans_impact_create
-        enabled: false
-    tracing-spans-symbol-stats-create:
-        operation: tracing_spans_symbol_stats_create
-        enabled: false
-    tracing-views-create:
-        operation: tracing_views_create
-        enabled: false
-    tracing-views-destroy:
-        operation: tracing_views_destroy
-        enabled: false
-    tracing-views-list:
-        operation: tracing_views_list
-        enabled: false
-    tracing-views-partial-update:
-        operation: tracing_views_partial_update
-        enabled: false
-    tracing-views-retrieve:
-        operation: tracing_views_retrieve
-        enabled: false
-    tracing-views-update:
-        operation: tracing_views_update
-        enabled: false

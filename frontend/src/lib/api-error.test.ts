@@ -98,12 +98,13 @@ describe('api-error', () => {
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
-            ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
+            ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
             // A route the backend does not serve stays reportable here. Only a caller that already

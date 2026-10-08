@@ -1,3 +1,8 @@
+import { codexCloudAccountModule } from "@posthog/core/integrations/codexCloudAccount.module";
+import {
+  CODEX_CLOUD_ACCOUNT_HOST,
+  type CodexCloudAccountHost,
+} from "@posthog/core/integrations/codexCloudAccountService";
 import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
@@ -103,7 +108,10 @@ import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import {
   type ISpeechKeyStore,
   SPEECH_KEY_STORE,
@@ -326,6 +334,7 @@ container
         completionVolume: s.completionVolume,
         scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
         customSounds: s.customSounds,
+        notificationsPausedUntil: s.notificationsPausedUntil,
       };
     },
   });
@@ -388,7 +397,9 @@ container
     get: () => {
       const s = useSettingsStore.getState();
       return {
-        enabled: s.spokenNotifications,
+        enabled:
+          s.spokenNotifications &&
+          !notificationsPaused(s.notificationsPausedUntil),
         voiceId: s.elevenLabsVoiceId || undefined,
       };
     },
@@ -469,3 +480,21 @@ container.bind(SETTINGS_BACKUP_FILES).toConstantValue({
   open: () => hostTrpcClient.settingsBackup.open.mutate(),
   save: (input) => hostTrpcClient.settingsBackup.save.mutate(input),
 });
+
+container.load(codexCloudAccountModule);
+container
+  .bind<CodexCloudAccountHost>(CODEX_CLOUD_ACCOUNT_HOST)
+  .toConstantValue({
+    prepare: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthTerminal.mutate({ attemptId }),
+    read: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFileRead.query({ attemptId }),
+    remove: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFileRemove.mutate({ attemptId }),
+    finish: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFinish.mutate({ attemptId }),
+    cancel: async (attemptId) => {
+      await hostTrpcClient.shell.destroy.mutate({ sessionId: attemptId });
+      await hostTrpcClient.agent.codexCloudAuthFinish.mutate({ attemptId });
+    },
+  });

@@ -13,6 +13,8 @@ import { cohortsList } from '../generated/api'
 export const cohortsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.COHORTS,
     path: ['products', 'cohorts', 'frontend', 'emptyState', 'cohortsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await cohortsList(projectId, { limit: 1 })

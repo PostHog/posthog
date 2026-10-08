@@ -6,8 +6,8 @@ from posthog.models.utils import UUIDModel
 class ReplayObservationUsage(UUIDModel):
     """Immutable usage receipt, decoupled from the observation row so deletes can't refund spent quota.
 
-    Observations write their own id on success. Prompt-suggestion test runs write a synthetic
-    per-session id (`prompt_evaluation.evaluation_usage_id`).
+    Observations write their own id on success. Receipts from the retired prompt-suggestion test runs
+    carry a synthetic per-session id instead.
     """
 
     organization = models.ForeignKey(

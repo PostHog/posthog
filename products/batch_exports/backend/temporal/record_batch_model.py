@@ -7,6 +7,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEv
 
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -15,7 +16,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -26,9 +27,11 @@ from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
     serialize_batch_export_query,
+    validate_hogql_batch_export_user,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
@@ -369,13 +372,43 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     placeholders run unchanged.
     """
 
-    def __init__(self, team_id: int, hogql_query: str, batch_export_id: str | None = None):
+    def __init__(
+        self,
+        team_id: int,
+        hogql_query: str,
+        batch_export_id: str | None = None,
+        user_id: int | None = None,
+        hogql_modifiers: dict[str, typing.Any] | None = None,
+    ) -> None:
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
+        self.user_id = user_id
         self.hogql_query = hogql_query
+        self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
             self.parsed_hogql_query
         )
+        self._use_new_events_schema = False
+
+    async def get_hogql_context(self) -> HogQLContext:
+        team = await Team.objects.aget(id=self.team_id)
+        user = await User.objects.filter(pk=self.user_id).afirst()
+        await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
+        context = await database_sync_to_async(create_hogql_context_for_batch_export)(
+            team, user=user, values={"log_comment": self.get_log_comment()}, modifiers=self.hogql_modifiers
+        )
+        # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
+        # the event loop where a database read is not allowed.
+        self._use_new_events_schema = await database_sync_to_async(context.uses_new_events_schema)()
+        return context
+
+    async def _print_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
+    ) -> tuple[str, QueryParameters]:
+        try:
+            return await super()._print_query(data_interval_start, data_interval_end, output_format)
+        except ExposedHogQLError as e:
+            raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
@@ -396,7 +429,11 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        return _as_clickhouse_request_settings(get_user_hogql_batch_export_query_settings())
+        query_settings = get_user_hogql_batch_export_query_settings()
+        if self._use_new_events_schema:
+            # The query prints without settings, so the printer cannot attach the native read setting itself.
+            query_settings.json_type_escape_dots_in_keys = True
+        return _as_clickhouse_request_settings(query_settings)
 
 
 def resolve_batch_exports_model(
@@ -430,7 +467,11 @@ def resolve_batch_exports_model(
                 if model.hogql_query is None:
                     raise UnsupportedHogQLQueryError("Batch export model is 'hogql' but no HogQL query was provided")
                 record_batch_model = HogQLQueryRecordBatchModel(
-                    team_id=team_id, hogql_query=model.hogql_query, batch_export_id=batch_export_id
+                    team_id=team_id,
+                    hogql_query=model.hogql_query,
+                    batch_export_id=batch_export_id,
+                    user_id=model.user_id,
+                    hogql_modifiers=model.hogql_modifiers,
                 )
         else:
             model_name = "events"

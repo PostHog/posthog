@@ -1,5 +1,9 @@
+import { MCPToolResultError } from '@/lib/errors'
+import { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import type { Context } from '@/tools/types'
 
 /**
  * `$mcp_tool_call` properties for the CLI. Value-free by design: raw error
@@ -31,6 +35,22 @@ export function buildToolCallProperties(
     }
 }
 
+/**
+ * Records one inner `exec` call as `$mcp_tool_call`. An operator key is an ordinary key, so the
+ * scout trial launch and result calls are dropped here. The hosted server drops them too, because
+ * comparison activity must stay out of scout-readable analytics.
+ */
+export function trackCliToolCall(
+    context: Pick<Context, 'trackEvent'>,
+    toolName: string,
+    properties: ExecInnerCallProperties
+): void {
+    if (isPrivateScoutTrialTool(toolName)) {
+        return
+    }
+    void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
+}
+
 function errorClass(properties: ExecInnerCallProperties): 'validation_error' | 'api_error' | 'error' {
     if (properties.validation_error) {
         return 'validation_error'
@@ -41,14 +61,10 @@ function errorClass(properties: ExecInnerCallProperties): 'validation_error' | '
     return 'error'
 }
 
-/**
- * The hosted server's `$mcp_error_type` vocabulary, derived from the little the
- * CLI records (a validation flag and an HTTP status) — without it, CLI failures
- * land in the analytics tools' untyped bucket and can't be broken down by reason.
- */
-function errorType(
-    properties: ExecInnerCallProperties
-): 'validation' | 'permission' | 'rate_limited' | 'api_4xx' | 'api_5xx' | 'internal' {
+function errorType(properties: ExecInnerCallProperties): MCPToolResultError['errorType'] | 'api_4xx' {
+    if (properties.error instanceof MCPToolResultError) {
+        return properties.error.errorType
+    }
     if (properties.validation_error) {
         return 'validation'
     }

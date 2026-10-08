@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
@@ -519,6 +520,67 @@ context and repo names alone.
 </jsonschema>"""
 
 
+def _names_repository(text: str, repo: str) -> bool:
+    # A longer name that starts with `repo` (`acme/api-client` for `acme/api`) is another repository.
+    # A dot that ends a sentence also ends the name, but a dot before a word (`acme/api.js`) does not.
+    return re.search(rf"(?<![\w.-]){re.escape(repo)}(?![\w-]|\.\w)", text, re.IGNORECASE) is not None
+
+
+def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
+    """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
+
+    A failure here costs the caller its automatic selection, so a reply that names exactly one
+    candidate is still worth keeping. Two or more named candidates leave the conclusion ambiguous:
+    raise instead, because the runner then fails the turn the way it did before this salvage, and
+    the caller keeps its own fallback. Never answer "no repository" from here — callers read that
+    as a decision the agent made.
+
+    A reply that got as far as its `repository` field has stated its choice, so only that value
+    counts. Its `reason` must cite the repositories the agent checked, so a cut-off
+    `{"repository": null, "reason": "checked acme/b...` names a candidate the agent rejected.
+    """
+    stated = re.findall(r'"repository"\s*:\s*(?:null|"([^"]*)")', text)
+    if stated:
+        # The answer comes last, after any tool call or error object that also holds the key.
+        choice = stated[-1].strip().lower()
+        named = {choice} if choice in candidate_repos else set()
+    else:
+        named = {repo for repo in candidate_repos if _names_repository(text, repo)}
+    if len(named) != 1:
+        raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
+    repository = named.pop()
+    return RepoSelectionResult(
+        repository=repository,
+        reason=f"The agent's answer was not readable, but its reply named only {repository}.",
+    )
+
+
+# Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
+PINNED_REPOSITORY_REASON = "The request names this repository as its source."
+
+
+def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
+    """Honor a repository the request names, or refuse to select a different one.
+
+    Matched against the eligible candidates rather than the raw connected list, so the pin and the
+    agent agree on what is reachable: a repository the agent could not have picked is not one a pin
+    may reach either. That is what puts this check after the cache hydration above, whose result the
+    pinned path otherwise does not need. Candidates are lowercased, so the pin is too.
+    """
+    pinned = pinned_repository.strip().lower()
+    if pinned in candidate_repos:
+        return RepoSelectionResult(repository=pinned, reason=PINNED_REPOSITORY_REASON)
+    logger.info("repo_selection.pinned_repository_unavailable", extra={"pinned": pinned})
+    return RepoSelectionResult(
+        repository=None,
+        reason=(
+            f"This report comes from `{pinned}`, which this project's GitHub installation cannot "
+            "reach. Connect that repository, or pick one yourself. No other repository is a "
+            "substitute for the one the report names."
+        ),
+    )
+
+
 async def select_repository(
     team_id: int,
     user_id: int,
@@ -538,6 +600,7 @@ async def select_repository(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     past_corrections: str | None = None,
+    pinned_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -546,6 +609,12 @@ async def select_repository(
 
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
     that a reviewer marked wrong; see `_build_repo_selection_prompt`.
+
+    `pinned_repository` is a repository the request itself names — a GitHub issue says which
+    repository it was filed against, and that is the answer, not a question for the agent. When it
+    is an eligible candidate it is returned as-is. When it is not, the result is `repository=None`
+    carrying the mismatch: the agent would otherwise pick a similar-looking repository and send the
+    work somewhere the request never pointed at.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -593,6 +662,8 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
+    if pinned_repository is not None:
+        return _pinned_selection(pinned_repository, candidate_repos)
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
@@ -637,6 +708,9 @@ async def select_repository(
         signal_report_id=signal_report_id,
         ai_stage="repo_selection",
         internal=True,
+        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+        # user into a manual repository picker. Read the pick out of the raw reply instead.
+        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
     )
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:

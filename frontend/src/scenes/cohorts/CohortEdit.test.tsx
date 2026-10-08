@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -699,6 +699,37 @@ describe('cohortEditLogic', () => {
                 expect.stringContaining(urls.insightView('abc123' as InsightShortId))
             )
             expect(screen.getByText(/2 of 42 shown/)).toBeInTheDocument()
+        })
+    })
+
+    describe('manual person selection on a new static cohort', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('keeps the selected people removable while the person search fails', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': () => [500, { detail: 'Query failed to execute' }],
+                },
+            })
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setCohort({ ...NEW_COHORT, is_static: true })
+            logic.actions.addPersonToCreateStaticCohort('person-1', 'Jane Doe')
+            logic.actions.addPersonToCreateStaticCohort('person-2', 'John Smith')
+
+            render(<CohortEdit id="new" />)
+
+            expect(await screen.findByTestId('insight-empty-state')).toBeInTheDocument()
+            const selected = screen.getByTestId('cohort-selected-persons')
+            expect(selected).toHaveTextContent('Selected people (2)')
+
+            await userEvent.click(within(within(selected).getByText('Jane Doe').parentElement!).getByRole('button'))
+
+            expect(selected).toHaveTextContent('Selected people (1)')
+            expect(within(selected).queryByText('Jane Doe')).not.toBeInTheDocument()
+            expect(within(selected).getByText('John Smith')).toBeInTheDocument()
         })
     })
 

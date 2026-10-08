@@ -18,6 +18,7 @@ Start from the working scaffold in [references/starter-scaffold.md](references/s
 on a first build: it already wires the date picker, theme tokens, per-query loading state (every
 card fills in independently as its own data lands), and correct typed-node result reading. Keep
 that wiring; replace the sample metrics and layout.
+Keep its pattern of one component per card with `editable()` params, and follow the "Params" section of the `building-canvases` skill for each card you add.
 
 ## Imports
 
@@ -84,6 +85,12 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
   `platform_token_redeclared`.
 - recharts strokes/fills use token CSS variables (`stroke="var(--primary)"`, grid/axes in
   `var(--border)`/`var(--muted-foreground)`).
+- Some recharts defaults are hardcoded for a light theme and go wrong on a dark canvas. The
+  platform stylesheet corrects them, so do not work around one in canvas code. Pie slice outlines
+  are one: recharts strokes every sector white, and the stylesheet removes the outline. The
+  antialiasing seam between stacked bar segments is another, and so is the default tooltip, which
+  the stylesheet inverts against the page so its text always meets contrast. A bare `<Tooltip />`
+  is the right thing to write.
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 

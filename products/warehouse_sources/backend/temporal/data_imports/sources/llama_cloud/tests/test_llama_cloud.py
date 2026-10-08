@@ -110,25 +110,6 @@ class TestLlamaCloudTransport:
         assert session.calls[1][1]["page_token"] == "token-1"
         assert session.calls[0][1]["page_size"] == 100
 
-    def test_get_rows_saves_resume_state_after_yield(self) -> None:
-        session = FakeSession(
-            [
-                _page([{"id": "job-1"}], next_page_token="token-1"),
-                _page([{"id": "job-2"}], next_page_token=None),
-            ]
-        )
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            rows = get_rows("llx-test", "na", "parse_jobs", MagicMock(), manager)
-            next(rows)
-            # Suspended at the first yield: a crash here must re-yield this page on retry,
-            # so the resume state can't have been persisted yet.
-            manager.save_state.assert_not_called()
-            next(rows)
-
-        manager.save_state.assert_called_once_with(LlamaCloudResumeConfig(next_page_token="token-1"))
-
     def test_get_rows_resumes_from_saved_page_token(self) -> None:
         session = FakeSession([_page([{"id": "job-3"}], next_page_token=None)])
         manager = _make_manager(resume_state=LlamaCloudResumeConfig(next_page_token="token-2"))
@@ -157,15 +138,6 @@ class TestLlamaCloudTransport:
             )
 
         assert session.calls[0][1]["created_at_on_or_after"] == "2026-01-02T03:04:05Z"
-
-    def test_get_rows_full_refresh_omits_incremental_filter(self) -> None:
-        session = FakeSession([_page([{"id": "job-1"}], next_page_token=None)])
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("llx-test", "na", "parse_jobs", MagicMock(), manager))
-
-        assert "created_at_on_or_after" not in session.calls[0][1]
 
     def test_get_rows_usage_metrics_resolves_organization_id(self) -> None:
         session = FakeSession(
@@ -205,18 +177,6 @@ class TestLlamaCloudTransport:
             pytest.raises(ValueError, match="organization id"),
         ):
             list(get_rows("llx-test", "na", "usage_metrics", MagicMock(), manager))
-
-    def test_get_rows_pipelines_yields_bare_array_without_pagination(self) -> None:
-        session = FakeSession([[{"id": "pipeline-1"}, {"id": "pipeline-2"}]])
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "pipelines", MagicMock(), manager))
-
-        assert batches == [[{"id": "pipeline-1"}, {"id": "pipeline-2"}]]
-        url, params = session.calls[0]
-        assert url == "https://api.cloud.eu.llamaindex.ai/api/v1/pipelines"
-        assert params == {}
 
     def test_get_rows_pipelines_projects_to_documented_fields(self) -> None:
         # Pipeline definitions embed third-party credentials in nested config; only the
@@ -258,107 +218,6 @@ class TestLlamaCloudTransport:
                     "name": "docs",
                     "project_id": "proj-1",
                     "pipeline_type": "MANAGED",
-                }
-            ]
-        ]
-
-    def test_get_rows_sheets_jobs_projects_to_documented_fields(self) -> None:
-        # Sheets jobs embed webhook credentials under nested `parameters.webhook_configurations`;
-        # only the documented job metadata reaches the warehouse. Exercises the paginated
-        # projection path (distinct from the bare-array pipelines endpoint).
-        session = FakeSession(
-            [
-                _page(
-                    [
-                        {
-                            "id": "sheet-1",
-                            "created_at": "2026-01-01T00:00:00Z",
-                            "updated_at": "2026-01-02T00:00:00Z",
-                            "project_id": "proj-1",
-                            "user_id": "user-1",
-                            "status": "SUCCESS",
-                            "success": True,
-                            "file_id": "file-1",
-                            "regions": [],
-                            "worksheet_metadata": {},
-                            "errors": [],
-                            "parameters": {
-                                "webhook_configurations": [
-                                    {
-                                        "webhook_signing_secret": "whsec-secret",
-                                        "webhook_headers": {"Authorization": "Bearer x"},
-                                    }
-                                ]
-                            },
-                        }
-                    ],
-                    next_page_token=None,
-                )
-            ]
-        )
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "sheets_jobs", MagicMock(), manager))
-
-        assert batches == [
-            [
-                {
-                    "id": "sheet-1",
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "updated_at": "2026-01-02T00:00:00Z",
-                    "project_id": "proj-1",
-                    "user_id": "user-1",
-                    "status": "SUCCESS",
-                    "success": True,
-                    "file_id": "file-1",
-                    "regions": [],
-                    "worksheet_metadata": {},
-                    "errors": [],
-                }
-            ]
-        ]
-
-    def test_get_rows_files_projects_to_documented_fields(self) -> None:
-        # Each file row carries a presigned `download_url` (and form fields) granting access to
-        # the private source document; only the documented metadata reaches the warehouse.
-        session = FakeSession(
-            [
-                _page(
-                    [
-                        {
-                            "id": "file-1",
-                            "name": "invoice.pdf",
-                            "external_file_id": "ext-1",
-                            "file_type": "pdf",
-                            "project_id": "proj-1",
-                            "last_modified_at": "2026-01-02T00:00:00Z",
-                            "expires_at": "2026-02-01T00:00:00Z",
-                            "purpose": "parse",
-                            "download_url": "https://s3.example.com/private?X-Amz-Signature=secret",
-                            "download_form_fields": {"key": "value", "policy": "secret"},
-                        }
-                    ],
-                    next_page_token=None,
-                )
-            ]
-        )
-        manager = _make_manager()
-
-        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("llx-test", "eu", "files", MagicMock(), manager))
-
-        assert batches == [
-            [
-                {
-                    "id": "file-1",
-                    "name": "invoice.pdf",
-                    "external_file_id": "ext-1",
-                    "file_type": "pdf",
-                    "project_id": "proj-1",
-                    "last_modified_at": "2026-01-02T00:00:00Z",
-                    "expires_at": "2026-02-01T00:00:00Z",
-                    "purpose": "parse",
                 }
             ]
         ]

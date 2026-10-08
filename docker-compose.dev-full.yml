@@ -171,6 +171,16 @@ services:
         depends_on:
             - kafka
 
+    property-defs-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        environment:
+            KAFKA_CONSUMER_TOPIC: clickhouse_ai_events_json
+            KAFKA_CONSUMER_GROUP: property-defs-ai
+        depends_on:
+            - kafka
+
     feature-flags:
         extends:
             file: docker-compose.base.yml

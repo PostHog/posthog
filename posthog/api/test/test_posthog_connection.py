@@ -24,6 +24,7 @@ FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 def _mock_response(status_code: int, body: dict, chunks: list[bytes] | None = None) -> MagicMock:
     # The view streams the body via res.iter_content(...), so drive that rather than res.json().
     m = MagicMock(status_code=status_code)
+    m.headers = {}
     m.__enter__.return_value = m
     m.iter_content.return_value = iter(chunks) if chunks is not None else iter([json.dumps(body).encode()])
     return m
@@ -59,6 +60,26 @@ class TestPostHogConnectionForward:
 
     def _target_url(self) -> str:
         return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/target/"
+
+    @pytest.mark.parametrize("private", [True, False])
+    @pytest.mark.parametrize("target_status", [200, 403, 500])
+    def test_forward_preserves_trusted_capture_policy(
+        self, client: HttpClient, private: bool, target_status: int
+    ) -> None:
+        client.force_login(self.user)
+        upstream = _mock_response(target_status, {"detail": "Synthetic response"})
+        if private:
+            upstream.headers["X-PostHog-Suppress-Analytics"] = "true"
+        with patch(FORWARD_PATH, return_value=upstream):
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/tasks/"},
+                content_type="application/json",
+                headers={"X-PostHog-Suppress-Analytics": "true"},
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == target_status
+        assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
 
     def test_forward_injects_token_and_passes_through(self, client: HttpClient):
         client.force_login(self.user)

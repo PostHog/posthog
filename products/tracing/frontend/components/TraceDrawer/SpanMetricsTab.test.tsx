@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -72,6 +72,24 @@ describe('SpanMetricsTab', () => {
 
         const props = capturedProps[capturedProps.length - 1]
         expect(props.spanId).toBe('span-xyz')
+    })
+
+    it('keeps an AI row on the trace scope and hides its synthetic service link', () => {
+        const { container, rerender } = render(
+            <Provider>
+                <SpanMetricsTab span={span} />
+            </Provider>
+        )
+        fireEvent.click(within(container).getAllByText('This span')[0])
+
+        rerender(
+            <Provider>
+                <SpanMetricsTab span={{ ...span, span_id: 'ai:event-1', service_name: 'llm' }} />
+            </Provider>
+        )
+
+        expect(capturedProps[capturedProps.length - 1].spanId).toBeNull()
+        expect(within(container).queryByText('View metrics')).toBeNull()
     })
 
     it('links to the span service metrics over the trace window', () => {

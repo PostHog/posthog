@@ -1,11 +1,6 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamBusinessKnowledgeConfig(models.Model):
@@ -23,9 +18,19 @@ class TeamBusinessKnowledgeConfig(models.Model):
             "support tickets. Requires Support to be enabled for this environment."
         ),
     )
+    # Environment-scoped, unlike learn_from_support_enabled. A GitHub App installation belongs to
+    # this environment, so a child environment must not inherit the parent's repository allowlist.
+    github_integration_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="GitHub integration id for this environment. Null when GitHub is not connected.",
+    )
+    github_repos = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text="Lowercased owner/repo names this environment allows business knowledge to read.",
+    )
 
     class Meta:
         app_label = "business_knowledge"
-
-
-register_team_extension_signal(TeamBusinessKnowledgeConfig, logger=logger)

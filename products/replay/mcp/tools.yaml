@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product replay
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product replay
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Session replays
 feature: replay
 url_prefix: /replay
@@ -61,18 +59,20 @@ tools:
             Session recordings are reachable from events, errors, and persons via the `$session_id` property on events.
             Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a
             `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that
-            project or session. A 404 means no recording was captured. If the user wants to understand what happened
-            without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary of
-            the session. To generate one, call `vision-scanners-inline-scan-create` with the session id in
+            project or session. When no recording is available, the tool returns `found: false` with reason
+            `recording_not_found`; this is a normal lookup result, not a tool failure. If the user wants to understand
+            what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision
+            AI summary of the session. To generate one, call `vision-scanners-inline-scan` with the session id in
             `session_ids`, `scanner_type: "summarizer"`, and a `prompt` (required), then read the summary back with
             `vision-observations-list`. The investigating-replay skill carries the exact prompt and `scanner_config` the
             Summarize button in the player uses, so pass those to land on the same summary (scanning is slow).
             `vision-scanners-scan-session` points a saved scanner at the session instead. If a recording is missing
-            (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
+            (`found: false`) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
             `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
+        hooks: replay/sessionRecordingGetHooks
         response:
             exclude:
                 - person.properties
@@ -98,6 +98,7 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
     session-recording-playlist-get:
         operation: session_recording_playlists_retrieve
         enabled: true
@@ -134,10 +135,8 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
             - type
-    session-recording-playlists-destroy:
-        operation: session_recording_playlists_destroy
-        enabled: false
     session-recording-playlists-list:
         operation: session_recording_playlists_list
         enabled: true
@@ -152,27 +151,6 @@ tools:
         description: >
             List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
             playlists with their metadata and recording counts.
-    session-recording-playlists-recordings-create:
-        operation: session_recording_playlists_recordings_create
-        enabled: false
-    session-recording-playlists-recordings-destroy:
-        operation: session_recording_playlists_recordings_destroy
-        enabled: false
-    session-recording-playlists-recordings-retrieve:
-        operation: session_recording_playlists_recordings_retrieve
-        enabled: false
-    session-recording-playlists-update:
-        operation: session_recording_playlists_update
-        enabled: false
-    session-recordings-list:
-        operation: session_recordings_list
-        enabled: false
-    session-recordings-partial-update:
-        operation: session_recordings_partial_update
-        enabled: false
-    session-recordings-update:
-        operation: session_recordings_update
-        enabled: false
 wrappers:
     query-session-recordings-list:
         schema_ref: AssistantRecordingsQuery

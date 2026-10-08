@@ -65,7 +65,11 @@ type RenderUiSchema = ReturnType<typeof makeRenderUiSchema>
  * the inner tool: it emits a render directive (`{ tool_name, tool_input, app_key }`
  * + the render-ui resourceUri) and the UI app fetches its own data.
  */
-export function createRenderUiTool(allTools: Tool<ZodObjectAny>[], context: Context): Tool<RenderUiSchema> | null {
+export function createRenderUiTool(
+    allTools: Tool<ZodObjectAny>[],
+    context: Context,
+    mcpClientName?: string
+): Tool<RenderUiSchema> | null {
     const renderableNames = getRenderableToolNames(allTools)
     if (renderableNames.length === 0) {
         return null
@@ -112,7 +116,7 @@ export function createRenderUiTool(allTools: Tool<ZodObjectAny>[], context: Cont
                     tool_name: tool.name,
                     tool_input: toolInput,
                     app_key: appKey,
-                    _analytics: { distinctId, toolName: RENDER_UI_TOOL_NAME },
+                    _analytics: { distinctId, toolName: RENDER_UI_TOOL_NAME, ...(mcpClientName ? { mcpClientName } : {}) },
                 },
                 _meta: {
                     ui: { resourceUri: RENDER_UI_RESOURCE_URI },

@@ -192,6 +192,65 @@ describe("otel-log-transport", () => {
       );
     });
 
+    it("redacts tokens, secret headers and the proxy path token before export", async () => {
+      vi.stubEnv("VITE_POSTHOG_API_KEY", "phc_test123");
+      vi.stubEnv("VITE_POSTHOG_API_HOST", "https://test.posthog.com");
+
+      const { initOtelTransport } = await import(
+        "@main/utils/otel-log-transport"
+      );
+      const transport = initOtelTransport("info");
+
+      transport({
+        level: "info",
+        data: [
+          "minted phe_secret1 for pha_secret2",
+          {
+            headers: { authorization: "Bearer anything" },
+            refresh: "phr_secret3",
+          },
+          new Error(`proxy http://127.0.0.1:5000/${"t".repeat(43)}/v1 failed`),
+        ],
+        date: new Date(),
+      } as never);
+
+      const body = mockEmit.mock.calls[0][0].body as string;
+      for (const secret of [
+        "secret1",
+        "secret2",
+        "secret3",
+        "Bearer anything",
+        "t".repeat(43),
+      ]) {
+        expect(body).not.toContain(secret);
+      }
+      expect(body).toContain("[REDACTED]");
+    });
+
+    it("masks name/value header records and redacts the String() fallback", async () => {
+      const { formatBody } = await import("@main/utils/otel-log-transport");
+
+      expect(
+        formatBody([[{ name: "Authorization", value: "Bearer abc123" }]]),
+      ).toBe('[{"name":"Authorization","value":"[REDACTED]"}]');
+      expect(formatBody([["pha_secret5", 1n]])).toBe("[REDACTED],1");
+    });
+
+    it("falls back to String() for a circular value without walking it", async () => {
+      const { formatBody } = await import("@main/utils/otel-log-transport");
+      let reads = 0;
+      const circular: Record<string, unknown> = {
+        get token() {
+          reads += 1;
+          return "pha_secret4";
+        },
+      };
+      circular.self = circular;
+
+      expect(formatBody([circular])).toBe("[object Object]");
+      expect(reads).toBe(1);
+    });
+
     it("formats Error objects with message and stack", async () => {
       vi.stubEnv("VITE_POSTHOG_API_KEY", "phc_test123");
       vi.stubEnv("VITE_POSTHOG_API_HOST", "https://test.posthog.com");

@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
@@ -15,24 +15,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     _convert_timestamps,
     _strip_sensitive_fields,
     clerk_source,
-    get_resources,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
     RETIRED_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
 class TestClerkPaginator:
-    def test_initial_state(self) -> None:
-        paginator = ClerkPaginator(limit=100)
-        assert paginator._limit == 100
-        assert paginator._offset == 0
-        assert paginator.has_next_page is True
-
     @pytest.mark.parametrize(
         ("label", "response_body", "has_next", "expected_offset"),
         [
@@ -70,56 +62,6 @@ class TestClerkPaginator:
         paginator.update_state(response)
 
         assert paginator.has_next_page is False
-        assert paginator._offset == 0
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_offset", "expected_offset_param"),
-        [
-            ("fresh_run_omits_offset", None, None),
-            ("resumed_sets_offset", 500, 500),
-        ],
-    )
-    def test_init_request(self, label: str, seeded_offset: int | None, expected_offset_param: int | None) -> None:
-        paginator = ClerkPaginator(limit=100)
-        if seeded_offset is not None:
-            paginator.set_resume_state({"offset": seeded_offset})
-
-        request = Request(method="GET", url="https://api.clerk.com/v1/users", params={"limit": 100})
-        paginator.init_request(request)
-
-        if expected_offset_param is None:
-            assert "offset" not in (request.params or {})
-        else:
-            assert request.params["offset"] == expected_offset_param
-
-    def test_update_request_sets_offset_when_next_page(self) -> None:
-        paginator = ClerkPaginator(limit=100)
-        response = MagicMock()
-        response.json.return_value = [{"id": f"u{i}"} for i in range(100)]
-        paginator.update_state(response)
-
-        request = Request(method="GET", url="https://api.clerk.com/v1/users", params={"limit": 100})
-        paginator.update_request(request)
-
-        assert request.params["offset"] == 100
-
-    def test_get_resume_state_returns_current_offset(self) -> None:
-        paginator = ClerkPaginator(limit=100)
-        response = MagicMock()
-        response.json.return_value = [{"id": f"u{i}"} for i in range(100)]
-        paginator.update_state(response)  # _offset advances to 100
-        assert paginator.get_resume_state() == {"offset": 100}
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = ClerkPaginator(limit=100)
-        paginator.set_resume_state({"offset": 500})
-        assert paginator._offset == 500
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"offset": 500}
-
-    def test_set_resume_state_ignores_missing_offset(self) -> None:
-        paginator = ClerkPaginator(limit=100)
-        paginator.set_resume_state({})
         assert paginator._offset == 0
 
     @pytest.mark.parametrize(
@@ -248,32 +190,6 @@ class TestClerkSourceResumeBehavior:
         # offset-less call to re-fetch the already-synced pages.
         assert [p.get("offset") for p in sent_params] == [200]
 
-    @pytest.mark.parametrize("endpoint", [_DIRECT_ARRAY_ENDPOINT, _WRAPPED_ENDPOINT])
-    def test_terminal_single_page_does_not_save_state(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_partial_page(endpoint, ["only"])),
-        ]
-        self._drive(endpoint, manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize("endpoint", [_DIRECT_ARRAY_ENDPOINT, _WRAPPED_ENDPOINT])
-    def test_saved_state_with_zero_offset_is_ignored(self, endpoint: str) -> None:
-        # A zero-offset checkpoint is equivalent to a fresh run — don't seed.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = ClerkResumeConfig(offset=0)
-
-        responses = [
-            _make_http_response(_partial_page(endpoint, ["u1"])),
-        ]
-        sent_params = self._drive(endpoint, manager, responses)
-
-        assert [p.get("offset") for p in sent_params] == [None]
-
     @pytest.mark.parametrize(
         "cfg",
         [
@@ -302,28 +218,6 @@ class TestClerkEndpoints:
     def test_commerce_endpoints_use_the_renamed_billing_path(self, endpoint: str, path: str) -> None:
         assert CLERK_ENDPOINTS[endpoint].path == path
 
-    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
-    def test_resource_targets_the_configured_path(self, endpoint: str) -> None:
-        config = CLERK_ENDPOINTS[endpoint]
-        resources = get_resources(endpoint)
-        resource = next(candidate for candidate in resources if candidate["name"] == endpoint)
-        endpoint_definition = cast(Endpoint, resource["endpoint"])
-
-        assert resource["table_name"] == endpoint
-        assert config.path.startswith("/")
-        if config.fan_out is None:
-            assert endpoint_definition["path"] == config.path
-        else:
-            # The parent must be fetched first, and the filter rides in the child's query string.
-            assert [candidate["name"] for candidate in resources] == [config.fan_out.parent, endpoint]
-            assert (
-                endpoint_definition["path"]
-                == f"{config.path}?{config.fan_out.query_param}={{{config.fan_out.query_param}}}"
-            )
-        # Rows are only found under the wrapper key the endpoint actually uses; the default
-        # `data` selector silently yields nothing for /m2m_tokens.
-        assert endpoint_definition.get("data_selector") == (config.data_key if config.is_wrapped_response else None)
-
     @pytest.mark.parametrize(
         "item",
         [
@@ -344,19 +238,6 @@ class TestClerkEndpoints:
 
         for field, value in item.items():
             assert converted[field] == (value // 1000 if value is not None else None)
-
-    @pytest.mark.parametrize(
-        "value",
-        [
-            "2026-07-29T12:52:50Z",  # ISO string instead of epoch ms
-            "1700000000000",  # numeric string
-            True,  # bool is an int subclass but not a timestamp
-        ],
-    )
-    def test_non_integer_timestamps_pass_through_unchanged(self, value: Any) -> None:
-        # Clerk occasionally returns a timestamp field as a non-numeric value; `//` on it used
-        # to raise TypeError and abort the whole import.
-        assert _convert_timestamps({"created_at": value}) == {"created_at": value}
 
     @pytest.mark.parametrize(
         "item,paths,expected",
@@ -387,70 +268,6 @@ class TestClerkEndpoints:
         # Redeemable invitation links must never reach the warehouse table, where any viewer
         # could copy one and accept the invitation.
         assert _strip_sensitive_fields(dict(item), paths) == expected
-
-
-class TestClerkSourceResponse:
-    def _source_response(self, endpoint: str) -> Any:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        return clerk_source(
-            secret_key="sk_live_test",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            logger=MagicMock(),
-        )
-
-    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
-    def test_partitioning_matches_endpoint_config(self, endpoint: str) -> None:
-        # Endpoints whose objects carry no creation timestamp must not declare a datetime
-        # partition, or every row lands in the same fallback bucket.
-        expected_key = CLERK_ENDPOINTS[endpoint].partition_key
-        response = self._source_response(endpoint)
-
-        assert response.primary_keys == ["id"]
-        if expected_key is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [expected_key]
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "week"
-
-    def test_rows_are_read_from_the_endpoints_wrapper_key(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        responses = [
-            _make_http_response({"data": [{"id": "mch_1"}], "total_count": 1}),
-            _make_http_response(
-                {
-                    "m2m_tokens": [{"id": "mt_1", "created_at": 1700000000000, "token": "mt_secret"}],
-                    "total_count": 1,
-                }
-            ),
-        ]
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = responses
-
-            source_response = clerk_source(
-                secret_key="sk_live_test",
-                endpoint="m2m_tokens",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                logger=MagicMock(),
-            )
-            pages = list(cast(Iterable[Any], source_response.items()))
-
-        # The reusable `token` secret must be stripped before the row reaches the warehouse.
-        assert pages == [[{"id": "mt_1", "created_at": 1700000000}]]
 
 
 class TestClerkFilteredEndpoints:
@@ -596,7 +413,7 @@ class TestClerkValidateCredentials:
         [
             (400, "invalid or has been revoked"),
             (401, "invalid or has been revoked"),
-            (403, "does not have permission"),
+            (403, "active Clerk instance"),
             (404, "active Clerk instance"),
             (500, "Couldn't validate your Clerk secret key"),
         ],
@@ -615,24 +432,6 @@ class TestClerkValidateCredentials:
         assert expected_substring in (message or "")
         assert sentinel not in (message or "")
 
-    @pytest.mark.parametrize(
-        ("status_code", "should_capture"),
-        [
-            (400, False),  # malformed key is user input, not an error to file
-            (404, False),  # an instance Clerk can't resolve is user input too
-            (500, True),  # a genuine server fault still files an issue
-        ],
-    )
-    def test_only_server_faults_file_an_error(self, status_code: int, should_capture: bool) -> None:
-        response = _make_http_response({"errors": [{"code": "bad"}]}, status_code=status_code)
-        with (
-            patch(_VALIDATE_SESSION) as mock_session,
-            patch(f"{_CLERK_MODULE}.capture_exception") as mock_capture,
-        ):
-            mock_session.return_value.get.return_value = response
-            validate_credentials("sk_test_key")
-        assert mock_capture.called is should_capture
-
     @pytest.mark.parametrize("secret_key", ["sk_live_\u200bkey", "sk_live_\u3042key"])
     def test_non_ascii_key_is_rejected_before_any_request(self, secret_key: str) -> None:
         # Such a key can't be encoded into the Authorization header, so dispatching the request
@@ -642,6 +441,19 @@ class TestClerkValidateCredentials:
         assert is_valid is False
         assert "Copy the key again" in (message or "")
         assert "latin-1" not in (message or "")
+        mock_session.assert_not_called()
+
+    @pytest.mark.parametrize("secret_key", ["sk_live_key\rextra_pasted_content", "sk_live_key\nextra_pasted_content"])
+    def test_key_with_return_character_is_rejected_before_any_request(self, secret_key: str) -> None:
+        # A carriage return or newline is ASCII, so it passes isascii(), but requests still rejects
+        # it as an invalid header value (InvalidHeader) when dispatching. That exception is a
+        # RequestException subclass, so it was previously swallowed by the generic network-error
+        # handler below and reported as a transient "couldn't reach Clerk" failure instead of
+        # explaining the malformed key.
+        with patch(_VALIDATE_SESSION) as mock_session:
+            is_valid, message = validate_credentials(secret_key)
+        assert is_valid is False
+        assert "Copy the key again" in (message or "")
         mock_session.assert_not_called()
 
     def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:

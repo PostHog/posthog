@@ -1,51 +1,462 @@
-name: Publish posthog-symbol-data to crates.io
+name: Release posthog-symbol-data
 
 on:
     push:
-        tags:
-            - 'posthog-symbol-data/v*'
+        branches:
+            - master
+        paths:
+            - 'rust/common/symbol_data/.sampo/changesets/*.md'
+
+permissions:
+    contents: read
 
 env:
-    CARGO_TERM_COLOR: always
+    SAMPO_VERSION: 0.17.4
+
+concurrency:
+    group: release-posthog-symbol-data
+    cancel-in-progress: false
 
 jobs:
-    publish:
-        name: Publish to crates.io
+    check-changesets:
+        name: Check for posthog-symbol-data changesets
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        outputs:
+            has-changesets: ${{ steps.check.outputs.has-changesets }}
+        steps:
+            - name: Checkout changesets
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  sparse-checkout: rust/common/symbol_data/.sampo/changesets
+                  sparse-checkout-cone-mode: false
 
+            - name: Check for changesets
+              id: check
+              run: |
+                  changeset_count=$(find rust/common/symbol_data/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                      echo "Found $changeset_count posthog-symbol-data changeset(s)"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No posthog-symbol-data changesets remain"
+                  fi
+
+    prepare-release:
+        name: Prepare posthog-symbol-data release pull request
+        needs: [check-changesets, identify-release, publish]
+        if: >-
+            !cancelled()
+            && github.repository == 'PostHog/posthog'
+            && needs.check-changesets.result == 'success'
+            && needs.identify-release.result == 'success'
+            && (
+                (needs.identify-release.outputs.release-commit == '' && needs.publish.result == 'skipped')
+                || (needs.identify-release.outputs.release-commit != '' && needs.publish.result == 'success')
+            )
+            && needs.check-changesets.outputs.has-changesets == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        environment: Release SDK
         permissions:
             contents: read
-            id-token: write
-
-        defaults:
-            run:
-                working-directory: rust
-
+        outputs:
+            new-version: ${{ steps.prepare-release.outputs.new-version }}
+            release-pr: ${{ steps.release-pr.outputs.url }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Get GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
 
-            - name: Install rust
+            - name: Checkout latest master
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  fetch-depth: 0
+                  filter: blob:none
+                  token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: |
+                      .config/.markdownlint-cli2.jsonc
+                      .github/actions/pnpm-install
+                      .github/actions/setup-pnpm
+                      .nvmrc
+                      package.json
+                      patches
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      rust
+                  sparse-checkout-cone-mode: false
+
+            - name: Update to latest master
+              run: git pull --ff-only origin master
+
+            - name: Check for remaining changesets
+              id: recheck-changesets
+              run: |
+                  changeset_count=$(find rust/common/symbol_data/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No posthog-symbol-data changesets remain; skipping release preparation"
+                  fi
+
+            - name: Install Rust
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
+                  components: cargo
 
-            - name: Verify tag matches crate version
+            - name: Cache Sampo CLI
+              id: cache-sampo
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: ~/.cargo/bin/sampo
+                  key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
+
+            - name: Install Sampo CLI
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && steps.cache-sampo.outputs.cache-hit != 'true'
+              run: cargo install sampo --version "$SAMPO_VERSION" --locked
+
+            - name: Prepare release with Sampo
+              id: prepare-release
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              working-directory: rust/common/symbol_data
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  TAG_VERSION="${GITHUB_REF_NAME#posthog-symbol-data/v}"
-                  CRATE_VERSION=$(grep '^version' common/symbol_data/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-                  if [ "$TAG_VERSION" != "$CRATE_VERSION" ]; then
-                      echo "::error::Tag version ($TAG_VERSION) does not match crate version ($CRATE_VERSION)"
+                  sampo release
+                  git restore ../../Cargo.lock
+                  new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                  cargo update --manifest-path ../../Cargo.toml -p posthog-symbol-data --precise "$new_version"
+                  cargo metadata --manifest-path ../../Cargo.toml --format-version 1 --no-deps > /dev/null
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+
+            - name: Install markdown tools
+              if: steps.prepare-release.outputs.new-version != ''
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter=@posthog/root
+
+            - name: Format the changelog
+              if: steps.prepare-release.outputs.new-version != ''
+              run: |
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix rust/common/symbol_data/CHANGELOG.md
+                  pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc rust/common/symbol_data/CHANGELOG.md
+
+            - name: Check release changes
+              id: check-changes
+              if: steps.prepare-release.outputs.new-version != ''
+              run: |
+                  changed_files=$(git diff --name-only)
+                  if [ -z "$changed_files" ]; then
+                      echo "::error::Sampo did not produce any release changes"
                       exit 1
                   fi
-                  echo "Publishing posthog-symbol-data v$CRATE_VERSION"
+
+                  unexpected=$(echo "$changed_files" | grep -Ev '^(rust/Cargo\.lock|rust/common/symbol_data/Cargo\.toml|rust/common/symbol_data/CHANGELOG\.md|rust/common/symbol_data/\.sampo/changesets/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files changed during posthog-symbol-data release preparation:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  for required_file in \
+                      rust/Cargo.lock \
+                      rust/common/symbol_data/Cargo.toml \
+                      rust/common/symbol_data/CHANGELOG.md; do
+                      if ! echo "$changed_files" | grep -qx "$required_file"; then
+                          echo "::error::Release preparation did not update $required_file"
+                          exit 1
+                      fi
+                  done
+
+                  echo "committed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Ensure master did not advance during release preparation
+              if: steps.check-changes.outputs.committed == 'true'
+              run: |
+                  git fetch origin master
+                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+                      echo "::error::master advanced during release preparation. Re-run the workflow to include the latest changesets."
+                      exit 1
+                  fi
+
+            - name: Reset release branch to master
+              if: steps.check-changes.outputs.committed == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RELEASE_BRANCH: chore/release-posthog-symbol-data
+              run: |
+                  release_owner=${{ github.repository_owner }}
+                  existing_prs=$(gh api --paginate "repos/${{ github.repository }}/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
+                  if [ "$(printf '%s\n' "$existing_prs" | sed '/^$/d' | wc -l)" -gt 1 ]; then
+                      echo "::error::More than one open posthog-symbol-data release pull request exists"
+                      exit 1
+                  fi
+                  existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
+                  if [ -n "$existing_pr" ] && [ "$(gh api "repos/${{ github.repository }}/pulls/$existing_pr" --jq '.draft')" != 'true' ]; then
+                      echo "::error::Release pull request #$existing_pr is ready for review or in the merge queue. Wait for it to merge before preparing another release."
+                      exit 1
+                  fi
+
+                  target_sha=$(git rev-parse HEAD)
+                  if gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
+                      gh api -X PATCH "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" \
+                          -f sha="$target_sha" -F force=true
+                  else
+                      gh api "repos/${{ github.repository }}/git/refs" \
+                          -f ref="refs/heads/$RELEASE_BRANCH" -f sha="$target_sha"
+                  fi
+
+            - name: Commit release changes
+              id: commit-release
+              if: steps.check-changes.outputs.committed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore(symbol-data): release v${{ steps.prepare-release.outputs.new-version }}'
+                  repo: ${{ github.repository }}
+                  branch: chore/release-posthog-symbol-data
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create or update draft release pull request
+              id: release-pr
+              if: steps.commit-release.outputs.commit-hash != ''
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
+                  RELEASE_BRANCH: chore/release-posthog-symbol-data
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  body_file="$RUNNER_TEMP/release-pr.md"
+                  cat > "$body_file" <<EOF
+                  ## Problem
+
+                  Pending posthog-symbol-data changesets need a reviewed version bump before the crate can publish.
+
+                  ## Changes
+
+                  - Prepare posthog-symbol-data v$NEW_VERSION for release.
+                  - Consume the pending Sampo changesets and update the changelog.
+
+                  ## How did you test this code?
+
+                  - The release workflow validates the generated package files and Cargo metadata before opening this pull request.
+
+                  **Test rationale:** The pull request contains generated release metadata, so the existing crate tests cover the package behavior.
+
+                  ## Release status
+
+                  - No feature flag controls this change <!-- release-status: no-feature-flag -->
+
+                  ## Docs update
+
+                  None.
+
+                  ## 🤖 Agent context
+
+                  **Autonomy:** Fully autonomous
+
+                  **Agent:** Sampo 0.17.4 through GitHub Actions
+
+                  This pull request contains deterministic release output from committed changesets.
+                  EOF
+
+                  release_owner=${REPOSITORY%%/*}
+                  existing_prs=$(gh api --paginate "repos/$REPOSITORY/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
+                  if [ "$(printf '%s\n' "$existing_prs" | sed '/^$/d' | wc -l)" -gt 1 ]; then
+                      echo "::error::More than one open posthog-symbol-data release pull request exists"
+                      exit 1
+                  fi
+
+                  existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
+                  if [ -n "$existing_pr" ]; then
+                      existing_pr_data=$(gh pr view "$existing_pr" --json headRefOid,isDraft)
+                      existing_head_sha=$(printf '%s' "$existing_pr_data" | jq -r '.headRefOid')
+                      if [ "$existing_head_sha" != "$RELEASE_COMMIT" ]; then
+                          echo "::error::The existing release pull request does not contain the generated release commit"
+                          exit 1
+                      fi
+                      gh pr edit "$existing_pr" --title "chore(symbol-data): release v$NEW_VERSION" --body-file "$body_file"
+                      if [ "$(printf '%s' "$existing_pr_data" | jq -r '.isDraft')" != 'true' ]; then
+                          gh pr ready "$existing_pr" --undo
+                      fi
+                      pr_url=$(gh pr view "$existing_pr" --json url --jq '.url')
+                  else
+                      pr_url=$(gh pr create \
+                          --draft \
+                          --title "chore(symbol-data): release v$NEW_VERSION" \
+                          --body-file "$body_file" \
+                          --base master \
+                          --head "$RELEASE_BRANCH")
+                  fi
+
+                  echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+    identify-release:
+        name: Identify merged posthog-symbol-data release
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            new-version: ${{ steps.release-metadata.outputs.new-version }}
+            release-commit: ${{ steps.release-metadata.outputs.release-commit }}
+        steps:
+            - name: Checkout release metadata
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 2
+                  sparse-checkout: |
+                      rust/Cargo.lock
+                      rust/common/symbol_data/.sampo/changesets
+                      rust/common/symbol_data/CHANGELOG.md
+                      rust/common/symbol_data/Cargo.toml
+                  sparse-checkout-cone-mode: false
+
+            - name: Identify release commit
+              id: release-metadata
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  RELEASE_APP: scheduled-actions-posthog[bot]
+                  RELEASE_COMMIT: ${{ github.sha }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                      --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.ref == "chore/release-posthog-symbol-data") | .number')
+                  release_pr_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
+                  if [ "$release_pr_count" -gt 1 ]; then
+                      echo "::error::Found more than one merged posthog-symbol-data release pull request for $RELEASE_COMMIT"
+                      exit 1
+                  fi
+                  if [ "$release_pr_count" -eq 0 ]; then
+                      echo "No merged posthog-symbol-data release pull request found for $RELEASE_COMMIT"
+                      exit 0
+                  fi
+                  release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
+
+                  pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.head.repo.full_name // empty')" != "$REPOSITORY" ]; then
+                      echo "::error::The release pull request did not come from $REPOSITORY"
+                      exit 1
+                  fi
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.merge_commit_sha // empty')" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request merge commit does not match $RELEASE_COMMIT"
+                      exit 1
+                  fi
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASE_APP" ]; then
+                      echo "::error::The release pull request was not created by $RELEASE_APP"
+                      exit 1
+                  fi
+
+                  release_head=$(printf '%s' "$pr_data" | jq -r '.head.sha')
+                  if [ "$(gh api "repos/$REPOSITORY/commits/$release_head" --jq '.author.login // empty')" != "$RELEASE_APP" ]; then
+                      echo "::error::The release pull request head was not created by $RELEASE_APP"
+                      exit 1
+                  fi
+
+                  release_files=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '.[].filename')
+                  unexpected=$(printf '%s\n' "$release_files" | grep -Ev '^(rust/Cargo\.lock|rust/common/symbol_data/Cargo\.toml|rust/common/symbol_data/CHANGELOG\.md|rust/common/symbol_data/\.sampo/changesets/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files in the posthog-symbol-data release pull request:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  removed_changesets=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" \
+                      --jq '.[] | select(.status == "removed" and (.filename | test("^rust/common/symbol_data/\\.sampo/changesets/[^/]+\\.md$"))) | .filename')
+                  if [ -z "$removed_changesets" ]; then
+                      echo "::error::The release pull request did not remove a changeset"
+                      exit 1
+                  fi
+
+                  for required_file in \
+                      rust/Cargo.lock \
+                      rust/common/symbol_data/Cargo.toml \
+                      rust/common/symbol_data/CHANGELOG.md; do
+                      if ! printf '%s\n' "$release_files" | grep -qx "$required_file"; then
+                          echo "::error::The release pull request did not update $required_file"
+                          exit 1
+                      fi
+                  done
+
+                  new_version=$(grep '^version = ' rust/common/symbol_data/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                  if ! grep -qx "## $new_version" rust/common/symbol_data/CHANGELOG.md; then
+                      echo "::error::The changelog has no entry for posthog-symbol-data $new_version"
+                      exit 1
+                  fi
+
+                  echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+                  echo "release-commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    publish:
+        name: Publish posthog-symbol-data to crates.io
+        needs: identify-release
+        if: >-
+            !cancelled()
+            && github.repository == 'PostHog/posthog'
+            && needs.identify-release.result == 'success'
+            && needs.identify-release.outputs.release-commit != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        environment: crates-posthog-symbol-data
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - name: Checkout release commit
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.identify-release.outputs.release-commit }}
+                  sparse-checkout: rust
+                  sparse-checkout-cone-mode: false
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Sampo CLI
+              id: cache-sampo
+              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: ~/.cargo/bin/sampo
+                  key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
+
+            - name: Install Sampo CLI
+              if: steps.cache-sampo.outputs.cache-hit != 'true'
+              run: cargo install sampo --version "$SAMPO_VERSION" --locked
 
             - name: Authenticate with crates.io
               id: auth
-              uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+              uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
-            - name: Publish to crates.io
+            - name: Publish with Sampo
+              working-directory: rust/common/symbol_data
               env:
                   CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-              run: cargo publish -p posthog-symbol-data
+                  SAMPO_RELEASE_BRANCH: master
+              run: |
+                  set +e
+                  sampo publish
+                  status=$?
+                  set -e
+                  if [ "$status" -eq 2 ]; then
+                      echo "posthog-symbol-data ${{ needs.identify-release.outputs.new-version }} is already published"
+                      exit 0
+                  fi
+                  exit "$status"

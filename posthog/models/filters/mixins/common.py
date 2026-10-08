@@ -1,7 +1,7 @@
 import json
 import datetime
 from math import ceil
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -22,7 +22,6 @@ from posthog.constants import (
     BREAKDOWN_LIMIT,
     BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
-    BREAKDOWN_VALUE,
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
@@ -42,9 +41,7 @@ from posthog.constants import (
     LIMIT,
     OFFSET,
     SAMPLING_FACTOR,
-    SELECTOR,
     SHOWN_AS,
-    SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
@@ -56,35 +53,6 @@ from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
-
-
-class SmoothingIntervalsMixin(BaseParamMixin):
-    @cached_property
-    def smoothing_intervals(self) -> int:
-        interval_candidate_string = self._data.get(SMOOTHING_INTERVALS)
-        if not interval_candidate_string:
-            return 1
-        try:
-            interval_candidate = int(interval_candidate_string)
-            if interval_candidate < 1:
-                raise ValueError(f"Smoothing intervals must be a positive integer!")
-        except ValueError:
-            raise ValueError(f"Smoothing intervals must be a positive integer!")
-        return cast(int, interval_candidate)
-
-    @include_dict
-    def smoothing_intervals_to_dict(self):
-        return {SMOOTHING_INTERVALS: self.smoothing_intervals}
-
-
-class SelectorMixin(BaseParamMixin):
-    @cached_property
-    def selector(self) -> Optional[str]:
-        return self._data.get(SELECTOR, None)
-
-    @include_dict
-    def selector_to_dict(self):
-        return {"selector": self.selector} if self.selector else {}
 
 
 class ShownAsMixin(BaseParamMixin):
@@ -260,16 +228,6 @@ class BreakdownMixin(BaseParamMixin):
             return {"breakdown_by": [self.breakdown_type]}
 
         return {}
-
-
-class BreakdownValueMixin(BaseParamMixin):
-    @cached_property
-    def breakdown_value(self) -> Optional[str]:
-        return self._data.get(BREAKDOWN_VALUE, None)
-
-    @include_dict
-    def breakdown_value_to_dict(self):
-        return {"breakdown_value": self.breakdown_value} if self.breakdown_value else {}
 
 
 class InsightMixin(BaseParamMixin):
@@ -573,39 +531,6 @@ class SearchMixin(BaseParamMixin):
     @include_dict
     def search_to_dict(self):
         return {"search": self.search} if self.search else {}
-
-
-class DistinctIdMixin(BaseParamMixin):
-    """
-    Filter on distinct id. Only used for person endpoint
-    """
-
-    @cached_property
-    def distinct_id(self) -> Optional[str]:
-        distinct_id = self._data.get("distinct_id", None)
-        return distinct_id
-
-
-class EmailMixin(BaseParamMixin):
-    """
-    Filter on email. Only used for person endpoint
-    """
-
-    @cached_property
-    def email(self) -> Optional[str]:
-        email = self._data.get("email", None)
-        return email
-
-
-class UpdatedAfterMixin(BaseParamMixin):
-    """
-    Filter on updated after (parsable by CH parseDateTimeBestEffort). Only used for person endpoint
-    """
-
-    @cached_property
-    def updated_after(self) -> Optional[str]:
-        updated_after = self._data.get("updated_after", None)
-        return updated_after
 
 
 class SampleMixin(BaseParamMixin):

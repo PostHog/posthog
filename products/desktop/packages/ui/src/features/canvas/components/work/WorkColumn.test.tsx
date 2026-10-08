@@ -1,4 +1,7 @@
-import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import {
+  type ChannelItemModel,
+  DESKTOP_SOURCE,
+} from "@posthog/core/canvas/channelItems";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { Theme } from "@radix-ui/themes";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -44,6 +47,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   useSpacePresence: () => new Map(),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
+  useUnreadSessionCount: () => () => 0,
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedSessionCount: () => () => 0,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
@@ -122,7 +131,7 @@ function entry(index: number): {
       pinned: false,
       rawStatus: null,
       environment: null,
-      source: null,
+      source: DESKTOP_SOURCE,
       needsInput: false,
       unread: false,
       authorUser: null,

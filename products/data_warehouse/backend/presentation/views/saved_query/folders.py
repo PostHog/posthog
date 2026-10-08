@@ -86,8 +86,9 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             output_field=IntegerField(),
         )
 
-    def perform_create(self, serializer):
-        serializer.save(team_id=self.team_id, created_by=self.request.user)
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
+        instance.view_count = 0
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         from products.data_modeling.backend.facade.api import dependent_saved_query_ids

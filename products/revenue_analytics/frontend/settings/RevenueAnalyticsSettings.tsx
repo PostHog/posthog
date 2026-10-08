@@ -13,6 +13,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -64,6 +65,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent>
+            <DefinitionsSceneTabs activeKey="revenue" />
             <SceneTitleSection
                 name="Revenue analytics"
                 resourceType={{

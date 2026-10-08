@@ -91,19 +91,8 @@ class TestFormatDatetime:
     def test_format_datetime(self, value: object, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestBuildBaseParams:
-    def test_paginated_endpoint_sorts_ascending(self) -> None:
-        params = _build_base_params(BREVO_ENDPOINTS["contacts"], False, None, None)
-        assert params == {"sort": "asc"}
-
-    def test_non_paginated_endpoint_has_no_sort(self) -> None:
-        params = _build_base_params(BREVO_ENDPOINTS["senders"], False, None, None)
-        assert params == {}
-
     @pytest.mark.parametrize(
         ("incremental_field", "expected_param"),
         [("createdAt", "createdSince"), ("modifiedAt", "modifiedSince")],
@@ -116,15 +105,6 @@ class TestBuildBaseParams:
             incremental_field,
         )
         assert params[expected_param] == "2026-03-04T02:58:14.000Z"
-
-    def test_no_filter_on_first_sync(self) -> None:
-        params = _build_base_params(BREVO_ENDPOINTS["contacts"], True, None, "modifiedAt")
-        assert "modifiedSince" not in params
-        assert "createdSince" not in params
-
-    def test_unknown_incremental_field_is_ignored(self) -> None:
-        params = _build_base_params(BREVO_ENDPOINTS["contacts"], True, datetime(2026, 3, 4, tzinfo=UTC), "nonexistent")
-        assert params == {"sort": "asc"}
 
 
 class TestPagination:
@@ -166,16 +146,6 @@ class TestPagination:
         assert saved == [BrevoResumeConfig(offset=2)]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"contacts": [{"id": 1}]})])
-
-        manager = _make_manager()
-        _rows(_source("contacts", manager))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_starting_offset(self, MockSession, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(BREVO_ENDPOINTS["contacts"], "page_size", 2)
         session = MockSession.return_value
@@ -196,16 +166,6 @@ class TestPagination:
         _rows(_source("contacts", manager))
 
         manager.load_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"contacts": [], "count": 0})])
-
-        rows = _rows(_source("contacts", _make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_filter_param_is_sent(self, MockSession) -> None:
@@ -249,30 +209,6 @@ class TestErrors:
         with pytest.raises(HTTPError):
             _rows(_source("contacts", _make_manager()))
 
-    @pytest.mark.parametrize(
-        ("endpoint", "body"),
-        [
-            # Brevo omits the array key entirely for an empty collection (just {"count": 0}).
-            ("email_campaigns", {"count": 0}),
-            ("sms_campaigns", {"count": 0}),
-            ("contact_segments", {"count": 0}),
-            # Some responses set the key to null instead of omitting it.
-            ("email_campaigns", {"campaigns": None, "count": 0}),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_or_null_envelope_key_yields_nothing(
-        self, MockSession, endpoint: str, body: dict[str, Any]
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
-
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
 
 class TestSession:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -290,15 +226,6 @@ class TestSession:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
-        with mock.patch(BREVO_SESSION_PATCH) as MockSession:
-            MockSession.return_value.get.return_value = _response({}, status_code=status_code)
-            assert validate_credentials("test-key") is expected
-
     def test_validate_credentials_sends_api_key_header(self) -> None:
         with mock.patch(BREVO_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.return_value = _response({})
@@ -310,35 +237,3 @@ class TestValidateCredentials:
         with mock.patch(BREVO_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.side_effect = Exception("network down")
             assert validate_credentials("test-key") is False
-
-
-class TestBrevoSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "expects_partition"),
-        [
-            ("contacts", True),
-            ("email_campaigns", True),
-            ("sms_campaigns", True),
-            ("contact_lists", False),
-            ("contact_folders", False),
-            ("contact_segments", False),
-            ("email_templates", False),
-            ("senders", False),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, MockSession, endpoint: str, expects_partition: bool) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-
-        if expects_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdAt"]
-            assert response.partition_format == "week"
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None

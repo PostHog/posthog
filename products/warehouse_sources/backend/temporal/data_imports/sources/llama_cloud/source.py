@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     UNVERSIONED_API_VERSION,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,8 +47,11 @@ class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeC
     # LlamaCloud versions its API in the endpoint path (see LLAMA_CLOUD_API_VERSION_V2): this source
     # already reads the v2-generation endpoints, so the legacy unversioned label and "v2" drive
     # identical requests. New sources default to "v2"; existing pins keep syncing byte-for-byte.
+    # LlamaCloud now files its v1 API under "Deprecated (v1)" with no published sunset date, so the
+    # legacy label is deprecated and its pins are repinned to "v2" by data migration (a pure relabel).
     supported_versions = (UNVERSIONED_API_VERSION, LLAMA_CLOUD_API_VERSION_V2)
     default_version = LLAMA_CLOUD_API_VERSION_V2
+    deprecated_versions = (VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

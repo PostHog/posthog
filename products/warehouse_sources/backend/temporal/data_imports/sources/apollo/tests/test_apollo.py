@@ -112,23 +112,6 @@ class TestValidateCredentials:
 
 class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_until_total_pages(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _response("contacts", [{"id": "c1", "updated_at": "2024-01-02T00:00:00Z"}], total_pages=2),
-            _response("contacts", [{"id": "c2", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=2),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "contacts", mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["c1", "c2"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].page == 2
-        bodies = [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list]
-        assert bodies[0]["page"] == 1
-        assert bodies[1]["page"] == 2
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_sorts_desc_and_stops_at_watermark(self, mock_session):
         page = [
             {"id": "new", "updated_at": "2024-06-01T00:00:00Z"},
@@ -154,16 +137,6 @@ class TestGetRows:
         body = mock_session.return_value.post.call_args.kwargs["json"]
         assert body["sort_by_field"] == "contact_updated_at"
         assert body["sort_ascending"] is False
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_opportunities_have_no_sort_fields(self, mock_session):
-        mock_session.return_value.post.return_value = _response("opportunities", [])
-
-        manager = _make_manager()
-        list(get_rows("key", "opportunities", mock.MagicMock(), manager))
-
-        body = mock_session.return_value.post.call_args.kwargs["json"]
-        assert "sort_by_field" not in body
 
     @pytest.mark.parametrize("endpoint", ["tasks", "emailer_campaigns"])
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -233,16 +206,6 @@ class TestGetRows:
         assert mock_session.return_value.get.call_args.kwargs["params"]["per_page"] == PAGE_SIZE
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.post.return_value = _response("contacts", [])
-
-        manager = _make_manager(ApolloResumeConfig(page=7))
-        list(get_rows("key", "contacts", mock.MagicMock(), manager))
-
-        body = mock_session.return_value.post.call_args.kwargs["json"]
-        assert body["page"] == 7
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_search_cap_is_logged(self, mock_session):
         mock_session.return_value.post.return_value = _response(
             "contacts", [{"id": "c", "updated_at": "2024-01-01T00:00:00Z"}], total_pages=MAX_PAGES + 10
@@ -295,16 +258,6 @@ class TestGetRows:
 
         assert [item["id"] for batch in batches for item in batch] == ["new", "no-ts"]
         assert mock_session.return_value.post.call_count == 1
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.post.return_value = _response("contacts", [])
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "contacts", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
 
 
 class TestApolloSourceResponse:

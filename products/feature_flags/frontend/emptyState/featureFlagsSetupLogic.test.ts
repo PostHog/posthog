@@ -1,6 +1,8 @@
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -38,6 +40,38 @@ describe('featureFlagsSetupLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe(expected)
     })
+
+    // Undo of a project's only deleted flag reloads the flag list without remounting the gate.
+    // Once a flag has been seen, a list reload must not send more count requests.
+    it.each([
+        [0, 'needs-setup', 4],
+        [1, 'has-data', 2],
+    ])(
+        'on a flag list reload after mounting with %i live flags (%s), makes %i count requests and ends has-data',
+        async (liveAtMount, statusAtMount, countRequests) => {
+            let live = liveAtMount
+            mockFeatureFlagsList.mockImplementation((_projectId, params) =>
+                Promise.resolve({ count: params?.archived ? 0 : live, next: null, previous: null, results: [] })
+            )
+            const logic = featureFlagsSetupLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe(statusAtMount)
+
+            live = 1
+            getContext().store.dispatch(
+                featureFlagsLogic.actionCreators.loadFeatureFlagsSuccess({
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [],
+                })
+            )
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockFeatureFlagsList).toHaveBeenCalledTimes(countRequests)
+            expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe('has-data')
+        }
+    )
 
     it('fails open to unknown when the count query fails before any answer', async () => {
         mockFeatureFlagsList.mockRejectedValue(new Error('network down'))

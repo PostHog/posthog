@@ -132,11 +132,15 @@ def _get_managed_prompt(team: Team | None, prompt_name: str, fallback: str) -> s
     try:
         from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+        from products.ai_observability.backend.prompt_references import resolve_prompt_references
+
         result = get_prompt_by_name_from_cache(team, prompt_name)
         if result and "prompt" in result:
-            logger.info("prompt_source", prompt_name=prompt_name, source="managed", team_id=team.id)
-            SUBSCRIPTION_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="managed").inc()
-            return normalize_prompt_to_string(result["prompt"])
+            resolved = resolve_prompt_references(team, normalize_prompt_to_string(result["prompt"]))
+            if resolved is not None:
+                logger.info("prompt_source", prompt_name=prompt_name, source="managed", team_id=team.id)
+                SUBSCRIPTION_PROMPT_SOURCE.labels(prompt_name=prompt_name, source="managed").inc()
+                return resolved
     except Exception as e:
         capture_exception(e)
         logger.warning("managed_prompt_fetch_failed", prompt_name=prompt_name, error=str(e))

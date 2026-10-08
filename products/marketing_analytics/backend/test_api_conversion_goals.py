@@ -13,6 +13,7 @@ from posthog.api.team import TeamMarketingAnalyticsConfigSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
@@ -56,6 +57,7 @@ def goal_payload(name: str, event: str = "sign_up", **extra) -> dict:
 class TestConversionGoalWrites(APIBaseTest):
     def setUp(self):
         super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
         # Writing goals needs the same project-admin level the settings PATCH path requires.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -346,6 +348,9 @@ class TestConversionGoalWrites(APIBaseTest):
     def test_another_teams_goals_are_not_reachable(self):
         goal = self.create_goal("Sign ups").json()["goal"]
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        # Without an existing row, the 404 rolls back the row that the first request creates.
+        # Team.marketing_analytics_config then returns the rolled-back row from its process-wide cache.
+        get_or_create_team_extension(other_team, TeamMarketingAnalyticsConfig)
 
         other_url = f"/api/projects/{other_team.pk}/marketing_analytics/conversion_goals"
         update = self.client.patch(
@@ -409,6 +414,7 @@ class TestConversionGoalWrites(APIBaseTest):
 class TestConversionGoalIdIsOneName(APIBaseTest):
     def setUp(self):
         super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
         self.explain_url = f"/api/projects/{self.team.pk}/marketing_analytics/explain_conversion_goal"
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

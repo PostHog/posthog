@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FEATURE_FLAGS } from '../../frontend/src/lib/constants'
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Streamlit apps',
@@ -45,8 +45,8 @@ export const manifest: ProductManifest = {
             type: 'streamlit_app',
             category: ProductItemCategory.UNRELEASED,
             flag: FEATURE_FLAGS.STREAMLIT_APPS,
-            iconType: 'tools',
-            iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
+            iconType: 'streamlit_app',
+            iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
             sceneKey: 'StreamlitApps',
             sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
         },

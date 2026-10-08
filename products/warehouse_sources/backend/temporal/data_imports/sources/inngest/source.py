@@ -108,7 +108,7 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
         append_only_endpoints = {"events"}
         # Run rows mutate (status/output settle after the run ends) and the incremental lookback
         # re-pulls a window each run; only merge dedupes those, append would duplicate them.
-        merge_only_endpoints = {"function_runs"}
+        merge_only_endpoints = {"function_runs", "runs"}
 
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
@@ -122,6 +122,13 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
                     "output are point-in-time; a trailing window is re-read each sync so recent runs "
                     "settle, but long-lived runs only update on a full refresh"
                 )
+            if endpoint == "runs":
+                return (
+                    "Every function run, including cron- and invoke-triggered runs. A trailing window is "
+                    "re-read each sync so recent runs settle, but long-lived runs only update on a full refresh"
+                )
+            if endpoint == "session_runs":
+                return "Runs grouped by AgentKit session (one lookup per session)"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

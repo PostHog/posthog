@@ -6,8 +6,9 @@ import {
 } from "@phosphor-icons/react";
 import {
   codeUsageMeter,
+  codeUsageResetLabel,
+  codeUsageWindowLabel,
   desktopUsageComponents,
-  formatResetTime,
   formatUsageQuantity,
   formatUsdAmount,
   isCodeUsageFreeTier,
@@ -17,9 +18,14 @@ import { BILLING_FLAG, CLOUD_COMPUTE_BILLING_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageMeter } from "@posthog/ui/features/billing/UsageMeter";
+import {
+  type SpendSnapshot,
+  useSpendTotalsState,
+} from "@posthog/ui/features/billing/useSpendTotals";
 import { useUsage } from "@posthog/ui/features/billing/useUsage";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
+import { PersonalSpendTotals } from "@posthog/ui/features/usage/components/PersonalSpendTotals";
 import { SpendAnalysisSection } from "@posthog/ui/features/usage/components/SpendAnalysisSection";
 import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageViewed";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
@@ -39,6 +45,8 @@ export function PlanUsageSettings() {
     isLoading: usageLoading,
     refetch: refetchUsage,
   } = useUsage({ enabled: billingEnabled });
+  const { totals: spendTotals, isLoading: spendTotalsLoading } =
+    useSpendTotalsState();
 
   useEffect(() => {
     // refetchUsage is a refresh mutation, so it bypasses useUsage's `enabled`
@@ -46,10 +54,16 @@ export function PlanUsageSettings() {
     if (billingEnabled) void refetchUsage();
   }, [refetchUsage, billingEnabled]);
 
+  const meter = codeUsageMeter(usage);
   useTrackUsageViewed({
     isLoading: billingEnabled && usageLoading,
+    spendTotalsLoading,
     sustainedUsedPercent: usage?.sustained.used_percent ?? null,
     burstUsedPercent: usage?.burst.used_percent ?? null,
+    meterKind: meter.kind,
+    orgUsedUsd: meter.kind === "dollars" ? meter.usedUsd : null,
+    orgLimitUsd: meter.kind === "dollars" ? meter.limitUsd : null,
+    personalSpend30dUsd: spendTotals?.monthUsd ?? null,
   });
 
   return (
@@ -59,6 +73,8 @@ export function PlanUsageSettings() {
       billingUrl={billingUrl}
       usage={usage}
       usageLoading={usageLoading}
+      spendTotals={spendTotals}
+      spendTotalsLoading={spendTotalsLoading}
       personalSpendAnalysis={<SpendAnalysisSection />}
     />
   );
@@ -70,6 +86,8 @@ interface PlanUsageContentProps {
   billingUrl: string | null | undefined;
   usage: UsageOutput | null | undefined;
   usageLoading: boolean;
+  spendTotals: SpendSnapshot | null;
+  spendTotalsLoading: boolean;
   personalSpendAnalysis?: ReactNode;
 }
 
@@ -79,6 +97,8 @@ export function PlanUsageContent({
   billingUrl,
   usage,
   usageLoading,
+  spendTotals,
+  spendTotalsLoading,
   personalSpendAnalysis,
 }: PlanUsageContentProps) {
   const freeTier = isCodeUsageFreeTier(usage);
@@ -148,10 +168,10 @@ export function PlanUsageContent({
             <LoadingState className="rounded-(--radius-3) border border-border bg-card p-4" />
           ) : meter.kind === "dollars" ? (
             <UsageMeter
-              label={freeTier ? "Monthly free usage" : "Usage this period"}
+              label={codeUsageWindowLabel(meter, freeTier)}
               percent={meter.percent}
               valueLabel={`${formatUsdAmount(meter.usedUsd)} of ${formatUsdAmount(meter.limitUsd)}${freeTier ? " included" : ""}`}
-              detail={`${meter.exceeded ? "Limit exceeded. " : ""}${formatResetTime(meter.resetAt, { label: "Billing period ends" })}`}
+              detail={`${meter.exceeded ? "Limit exceeded. " : ""}${codeUsageResetLabel(meter)}`}
               breakdown={
                 meter.breakdown
                   ? { ...meter.breakdown, usedUsd: meter.usedUsd }
@@ -161,10 +181,10 @@ export function PlanUsageContent({
             />
           ) : meter.kind === "bucket" ? (
             <UsageMeter
-              label="Monthly free usage"
+              label={codeUsageWindowLabel(meter, freeTier)}
               percent={meter.bucket.used_percent}
               valueLabel={`${meter.bucket.used_percent.toFixed(2)}%`}
-              detail={`${meter.bucket.exceeded ? "Limit exceeded. " : ""}${formatResetTime(meter.bucket.reset_at)}`}
+              detail={`${meter.bucket.exceeded ? "Limit exceeded. " : ""}${codeUsageResetLabel(meter)}`}
               color={meter.bucket.exceeded ? "red" : undefined}
             />
           ) : (
@@ -199,14 +219,22 @@ export function PlanUsageContent({
                 <UsageMix components={components} />
               )}
               <Text className="text-[12px] text-muted-foreground">
-                Usage reporting may be delayed by 15–20 minutes.
+                {meter.kind === "dollars"
+                  ? "This total comes from billing, so it can lag by 15 to 20 minutes. "
+                  : ""}
+                Your own spend below is near real time.
               </Text>
             </Flex>
           )}
         </SettingsSubsection>
       )}
 
-      <PersonalSpendDisclosure>{personalSpendAnalysis}</PersonalSpendDisclosure>
+      <PersonalSpendDisclosure
+        totals={spendTotals}
+        totalsLoading={spendTotalsLoading}
+      >
+        {personalSpendAnalysis}
+      </PersonalSpendDisclosure>
     </Flex>
   );
 }
@@ -274,8 +302,17 @@ function UsageMix({
   );
 }
 
-function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
-  // Collapsed by default so opening the page doesn't fire the spend query.
+function PersonalSpendDisclosure({
+  totals,
+  totalsLoading,
+  children,
+}: {
+  totals: SpendSnapshot | null;
+  totalsLoading: boolean;
+  children: ReactNode;
+}) {
+  // The totals above read the window the guardrails already poll, so only the
+  // charts and breakdowns wait for the disclosure.
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -289,11 +326,12 @@ function PersonalSpendDisclosure({ children }: { children: ReactNode }) {
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? "Hide" : "Show"}
+          {expanded ? "Hide details" : "Show details"}
           {expanded ? <CaretUp size={12} /> : <CaretDown size={12} />}
         </Button>
       }
     >
+      <PersonalSpendTotals totals={totals} isLoading={totalsLoading} />
       {expanded ? children : null}
     </SettingsSubsection>
   );

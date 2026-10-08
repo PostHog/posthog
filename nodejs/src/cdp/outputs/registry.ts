@@ -6,7 +6,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
-import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from './outputs'
+import { CDP_EVENTS_DLQ_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from './outputs'
 
 /**
  * Outputs the CDP deployments write to. Each output's topic + producer are
@@ -17,6 +17,7 @@ import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from './outputs'
  *   (also used for legacy plugin app metrics since they share the
  *   `clickhouse_app_metrics2` schema).
  * - `WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT` — warehouse source webhook payloads.
+ * - `CDP_EVENTS_DLQ_OUTPUT` — events that matched a function but produced no invocation.
  */
 export function createCdpOutputsRegistry() {
     return new IngestionOutputsBuilder()
@@ -39,5 +40,9 @@ export function createCdpOutputsRegistry() {
         .register(WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, {
             topicKey: 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC',
             producerKey: 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER',
+        })
+        .register(CDP_EVENTS_DLQ_OUTPUT, {
+            topicKey: 'CDP_EVENTS_DLQ_TOPIC',
+            producerKey: 'CDP_EVENTS_DLQ_PRODUCER',
         })
 }

@@ -1233,7 +1233,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.ad_network_type",
         ],
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "This table fans out to every landing page URL per campaign and day, so it can get large for accounts with many final URLs.",
         "extra_where": "metrics.impressions > 0",
         "field_names": [

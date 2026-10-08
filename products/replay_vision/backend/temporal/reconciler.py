@@ -10,6 +10,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
@@ -49,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
         reap_backfill_schedules_activity,
         reap_childless_inline_scanners_activity,
         reap_orphaned_observations_activity,
+        start_launched_scanners_activity,
         upsert_scanner_schedule_activity,
     )
 
@@ -60,17 +62,13 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        if workflow.patched("sync-schedules-before-reapers-2026-08"):
-            # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
-            # that never gets a sweep schedule silently never scans. The reapers only settle rows that
-            # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
-            # budget is larger than the workflow execution timeout, so running them first lets one slow
-            # reaper starve the sync on every tick.
-            result, systemic_failure = await self._sync_schedules()
-            await self._run_reapers()
-        else:
-            await self._run_reapers()
-            result, systemic_failure = await self._sync_schedules()
+        # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
+        # that never gets a sweep schedule silently never scans. The reapers only settle rows that
+        # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
+        # budget is larger than the workflow execution timeout, so running them first lets one slow
+        # reaper starve the sync on every tick.
+        result, systemic_failure = await self._sync_schedules()
+        await self._run_reapers()
         if systemic_failure is not None:
             raise systemic_failure
         return result
@@ -86,28 +84,27 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        # Declared until no history carrying either marker can replay.
-        workflow.deprecate_patch("reap-stuck-vision-action-runs-2026-07")
-        workflow.deprecate_patch("drop-stuck-vision-action-run-reaper-2026-09")
+        try:
+            await self._run_reaper(reap_childless_inline_scanners_activity)
+        except Exception:
+            workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
 
-        if workflow.patched("reap-childless-inline-scanners-2026-08"):
-            try:
-                await self._run_reaper(reap_childless_inline_scanners_activity)
-            except Exception:
-                workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
+        try:
+            # A full schedule listing outlives the short reaper attempt, so this one keeps a long
+            # attempt and leans on heartbeats to detect a dead worker.
+            await self._run_reaper(
+                reap_backfill_schedules_activity,
+                heartbeat_timeout=REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
+                start_to_close_timeout=REAP_BACKFILL_SCHEDULES_TIMEOUT,
+                schedule_to_close_timeout=REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
+            )
+        except Exception:
+            workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
-        if workflow.patched("reap-backfill-schedules-2026-08"):
-            try:
-                # A full schedule listing outlives the short reaper attempt, so this one keeps a long
-                # attempt and leans on heartbeats to detect a dead worker.
-                await self._run_reaper(
-                    reap_backfill_schedules_activity,
-                    heartbeat_timeout=REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
-                    start_to_close_timeout=REAP_BACKFILL_SCHEDULES_TIMEOUT,
-                    schedule_to_close_timeout=REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
-                )
-            except Exception:
-                workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
+        try:
+            await self._run_reaper(start_launched_scanners_activity)
+        except Exception:
+            workflow.logger.exception("replay_vision.start_launched_scanners_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to
@@ -215,5 +212,6 @@ async def create_replay_vision_reconciler_schedule(client: "Client") -> None:
         workflow_id=RECONCILER_WORKFLOW_ID,
         inputs=ReconcileScannerSchedulesInputs(),
         interval=RECONCILER_INTERVAL,
+        offset=deterministic_offset(RECONCILER_SCHEDULE_ID, RECONCILER_INTERVAL),
         execution_timeout=RECONCILER_EXECUTION_TIMEOUT,
     )

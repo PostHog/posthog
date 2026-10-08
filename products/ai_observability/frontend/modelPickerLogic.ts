@@ -20,6 +20,7 @@ export interface ModelOption {
     description: string
     providerKeyId?: string
     isRecommended?: boolean
+    supportsDecisions?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -41,6 +42,26 @@ const NO_FAILED_PROVIDER_KEYS: string[] = []
 const UNHEALTHY_KEY_REASON = 'This provider key has an issue. Check your provider settings.'
 const UNAVAILABLE_KEY_REASON = "Couldn't load models for this key. Try again in a moment."
 const UNAVAILABLE_KEY_SUFFIX = ' (Unavailable)'
+
+function getByokModelNotice(
+    providerKeys: LLMProviderKey[],
+    providerKeysLoading: boolean,
+    byokModelsLoading: boolean,
+    failedByokProviderKeyIds: string[],
+    providerModelGroups: ProviderModelGroup[]
+): ByokModelNotice | null {
+    if (providerKeysLoading || byokModelsLoading) {
+        return null
+    }
+    const failedKeys = providerKeys.filter((key) => failedByokProviderKeyIds.includes(key.id))
+    if (failedKeys.length > 0) {
+        return { kind: 'models-failed', keys: failedKeys }
+    }
+    if (providerModelGroups.some((group) => !group.disabledReason)) {
+        return null
+    }
+    return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
+}
 
 function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
     const label = providerLabel(key.provider)
@@ -94,7 +115,10 @@ export interface modelPickerLogicValues {
     byokModelNotice: ByokModelNotice | null
     byokModels: ModelOption[]
     byokModelsLoading: boolean
+    evaluationModelNotice: ByokModelNotice | null
+    evaluationProviderModelGroups: ProviderModelGroup[]
     failedByokProviderKeyIds: string[]
+    generativeByokModels: ModelOption[]
     hasByokKeys: boolean
     playgroundModels: ModelOption[]
     playgroundModelsLoading: boolean
@@ -178,12 +202,21 @@ export interface modelPickerLogicActions {
 export interface modelPickerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasByokKeys: (providerKeys: LLMProviderKey[]) => boolean
+        generativeByokModels: (byokModels: ModelOption[], providerKeys: LLMProviderKey[]) => ModelOption[]
         playgroundProviderModelGroups: (playgroundModels: ModelOption[]) => ProviderModelGroup[]
-        providerModelGroups: (
+        evaluationProviderModelGroups: (
             byokModels: ModelOption[],
             providerKeys: LLMProviderKey[],
             failedByokProviderKeyIds: string[]
         ) => ProviderModelGroup[]
+        providerModelGroups: (evaluationProviderModelGroups: ProviderModelGroup[]) => ProviderModelGroup[]
+        evaluationModelNotice: (
+            providerKeys: LLMProviderKey[],
+            providerKeysLoading: boolean,
+            byokModelsLoading: boolean,
+            failedByokProviderKeyIds: string[],
+            evaluationProviderModelGroups: ProviderModelGroup[]
+        ) => ByokModelNotice | null
         byokModelNotice: (
             providerKeys: LLMProviderKey[],
             providerKeysLoading: boolean,
@@ -228,11 +261,12 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const results = await Promise.all(
                     validKeys.map(async (key: LLMProviderKey) => {
                         try {
-                            // nosemgrep: prefer-codegen-api
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                             const rawModels = (await api.get(
                                 `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
                             )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
                                 is_recommended?: boolean
+                                supports_decisions?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -240,6 +274,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 provider: m.provider,
                                 description: m.description,
                                 isRecommended: m.is_recommended ?? false,
+                                supportsDecisions: m.supports_decisions ?? false,
                                 providerKeyId: key.id,
                             }))
                         } catch {
@@ -264,7 +299,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         playgroundModels: {
             __default: [] as ModelOption[],
             loadPlaygroundModels: async (): Promise<ModelOption[]> => {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const rawModels = (await api.get('/api/llm_proxy/models/')) as (Omit<ModelOption, 'isRecommended'> & {
                     is_recommended?: boolean
                 })[]
@@ -314,14 +349,24 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
     selectors({
         hasByokKeys: [
             (s) => [s.providerKeys],
-            (providerKeys: LLMProviderKey[]): boolean => providerKeys.some((k) => k.state === 'ok'),
+            (providerKeys: LLMProviderKey[]): boolean =>
+                providerKeys.some((k) => k.state === 'ok' && k.provider !== 'system_one'),
+        ],
+        generativeByokModels: [
+            (s) => [s.byokModels, s.providerKeys],
+            (models: ModelOption[], keys: LLMProviderKey[]): ModelOption[] =>
+                models.filter(
+                    (model) =>
+                        !model.supportsDecisions &&
+                        !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
+                ),
         ],
         playgroundProviderModelGroups: [
             (s) => [s.playgroundModels],
             (playgroundModels: ModelOption[]): ProviderModelGroup[] =>
                 buildPlaygroundProviderModelGroups(Array.isArray(playgroundModels) ? playgroundModels : []),
         ],
-        providerModelGroups: [
+        evaluationProviderModelGroups: [
             (s) => [s.byokModels, s.providerKeys, s.failedByokProviderKeyIds],
             (
                 byokModels: ModelOption[],
@@ -378,6 +423,37 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 })
             },
         ],
+        providerModelGroups: [
+            (s) => [s.evaluationProviderModelGroups],
+            (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
+                groups
+                    .filter((group) => group.provider !== 'system_one')
+                    .map((group) => ({ ...group, models: group.models.filter((model) => !model.supportsDecisions) }))
+                    .filter((group) => group.models.length > 0 || group.disabledReason),
+        ],
+        evaluationModelNotice: [
+            (s) => [
+                s.providerKeys,
+                s.providerKeysLoading,
+                s.byokModelsLoading,
+                s.failedByokProviderKeyIds,
+                s.evaluationProviderModelGroups,
+            ],
+            (
+                providerKeys: LLMProviderKey[],
+                providerKeysLoading: boolean,
+                byokModelsLoading: boolean,
+                failedByokProviderKeyIds: string[],
+                groups: ProviderModelGroup[]
+            ): ByokModelNotice | null =>
+                getByokModelNotice(
+                    providerKeys,
+                    providerKeysLoading,
+                    byokModelsLoading,
+                    failedByokProviderKeyIds,
+                    groups
+                ),
+        ],
         byokModelNotice: [
             (s) => [
                 s.providerKeys,
@@ -393,17 +469,13 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 failedByokProviderKeyIds: string[],
                 providerModelGroups: ProviderModelGroup[]
             ): ByokModelNotice | null => {
-                if (providerKeysLoading || byokModelsLoading) {
-                    return null
-                }
-                const failedKeys = providerKeys.filter((key) => failedByokProviderKeyIds.includes(key.id))
-                if (failedKeys.length > 0) {
-                    return { kind: 'models-failed', keys: failedKeys }
-                }
-                if (providerModelGroups.some((group) => !group.disabledReason)) {
-                    return null
-                }
-                return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
+                return getByokModelNotice(
+                    providerKeys.filter((key) => key.provider !== 'system_one'),
+                    providerKeysLoading,
+                    byokModelsLoading,
+                    failedByokProviderKeyIds,
+                    providerModelGroups
+                )
             },
         ],
     }),

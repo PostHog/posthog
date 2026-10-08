@@ -11,14 +11,20 @@
 //!
 //! The module converts `le` and `quantile` label values to Go's shortest float
 //! format. Therefore, `le="1.0"` and `le="1"` identify the same series.
+//!
+//! The series fingerprint of a native row includes its bound set. The storage
+//! keeps one bound set for each series and hour, so a partial bucket set and
+//! the complete bucket set of one histogram must not share a series.
 
 use std::collections::HashMap;
+use std::hash::Hasher;
 
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use chrono::{DateTime, Utc};
 use metrics::counter;
 use prometheus_rw_proto::prometheus::v1::{metric_metadata::MetricType, MetricMetadata};
 use serde_json::json;
+use siphasher::sip::SipHasher13;
 use uuid::Uuid;
 
 const LE_LABEL: &str = "le";
@@ -94,12 +100,15 @@ pub fn fold_classic_histograms(
         let resource_attributes: HashMap<String, String> =
             key.resource_attributes.iter().cloned().collect();
         let attributes: HashMap<String, String> = key.attributes.iter().cloned().collect();
-        let series_fingerprint = compute_series_fingerprint(
-            &key.base_name,
-            HISTOGRAM_TYPE,
-            &key.service_name,
-            &resource_attributes,
-            &attributes,
+        let series_fingerprint = fingerprint_with_bounds(
+            compute_series_fingerprint(
+                &key.base_name,
+                HISTOGRAM_TYPE,
+                &key.service_name,
+                &resource_attributes,
+                &attributes,
+            ),
+            &histogram.bounds,
         );
         folded.push(KafkaMetricRow {
             uuid: Uuid::now_v7().to_string(),
@@ -144,6 +153,18 @@ pub fn fold_classic_histograms(
             .filter_map(|(row, is_consumed)| (!is_consumed).then_some(row)),
     );
     folded
+}
+
+/// Combines a label fingerprint with a bound set. Bounds are written as
+/// little-endian bit patterns, so the result is identical on any host.
+pub fn fingerprint_with_bounds(fingerprint: i64, bounds: &[f64]) -> i64 {
+    let mut hasher = SipHasher13::new();
+    hasher.write(&fingerprint.to_le_bytes());
+    hasher.write(&(bounds.len() as u64).to_le_bytes());
+    for bound in bounds {
+        hasher.write(&bound.to_bits().to_le_bytes());
+    }
+    hasher.finish() as i64
 }
 
 fn normalize_float_labels(rows: &mut [KafkaMetricRow]) {

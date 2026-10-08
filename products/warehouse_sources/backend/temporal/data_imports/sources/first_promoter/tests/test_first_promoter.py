@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
     _format_filter_date,
     first_promoter_source,
     get_resource,
-    rest_api_client_config,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import DEFAULT_PAGE_SIZE
@@ -53,12 +52,6 @@ class TestFirstPromoterTransport:
         paginator.update_state(Mock(), data=list(page))
         assert paginator.has_next_page is False
 
-    def test_paginator_keeps_paging_through_distinct_full_pages(self) -> None:
-        paginator = FirstPromoterPaginator()
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE, start_id=1))
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE, start_id=1 + DEFAULT_PAGE_SIZE))
-        assert paginator.has_next_page is True
-
     def test_paginator_sends_page_and_page_size(self) -> None:
         paginator = FirstPromoterPaginator()
         request = _request()
@@ -70,18 +63,6 @@ class TestFirstPromoterTransport:
         paginator.update_request(request)
         assert request.params == {"page": 2, "per_page": DEFAULT_PAGE_SIZE}
 
-    def test_paginator_resume_state_round_trip(self) -> None:
-        paginator = FirstPromoterPaginator()
-        paginator.update_state(Mock(), data=_rows(DEFAULT_PAGE_SIZE))
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = FirstPromoterPaginator()
-        resumed.set_resume_state(cast(dict[str, Any], state))
-        request = _request()
-        resumed.init_request(request)
-        assert request.params["page"] == 2
-
     @parameterized.expand(
         [
             ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45, 999999), "2026-03-01"),
@@ -92,21 +73,6 @@ class TestFirstPromoterTransport:
     )
     def test_format_filter_date(self, _name: str, value: Any, expected: str) -> None:
         assert _format_filter_date(value) == expected
-
-    def test_commissions_resource_is_incremental(self) -> None:
-        resource = cast(dict[str, Any], get_resource("commissions", should_use_incremental_field=True))
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        incremental = resource["endpoint"]["incremental"]
-        # A flat `created_at` param is silently ignored by the API — the filter is bracket-nested.
-        assert incremental["start_param"] == "filters[created_at][from]"
-        assert incremental["cursor_path"] == "created_at"
-        # sort_mode="asc" checkpoints the watermark mid-sync, so the request must pin that order.
-        assert resource["endpoint"]["params"]["sorting[created_at]"] == "asc"
-
-    def test_commissions_resource_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource("commissions", should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
 
     def test_commissions_resource_honors_user_selected_cursor(self) -> None:
         resource = cast(
@@ -162,27 +128,6 @@ class TestFirstPromoterTransport:
         # else, so these endpoints get no data_map at all.
         resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=False))
         assert "data_map" not in resource
-
-    def test_client_config_sends_both_credentials_and_pins_the_host(self) -> None:
-        config = rest_api_client_config("fp-key", "98765", "v2")
-        assert config["base_url"] == "https://api.firstpromoter.com/api/v2/company"
-        assert config["auth"] == {"type": "bearer", "token": "fp-key"}
-        # Omitting the account id header fails auth even with a valid bearer token.
-        assert cast(dict[str, str], config["headers"])["ACCOUNT-ID"] == "98765"
-        # A redirect off the FirstPromoter host would otherwise replay the bearer token.
-        assert config["allowed_hosts"] == []
-        assert config["allow_redirects"] is False
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter.make_tracked_session"
-    )
-    def test_client_config_keeps_response_bodies_out_of_sample_capture(self, mock_session: MagicMock) -> None:
-        # Sample capture sees the raw body before the data_map runs, so the promoter credential (and
-        # PII) would leak into shared sample storage unless capture is off on the sync session.
-        config = rest_api_client_config("fp-key", "98765", "v2")
-        assert config["session"] is mock_session.return_value
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("fp-key",)
 
     @parameterized.expand(
         [

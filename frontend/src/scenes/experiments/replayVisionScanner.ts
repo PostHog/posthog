@@ -3,6 +3,7 @@ import type { Experiment } from '~/types'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import {
     buildExperimentTargeting,
+    experimentScannerConfig,
     experimentScannerQuery,
 } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import {
@@ -32,7 +33,7 @@ export const EXPERIMENT_SCANNER_TAGS = [
  * to, and a prompt that names them gets confident, wrong variant labels attached to observations.
  * Attribution comes from joining observations back to the exposure event at readout instead.
  */
-export function experimentScannerPrompt(experiment: Experiment): string {
+function experimentClassifierPrompt(experiment: Experiment): string {
     const hypothesis = experiment.description?.trim()
     return [
         'Classify what this participant did after the point where the experiment change would first be visible to them. Ignore anything earlier in the session.',
@@ -52,32 +53,45 @@ export function experimentScannerPrompt(experiment: Experiment): string {
 }
 
 /**
- * The scanner's population lives in `experiment_targeting`, never in `query`: the API derives the
- * person-scoped exposure filter from it at scan time, and rejects an exposure filter set in the
- * query directly. That keeps the scanner on the same sessions the experiment's Recordings tab
- * lists, including an exposure event that fires server-side or in an earlier session. `query`
- * carries only the experiment's test-account setting.
+ * An experiment scanner on the experiment the wizard just created. That experiment is a draft, so
+ * the scanner is saved off with `start_on_launch`, and the backend turns it on when the experiment
+ * launches. `query` carries only the experiment's test-account setting: the API derives the
+ * exposed population from the experiment at scan time.
  */
-export function experimentScannerBody(experiment: Experiment): ReplayScannerApi {
+export function experimentScannerBody(experiment: Experiment, asExperimentScanner: boolean): ReplayScannerApi {
     const nameSuffix = ` (#${experiment.id})`
     const name = `${experiment.name.slice(0, SCANNER_NAME_MAX_LENGTH - nameSuffix.length)}${nameSuffix}`
 
+    if (!asExperimentScanner) {
+        // Without the experiment type: a classifier with legacy targeting, created off.
+        return scannerToApiBody({
+            name,
+            description: 'Classifies what participants do after they are exposed to this experiment.',
+            scanner_type: 'classifier',
+            scanner_config: {
+                prompt: experimentClassifierPrompt(experiment),
+                tags: [...EXPERIMENT_SCANNER_TAGS],
+                multi_label: false,
+            },
+            provider: DEFAULT_PROVIDER,
+            model: DEFAULT_MODEL,
+            // A null variant watches every variant of the experiment.
+            experiment_targeting: buildExperimentTargeting({ experiment, variantKey: null }),
+            query: experimentScannerQuery(experiment),
+            // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
+            enabled: false,
+        })
+    }
+
     return scannerToApiBody({
         name,
-        description: 'Classifies what participants do after they are exposed to this experiment.',
-        scanner_type: 'classifier',
-        scanner_config: {
-            prompt: experimentScannerPrompt(experiment),
-            tags: [...EXPERIMENT_SCANNER_TAGS],
-            multi_label: false,
-        },
+        description: 'Summarizes what participants do after they are exposed to this experiment, for each variant.',
+        scanner_type: 'experiment',
+        scanner_config: { ...experimentScannerConfig(experiment, null), start_on_launch: true },
         // `model` is required by the create serializer; the rest of the product picks the same defaults.
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
-        // A null variant watches every variant of the experiment.
-        experiment_targeting: buildExperimentTargeting({ experiment, variantKey: null }),
         query: experimentScannerQuery(experiment),
-        // Enabling starts real credit spend, so that stays a human decision on the scanner itself.
         enabled: false,
     })
 }

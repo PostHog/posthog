@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
@@ -26,6 +27,7 @@ export function MessageTemplatesTable(): JSX.Element {
     const { filteredTemplates, templates, templatesLoading, search, createdByFilter } = useValues(messageTemplatesLogic)
     const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter } =
         useActions(messageTemplatesLogic)
+    const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
 
@@ -36,9 +38,7 @@ export function MessageTemplatesTable(): JSX.Element {
                     thingName="message template"
                     description="Create and manage reusable message templates for your workflows."
                     docsURL="https://posthog.com/docs/workflows"
-                    action={() => {
-                        router.actions.push(urls.workflowsLibraryTemplateNew())
-                    }}
+                    action={startNewTemplate}
                     customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />

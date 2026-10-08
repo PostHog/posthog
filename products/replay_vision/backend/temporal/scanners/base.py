@@ -3,20 +3,27 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Annotated, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
+
+if TYPE_CHECKING:
+    from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
 # model leaks comma-joined variants too, so match leniently (whitespace, comma-joined times, optional repeated `t`).
 # Shared by the signal-description stripper below and the chip extractor in `call_scanner_provider` so the two
 # parsers can't drift apart. The group captures the comma-joined seconds list.
 TIMESTAMP_CITATION_RE = re.compile(r"\s*\(\s*t\s*(\d+(?:\s*,\s*t?\s*\d+)*)\s*\)")
+
+
+def strip_citation_markers(value: str) -> str:
+    """Remove leaked `(t …)` markers, and the double spaces they leave, from a field meant to carry none."""
+    return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
 
 
 # Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
@@ -43,6 +50,8 @@ SIGNAL_HEADLINE_MAX_LENGTH = 80
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
+# The lookup round's plan turn. It has no output of its own, but LLM analytics keys its span on this name.
+STEP_LOOKUPS = "lookups"
 
 # Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
 # Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
@@ -77,7 +86,11 @@ class SignalFinding(BaseModel, frozen=True):
         ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
-        description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
+        description=(
+            "The page the issue happened on: the navigation timeline's URL for that window at that moment, or the "
+            "`URL:` in the video footer when the timeline has none (the footer drops the query string and cuts long "
+            "URLs short)."
+        )
     )
     description: str = Field(
         description=(
@@ -101,15 +114,14 @@ class SignalFinding(BaseModel, frozen=True):
         # The model leaks `(t 123)` markers into this embedded, free-text-searchable field despite the prompt — strip
         # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
         # the removal (or the model) leaves so the prose stays clean.
-        return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+        return strip_citation_markers(value)
 
     @field_validator("headline", mode="after")
     @classmethod
     def _shorten_headline(cls, value: str) -> str:
         # Same timestamp-marker leak as the description, plus a hard length bound — the prompt asks for 8 words
         # and the model sometimes answers with a sentence, which would reflow the card it lands on.
-        cleaned = re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
-        return cleaned[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
+        return strip_citation_markers(value)[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
 
 
 class SignalsResponse(BaseModel, frozen=True):
@@ -130,6 +142,13 @@ class SignalsResponse(BaseModel, frozen=True):
         return self
 
 
+def render_signals_instruction(last_video_second: int | None = None) -> str:
+    """The signals turn's instruction, naming the last citable video second when the scan knows it."""
+    return render_prompt(
+        "signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE, last_video_second=last_video_second
+    )
+
+
 @dataclass(frozen=True)
 class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
@@ -138,6 +157,7 @@ class MissionStep:
     `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
+    `plan_instruction`, when set, runs a lookup round with that instruction before the step answers.
     """
 
     name: str
@@ -145,6 +165,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
+    plan_instruction: str | None = None
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -193,6 +214,21 @@ def thumbnail_field() -> Any:
     return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
 
 
+_KEY_MOMENT_DESCRIPTION = (
+    "The single moment your answer rests on most, in whole seconds of video time counted from the start of "
+    "the video file, the same scale you cite moments in, not the footer's `REC_T`."
+)
+
+
+def key_moment_field() -> Any:
+    """`key_moment_t` field for LLM-response schemas, declared after the answer so the pick never precedes it.
+
+    Optional for the same reason as `thumbnail_t`: a skipped pick must not fail a paid-for scan. Readers open the
+    recording from its start when absent.
+    """
+    return Field(default=None, ge=0, description=_KEY_MOMENT_DESCRIPTION)
+
+
 def notability_field() -> Any:
     """`notability` field for LLM-response schemas.
 
@@ -220,6 +256,9 @@ class BaseScannerOutput(BaseModel, frozen=True):
     # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
     notability: float | None = notability_field()
     notability_reason: str | None = notability_reason_field()
+    # Session-clock offset of `key_moment_t`, stamped after the scan. None when the model skipped the pick or
+    # named a time past the video, and on observations scanned before key moments shipped.
+    key_moment_ms: int | None = Field(default=None, ge=0)
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
@@ -242,13 +281,18 @@ class BaseScanner(BaseModel, frozen=True):
 
     prompt: str
     emits_signals: bool = False
+    # Learned from the team's ratings and loaded per scan. `exclude=True` keeps them out of every dump.
+    project_rules: list[str] = Field(default_factory=list, exclude=True)
+    scanner_rules: list[str] = Field(default_factory=list, exclude=True)
 
-    # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
+    # Shared opening turn (footer, lookups, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
     # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
+    # Fields set per scan, which a saved scanner config must never carry.
+    session_fields: ClassVar[frozenset[str]] = frozenset({"project_rules", "scanner_rules"})
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None
 
@@ -272,15 +316,16 @@ class BaseScanner(BaseModel, frozen=True):
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
-        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
         network_state: Literal["available", "clean", "none"] = "none",
+        touch: bool = False,
     ) -> str:
-        """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
+        """The conversation's shared opening: framing, footer, lookups, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
         this module free of a `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
+            project_rules=self.project_rules,
             session_metadata=session_metadata or {},
             session_identity=session_identity or None,
             navigation=navigation or [],
@@ -288,16 +333,17 @@ class BaseScanner(BaseModel, frozen=True):
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
-            tool_budget=tool_budget,
-            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
             network_state=network_state,
+            touch=touch,
         )
 
     def core_steps(self) -> list[MissionStep]:
         """The task turn(s) that produce this scanner's primary output. Default: one `core` step."""
         if not self.core_step_template:
             raise NotImplementedError(f"{type(self).__name__} must set `core_step_template`")
-        instruction = render_prompt(self.core_step_template, user_prompt=self.prompt, **self.prompt_context())
+        instruction = render_prompt(
+            self.core_step_template, user_prompt=self.prompt, scanner_rules=self.scanner_rules, **self.prompt_context()
+        )
         return [
             MissionStep(
                 name=STEP_CORE,
@@ -315,9 +361,10 @@ class BaseScanner(BaseModel, frozen=True):
         return steps
 
     def _signals_step(self) -> MissionStep:
-        instruction = render_prompt("signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE)
         # Best-effort: a side-mission failure must not sink the whole scan.
-        return MissionStep(name=STEP_SIGNALS, instruction=instruction, response_model=SignalsResponse, required=False)
+        return MissionStep(
+            name=STEP_SIGNALS, instruction=render_signals_instruction(), response_model=SignalsResponse, required=False
+        )
 
     def _validate_core(self, parsed: BaseModel) -> str | None:
         """Run the scanner's semantic checks against a finalized version of the core response."""
@@ -338,6 +385,16 @@ class BaseScanner(BaseModel, frozen=True):
         if self.output_cls is None:
             raise NotImplementedError(f"{type(self).__name__} must set `output_cls`")
         return self.output_cls(**llm_response.model_dump())
+
+    def bind_session(self, clock: "VideoClock", duration_ms: int) -> Self:
+        """This scanner with the facts of one session the prompt needs. Default: none."""
+        return self
+
+    def resolve_session_clock(
+        self, output: "BaseScannerOutput", core_response: BaseModel | None, clock: "VideoClock", duration_ms: int
+    ) -> "BaseScannerOutput":
+        """Move the output's video-clock fields onto the session clock. Default: the output has none."""
+        return output
 
     def validate_semantics(self, output: "BaseScannerOutput") -> str | None:
         """Scanner-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""

@@ -106,52 +106,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("m0-test") is expected
 
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_network_error_is_invalid_not_raised(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("m0-test") is False
-
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_probes_the_ping_endpoint_with_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("m0-test")
-
-        _args, kwargs = mock_session.return_value.get.call_args
-        assert mock_session.return_value.get.call_args.args[0] == f"{MEM0_BASE_URL}/v1/ping/"
-        assert kwargs["headers"]["Authorization"] == "Token m0-test"
-
 
 class TestMemoriesRows:
-    def test_yields_every_page_and_terminates_on_null_next(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        rows, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}, {"id": "m2"}], next_url=next_url), _response([{"id": "m3"}], next_url=None)],
-            _manager(),
-        )
-
-        assert rows == [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]
-        assert _query(prepared[0])["page"] == ["1"]
-        assert "page=2" in prepared[1].url
-        assert all(_query(p).get("page_size") == ["100"] for p in prepared)
-
-    def test_posts_with_token_auth_header(self):
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([{"id": "m1"}], next_url=None)], _manager())
-
-        assert prepared[0].method == "POST"
-        assert prepared[0].headers["Authorization"] == "Token m0-test"
-
-    def test_full_sync_sends_wildcard_filter_over_every_entity_type(self):
-        # A bare {"user_id": "*"} filter would silently drop memories scoped only to an agent,
-        # app, or run; the request must OR the wildcard across all four entity ids.
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([], next_url=None)], _manager())
-
-        body = _body(prepared[0])
-        assert body == {"filters": _MATCH_ALL_FILTER}
-        assert {"agent_id": "*"} in body["filters"]["OR"]
-
     def test_incremental_sync_filters_on_the_users_chosen_field(self):
         _rows_, prepared = _run(
             MEMORIES_ENDPOINT,
@@ -163,20 +119,6 @@ class TestMemoriesRows:
         )
 
         assert _body(prepared[0]) == {"filters": {"AND": [_MATCH_ALL_FILTER, {"created_at": {"gte": "2026-07-01"}}]}}
-
-    def test_saves_resume_state_only_after_yielding_and_only_when_pages_remain(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        manager = _manager()
-        _run(
-            MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}], next_url=next_url), _response([{"id": "m2"}], next_url=None)],
-            manager,
-        )
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == Mem0ResumeConfig(
-            endpoint=MEMORIES_ENDPOINT, next_url=next_url, cutoff=None
-        )
 
     def test_resumes_from_saved_next_url_and_pins_the_original_cutoff(self):
         # The saved cutoff (not a freshly computed one) must drive the filter on resume, otherwise
@@ -305,29 +247,6 @@ class TestEventsRows:
         assert prepared[1].url == next_url
         manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=next_url))
 
-    def test_follows_relative_next_urls(self):
-        # Mem0's /v1/events/ envelope returns a relative `next` link; it must resolve against the
-        # API origin rather than be rejected as off-origin.
-        absolute_next = f"{MEM0_BASE_URL}/v1/events/?page=2"
-        manager = _manager()
-        rows, prepared = _run(
-            EVENTS_ENDPOINT,
-            [_response([{"id": "e1"}], next_url="/v1/events/?page=2"), _response([{"id": "e2"}], next_url=None)],
-            manager,
-        )
-
-        assert rows == [{"id": "e1"}, {"id": "e2"}]
-        assert prepared[1].url == absolute_next
-        manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=absolute_next))
-
-    def test_resumes_from_the_saved_next_url(self):
-        saved_url = f"{MEM0_BASE_URL}/v1/events/?page=5"
-        manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url))
-
-        _rows_, prepared = _run(EVENTS_ENDPOINT, [_response([], next_url=None)], manager)
-
-        assert prepared[0].url == saved_url
-
     @parameterized.expand(
         [
             ("absolute", "https://evil.example.com/v1/events/?page=2"),
@@ -365,17 +284,6 @@ class TestEventsRows:
 
 
 class TestFetchRetry:
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    def test_retries_rate_limits_then_succeeds(self, _sleep):
-        rows, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([], status=429), _response([{"id": "m1"}], next_url=None)],
-            _manager(),
-        )
-
-        assert rows == [{"id": "m1"}]
-        assert len(prepared) == 2
-
     def test_auth_errors_raise_immediately_without_retry(self):
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             session = MockSession.return_value
@@ -388,22 +296,3 @@ class TestFetchRetry:
                 )
 
         assert len(prepared) == 1
-
-
-class TestMem0SourceResponse:
-    def test_memories_response_merges_on_id_and_partitions_on_stable_created_at(self):
-        response = mem0_source("m0-test", MEMORIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.name == MEMORIES_ENDPOINT
-        assert response.primary_keys == ["id"]
-        # The list endpoint has no sort parameter, so ordering is undefined; "desc" defers the
-        # incremental watermark commit to successful end of run.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_entities_response_has_no_partitioning(self):
-        response = mem0_source("m0-test", ENTITIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None

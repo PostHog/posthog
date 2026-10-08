@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 
@@ -10,8 +10,6 @@ from prometheus_client import Counter
 from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 
 logger = structlog.get_logger(__name__)
-
-QUERY_FAILURE_CACHING_FLAG = "query-failure-caching"
 
 QUERY_FAILURE_CACHE_COUNTER = Counter(
     "posthog_query_failure_cache_total",
@@ -43,6 +41,7 @@ KIND_POLICIES: dict[FailureKind, KindPolicy] = {
 }
 
 BASE_BACKOFF = timedelta(minutes=2)
+WARMING_BASE_BACKOFF = timedelta(hours=2)
 RECORD_TTL = timedelta(hours=24)
 
 
@@ -85,8 +84,15 @@ class QueryFailureCache:
     def __init__(self, cache_key: str) -> None:
         self.key = f"query_failure:{cache_key}"
 
+    def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
+        """Return the retry deadline; None or a past deadline allows a retry."""
+        return record.open_until
+
     def get_open(self) -> Optional[QueryFailureRecord]:
+        """Return a failure still in cooldown, or None. Callers must also check record.forbids(budget)."""
         record = self._load()
+        if record is not None:
+            record = replace(record, open_until=self.retry_after(record))
         return record if record is not None and record.is_open else None
 
     def record_failure(
@@ -114,17 +120,18 @@ class QueryFailureCache:
                     # Once the big-budget path has failed, a later small-budget failure must
                     # not narrow what the breaker forbids.
                     record_budget = BUDGET_EXTENDED
-            open_until: Optional[datetime] = None
+            now = datetime.now(UTC)
+            open_until = None
             if failures >= policy.open_threshold:
                 max_doublings = (policy.max_backoff // BASE_BACKOFF).bit_length()
                 doublings = min(failures - policy.open_threshold, max_doublings)
-                open_until = datetime.now(UTC) + min(BASE_BACKOFF * 2**doublings, policy.max_backoff)
+                open_until = now + min(BASE_BACKOFF * 2**doublings, policy.max_backoff)
             record = QueryFailureRecord(
                 kind=kind,
                 # Capped so record size stays bounded no matter what copy a caller passes.
                 detail=detail[:1000],
                 consecutive_failures=failures,
-                last_failed_at=datetime.now(UTC),
+                last_failed_at=now,
                 open_until=open_until,
                 budget=record_budget,
                 cache_key=cache_key,
@@ -179,3 +186,25 @@ class QueryFailureCache:
             "cache_key": record.cache_key,
             "query_scan": record.query_scan,
         }
+
+
+class WarmingQueryFailureCache(QueryFailureCache):
+    """Make cache warming wait longer before retrying a recently failed query.
+
+    We override retry_after() instead of record_failure() because warming and
+    frontend requests share the stored failure history. Changing the deadline in
+    record_failure() would also make frontend requests wait longer. This override
+    applies the longer wait only when warming checks a failure, once the failure
+    threshold is reached. It does not change the stored deadline.
+
+    A successful frontend calculation for the same cache key clears the failure
+    history for both paths, so warming can resume without the old cooldown.
+    """
+
+    def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
+        policy = KIND_POLICIES[record.kind]
+        if record.consecutive_failures < policy.open_threshold:
+            return None
+        max_doublings = (policy.max_backoff // WARMING_BASE_BACKOFF).bit_length()
+        doublings = min(record.consecutive_failures - policy.open_threshold, max_doublings)
+        return record.last_failed_at + min(WARMING_BASE_BACKOFF * 2**doublings, policy.max_backoff)

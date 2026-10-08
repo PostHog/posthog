@@ -17,7 +17,6 @@ export type AccountExpansionTab =
     | 'opportunities'
     | 'conversations'
     | 'meetings'
-    | 'event_stream'
 
 export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'notes',
@@ -30,7 +29,6 @@ export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'opportunities',
     'conversations',
     'meetings',
-    'event_stream',
 ]
 
 export const DEFAULT_ACCOUNT_TAB: AccountExpansionTab = 'notes'
@@ -48,7 +46,7 @@ export function getVisibleAccountExpansionTab(
     if (tab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
         return DEFAULT_ACCOUNT_TAB
     }
-    if ((tab === 'meetings' || tab === 'event_stream') && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    if (tab === 'meetings' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         return DEFAULT_ACCOUNT_TAB
     }
     return tab as AccountExpansionTab

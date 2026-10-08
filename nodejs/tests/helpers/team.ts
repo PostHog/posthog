@@ -1,4 +1,4 @@
-import { ProjectId, Team } from '../../src/types'
+import { FlagEvaluationsMode, ProjectId, Team } from '../../src/types'
 
 /**
  * Helper function to create a Team object for tests with sensible defaults.
@@ -21,6 +21,7 @@ export function createTestTeam(overrides: Partial<Team> = {}): Team {
         ingested_event: true,
         person_display_name_properties: null,
         minimal_flag_called_events: false,
+        flag_evaluations_mode: FlagEvaluationsMode.Events,
         test_account_filters: null,
         cookieless_server_hash_mode: null,
         timezone: 'UTC',

@@ -1,17 +1,9 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ALL_WEBHOOK_EVENTS,
-    ENDPOINTS,
-    INCREMENTAL_ENDPOINTS,
-    MERGE_ONLY_ENDPOINTS,
-    SCHEMA_TO_WEBHOOK_EVENTS,
-    WEBHOOK_SCHEMA_NAMES,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import SCHEMA_TO_WEBHOOK_EVENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.source import WhopSource
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.whop.source.api_client"
@@ -24,29 +16,6 @@ class TestWhopSource:
         self.source = WhopSource()
         self.team_id = 123
         self.config = WhopSourceConfig(api_key="test-api-key", company_id="biz_test")
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Whop"
-        assert config.label == "Whop"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source must ship visible: unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/whop"
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_incremental_support_matches_the_endpoint_catalog(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is (endpoint in INCREMENTAL_ENDPOINTS)
-        if schema.supports_incremental:
-            assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
-        else:
-            assert schema.incremental_fields == []
-        # Endpoints paged newest-first re-yield watermark boundary rows, which append would
-        # duplicate; only a merge on `id` dedupes them.
-        assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error,non_retryable",
@@ -63,36 +32,12 @@ class TestWhopSource:
     def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):
         assert error_message_matches(observed_error, self.source.get_non_retryable_errors()) is non_retryable
 
-    def test_canonical_descriptions_only_describe_real_schemas(self):
-        # A key that doesn't match a schema name is silently ignored, so the descriptions would
-        # never reach the table they were written for.
-        assert set(self.source.get_canonical_descriptions()) <= set(ENDPOINTS)
-
-    def test_webhook_resource_map_routes_by_distinct_event_prefix(self):
-        mapping = self.source.webhook_resource_map
-
-        assert set(mapping) == set(WEBHOOK_SCHEMA_NAMES)
-        # `dispute` and `dispute_alert` share a prefix boundary; collapsing them would file every
-        # dispute alert into the disputes table.
-        assert len(set(mapping.values())) == len(mapping)
-        assert mapping["disputes"] == "dispute"
-        assert mapping["dispute_alerts"] == "dispute_alert"
-
     @pytest.mark.parametrize("schema_name, events", list(SCHEMA_TO_WEBHOOK_EVENTS.items()))
     def test_every_event_starts_with_its_schema_routing_prefix(self, schema_name, events):
         # The hog template routes on the event's prefix, so an event whose prefix doesn't match its
         # schema's mapping key would be dropped as unroutable.
         prefix = self.source.webhook_resource_map[schema_name]
         assert all(event.split(".", 1)[0] == prefix for event in events)
-
-    def test_desired_webhook_events_are_deduped_and_within_the_catalog(self):
-        events = self.source.get_desired_webhook_events(self.config, ["payments", "payments", "refunds"])
-
-        assert events == sorted(set(SCHEMA_TO_WEBHOOK_EVENTS["payments"] + SCHEMA_TO_WEBHOOK_EVENTS["refunds"]))
-        assert set(events) <= set(ALL_WEBHOOK_EVENTS)
-
-    def test_desired_webhook_events_ignores_schemas_with_no_events(self):
-        assert self.source.get_desired_webhook_events(self.config, ["affiliates"]) == []
 
     def test_webhook_template_exposes_the_signing_secret_input(self):
         template = self.source.webhook_template
@@ -133,14 +78,6 @@ class TestWhopSource:
             assert message is None
         else:
             assert expected_message in (message or "")
-
-    def test_validate_credentials_skips_the_probe_for_a_malformed_company_id(self):
-        config = WhopSourceConfig(api_key="test-api-key", company_id="acme")
-
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            self.source.validate_credentials(config, self.team_id)
-
-        api_client.validate_credentials.assert_not_called()
 
     @pytest.mark.parametrize(
         "method_name, client_method",

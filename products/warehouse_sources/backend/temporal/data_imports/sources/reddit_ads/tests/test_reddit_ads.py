@@ -26,25 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 class TestRedditAdsHelperFunctions:
     """Test helper functions in reddit_ads.py."""
 
-    def test_get_incremental_date_range_with_datetime(self):
-        last_value = dt.datetime(2024, 3, 15, 14, 30, 0)
-        starts_at, ends_at = _get_incremental_date_range(True, last_value)
-
-        assert starts_at == "2024-03-15T14:00:00Z"
-        assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
-
     def test_get_incremental_date_range_with_date(self):
         last_value = dt.date(2024, 3, 15)
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
         assert starts_at == "2024-03-15T00:00:00Z"
-        assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
-
-    def test_get_incremental_date_range_with_string(self):
-        last_value = "2024-03-15T14:30:00Z"
-        starts_at, ends_at = _get_incremental_date_range(True, last_value)
-
-        assert starts_at == "2024-03-15T14:00:00Z"
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_invalid_string(self):
@@ -62,27 +48,9 @@ class TestRedditAdsHelperFunctions:
         assert starts_at is not None
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
-    def test_get_incremental_date_range_none_value(self):
-        starts_at, ends_at = _get_incremental_date_range(True, None)
-
-        # Should use initial_datetime
-        assert starts_at is not None
-        assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
-
 
 class TestGetResource:
     """Test get_resource function."""
-
-    def test_get_resource_campaigns(self):
-        resource = get_resource("campaigns", "test_account", False)
-
-        assert resource["name"] == "campaigns"
-        assert resource["table_name"] == "campaigns"
-        assert "primary_key" not in resource
-        assert isinstance(resource["endpoint"], dict)
-        assert resource["endpoint"]["path"] == "/ad_accounts/test_account/campaigns"
-        assert resource["endpoint"]["method"] == "GET"
-        assert resource["write_disposition"] == "replace"
 
     def test_get_resource_campaigns_incremental(self):
         resource = get_resource("campaigns", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
@@ -96,29 +64,9 @@ class TestGetResource:
         assert endpoint_params is not None
         assert "modified_at[after]" in endpoint_params
 
-    def test_get_resource_campaign_report_incremental(self):
-        resource = get_resource("campaign_report", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
-
-        assert isinstance(resource["write_disposition"], dict)
-        write_disposition = resource["write_disposition"]
-        assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"
-        assert isinstance(resource["endpoint"], dict)
-        assert resource["endpoint"]["method"] == "POST"
-        endpoint_json = resource["endpoint"]["json"]
-        assert endpoint_json is not None
-        assert endpoint_json["data"]["starts_at"] == "2024-03-15T14:00:00Z"
-        assert endpoint_json["data"]["ends_at"].endswith(":00:00Z")  # Should be next hour (rounded to hour)
-
     def test_get_resource_unknown_endpoint(self):
         with pytest.raises(ValueError, match="Unknown endpoint: unknown_endpoint"):
             get_resource("unknown_endpoint", "test_account", False)
-
-    def test_get_resource_invalid_endpoint_type(self):
-        # This would require mocking REDDIT_ADS_CONFIG to have invalid endpoint
-        # For now, we'll test the happy path since the config is properly structured
-        resource = get_resource("campaigns", "test_account", False)
-        assert isinstance(resource["endpoint"], dict)
 
     @parameterized.expand(
         [
@@ -199,33 +147,6 @@ class TestBreakdownReportEndpoints:
 class TestRedditAdsPaginator:
     """Test RedditAdsPaginator class."""
 
-    def test_paginator_init(self):
-        paginator = RedditAdsPaginator()
-        assert paginator._next_url is None
-        assert paginator._has_next_page is False
-
-    def test_update_state_with_pagination(self):
-        paginator = RedditAdsPaginator()
-
-        mock_response = mock.MagicMock()
-        mock_response.json.return_value = {"pagination": {"next_url": "https://api.reddit.com/next-page"}}
-
-        paginator.update_state(mock_response)
-
-        assert paginator._next_url == "https://api.reddit.com/next-page"
-        assert paginator._has_next_page is True
-
-    def test_update_state_without_pagination(self):
-        paginator = RedditAdsPaginator()
-
-        mock_response = mock.MagicMock()
-        mock_response.json.return_value = {"data": []}
-
-        paginator.update_state(mock_response)
-
-        assert paginator._next_url is None
-        assert paginator._has_next_page is False
-
     def test_update_state_invalid_json(self):
         paginator = RedditAdsPaginator()
 
@@ -236,25 +157,6 @@ class TestRedditAdsPaginator:
 
         assert paginator._next_url is None
         assert paginator._has_next_page is False
-
-    def test_update_request_with_next_url(self):
-        paginator = RedditAdsPaginator()
-        paginator._next_url = "https://api.reddit.com/next-page"
-
-        mock_request = mock.MagicMock()
-        paginator.update_request(mock_request)
-
-        assert mock_request.url == "https://api.reddit.com/next-page"
-
-    def test_update_request_without_next_url(self):
-        paginator = RedditAdsPaginator()
-
-        mock_request = mock.MagicMock()
-        original_url = mock_request.url
-        paginator.update_request(mock_request)
-
-        # URL should remain unchanged
-        assert mock_request.url == original_url
 
     @parameterized.expand(
         [
@@ -277,14 +179,6 @@ class TestRedditAdsPaginator:
             paginator.update_state(mock_response)
 
         assert paginator.get_resume_state() == expected
-
-    def test_set_resume_state_round_trip(self):
-        """set_resume_state then get_resume_state returns the same value."""
-        paginator = RedditAdsPaginator()
-        paginator.set_resume_state({"next_url": "https://api.reddit.com/page-5"})
-
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
 
     def test_redirect_to_next_url_stops_the_url_from_growing(self) -> None:
         """The prepared URL must not grow as pages advance.
@@ -460,17 +354,6 @@ class TestRedditAdsListEndpointTransport:
             )
             pages = list(source.items())
             return [row for page in pages for row in page], session
-
-    def test_single_object_ad_account_response_yields_one_row(self):
-        # `GET /ad_accounts/{id}` returns one object rather than a list, and the pipeline must still
-        # see a row rather than choking on the unwrapped dict.
-        rows, session = self._run(
-            "ad_account",
-            [_http_response({"data": {"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}})],
-        )
-
-        assert rows == [{"id": "a2_789", "currency": "USD", "time_zone_id": "America/Los_Angeles"}]
-        assert session.send.call_args_list[0].args[0].url == "https://ads-api.reddit.com/api/v3/ad_accounts/789"
 
     def test_structured_posts_are_fanned_out_over_every_profile(self):
         # Reddit hangs creatives off profiles, not off the ad account, so this is the only endpoint

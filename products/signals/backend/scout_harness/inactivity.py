@@ -74,6 +74,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -351,6 +352,7 @@ def _assess_team(team_id: int, skill_names: list[str], now: datetime) -> TeamAss
             skill_name__in=skill_names,
             created_at__gte=now - TOUCHED_REPORT_LOOKBACK,
         )
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .values_list("skill_name", "created_at", "emitted_finding_ids", "emitted_report_ids", "edited_report_ids")
     )
 
@@ -407,11 +409,12 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by
-    # construction, and every action type counts — reading is how digest-style reports are
+    # construction. Bulk read-state changes are excluded: reading is how digest-style reports are
     # consumed, so a recent open is as much a rescue as a note.
     engaged |= {
         str(report_id)
         for report_id in SignalReportAction.objects.for_team(team_id)
+        .exclude(type=SignalReportAction.ActionType.READ)
         .filter(
             report_id__in=report_ids,
             last_at__gte=window_start,

@@ -262,6 +262,18 @@ export class HostBudget {
         return true
     }
 
+    public originCrawlDelayMs(origin: string): number {
+        return this.origins.get(origin)?.crawlDelayMs ?? 0
+    }
+
+    public originNextImageStartAtMs(origin: string): number {
+        const state = this.origins.get(origin)
+        if (!state || state.lastRequestStartedAtMs === null) {
+            return 0
+        }
+        return state.lastRequestStartedAtMs + state.crawlDelayMs
+    }
+
     public recordTransientFailure(registrableDomain: string, nowMs: number, retryAfterMs?: number): number {
         const state = this.registrableDomainStateFor(registrableDomain, nowMs)
         if (!state) {

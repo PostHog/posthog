@@ -1,8 +1,8 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
+import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -66,22 +66,8 @@ export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email lo
 
 export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
 
-export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
-    hideRepositorySelector: true,
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    // Not a takeover host, and the side panel is closed here, so nothing would receive the replay click.
-    hideOnboardingReplay: true,
-}
-
-export interface NewWorkflowSuggestion {
-    title: string
-    description: string
-    prompt: string
-}
-
 // The first is the data-driven ask; the rest follow the templates users pick most often.
-export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
+export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
     {
         title: 'Improve my conversion',
         description: 'Look at the funnel and draft a campaign for the biggest drop-off',

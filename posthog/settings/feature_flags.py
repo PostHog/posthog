@@ -2,6 +2,8 @@ import os
 import json
 from contextlib import suppress
 
+from django.core.exceptions import ImproperlyConfigured
+
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
@@ -49,14 +51,28 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
-# The sync reads distributed_events_recent, which either replica of the batch-export shard can
-# answer, so rows inserted moments ago may be missing from whichever one serves a given query.
+# Use "flag_evaluations" only where every analytics ingestion lane forks every team's flag calls into that table.
+# This source moves last_called_at only for calls that the fork writes. A lane forks only when its deployment
+# config sets INGESTION_FLAG_EVALUATIONS_MODE and INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. The fork also skips a
+# call dated past the table's TTL.
+# Disabling the fork also stops last_called_at with this source, and the checkpoint keeps moving past the missed
+# calls. Switch this back to "events" before disabling the fork.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: str = get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE", "events")
+# Both source tables are Distributed reads that either replica of a shard can answer, so rows
+# inserted moments ago may be missing from whichever one serves a given query.
 # Ending the scan window this far before now keeps the checkpoint from advancing past those
 # rows, so a row still missing at read time is picked up by the next run instead of being
 # skipped for good.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
     0,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
+)
+# Replaces the buffer above when the source is flag_evaluations. That table stamps inserted_at with the Kafka
+# message time, before ClickHouse writes the row, so this buffer must also cover the ClickHouse consumer lag.
+# A row that ClickHouse writes later than this falls behind the checkpoint and is never read.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS: int = max(
+    0,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_FLAG_EVALUATIONS_BUFFER_SECONDS", 900, type_cast=int),
 )
 # Per-chunk ClickHouse execution cap. sync_execute sets no max_execution_time of its own, so
 # without this a hung query is bounded only by the server profile, and a run can outlive the
@@ -153,6 +169,13 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
+# OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. 0 reads
+# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab, the
+# per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called.
+# 2 also stops writing it to events for teams in the ingestion allowlist. A change here never moves an
+# existing organization.
+FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
+
 # Feature flag limits to prevent memory issues during flag evaluation/caching.
 # These limits are configurable via environment variables and can be overridden
 # in Helm charts per environment.
@@ -171,6 +194,20 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Bounds one rule's opaque metadata object in an admitted config version 2 write (admission itself
+# is by internal feature flag, see facade/config_writes.py). The default is sized for the pilot's documents;
+# revisit it before users can author v2 documents through the editor or the wider API.
+FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES: int = get_from_env(
+    "FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES", 2048, type_cast=int
+)
+
+# Both feed the v2 validator's limits, which reject a non-positive value. Fail the deploy rather than
+# the first v2 write, which may be the incident disable.
+if MAX_FEATURE_FLAG_FILTER_SIZE_BYTES <= 0 or FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES <= 0:
+    raise ImproperlyConfigured(
+        "MAX_FEATURE_FLAG_FILTER_SIZE_BYTES and FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES must be positive integers"
+    )
 
 # Staged rollout for feature flag filters validation (#50084). Rule ids to reject on, comma
 # separated, matching the ids in the violation metrics and in the `code` of each error this

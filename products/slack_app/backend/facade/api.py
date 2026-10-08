@@ -4,11 +4,12 @@ The ONLY module other products are allowed to import. Keep the surface narrow:
 every function here lives behind a tach contract check, so each addition has a
 cost in cross-product coupling.
 
-Today the facade exists for three jobs: letting core's OAuth callback invalidate
+Today the facade exists for four jobs: letting core's OAuth callback invalidate
 the per-integration auth-state cache when a Slack install is reconnected,
-answering whether a channel has been approved for PostHog to speak in, and
-telling a product that posts a report whether the bot can answer a follow-up.
-All are stable re-exports so the implementations can move around inside
+answering whether a channel has been approved for PostHog to speak in,
+telling a product that posts a report whether the bot can answer a follow-up,
+and turning an agent's tool calls into the progress lines of a streamed Slack
+reply. All are stable re-exports so the implementations can move around inside
 slack_app without breaking their callers.
 
 This module's import graph must not reach ``products.signals``. That product now imports this
@@ -23,6 +24,23 @@ from typing import Any
 
 from posthog.models.integration import Integration
 
+from products.slack_app.backend.logic.progress_phases import (
+    ANSWER_LINE_TITLE,
+    OTHER_WORK,
+    PLAN_TITLE_STOPPED,
+    PLAN_TITLE_WORKING,
+    PREPARING_LINE_TITLE,
+    SLACK_STEP_STATUSES,
+    THINKING_LINE_TITLE,
+    ProgressPhase,
+    agent_plan_steps,
+    done_plan_title,
+    intent_from_narrative,
+    phase_for_key,
+    phase_for_tool_call,
+    phase_line_title,
+    tool_call_from_acp_update,
+)
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
@@ -30,6 +48,21 @@ from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
 
 __all__ = [
+    "ANSWER_LINE_TITLE",
+    "OTHER_WORK",
+    "PLAN_TITLE_STOPPED",
+    "PLAN_TITLE_WORKING",
+    "PREPARING_LINE_TITLE",
+    "SLACK_STEP_STATUSES",
+    "THINKING_LINE_TITLE",
+    "ProgressPhase",
+    "agent_plan_steps",
+    "done_plan_title",
+    "intent_from_narrative",
+    "phase_for_key",
+    "phase_for_tool_call",
+    "phase_line_title",
+    "tool_call_from_acp_update",
     "invalidate_slack_integration_auth_state",
     "slack_artifact_delivery_state_updates",
     "slack_channel_is_approved",

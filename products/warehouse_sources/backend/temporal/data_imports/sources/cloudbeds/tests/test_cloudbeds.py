@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -19,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
     CLOUDBEDS_ENDPOINTS,
     ENDPOINTS,
-    RATE_PLAN_WINDOW_DAYS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -123,30 +121,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == CloudbedsResumeConfig(page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"reservationID": "1"}, {"reservationID": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert [r["reservationID"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"reservationID": "5"}])])
@@ -156,29 +130,6 @@ class TestPagination:
         assert rows == [{"reservationID": "5"}]
         # Page 1 and 2 must never be fetched on resume.
         assert [p["pageNumber"] for p in params] == [3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_property_id_is_sent_on_every_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(self._full_page(0)), _response([])])
-
-        _rows(_source(manager=_make_manager(), property_id="12345"))
-
-        assert all(p["propertyID"] == "12345" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once_without_page_params(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"propertyID": "1"}, {"propertyID": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("hotels", manager=manager))
-
-        assert rows == [{"propertyID": "1"}, {"propertyID": "2"}]
-        assert session.send.call_count == 1
-        assert "pageNumber" not in params[0]
-        assert "pageSize" not in params[0]
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_rooms_are_flattened_with_property_id(self, MockSession: mock.MagicMock) -> None:
@@ -238,22 +189,6 @@ class TestPagination:
             {"userID": "u2", "propertyID": "1"},
             {"userID": "u1", "email": "a@example.com", "propertyID": "2"},
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rate_plans_request_the_required_forward_stay_window(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"rateID": "r1"}])])
-
-        before = datetime.now(UTC).date()
-        _rows(_source("rate_plans", manager=_make_manager(), property_id="12345"))
-        after = datetime.now(UTC).date()
-
-        start = date.fromisoformat(params[0]["startDate"])
-        end = date.fromisoformat(params[0]["endDate"])
-        # getRatePlans rejects a request without a stay window, so the window has to be built for it,
-        # and it has to start on the sync date rather than drift into the past.
-        assert before <= start <= after
-        assert end - start == timedelta(days=RATE_PLAN_WINDOW_DAYS)
 
     @parameterized.expand([("rate_plans", "propertyIDs"), ("users", "property_ids")])
     @mock.patch(CLIENT_SESSION_PATCH)

@@ -1,5 +1,7 @@
 import { UserRole } from '~/types'
 
+import { MCP_INSTALL_COMMAND } from './constants'
+
 export const SURFACE_KEYS = [
     'feature_flags.create',
     'feature_flags.update',
@@ -563,4 +565,14 @@ export function getSurfacePrompts(surfaceKey: SurfaceKey, options: ResolveOption
 export function formatDerivedToastPrompt(prompt: string): string {
     const trimmed = prompt.trim().replace(/^["']|["']$/g, '')
     return `"${trimmed}"`
+}
+
+/**
+ * Turns a displayed example into the prompt an external agent receives. The agent may not have the
+ * PostHog MCP server yet, so the prompt tells it to ask for the install instead of guessing.
+ */
+export function buildMCPAgentPrompt(example: string, projectId: number | null): string {
+    const task = example.trim().replace(/^["']|["']$/g, '')
+    const project = projectId ? ` in PostHog project ${projectId}` : ''
+    return `${task}\n\nUse the PostHog MCP server${project}. If the PostHog MCP server is not connected, stop and ask me to run \`${MCP_INSTALL_COMMAND}\` in a terminal, then try again.`
 }

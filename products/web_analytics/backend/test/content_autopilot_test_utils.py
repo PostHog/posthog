@@ -1,6 +1,9 @@
+from django.utils import timezone
+
 from posthog.models.team import Team
 
 from products.web_analytics.backend.models import (
+    ContentAutopilotOpportunity,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -77,4 +80,43 @@ def create_content_autopilot_proposal(
         validation_report={"passed": validation_passed, "checks": []},
         content_package=default_package if content_package is UNSET_CONTENT_PACKAGE else content_package,
         proposed_markdown=markdown,
+    )
+
+
+def create_content_autopilot_opportunity(
+    team: Team,
+    profile: ContentAutopilotSiteProfile,
+    *,
+    title: str = "What is the best open source session replay tool?",
+    cluster_key: str = "prompt-hash",
+    status: str = ContentAutopilotOpportunity.Status.NEW,
+    recommended_type: str = ContentAutopilotProposal.ProposalType.NEW_CONTENT,
+    target_url: str = "",
+    gap: dict[str, object] | None = None,
+) -> ContentAutopilotOpportunity:
+    return ContentAutopilotOpportunity.objects.for_team(team.id).create(
+        team=team,
+        profile=profile,
+        cluster_key=cluster_key,
+        title=title,
+        score=0.9,
+        recommended_type=recommended_type,
+        target_url=target_url,
+        evidence=[{"opportunity_kind": "ai_visibility_gap", "explanation": "Not cited.", "query": title}],
+        gap={
+            "checks": 3,
+            "cited_checks": 0,
+            "citation_rate": 0.0,
+            "engines": ["claude-web-search"],
+            "engines_not_citing": ["claude-web-search"],
+            "competitor_urls": ["https://rival.example/replay"],
+            "competitor_domains": ["rival.example"],
+            "engine_search_queries": [],
+            "our_cited_urls": [],
+            "latest_answers": [],
+            "last_checked_at": timezone.now().isoformat(),
+            **(gap or {}),
+        },
+        status=status,
+        last_refreshed_at=timezone.now(),
     )

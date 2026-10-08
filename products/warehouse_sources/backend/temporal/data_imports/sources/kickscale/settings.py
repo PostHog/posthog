@@ -8,9 +8,8 @@ from products.warehouse_sources.backend.types import IncrementalField
 # The OpenAPI document declares no `servers` entry, so the base URL is hardcoded.
 KICKSCALE_BASE_URL = "https://api.kickscale.com"
 
-# Kickscale documents a 20-row default page size with a maximum recommended 100. Responses are a
-# bare JSON array with no total-count field, so pagination stops once a page returns fewer than
-# this many rows.
+# Kickscale documents a 20-row default page size with a maximum recommended 100. Pagination stops
+# once the `data` list of a page holds fewer than this many rows.
 DEFAULT_PAGE_SIZE = 100
 
 # Comments, ratings, CRM links and re-analysis can land on a meeting/call after its `date`, and

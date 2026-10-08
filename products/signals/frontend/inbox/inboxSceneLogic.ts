@@ -145,13 +145,13 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
 }
 
 /**
- * Which pane of the scout detail page is open. The main column holds Reports, Runs and Signals; the
+ * Which pane of the scout detail page is open. The main column holds Reports, Runs, Trials and Signals; the
  * rail holds Told and Learned. One value covers both, because below the detail page's container
  * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
  *
  * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
  */
-export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'signals', 'told', 'learned'] as const
+export const SCOUT_DETAIL_TABS = ['reports', 'runs', 'trials', 'signals', 'told', 'learned'] as const
 export type ScoutDetailTab = (typeof SCOUT_DETAIL_TABS)[number]
 
 function asScoutDetailTab(value: string | undefined): ScoutDetailTab | null {
@@ -290,8 +290,8 @@ function findReportRank(
         const rows = mergeReportRows(
             reportsBySection,
             selectedFlatListSections(filterValues.visibleStateFilter, isStaff),
-            filterValues.sortField,
-            filterValues.sortDirection
+            filterValues.activeSortField,
+            filterValues.activeSortDirection
         )
         const idx = rows.findIndex((row) => row.report.id === id)
         if (idx >= 0) {
@@ -573,7 +573,7 @@ export interface inboxSceneLogicActions {
         open: boolean
     }
     setScoutDetailTab: (tab: ScoutDetailTab | null) => {
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
         draft: ScoutCreateInitialValues | null
@@ -595,7 +595,7 @@ export interface inboxSceneLogicActions {
     ) => {
         findingId: string | null
         skillName: string | null
-        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | null
+        tab: 'learned' | 'reports' | 'runs' | 'signals' | 'told' | 'trials' | null
     }
     setTriageOpen: (open: boolean) => {
         open: boolean
@@ -1341,6 +1341,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 closeAllSurfaces()
             },
             [urls.inbox(':tab')]: ({ tab }: { tab?: string }, searchParams, hashParams) => {
+                if (tab === 'scout-trials') {
+                    return
+                }
                 // Tab segments from the other inbox layout still arrive from Slack messages, bookmarks,
                 // and a flag that flipped between visits: send them to the surface that replaced them.
                 const redirectPath = inboxTabRedirectPath(tab, values.isRedesign)
@@ -1372,9 +1375,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 { skillName }: { skillName?: string },
                 searchParams: Record<string, string | undefined>
             ) => {
-                // `/inbox/scouts/scratchpad`, `/inbox/scouts/findings`, and `/inbox/scouts/runs` also match
-                // this pattern; their own handlers own those paths (no real scout skill_name collides —
-                // they're `signals-scout-*`).
+                // Static scout pages also match this pattern and must not select a scout.
                 if (skillName === 'scratchpad' || skillName === 'findings' || skillName === 'runs') {
                     return
                 }

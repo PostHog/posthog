@@ -22,8 +22,8 @@ from posthog.tasks.alerts.utils import (
     trigger_alert_hog_functions,
 )
 
-from products.alerts.backend.facade.contracts import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import ActiveAlertDestination
 from products.product_analytics.backend.facade.models import Insight
 
 

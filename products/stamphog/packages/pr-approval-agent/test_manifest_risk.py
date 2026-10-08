@@ -211,10 +211,13 @@ def test_tsconfig_jsonc_falls_back_to_line_scan() -> None:
     assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", risky_diff) is True
 
 
-def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path) -> None:
+@pytest.mark.parametrize("given_merge_base", [False, True])
+def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path, given_merge_base: bool) -> None:
     # Regression from review: comparing against the base branch *tip* counts
     # base-side drift (someone else's scripts change landing on the base) as
-    # this PR's doing and falsely denies a clean manifest edit.
+    # this PR's doing and falsely denies a clean manifest edit. The hosted
+    # checkout is shallow, so a given merge base must be used without asking
+    # git, which would fail there and deny every manifest.
     def run(*args: str) -> str:
         result = subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True)
         return result.stdout.strip()
@@ -225,6 +228,7 @@ def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path) -> None:
     (tmp_path / "package.json").write_text('{"name": "x", "version": "1.0.0"}')
     run("add", ".")
     run("commit", "-qm", "root")
+    merge_base = run("rev-parse", "HEAD")
 
     run("checkout", "-qb", "feature")
     (tmp_path / "package.json").write_text('{"name": "x", "version": "1.0.1"}')
@@ -236,4 +240,7 @@ def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path) -> None:
     run("commit", "-qam", "base-side scripts change")
     base_tip = run("rev-parse", "HEAD")
 
-    assert manifest_script_changes(["package.json"], base_tip, head, tmp_path) == []
+    if given_merge_base:
+        assert manifest_script_changes(["package.json"], "not-a-commit", head, tmp_path, merge_base) == []
+    else:
+        assert manifest_script_changes(["package.json"], base_tip, head, tmp_path) == []

@@ -97,8 +97,8 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         // One consistent loading treatment app-wide, the same scene-level spinner shown while
         // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
         // products that declare a `setupProbe` in their manifest, which is an event-based
-        // signal. Entity-count products have none, so for them the spinner is the normal path
-        // on every entry, including every trip back from a detail page.
+        // signal. Entity-count products have none, so the spinner shows until their detection
+        // answers, unless `cacheHasData` remembered a has-data answer from an earlier visit.
         return (
             <ProductSceneFrame config={config} SceneNav={emptyState.SceneNav}>
                 <SpinnerOverlay sceneLevel />

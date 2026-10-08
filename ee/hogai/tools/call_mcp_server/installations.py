@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
-from products.mcp_store.backend.facade.api import resolve_member_tool_states
+from products.mcp_store.backend.facade.api import resolve_member_tool_states, resolve_member_unlisted_tool_state
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
 
@@ -95,7 +95,14 @@ def _get_tool_approval_states(
         team_id,
         gateway_server_id,
         user_id=user.id if user is not None else None,
+        block_locked_approvals=True,
     )
+
+
+def _get_unlisted_tool_state(
+    installation_id: str, team_id: int, gateway_server_id: UUID, user: User, tool_name: str
+) -> str:
+    return resolve_member_unlisted_tool_state(installation_id, team_id, gateway_server_id, user.id, tool_name)
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:

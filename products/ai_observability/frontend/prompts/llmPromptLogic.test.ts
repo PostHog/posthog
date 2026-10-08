@@ -678,4 +678,27 @@ describe('llmPromptLogic', () => {
         expect(secondMount.values.promptForm.prompt).toBe('')
         secondMount.unmount()
     })
+
+    it('remembers the markdown rendering choice across prompts', async () => {
+        const firstPrompt = llmPromptLogic({ promptName: 'prompt-a' })
+        firstPrompt.mount()
+        expect(firstPrompt.values.isRenderingMarkdown).toBe(true)
+        firstPrompt.actions.toggleMarkdownRendering()
+        expect(firstPrompt.values.isRenderingMarkdown).toBe(false)
+        firstPrompt.unmount()
+
+        const secondPrompt = llmPromptLogic({ promptName: 'prompt-b' })
+        secondPrompt.mount()
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+
+        // Edit mode forces the raw textarea; leaving it must restore the stored
+        // preference instead of overwriting it with the mode's forced value.
+        secondPrompt.actions.setMode(PromptMode.Edit)
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+        secondPrompt.actions.toggleMarkdownRendering()
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(true)
+        secondPrompt.actions.setMode(PromptMode.View)
+        expect(secondPrompt.values.isRenderingMarkdown).toBe(false)
+        secondPrompt.unmount()
+    })
 })

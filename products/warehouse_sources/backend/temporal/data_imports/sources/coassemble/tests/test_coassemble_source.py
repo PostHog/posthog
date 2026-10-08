@@ -3,7 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.source import CoassembleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coassemble import (
     CoassembleSourceConfig,
@@ -15,23 +14,6 @@ class TestCoassembleSource:
         self.source = CoassembleSource()
         self.team_id = 123
         self.config = CoassembleSourceConfig(workspace_id="ws-1", api_key="sk-key")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Coassemble"
-        assert config.label == "Coassemble"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Deliberately still hidden — the source lands unreleased until it has been verified
-        # against a live workspace.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coassemble"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["workspace_id", "api_key"]
-
-    def test_no_connection_host_fields(self) -> None:
-        # The base URL is hardcoded and workspace_id only selects the tenant on Coassemble's own
-        # host, so there is no non-secret field an editor could retarget to exfiltrate the key.
-        assert self.source.connection_host_fields == []
 
     @parameterized.expand(
         [

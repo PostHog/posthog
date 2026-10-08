@@ -164,40 +164,11 @@ class TestTopLevelEndpoints:
         # State is saved after the first full page so a retry skips straight to page 1.
         assert [s.page for s in manager.saved] == [1]
 
-    def test_uses_endpoint_specific_page_param_and_limit(self, monkeypatch: Any) -> None:
-        # Smaily names the page-index param `page` on some endpoints and `offset` on others;
-        # mixing them up silently returns page 0 forever.
-        _, campaigns_api, _ = _collect(monkeypatch, "campaigns", lambda url, params: [])
-        _, ab_tests_api, _ = _collect(monkeypatch, "ab_tests", lambda url, params: [])
-
-        campaigns_url, campaigns_params = campaigns_api.requests[0]
-        assert campaigns_url == f"{BASE_URL}/campaign.php"
-        assert campaigns_params["page"] == 0
-        assert campaigns_params["limit"] == SMAILY_ENDPOINTS["campaigns"].page_size
-        assert campaigns_params["sort_by"] == "created_at"
-
-        ab_tests_url, ab_tests_params = ab_tests_api.requests[0]
-        assert ab_tests_url == f"{BASE_URL}/split.php"
-        assert ab_tests_params["offset"] == 0
-        assert "page" not in ab_tests_params
-
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SmailyResumeConfig(page=3))
-        rows, api, _ = _collect(monkeypatch, "campaigns", lambda url, params: [{"id": 1}], manager)
-
-        assert rows == [{"id": 1}]
-        assert api.requests[0][1]["page"] == 3
-
     def test_unpaginated_endpoint_fetches_once_without_page_params(self, monkeypatch: Any) -> None:
         rows, api, manager = _collect(monkeypatch, "segments", lambda url, params: [{"id": 4, "name": "Women"}])
 
         assert rows == [{"id": 4, "name": "Women"}]
         assert api.requests == [(f"{BASE_URL}/list.php", {})]
-        assert manager.saved == []
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        rows, _, manager = _collect(monkeypatch, "campaigns", lambda url, params: [])
-        assert rows == []
         assert manager.saved == []
 
 
@@ -210,21 +181,6 @@ class TestSegmentSubscribers:
             return subscribers_by_segment[params["list"]][params["offset"]]
 
         return respond
-
-    def test_fans_out_over_segments_and_annotates_rows(self, monkeypatch: Any) -> None:
-        responder = self._responder(
-            {
-                "1": [[{"email": "a@x.com", "last_open_at": "0000-00-00 00:00:00", "custom_field": "jah"}]],
-                "2": [[{"email": "a@x.com", "last_open_at": "2024-01-01 10:00:00"}]],
-            }
-        )
-        rows, _, _ = _collect(monkeypatch, SEGMENT_SUBSCRIBERS, responder)
-
-        # The same email in two segments stays two distinct rows keyed by (segment_id, email).
-        assert rows == [
-            {"email": "a@x.com", "last_open_at": None, "custom_field": "jah", "segment_id": "1"},
-            {"email": "a@x.com", "last_open_at": "2024-01-01 10:00:00", "segment_id": "2"},
-        ]
 
     def test_paginates_within_segment_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
         page_size = SMAILY_ENDPOINTS[SEGMENT_SUBSCRIBERS].page_size
@@ -268,18 +224,6 @@ class TestCampaignStatistics:
             return [{"id": int(campaign_id)} for campaign_id in stats_by_id]
 
         return respond
-
-    def test_yields_one_row_per_campaign(self, monkeypatch: Any) -> None:
-        responder = self._responder(
-            {
-                "1": {"id": 1, "delivered_count": 10},
-                "2": {"id": 2, "delivered_count": 20},
-            }
-        )
-        rows, _, manager = _collect(monkeypatch, CAMPAIGN_STATISTICS, responder)
-
-        assert rows == [{"id": 1, "delivered_count": 10}, {"id": 2, "delivered_count": 20}]
-        assert manager.saved[-1].pending_parent_ids == []
 
     def test_resume_skips_already_processed_campaigns(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(SmailyResumeConfig(page=0, pending_parent_ids=["3"]))

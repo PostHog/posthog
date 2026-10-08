@@ -1,17 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product marketing_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product marketing_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Marketing analytics
 feature: marketing_analytics
 url_prefix: /marketing
 ui_apps: {}
 tools:
-    marketing-analytics-apply-setup-ops-create:
-        operation: marketing_analytics_apply_setup_ops_create
-        enabled: false
     marketing-analytics-conversion-goals:
         operation: marketing_analytics_conversion_goals_retrieve
         enabled: true
@@ -120,9 +115,6 @@ tools:
             short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
             pass the conversion_goal_id of the goal you want.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-setup-plan-retrieve:
-        operation: marketing_analytics_setup_plan_retrieve
-        enabled: false
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true
@@ -162,9 +154,6 @@ tools:
             campaign_suggestions deliberately omits near-ties, so an orphan missing from it may still be mappable — it
             just needs a human to choose. Read-only — applying mappings is a separate write tool.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-test-mapping-create:
-        operation: marketing_analytics_test_mapping_create
-        enabled: false
     marketing-analytics-update-conversion-goal:
         operation: marketing_analytics_conversion_goals_update_partial_update
         enabled: true

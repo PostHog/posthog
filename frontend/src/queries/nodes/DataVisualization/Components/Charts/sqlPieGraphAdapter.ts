@@ -1,9 +1,12 @@
 import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS } from 'lib/constants'
+
+import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 
 export interface PieSlice {
@@ -14,7 +17,7 @@ export interface PieSlice {
 
 export type SqlPieYSeries = AxisSeries<number | null> | AxisBreakdownSeries<number | null>
 
-const isBreakdownSeries = (series: SqlPieYSeries): series is AxisBreakdownSeries<number | null> => {
+export const isBreakdownSeries = (series: SqlPieYSeries): series is AxisBreakdownSeries<number | null> => {
     return !('column' in series)
 }
 
@@ -26,8 +29,11 @@ const toSliceLabel = (value: unknown): string => {
     return String(value)
 }
 
+// One NaN or Infinity point would otherwise make the whole category's sum non-finite.
+const toFiniteValue = (value: number | null): number => (value !== null && Number.isFinite(value) ? value : 0)
+
 const sumValues = (values: (number | null)[]): number => {
-    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    return values.reduce<number>((sum, value) => sum + toFiniteValue(value), 0)
 }
 
 const getSeriesLabel = (series: SqlPieYSeries, index: number): string => {
@@ -48,6 +54,12 @@ const seriesToSlices = (yData: SqlPieYSeries[]): PieSlice[] =>
         }))
         .filter((slice) => slice.value > 0)
 
+const hasLabelColumn = (xData: AxisSeries<string> | null): xData is AxisSeries<string> =>
+    !!xData && xData.column.name !== 'None'
+
+export const drawsOnePartPerSeries = (xData: AxisSeries<string> | null, yData: SqlPieYSeries[]): boolean =>
+    yData.length !== 1 || !hasLabelColumn(xData) || yData.some(isBreakdownSeries)
+
 export const buildPieSlices = (
     xData: AxisSeries<string> | null,
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
@@ -56,41 +68,76 @@ export const buildPieSlices = (
         return []
     }
 
-    if (yData.some(isBreakdownSeries)) {
+    if (drawsOnePartPerSeries(xData, yData) || !xData) {
         return seriesToSlices(yData)
     }
 
-    if (yData.length === 1 && xData && xData.column.name !== 'None') {
-        const totalsByLabel = new Map<string, number>()
+    const totalsByLabel = new Map<string, number>()
+    xData.data.forEach((rawLabel, index) => {
+        const label = toSliceLabel(rawLabel)
+        const value = toFiniteValue(yData[0].data[index])
+        totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
+    })
 
-        xData.data.forEach((rawLabel, index) => {
-            const label = toSliceLabel(rawLabel)
-            const value = yData[0].data[index] ?? 0
-            totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
-        })
-
-        return Array.from(totalsByLabel.entries())
-            .map(([label, value], index) => ({
-                label,
-                value,
-                color: getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    return seriesToSlices(yData)
+    return Array.from(totalsByLabel.entries())
+        .map(([label, value], index) => ({
+            label,
+            value,
+            color: getSeriesColor(index),
+        }))
+        .filter((slice) => slice.value > 0)
 }
 
 /** One quill `Series` per slice, with the slice's resolved color pinned so per-breakdown
  *  `resultCustomizations` survive the move off chart.js. */
 export const buildPieSeries = (slices: PieSlice[]): Series[] => {
-    return slices.map((slice, index) => ({
-        key: `${slice.label}-${index}`,
-        label: slice.label,
-        color: slice.color,
-        data: [slice.value],
-    }))
+    // Keyed by label, not position, so a part hidden in the legend stays hidden when the results reorder.
+    // A repeat skips a numbered key that another part has as its own label, so no two parts share a key.
+    const labels = new Set(slices.map((slice) => slice.label))
+    const usedKeys = new Set<string>()
+    const nextSuffix = new Map<string, number>()
+    return slices.map((slice) => {
+        let key = slice.label
+        let count = nextSuffix.get(slice.label) ?? 2
+        while (usedKeys.has(key) || (key !== slice.label && labels.has(key))) {
+            key = `${slice.label}-${count}`
+            count++
+        }
+        nextSuffix.set(slice.label, count)
+        usedKeys.add(key)
+        return {
+            key,
+            label: slice.label,
+            color: slice.color,
+            data: [slice.value],
+        }
+    })
 }
+
+/** Pie charts can consume breakdown series totals directly, even when there isn't a matching
+ *  breakdown x-axis to swap in like the line/bar path expects. */
+export const partOfWholeChartData = (
+    breakdown: BreakdownSeriesData<number | null>,
+    xData: AxisSeries<string> | null,
+    yData: AxisSeries<number | null>[]
+): { xData: AxisSeries<string> | null; yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[] } => ({
+    xData: breakdown.xData.data.length ? breakdown.xData : xData,
+    yData: breakdown.seriesData.length ? breakdown.seriesData : yData,
+})
+
+export const showsLegendByDefault = (isProportionBar: boolean, partCount: number): boolean =>
+    isProportionBar && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+
+/** The total is a sum-of-values readout, so it defaults on only when slices show values.
+ *  `showPieTotal` is the legacy top-level toggle, honored for charts saved before `pie`. A proportion
+ *  bar has no "show on slices" control, so a `sliceContent` left from a pie does not turn its total off. */
+export const showsPieTotal = (
+    chartSettings: Pick<ChartSettings, 'pie' | 'showPieTotal'>,
+    isProportionBar: boolean
+): boolean =>
+    chartSettings.pie?.showTotal ??
+    chartSettings.showPieTotal ??
+    (isProportionBar || (chartSettings.pie?.sliceContent ?? 'values') === 'values')
 
 export const formatPieSliceCount = (
     value: number,

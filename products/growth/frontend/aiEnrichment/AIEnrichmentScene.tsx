@@ -11,6 +11,7 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    LemonTabs,
     Link,
 } from '@posthog/lemon-ui'
 
@@ -35,6 +36,8 @@ import {
 } from './aiEnrichmentOutputFields'
 import { AIEnrichmentResultsTable } from './AIEnrichmentResultsTable'
 import { suggestNextVersion } from './aiEnrichmentVersioning'
+import { EnrichmentScoring } from './EnrichmentScoring'
+import { enrichmentScoringLogic } from './enrichmentScoringLogic'
 
 export const scene: SceneExport = {
     component: AIEnrichmentScene,
@@ -476,6 +479,8 @@ function AIEnrichmentEditor(): JSX.Element {
 export function AIEnrichmentScene(): JSX.Element {
     const { user } = useValues(userLogic)
     const { selectedLabel } = useValues(aiEnrichmentLogic)
+    const { activeTab } = useValues(enrichmentScoringLogic)
+    const { setActiveTab } = useActions(enrichmentScoringLogic)
 
     if (!user?.is_staff) {
         return <AccessDenied object="page" reason="This page is only accessible to staff users." />
@@ -485,10 +490,21 @@ export function AIEnrichmentScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="AI enrichment"
-                description="See which classifier version is live for a label, edit and test-run a draft, then save it as a new version and switch which one is live."
+                description="Edit and test AI labels and scoring formulas, then choose which saved versions run."
                 resourceType={{ type: 'llm_analytics' }}
             />
-            {selectedLabel ? <AIEnrichmentEditor /> : <AIEnrichmentLabelPicker />}
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    {
+                        key: 'labels',
+                        label: 'AI labels',
+                        content: selectedLabel ? <AIEnrichmentEditor /> : <AIEnrichmentLabelPicker />,
+                    },
+                    { key: 'scoring', label: 'ICP scoring', content: <EnrichmentScoring /> },
+                ]}
+            />
         </SceneContent>
     )
 }

@@ -181,7 +181,7 @@ describe('CustomerTasksTable', () => {
             </Provider>
         )
         expect(findTableHeader(screen.getByRole('table'), 'Account')).not.toBeUndefined()
-        expect(within(filterBar(inbox.container)).queryByText('Choose member')).not.toBeNull()
+        expect(filterBar(inbox.container).querySelector('[data-attr="customer-tasks-assignee-filter"]')).not.toBeNull()
 
         cleanup()
         logic.unmount()
@@ -195,7 +195,9 @@ describe('CustomerTasksTable', () => {
         )
 
         expect(findTableHeader(accountTable.getByRole('table'), 'Account')).toBeUndefined()
-        expect(within(filterBar(accountTable.container)).queryByText('Choose member')).toBeNull()
+        expect(
+            filterBar(accountTable.container).querySelector('[data-attr="customer-tasks-assignee-filter"]')
+        ).toBeNull()
     })
     test('shows the due window a link asked for', async () => {
         cleanup()

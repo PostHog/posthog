@@ -23,7 +23,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 BUILD_OUTPUT_SUBDIR = "dist"
-PACKAGE_NAMES: tuple[str, ...] = ("agent", "shared", "git")
+PACKAGE_NAMES: tuple[str, ...] = ("agent", "agent-contracts", "git")
 SANDBOX_NODE_MODULES_ROOT = "/scripts/node_modules/@posthog"
 
 
@@ -43,7 +43,7 @@ class LocalPackage:
 
 
 def get_local_posthog_code_packages() -> tuple[LocalPackage, ...] | None:
-    """Return local @posthog/{agent,shared,git} packages, or None.
+    """Return local @posthog/{agent,agent-contracts,git} packages, or None.
 
     Only returns paths in DEBUG mode for local development.
     Requires each package to have a built `dist/` directory.

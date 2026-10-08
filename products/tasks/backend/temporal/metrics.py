@@ -16,6 +16,7 @@ TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
     "tasks_process_snapshot_create_latency",
     "tasks_boot_total_latency",
+    "tasks_agent_boot_milestone_latency",
 )
 TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     100.0,
@@ -120,6 +121,9 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
     128.0,
     256.0,
 ]
+
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
 
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
@@ -345,11 +349,53 @@ def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
         pass
 
 
+def increment_memory_watchdog_events(event: str, count: int) -> None:
+    if count <= 0:
+        return
+    try:
+        _metric_meter({"event": event}).create_counter(
+            "tasks_sandbox_memory_watchdog_events",
+            "Sandbox memory watchdog events read at teardown",
+        ).add(count)
+    except Exception:
+        pass
+
+
+def increment_memory_watchdog_teardown(status: str) -> None:
+    try:
+        _metric_meter({"status": status}).create_counter(
+            "tasks_sandbox_memory_watchdog_teardown",
+            "Sandbox memory watchdog heartbeat status at teardown",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_memory_peak_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_memory_peak_ratio",
+            "Peak sandbox memory use as a fraction of the limit, read at teardown",
+        ).record(ratio)
+    except Exception:
+        pass
+
+
 def increment_tool_call_only_heartbeat() -> None:
     try:
         _metric_meter().create_counter(
             "tasks_tool_call_only_heartbeat",
             "Run keep-alives carried only by an unfinished tool call through a long event silence",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_process_killed_notification() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_sandbox_process_killed_notifications",
+            "Sandbox memory watchdog kills relayed from the agent server to the run",
         ).add(1)
     except Exception:
         pass
@@ -537,6 +583,37 @@ def record_boot_total_ms(
             "Wall-clock latency from workflow start to agent-server ready",
             unit="ms",
         ).record(dt.timedelta(milliseconds=boot_total_ms))
+    except Exception:
+        pass
+
+
+def record_agent_boot_milestone_ms(
+    since_agent_ready_ms: int,
+    *,
+    milestone: str,
+    origin_product: str | None,
+    boot_path: str | None,
+    runtime: str,
+    sandbox_backend: str | None,
+    runtime_adapter: str | None,
+    prewarmed: bool,
+) -> None:
+    """Prometheus twin of the boot milestone analytics events, plotted next to `tasks_boot_total_latency`."""
+    try:
+        attributes: Attributes = {
+            "milestone": milestone,
+            "origin_product": origin_product or "unknown",
+            "boot_path": boot_path or "unknown",
+            "runtime": runtime,
+            "sandbox_backend": sandbox_backend or "unknown",
+            "runtime_adapter": _runtime_adapter_label(runtime_adapter),
+            "prewarmed": _bool_label(prewarmed),
+        }
+        workflow.metric_meter().with_additional_attributes(attributes).create_histogram_timedelta(
+            "tasks_agent_boot_milestone_latency",
+            "Latency from agent-server ready to the first agent boot milestone",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=since_agent_ready_ms))
     except Exception:
         pass
 

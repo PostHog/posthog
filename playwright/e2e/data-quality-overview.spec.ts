@@ -1,5 +1,5 @@
 /**
- * Editing and deleting a data quality check from the Data Ops overview.
+ * Editing and deleting a data quality check from the Models overview.
  */
 import { expect } from '@playwright/test'
 
@@ -10,7 +10,7 @@ import { test } from '../utils/workspace-test-base'
 const CHECK_NAME = 'orders_has_rows'
 const SUBJECT_NAME = 'orders_e2e'
 
-test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }) => {
+test('edits and deletes a check from Models', async ({ page, playwrightSetup }) => {
     const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
     const auth = {
         headers: {
@@ -41,11 +41,10 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     const check = await created.json()
 
     await mockFeatureFlags(page, {
-        [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
         [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
     })
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
-    await page.goto('/data-ops?tab=data-quality')
+    await page.goto('/models?tab=data-quality')
 
     await page.getByLabel(`Expand checks for ${SUBJECT_NAME}`).click({ timeout: 30000 })
     await expect(page.getByText(CHECK_NAME)).toBeVisible()

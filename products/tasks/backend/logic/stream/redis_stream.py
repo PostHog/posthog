@@ -410,12 +410,14 @@ class TaskRunRedisStream:
         except Exception:
             logger.warning("task_run_stream_mark_watched_failed", stream_key=self._stream_key, exc_info=True)
 
-    async def set_agent_active(self, active: bool) -> None:
-        await self._redis_client.set(
+    async def set_agent_active(self, active: bool) -> bool:
+        previous = await self._redis_client.set(
             get_task_run_stream_agent_active_key(self._stream_key),
             "1" if active else "0",
             ex=self._timeout,
+            get=True,
         )
+        return previous in (b"1", "1")
 
     async def get_agent_active(self) -> bool:
         active_raw = await self._redis_client.get(get_task_run_stream_agent_active_key(self._stream_key))
@@ -737,6 +739,17 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
     except Exception:
         logger.exception("task_run_stream_reset_failed", run_id=run_id)
         return False
+
+
+def release_task_run_milestone_claims(run_id: str, use_dedicated: bool = False) -> None:
+    stream_key = get_task_run_stream_key(run_id)
+    try:
+        get_tasks_stream_redis_sync(use_dedicated).delete(
+            get_task_run_stream_first_command_key(stream_key),
+            get_task_run_stream_first_activity_key(stream_key),
+        )
+    except Exception:
+        logger.exception("task_run_milestone_claims_release_failed", run_id=run_id)
 
 
 def publish_task_run_stream_event(

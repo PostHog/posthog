@@ -65,10 +65,6 @@ export function filterValidEntries(entries: readonly ContextMillResource[], arch
     })
 }
 
-export function clearResourceCache(): void {
-    cachedResources = null
-}
-
 /**
  * Fetch + unzip + parse the context-mill manifest, returning the filtered
  * entries. Does not touch the module-level `cachedResources`; used by the

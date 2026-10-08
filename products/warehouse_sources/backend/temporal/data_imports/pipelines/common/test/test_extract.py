@@ -27,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     persist_primary_keys,
     report_heartbeat_timeout,
     reset_rows_synced_if_needed,
+    resets_table_before_extraction,
     resolve_primary_keys,
+    should_check_shutdown,
     trim_source_job_inputs,
     validate_incremental_sync,
 )
@@ -37,6 +39,44 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestShouldCheckShutdown:
+    @parameterized.expand(
+        [
+            ("young_first_attempt", False, "asc", True, False, True, 1, 2, True),
+            ("old_first_attempt", False, "asc", True, False, True, 1, 20, False),
+            ("young_second_attempt", False, "asc", True, False, True, 2, 1, False),
+            ("outside_activity", False, "asc", True, False, False, 1, 2, False),
+            ("resumable_source", False, "asc", True, True, True, 2, 20, True),
+            ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
+            ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
+        ]
+    )
+    def test_should_check_shutdown(
+        self,
+        _name: str,
+        is_incremental: bool,
+        sort_mode: str,
+        reset_pipeline: bool,
+        source_is_resumable: bool,
+        in_activity: bool,
+        attempt: int,
+        age_minutes: int,
+        expected: bool,
+    ) -> None:
+        schema = MagicMock(should_use_incremental_field=is_incremental)
+        resource = MagicMock(sort_mode=sort_mode)
+        info = MagicMock(attempt=attempt, started_time=datetime.now(UTC) - timedelta(minutes=age_minutes))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.in_activity", return_value=in_activity),
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=info) as activity_info,
+        ):
+            assert should_check_shutdown(schema, resource, reset_pipeline, source_is_resumable) is expected
+
+        if not in_activity:
+            activity_info.assert_not_called()
 
 
 class TestResolvePrimaryKeys:
@@ -569,39 +609,26 @@ class TestResetRowsSyncedIfNeeded:
         )
 
     @pytest.mark.parametrize(
-        "_name,is_incremental,reset_pipeline,should_resume,incremental_cursor_staged,expect_reset",
+        "_name,should_resume,expect_reset",
         [
-            # Staged-cursor (v3) incremental retry re-extracts the whole window from batch 0, so a
-            # leftover count from the previous attempt would double-count every re-read row — and
-            # rows_synced feeds billed usage. This is the regression case.
-            ("staged_cursor_incremental_retry_resets", True, False, False, True, True),
+            # A retry re-extracts the whole window from batch 0, so a leftover count from the
+            # previous attempt would double-count every re-read row — and rows_synced feeds
+            # billed usage. This is the regression case.
+            ("retry_resets", False, True),
             # A resumable source picks up the previous attempt's staged batches, so its rows stay counted.
-            ("resumable_source_keeps_count", True, False, True, True, False),
-            # Durable-cursor (v2) incremental retry resumes past the rows already counted.
-            ("durable_cursor_incremental_retry_keeps_count", True, False, False, False, False),
-            ("full_refresh_restart_resets", False, False, False, False, True),
-            ("reset_pipeline_resets", True, True, False, False, True),
+            ("resumable_source_keeps_count", True, False),
         ],
     )
     def test_reset_conditions(
         self,
         _name: str,
-        is_incremental: bool,
-        reset_pipeline: bool,
         should_resume: bool,
-        incremental_cursor_staged: bool,
         expect_reset: bool,
         team,
     ) -> None:
         job = self._job_with_leftover_count(team)
 
-        async_to_sync(reset_rows_synced_if_needed)(
-            job,
-            is_incremental,
-            reset_pipeline,
-            should_resume,
-            incremental_cursor_staged=incremental_cursor_staged,
-        )
+        async_to_sync(reset_rows_synced_if_needed)(job, should_resume)
 
         job.refresh_from_db()
         assert job.rows_synced == (0 if expect_reset else 1234)
@@ -687,6 +714,69 @@ class TestHandleResetOrFullRefresh:
         schema.refresh_from_db()
         assert schema.initial_sync_complete is True
         assert "incremental_field_last_value" not in schema.sync_type_config
+
+
+def _reset_inputs() -> list[tuple[str, bool, bool, str, bool]]:
+    return [
+        (
+            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}",
+            reset,
+            resume,
+            sync_type,
+            webhook_only,
+        )
+        for reset in (False, True)
+        for resume in (False, True)
+        for sync_type in (ExternalDataSchema.SyncType.FULL_REFRESH, ExternalDataSchema.SyncType.INCREMENTAL)
+        for webhook_only in (False, True)
+    ]
+
+
+class TestCorruptionCheckBeforeAReset:
+    def _schema(self, sync_type: str, swap: dict | None = None) -> MagicMock:
+        schema = MagicMock(sync_type=sync_type, sync_type_config={}, delta_revive_required=None)
+        schema.repartition_swap = swap
+        return schema
+
+    def _logger(self) -> MagicMock:
+        return MagicMock(awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock())
+
+    @parameterized.expand(_reset_inputs())
+    def test_prediction_matches_what_the_reset_step_does(
+        self, _name: str, reset_pipeline: bool, should_resume: bool, sync_type: str, webhook_only: bool
+    ) -> None:
+        schema = self._schema(sync_type)
+        table_ref = MagicMock(reset_table=AsyncMock())
+
+        with patch("products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"):
+            async_to_sync(handle_reset_or_full_refresh)(
+                reset_pipeline, should_resume, schema, table_ref, self._logger(), webhook_only=webhook_only
+            )
+
+        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only)
+        assert predicted is (table_ref.reset_table.await_count == 1)
+
+    @parameterized.expand(
+        [
+            # (name, table_will_be_reset, staged swap, the table is opened for the check)
+            ("incremental_run_checks", False, None, True),
+            ("run_that_resets_the_table_skips_the_open", True, None, False),
+            ("staged_swap_is_still_checked_before_a_reset", True, {"state": "ready"}, True),
+        ]
+    )
+    def test_open_for_the_corruption_check(
+        self, _name: str, table_will_be_reset: bool, swap: dict | None, expect_open: bool
+    ) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.FULL_REFRESH, swap)
+        table_ref = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
+
+        revived = async_to_sync(handle_corrupted_delta_log)(
+            schema, MagicMock(), table_ref, self._logger(), table_will_be_reset=table_will_be_reset
+        )
+
+        assert revived is False
+        assert table_ref.is_table_corrupted.await_count == int(expect_open)
+        table_ref.reset_table.assert_not_awaited()
 
 
 class TestValidateIncrementalSync:

@@ -37,6 +37,12 @@ The handler accepts only the Host configured in `CANVAS_ARTIFACT_ORIGIN`.
 Forward that Host through the CDN and ingress, with matching TLS and host allowlists.
 The backend connection can use a separate origin hostname, but the HTTP Host must still match the artifact origin.
 
+Draft previews use the same artifact origin and a server-defined sandbox policy.
+Their HTML meta policy cannot expand the header policy, including for retained documents.
+The header permits the fixed compiler and module CDNs, but blocks external images and form submissions.
+Use a built canvas with declared network origins for external images.
+Changes to this server policy and its tests require security review.
+
 ## Cache policy
 
 Shared caching is off by default:

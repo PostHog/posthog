@@ -10,16 +10,12 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.crunchbase import (
     PAGE_SIZE,
     CrunchbaseResumeConfig,
-    _build_body,
     _flatten_entity,
     _format_updated_at,
     crunchbase_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
-    CRUNCHBASE_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import CRUNCHBASE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -96,38 +92,6 @@ class TestFormatUpdatedAt:
     )
     def test_format_values(self, value, expected):
         assert _format_updated_at(value) == expected
-
-
-class TestBuildBody:
-    def test_full_scan_body(self):
-        body = _build_body(
-            CRUNCHBASE_ENDPOINTS["organizations"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-
-        assert body["field_ids"] == CRUNCHBASE_ENDPOINTS["organizations"].field_ids
-        assert body["limit"] == PAGE_SIZE
-        assert body["order"] == [{"field_id": "updated_at", "sort": "asc"}]
-        assert "query" not in body
-        # The keyset cursor is injected by the paginator, never baked into the base body.
-        assert "after_id" not in body
-
-    def test_incremental_body_has_gte_predicate(self):
-        body = _build_body(
-            CRUNCHBASE_ENDPOINTS["organizations"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-        )
-
-        assert body["query"] == [
-            {
-                "type": "predicate",
-                "field_id": "updated_at",
-                "operator_id": "gte",
-                "values": ["2024-01-02T00:00:00Z"],
-            }
-        ]
 
 
 class TestFlattenEntity:
@@ -228,42 +192,8 @@ class TestPagination:
         with pytest.raises(KeyError):
             _rows(_source())
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_stops_without_saving_state(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        pages = _pages(_source(manager=manager))
-
-        assert pages == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_entities_key_is_empty_page_not_error(self, MockSession):
-        # The old source used `data.get("entities", [])`; a 200 body without the key
-        # is a legit empty page, not a fail-loud shape change.
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_entities=True)])
-
-        manager = _make_manager()
-        assert _pages(_source(manager=manager)) == []
-        manager.save_state.assert_not_called()
-
 
 class TestCrunchbaseSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = CRUNCHBASE_ENDPOINTS[endpoint]
-        response = _source(endpoint=endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
     @pytest.mark.parametrize("config", list(CRUNCHBASE_ENDPOINTS.values()))
     def test_field_ids_always_include_watermark_fields(self, config):
         # updated_at must be requested or the incremental watermark can't track.

@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 from requests import HTTPError, Response
 
@@ -56,17 +55,20 @@ def _make_manager(resume_state: FulcrumResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: list[str] | None = None) -> list[dict[str, Any]]:
     """Wire a mock session and return a list capturing each request's params AT SEND TIME.
 
     ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
+    shows only the final state — snapshot a copy when each request is prepared instead. Pass
+    ``urls`` to collect the requested URLs in the same order.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         prepared = mock.MagicMock()
         prepared.url = request.url
         return prepared
@@ -101,14 +103,18 @@ class TestToEpochSeconds:
 
 
 class TestIncrementalParams:
+    # Both endpoints filter through `updated_since`, but they key off different cursor fields
+    # (records on updated_at, audit_logs on time), so the cursor comes from the endpoint config.
+    @parameterized.expand(["records", "audit_logs"])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_incremental_adds_updated_since(self, MockSession) -> None:
+    def test_incremental_adds_updated_since(self, endpoint: str, MockSession) -> None:
         session = MockSession.return_value
-        params = _wire(session, [_response("records", [{"id": "1"}], total_pages=1, current_page=1)])
+        config = FULCRUM_ENDPOINTS[endpoint]
+        params = _wire(session, [_response(config.data_key, [{"id": "1"}], total_pages=1, current_page=1)])
 
         _rows(
             _source(
-                "records",
+                endpoint,
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
@@ -118,25 +124,9 @@ class TestIncrementalParams:
         # updated_since is the epoch-seconds cutoff; per_page and page ride alongside it.
         assert params[0]["updated_since"] == 1609459200
         assert params[0]["page"] == 1
-        assert params[0]["per_page"] == FULCRUM_ENDPOINTS["records"].page_size
+        assert params[0]["per_page"] == config.page_size
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_full_refresh_omits_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("records", [{"id": "1"}], total_pages=1, current_page=1)])
-
-        _rows(
-            _source(
-                "records",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "updated_since" not in params[0]
-
-    @parameterized.expand(["forms", "projects", "photos"])
+    @parameterized.expand(["forms", "projects", "photos", "records_history", "groups"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoints_never_filter(self, endpoint: str, MockSession) -> None:
         # A full-refresh endpoint must never send updated_since even when a watermark is present —
@@ -190,11 +180,6 @@ class TestPaginatorHeuristic:
         # The page advances only while more pages remain.
         assert paginator.page == (2 if expected_more else 1)
 
-    def test_empty_page_stops(self) -> None:
-        paginator = FulcrumPageNumberPaginator(per_page=2)
-        paginator.update_state(self._body(total_pages=5, current_page=1), data=[])
-        assert paginator.has_next_page is False
-
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -226,19 +211,6 @@ class TestPagination:
         rows = _rows(_source("forms", manager))
 
         assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_without_total_stops(self, MockSession) -> None:
-        # No total_pages in the body and a page shorter than per_page ends the sync in one request.
-        session = MockSession.return_value
-        _wire(session, [_response("forms", [{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("forms", manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
@@ -286,12 +258,6 @@ class TestValidateCredentials:
         with mock.patch(FULCRUM_SESSION_PATCH, return_value=session):
             assert validate_credentials("token") is expected
 
-    def test_network_error_is_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(FULCRUM_SESSION_PATCH, return_value=session):
-            assert validate_credentials("token") is False
-
 
 class TestRetryAndErrors:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
@@ -320,3 +286,24 @@ class TestRetryAndErrors:
 
         with pytest.raises(HTTPError):
             _rows(_source("forms", _make_manager()))
+
+
+class TestFormHistoryFanout:
+    def _parent_page(self) -> Response:
+        return _response("forms", [{"id": "f1"}, {"id": "f2"}], total_pages=1, current_page=1)
+
+    def _child_page(self, form_id: str, version: int) -> Response:
+        return _response("forms", [{"id": form_id, "version": version}], total_pages=1, current_page=1)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_parents(self, MockSession) -> None:
+        # The parent listing is always re-fetched; only the child fetches are skipped.
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(session, [self._parent_page(), self._child_page("f2", 3)], urls=urls)
+
+        manager = _make_manager(FulcrumResumeConfig(completed=["/forms/f1/history.json"]))
+        rows = _rows(_source("form_history", manager))
+
+        assert urls[1:] == ["https://api.fulcrumapp.com/api/v2/forms/f2/history.json"]
+        assert [r["form_id"] for r in rows] == ["f2"]

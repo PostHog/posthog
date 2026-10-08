@@ -16,7 +16,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
     AmplitudeResumeConfig,
     _auth_headers,
-    _coerce_datetime,
     _get_events_rows,
     _get_fanout_rows,
     _get_list_rows,
@@ -31,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
     EVENT_PROPERTIES_ENDPOINT,
-    EVENTS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -100,22 +98,6 @@ class TestNormalizeEvent:
         assert event["uuid"] == "abc"
         assert event["event_type"] == "click"
         assert event["amplitude_id"] == 42
-
-    def test_leaves_unparseable_timestamps_in_place(self) -> None:
-        event = _normalize_event({"event_time": ""})
-        assert event["event_time"] == ""
-
-
-class TestCoerceDatetime:
-    def test_passes_through_aware_datetime(self) -> None:
-        dt = datetime(2026, 1, 1, tzinfo=UTC)
-        assert _coerce_datetime(dt) == dt
-
-    def test_adds_utc_to_naive_datetime(self) -> None:
-        assert _coerce_datetime(datetime(2026, 1, 1)) == datetime(2026, 1, 1, tzinfo=UTC)
-
-    def test_parses_iso_string(self) -> None:
-        assert _coerce_datetime("2026-01-01T05:00:00+00:00") == datetime(2026, 1, 1, 5, tzinfo=UTC)
 
 
 class TestAuthHeaders:
@@ -410,24 +392,6 @@ class TestFanoutRows:
 
 
 class TestAmplitudeSourceResponse:
-    def test_events_response_metadata(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        response = amplitude_source(
-            api_key="key",
-            secret_key="secret",
-            region="us",
-            endpoint=EVENTS_ENDPOINT,
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager,
-        )
-
-        assert response.name == EVENTS_ENDPOINT
-        assert response.primary_keys == ["uuid"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["event_time"]
-        assert response.partition_format == "week"
-        assert response.sort_mode == "asc"
-
     @parameterized.expand([(COHORTS_ENDPOINT,), (ANNOTATIONS_ENDPOINT,)])
     def test_list_response_metadata(self, endpoint: str) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)

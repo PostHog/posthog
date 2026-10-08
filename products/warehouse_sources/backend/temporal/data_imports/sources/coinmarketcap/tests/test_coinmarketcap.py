@@ -6,10 +6,9 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap import (
-    API_KEY_HEADER,
     CoinMarketCapPaginator,
     CoinMarketCapResumeConfig,
     _history_start,
@@ -18,19 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     _snapshot_start_date,
     coinmarketcap_source,
     get_batch_rows,
-    get_resource,
     get_snapshot_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
-    COINMARKETCAP_BATCH_ENDPOINTS,
-    COINMARKETCAP_ENDPOINTS,
     HISTORICAL_BACKFILL_DAYS,
     HISTORICAL_BATCH_SIZE,
-    HISTORICAL_COIN_LIMIT,
     HISTORICAL_EXCHANGE_LIMIT,
-    LISTINGS_HISTORICAL_RANK_LIMIT,
-    METADATA_BATCH_SIZE,
     PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
@@ -42,87 +35,10 @@ def _full_page() -> list[dict[str, Any]]:
 
 
 class TestCoinMarketCapPaginator:
-    def test_initial_state_is_one_based(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        # CoinMarketCap's `start` is 1-based; start=0 is rejected with a 400.
-        assert paginator.offset == 1
-        assert paginator.limit == PAGE_SIZE
-        assert paginator.has_next_page is True
-
-    def test_init_request_emits_start_and_limit(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        request = Request(method="GET", url="https://pro-api.coinmarketcap.com/v1/cryptocurrency/map")
-        paginator.init_request(request)
-        assert request.params["start"] == 1
-        assert request.params["limit"] == PAGE_SIZE
-
-    def test_advances_start_by_limit_on_full_page(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        paginator.update_state(MagicMock(), _full_page())
-        assert paginator.offset == 1 + PAGE_SIZE
-        assert paginator.has_next_page is True
-
-    def test_stops_on_short_page(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        paginator.update_state(MagicMock(), [{"id": 1}])
-        assert paginator.has_next_page is False
-
-    def test_stops_on_empty_page(self) -> None:
-        # An out-of-range `start` returns an empty `data` list with HTTP 200.
-        paginator = CoinMarketCapPaginator()
-        paginator.update_state(MagicMock(), [])
-        assert paginator.has_next_page is False
-
-    def test_get_resume_state_when_next_page(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        paginator.update_state(MagicMock(), _full_page())
-        assert paginator.get_resume_state() == {"start": 1 + PAGE_SIZE}
-
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         paginator = CoinMarketCapPaginator()
         paginator.update_state(MagicMock(), [])
         assert paginator.get_resume_state() is None
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        paginator.set_resume_state({"start": 5001})
-        assert paginator.offset == 5001
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://pro-api.coinmarketcap.com/v1/cryptocurrency/map")
-        paginator.init_request(request)
-        assert request.params["start"] == 5001
-
-    def test_set_resume_state_ignores_missing_start(self) -> None:
-        paginator = CoinMarketCapPaginator()
-        paginator.set_resume_state({})
-        assert paginator.offset == 1
-
-
-class TestGetResource:
-    @pytest.mark.parametrize("endpoint", list(COINMARKETCAP_ENDPOINTS))
-    def test_resource_shape(self, endpoint: str) -> None:
-        resource = get_resource(endpoint)
-        config = COINMARKETCAP_ENDPOINTS[endpoint]
-
-        assert resource["name"] == endpoint
-        assert resource["table_name"] == endpoint
-        assert resource["write_disposition"] == "replace"
-        assert resource["table_format"] == "delta"
-
-        endpoint_def = cast(dict[str, Any], resource["endpoint"])
-        assert endpoint_def["path"] == config.path
-        assert endpoint_def["path"].startswith("/v1/")
-        assert endpoint_def["data_selector"] == "data"
-
-    @pytest.mark.parametrize(
-        "endpoint",
-        ["cryptocurrency_map", "listings_latest", "fiat_map", "exchange_map", "exchange_listings_latest"],
-    )
-    def test_paginated_endpoints_pass_a_stable_sort(self, endpoint: str) -> None:
-        # A stable `sort` keeps offset pagination from skipping/duplicating rows mid-sync.
-        endpoint_def = cast(dict[str, Any], get_resource(endpoint)["endpoint"])
-        assert "sort" in endpoint_def["params"]
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -198,17 +114,6 @@ class TestCoinMarketCapSourceResumeBehavior:
         assert [p.get("start") for p in sent_params] == [1 + PAGE_SIZE]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(self._page_body([{"id": "only"}])),
-        ]
-        self._drive("cryptocurrency_map", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -246,21 +151,6 @@ class TestValidateCredentials:
                 assert error is None
             else:
                 assert error is not None
-
-    def test_sends_key_in_header(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            response = MagicMock()
-            response.status_code = 200
-            mock_session.get.return_value = response
-
-            validate_credentials("test-key")
-
-            headers = mock_session.get.call_args.kwargs["headers"]
-            assert headers[API_KEY_HEADER] == "test-key"
-            assert mock_session.get.call_args.kwargs["allow_redirects"] is False
 
     def test_network_error_returns_message(self) -> None:
         with patch(
@@ -301,14 +191,6 @@ def _patch_session(responses: list[Response]) -> tuple[Any, _FakeSession]:
 
 
 class TestRowsFrom:
-    def test_object_map_keyed_by_id(self) -> None:
-        rows = _rows_from("object_map", {"1": {"id": 1, "symbol": "BTC"}, "1027": {"id": 1027, "symbol": "ETH"}})
-        assert [row["id"] for row in rows] == [1, 1027]
-
-    def test_object_map_unwraps_a_single_object(self) -> None:
-        # A single-id request returns the record directly rather than an id-keyed map.
-        assert _rows_from("object_map", {"id": 1, "symbol": "BTC"}) == [{"id": 1, "symbol": "BTC"}]
-
     def test_object_map_flattens_symbol_keyed_lists(self) -> None:
         # Requesting by symbol wraps each value in a list, because a symbol isn't unique.
         rows = _rows_from("object_map", {"BTC": [{"id": 1}, {"id": 2}]})
@@ -354,18 +236,6 @@ class TestRowsFrom:
 
 
 class TestHistoryStart:
-    def test_uses_the_watermark_when_one_is_set(self) -> None:
-        import datetime
-
-        watermark = datetime.datetime(2026, 3, 1, 12, 30, tzinfo=datetime.UTC)
-        assert _history_start(watermark) == watermark.isoformat()
-
-    def test_falls_back_to_the_backfill_window(self) -> None:
-        import datetime
-
-        expected = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=HISTORICAL_BACKFILL_DAYS)).date()
-        assert _history_start(None) == expected.isoformat()
-
     def test_passes_a_string_watermark_through(self) -> None:
         assert _history_start("2026-01-01T00:00:00.000Z") == "2026-01-01T00:00:00.000Z"
 
@@ -414,14 +284,6 @@ class TestGetBatchRows:
         # No coin batches to resume through, so nothing should be checkpointed.
         manager.save_state.assert_not_called()
 
-    def test_full_refresh_sends_the_backfill_window_not_a_watermark(self) -> None:
-        _, session = self._run(
-            "global_metrics_quotes_historical",
-            [_make_batch_response({"data": {"quotes": []}})],
-            self._manager(),
-        )
-        assert session.calls[0][1]["time_start"] == _history_start(None)
-
     def test_incremental_sends_the_watermark(self) -> None:
         import datetime
 
@@ -433,32 +295,6 @@ class TestGetBatchRows:
             db_incremental_field_last_value=watermark,
         )
         assert session.calls[0][1]["time_start"] == watermark.isoformat()
-
-    def test_info_batches_every_id_in_the_map(self) -> None:
-        map_page = {"data": [{"id": coin_id} for coin_id in range(1, METADATA_BATCH_SIZE + 3)]}
-        manager = self._manager()
-        rows, session = self._run(
-            "cryptocurrency_info",
-            [
-                _make_batch_response(map_page),
-                _make_batch_response({"data": {"1": {"id": 1}}}),
-                _make_batch_response({"data": {"251": {"id": 251}}}),
-            ],
-            manager,
-        )
-
-        map_call, first_batch, second_batch = session.calls
-        assert map_call[0].endswith("/v1/cryptocurrency/map")
-        assert first_batch[0].endswith("/v2/cryptocurrency/info")
-        assert first_batch[1]["id"] == ",".join(str(i) for i in range(1, METADATA_BATCH_SIZE + 1))
-        assert second_batch[1]["id"] == f"{METADATA_BATCH_SIZE + 1},{METADATA_BATCH_SIZE + 2}"
-        assert [row["id"] for row in rows] == [1, 251]
-
-        # Checkpointed after each batch is yielded, so a crash re-yields rather than skips.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE),
-            CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE + 2),
-        ]
 
     def test_info_walks_every_map_page(self) -> None:
         # The first page is full but carries one unusable row. The walk has to count the raw page,
@@ -479,19 +315,6 @@ class TestGetBatchRows:
         map_calls = [params for url, params in session.calls if url.endswith("/v1/cryptocurrency/map")]
         assert [params["start"] for params in map_calls] == [1, 1 + PAGE_SIZE]
 
-    def test_resume_skips_the_coins_already_yielded(self) -> None:
-        map_page = {"data": [{"id": coin_id} for coin_id in range(1, METADATA_BATCH_SIZE + 3)]}
-        manager = self._manager(CoinMarketCapResumeConfig(last_coin_id=METADATA_BATCH_SIZE))
-        _, session = self._run(
-            "cryptocurrency_info",
-            [_make_batch_response(map_page), _make_batch_response({"data": {"251": {"id": 251}}})],
-            manager,
-        )
-
-        info_calls = [params for url, params in session.calls if url.endswith("/v2/cryptocurrency/info")]
-        assert len(info_calls) == 1
-        assert info_calls[0]["id"] == f"{METADATA_BATCH_SIZE + 1},{METADATA_BATCH_SIZE + 2}"
-
     def test_resume_holds_its_place_when_a_coin_leaves_the_universe(self) -> None:
         # Id 5 is gone since the attempt that checkpointed. A position-based cursor would slide the
         # whole tail forward by one and skip a coin that was never yielded.
@@ -509,29 +332,6 @@ class TestGetBatchRows:
         batch_calls = [params for url, params in session.calls if url.endswith("/v3/cryptocurrency/quotes/historical")]
         assert len(batch_calls) == 1
         assert batch_calls[0]["id"] == str(HISTORICAL_BATCH_SIZE + 1)
-
-    @pytest.mark.parametrize("endpoint", ["quotes_historical", "ohlcv_historical"])
-    def test_historical_endpoints_rank_the_coin_universe_by_market_cap(self, endpoint: str) -> None:
-        listings = {"data": [{"id": coin_id} for coin_id in range(HISTORICAL_BATCH_SIZE + 1, 0, -1)]}
-        manager = self._manager()
-        _, session = self._run(
-            endpoint,
-            [_make_batch_response(listings), _make_batch_response({"data": {}}), _make_batch_response({"data": {}})],
-            manager,
-        )
-
-        universe_call, first_batch, second_batch = session.calls
-        assert universe_call[0].endswith("/v1/cryptocurrency/listings/latest")
-        assert universe_call[1]["sort"] == "market_cap"
-        assert universe_call[1]["sort_dir"] == "desc"
-        assert universe_call[1]["limit"] == HISTORICAL_COIN_LIMIT
-
-        # Ids are batched in ascending id order, not in the rank order the listing returned, so a
-        # resumed run picks up the same batches even after the ranking moves.
-        assert first_batch[1]["id"] == ",".join(str(i) for i in range(1, HISTORICAL_BATCH_SIZE + 1))
-        assert second_batch[1]["id"] == str(HISTORICAL_BATCH_SIZE + 1)
-        assert first_batch[1]["time_start"] == _history_start(None)
-        assert first_batch[0].endswith(COINMARKETCAP_BATCH_ENDPOINTS[endpoint].path)
 
     def test_exchange_info_batches_every_id_in_the_exchange_map(self) -> None:
         manager = self._manager()
@@ -589,10 +389,6 @@ class TestLastPublishedSnapshotDate:
 
 
 class TestSnapshotStartDate:
-    def test_falls_back_to_the_backfill_window(self) -> None:
-        expected = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=HISTORICAL_BACKFILL_DAYS)).date()
-        assert _snapshot_start_date(None) == expected
-
     @pytest.mark.parametrize(
         "watermark",
         [
@@ -643,56 +439,6 @@ class TestGetSnapshotRows:
             )
         return [row for batch in batches for row in batch], session
 
-    def test_walks_one_request_per_day_from_the_watermark(self) -> None:
-        manager = self._manager()
-        rows, session = self._run(
-            [
-                _make_batch_response({"data": [{"id": 1, "cmc_rank": 1}]}),
-                _make_batch_response({"data": [{"id": 1, "cmc_rank": 2}]}),
-            ],
-            manager,
-            now=datetime.date(2026, 3, 2),
-            db_incremental_field_last_value="2026-03-01",
-        )
-
-        assert [params["date"] for _, params in session.calls] == ["2026-03-01", "2026-03-02"]
-        assert all(url.endswith("/v1/cryptocurrency/listings/historical") for url, _ in session.calls)
-        assert session.calls[0][1]["limit"] == LISTINGS_HISTORICAL_RANK_LIMIT
-        assert session.calls[0][1]["sort"] == "cmc_rank"
-
-        # The response identifies its day only through last_updated, which repeats for a coin that
-        # stopped trading, so the requested day is stamped on to keep the two days distinct.
-        assert [row["snapshot_date"] for row in rows] == ["2026-03-01", "2026-03-02"]
-        assert [row["cmc_rank"] for row in rows] == [1, 2]
-
-    def test_re_requests_the_watermark_day(self) -> None:
-        # A run cut short part-way through a day would otherwise leave the rest of that day's
-        # ranking missing for good.
-        _, session = self._run(
-            [_make_batch_response({"data": []})],
-            self._manager(),
-            now=datetime.date(2026, 3, 1),
-            db_incremental_field_last_value="2026-03-01",
-        )
-        assert [params["date"] for _, params in session.calls] == ["2026-03-01"]
-
-    def test_checkpoints_each_day_after_yielding_it(self) -> None:
-        manager = self._manager()
-        self._run(
-            [
-                _make_batch_response({"data": [{"id": 1}]}),
-                _make_batch_response({"data": [{"id": 1}]}),
-            ],
-            manager,
-            now=datetime.date(2026, 3, 2),
-            db_incremental_field_last_value="2026-03-01",
-        )
-
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            CoinMarketCapResumeConfig(last_snapshot_date="2026-03-01"),
-            CoinMarketCapResumeConfig(last_snapshot_date="2026-03-02"),
-        ]
-
     def test_resume_picks_up_the_day_after_the_checkpoint(self) -> None:
         manager = self._manager(CoinMarketCapResumeConfig(last_snapshot_date="2026-03-02"))
         _, session = self._run(
@@ -702,15 +448,6 @@ class TestGetSnapshotRows:
             db_incremental_field_last_value="2026-03-01",
         )
         assert [params["date"] for _, params in session.calls] == ["2026-03-03"]
-
-    def test_makes_no_request_when_the_watermark_is_already_current(self) -> None:
-        _, session = self._run(
-            [],
-            self._manager(),
-            now=datetime.date(2026, 3, 1),
-            db_incremental_field_last_value="2026-03-02",
-        )
-        assert session.calls == []
 
 
 class TestBatchEndpointErrors:

@@ -1,7 +1,5 @@
 import uuid
-import asyncio
 import datetime as dt
-from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowHistory
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.dataclasses import frozen
 
@@ -31,9 +29,6 @@ _TASK_QUEUE = "signup-enrichment-test-queue"
 _EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 _RECHECK_ID = f"signup-enrichment-recheck-{_INPUTS.organization_id}"
 _TEST_RECHECK_DELAY = dt.timedelta(milliseconds=100)
-# An execution that took the un-patched path, where the recheck is a timer and a second activity
-# in this same workflow, recorded against a mocked activity.
-_PRE_CHILD_HISTORY = Path(__file__).parent / "signup_enrichment_pre_recheck_child_history.json"
 
 
 @frozen
@@ -230,14 +225,3 @@ async def test_recheck_skips_deleted_organization():
     assert result["matched"] is False
     enrich_mock.assert_not_called()
     client_mock.assert_not_called()
-
-
-async def test_history_recorded_before_the_recheck_child_still_replays():
-    history = WorkflowHistory.from_json(
-        "signup-enrichment-org-1", await asyncio.to_thread(_PRE_CHILD_HISTORY.read_text)
-    )
-
-    await Replayer(
-        workflows=[SignupEnrichmentWorkflow, SignupEnrichmentRecheckWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ).replay_workflow(history)

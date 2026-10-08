@@ -11,7 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
-from posthog.models.event.util import bulk_create_events, create_event
+from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
 from posthog.test.test_journeys import journeys_for
 
@@ -157,6 +157,21 @@ class TestSelectors(BaseTest):
         selector1 = Selector("div#root\\:id")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
 
+    def test_class_before_attribute(self):
+        # A class that precedes an attribute selector must not be captured as the tag name
+        selector1 = Selector('.btn[ng-disabled="true"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attr_class__contains": ["btn"], "attributes__attr__ng-disabled": "true"},
+        )
+
+    def test_multiple_attributes(self):
+        selector1 = Selector('[type="button"][ng-click="save()"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attributes__attr__type": "button", "attributes__attr__ng-click": "save()"},
+        )
+
 
 class TestSelectorRegexMatching(SimpleTestCase):
     @parameterized.expand(
@@ -208,6 +223,105 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 True,
             ),
             (
+                "two attributes with others between them, in any order",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(
+                        tag_name="button",
+                        attributes={
+                            "attr__type": "button",
+                            "attr__ng-disabled": "busy",
+                            "attr__ng-click": "continue()",
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "two attributes in single quotes after a tag",
+                "button[type='button'][data-x='a']",
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                True,
+            ),
+            (
+                "two attributes on different elements",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(tag_name="button", attributes={"attr__type": "button"}),
+                    Element(tag_name="div", attributes={"attr__ng-click": "continue()"}),
+                ],
+                False,
+            ),
+            (
+                "a tag and its two attributes on different elements",
+                "button[type='button'][data-x='a']",
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attributes={"attr__data-x": "a", "attr__type": "button"}),
+                ],
+                False,
+            ),
+            (
+                "two attributes followed by a class the element does not have",
+                'button[type="button"][data-x="a"].active',
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "the same attribute with two different values",
+                '[data-x="a"][data-x="b"]',
+                [Element(tag_name="div", attributes={"attr__data-x": "b"})],
+                False,
+            ),
+            (
+                "the same id attribute with two different values",
+                '[id="a"][id="b"]',
+                [Element(tag_name="div", attr_id="b")],
+                False,
+            ),
+            (
+                "an id and an id attribute with different values",
+                '#a[id="b"]',
+                [Element(tag_name="div", attr_id="a")],
+                False,
+            ),
+            (
+                "the same position with two different values",
+                "li:nth-child(1):nth-child(2)",
+                [Element(tag_name="li", nth_child=2)],
+                False,
+            ),
+            (
+                "two attributes with an escaped quote in a value",
+                "[title='it\\'s'][data-x='a']",
+                [Element(tag_name="div", attributes={"attr__data-x": "a", "attr__title": "it's"})],
+                True,
+            ),
+            (
+                "two attribute names that only match the end of longer names",
+                'button[foo="1"][bar="2"]',
+                [Element(tag_name="button", attributes={"attr__data-bar": "2", "attr__data-foo": "1"})],
+                False,
+            ),
+            (
+                "one attribute name that matches the end of a longer name",
+                'button[label="Save"]',
+                [Element(tag_name="button", attributes={"attr__aria-label": "Save"})],
+                True,
+            ),
+            (
+                "two attributes after a tag and a position the element does not have",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="div", nth_child=1, attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "an attribute value with nested quotes and an equals sign",
+                "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
+                [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],
+                True,
+            ),
+            (
                 "attribute value mismatch",
                 'div[title="hi"]',
                 [Element(tag_name="div", attributes={"attr__title": "bye"})],
@@ -237,11 +351,55 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 [Element(tag_name="a"), Element(tag_name="b")],
                 False,
             ),
+            (
+                "a descendant part does not match text inside another element",
+                "form button.btn",
+                [
+                    Element(tag_name="button", attr_class=["btn"]),
+                    Element(tag_name="a", href="/form-signup"),
+                ],
+                False,
+            ),
+            (
+                "class and attribute have to land on the same element",
+                '.btn[ng-disabled="true"]',
+                [
+                    Element(tag_name="span", attr_class=["btn"]),
+                    Element(tag_name="div", attributes={"attr__ng-disabled": "true"}),
+                ],
+                False,
+            ),
+            (
+                "nth-child and nth-of-type together",
+                "button.btn:nth-child(3):nth-of-type(1)",
+                [Element(tag_name="button", attr_class=["btn"], nth_child=3, nth_of_type=1)],
+                True,
+            ),
+            (
+                "an id alongside an attribute the chain sorts before it",
+                '#submit[type="button"]',
+                [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
+                True,
+            ),
         ]
     )
     def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
         regex = build_selector_regex(Selector(selector, escape_slashes=False))
         self.assertEqual(bool(re.search(regex, elements_to_string(elements))), expected)
+
+    @parameterized.expand(
+        [
+            ("pseudo-class after a class", ".btn:hover", True),
+            ("pseudo-class after a tag", "button:hover", True),
+            ("attribute operator", '[href^="http"]', True),
+            ("tailwind variant, which is a real class", ".hover:bg-blue", False),
+            ("class named after a pseudo-class, with no colon to make it one", ".active", False),
+            ("tailwind arbitrary value", ".sm:[max-width:640px]", False),
+            ("universal selector, which the compiler supports", "*", False),
+        ]
+    )
+    def test_unsupported_syntax_detection(self, _name, selector, expected):
+        self.assertEqual(Selector(selector, escape_slashes=False).has_unsupported_syntax(), expected)
 
 
 class TestSelectorRegexMonotonicity(SimpleTestCase):
@@ -296,9 +454,15 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                 regex += r".*"
         return r"(^|;)" + regex if regex else r""
 
-    def test_fix_only_widens_matching(self):
+    # The tail widening only adds matches, with one deliberate exception: the old
+    # tail ran past a quote and found a class name inside an attribute value, on an
+    # element that carries no such class. Element-confined matching drops that.
+    INTENDED_NARROWING = (".class", 'span:attr__title="x.class y"nth-child="0"nth-of-type="0"')
+
+    def test_fix_widens_matching_except_inside_quoted_values(self):
         chains = [elements_to_string(elements) for elements in self.ELEMENT_CHAINS]
         newly_matching_pairs = 0
+        narrowing_seen = False
         for selector_string in self.SELECTORS:
             selector = Selector(selector_string, escape_slashes=False)
             old_regex = self._pre_fix_build_selector_regex(selector)
@@ -307,16 +471,52 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                 old_match = bool(re.search(old_regex, chain))
                 new_match = bool(re.search(new_regex, chain))
                 with self.subTest(selector=selector_string, chain=chain):
-                    if old_match:
+                    if (selector_string, chain) == self.INTENDED_NARROWING:
+                        narrowing_seen = True
+                        self.assertTrue(old_match)
+                        self.assertFalse(new_match)
+                    elif old_match:
                         self.assertTrue(new_match)
                 if new_match and not old_match:
                     newly_matching_pairs += 1
         # the corpus has to exercise the widening, or the superset check is vacuous
         self.assertGreater(newly_matching_pairs, 0)
+        # and it has to still reach the narrowing, or that assertion is skipped silently
+        self.assertTrue(narrowing_seen)
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(["bulk", "single"])
+    def test_native_only_scope_restores_dual_writes(self, insertion: str) -> None:
+        def insert(event: str) -> None:
+            if insertion == "bulk":
+                bulk_create_events([{"team": self.team, "event": event, "distinct_id": "test"}])
+            else:
+                create_event(event_uuid=uuid4(), team=self.team, event=event, distinct_id="test")
+
+        with self.assertRaisesRegex(ValueError, "fixture failed"):
+            with events_only_in_active_schema():
+                with events_only_in_active_schema():
+                    insert("nested")
+                insert("outer")
+                raise ValueError("fixture failed")
+
+        insert("after")
+
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",)],
+        )
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events_json WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",), ("nested",), ("outer",)],
+        )
+
     @parameterized.expand(["bulk", "single", "journey"])
     def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:
         properties = {

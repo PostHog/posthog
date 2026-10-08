@@ -18,13 +18,9 @@ export type SetupTaskId = AvailableSetupTaskIdsEnumApi
  */
 export type TaskType = 'setup' | 'onboarding' | 'explore' | 'ai'
 
-/** Definition of a single setup task */
 export interface SetupTask {
-    /** Unique task identifier - use SetupTaskId enum values */
     id: SetupTaskId
-    /** Display title */
     title: string
-    /** Help text or description */
     description: string | ReactNode
     /**
      * Warning message to show when user tries to skip this task.
@@ -32,22 +28,14 @@ export interface SetupTask {
      * Tasks without this can be skipped without warning.
      */
     skipWarning?: string
-    /**
-     * Task type:
-     * - 'setup': Mandatory configuration (install SDK, enable features)
-     * - 'onboarding': Getting started guidance (create first X, explore Y)
-     * - 'explore': Advanced/optional features to try after getting started
-     * - 'ai': PostHog's AI surfaces, shown for every product
-     * Defaults to 'onboarding' if not specified
-     */
+    /** Defaults to 'onboarding' if not specified */
     taskType?: TaskType
-    /** Task IDs that must complete first - use SetupTaskId enum values */
+    /** Tasks that must be completed before this one unlocks */
     dependsOn?: SetupTaskId[]
-    /** External documentation URL (opens in new tab) */
+    /** External documentation URL, opened in a new tab. Only used when getUrl is not set. */
     docsUrl?: string
-    /** Icon for the task */
     icon?: ReactNode
-    /** Function that returns the internal URL to navigate to when task is clicked */
+    /** Internal URL to navigate to when the task is clicked */
     getUrl?: () => string
     /**
      * CSS selector for the element to highlight after navigation.
@@ -62,32 +50,21 @@ export interface SetupTask {
     requiresManualCompletion?: boolean
 }
 
-/** Runtime state of a setup task (definition + current state) */
 export interface SetupTaskWithState extends SetupTask {
-    /** Whether task is completed */
     completed: boolean
-    /** Whether task was skipped */
     skipped: boolean
-    /** If locked, the reason why */
+    /** Set while a task in dependsOn is still incomplete. The task is unlocked when this is absent. */
     lockedReason?: string
 }
 
-/** Configuration for a product's setup experience */
 export interface ProductSetupConfig {
-    /** The product key this config is for */
     productKey: ProductKey
-    /** Display title, e.g., "Get started with Product analytics" */
     title: string
-    /**
-     * All tasks for this product, organized by type.
-     * Use taskType field to categorize: 'setup', 'onboarding', or 'explore'
-     */
     tasks: SetupTask[]
 }
 
 /** A pending attention highlight, bound to the route that asked for it */
 export interface SetupHighlight {
-    /** CSS selector for the element to highlight */
     selector: string
     /** Route the highlight belongs to - the highlight drops when the user leaves it */
     pathname: string

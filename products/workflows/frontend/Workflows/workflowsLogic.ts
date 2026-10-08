@@ -71,6 +71,7 @@ interface WorkflowsListParams {
     created_by?: string
     type?: HogFlowListType[]
     trigger?: string
+    suggestions_first?: boolean
     limit: number
     offset: number
 }
@@ -427,6 +428,9 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 type: filters.type !== 'all' ? [filters.type] : WORKFLOWS_PAGE_TYPES,
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
+                // Only this page sorts a waiting suggestion above recency; every other reader of the
+                // list keeps recency, so one stale workflow cannot push fresh ones off their first page.
+                suggestions_first: true,
                 limit: WORKFLOWS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * WORKFLOWS_PER_PAGE : 0,
             }),

@@ -130,11 +130,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = DataType::from_event_name(
-        &event.event,
-        context.historical_migration,
-        context.ai_lane_predicate,
-    );
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -379,8 +375,8 @@ async fn process_events_inner(
     // abort path emits an `invalid_ai_event` ingestion warning alongside the
     // 400, so the project owner sees it too.
     //
-    // Lane membership follows the deployment's `AiLanePredicate`, the same
-    // answer `DataType::from_event_name` stamped on each event above.
+    // Lane membership is the same answer `DataType::from_event_name` stamped on
+    // each event above.
     if context.capture_mode == crate::config::CaptureMode::Ai {
         if let Some(offender) = events
             .iter()
@@ -663,7 +659,7 @@ mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{AiLanePredicate, OverflowReason, ProcessingContext};
+    use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
@@ -690,7 +686,6 @@ mod tests {
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
             ai_max_event_bytes: 0,
-            ai_lane_predicate: AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1340,7 +1335,7 @@ mod tests {
     }
 
     /// The AI lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
+    /// `Import` both divert every AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1436,7 +1431,7 @@ mod tests {
     /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
     #[tokio::test]
     async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the enveloped small event (~672 B) fits, and the
@@ -1446,7 +1441,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1492,10 +1487,10 @@ mod tests {
             1,
             "only the under-budget AI event must reach the sink"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
+            &*records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
     }
@@ -1667,41 +1662,24 @@ mod tests {
     /// second event is the one under test.
     struct AiLaneGateCase {
         second_event: &'static str,
-        predicate: AiLanePredicate,
         rejected: bool,
     }
 
     #[rstest]
     #[case::analytics_event_is_rejected(AiLaneGateCase {
         second_event: "$pageview",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::analytics_event_is_rejected_under_prefix(AiLaneGateCase {
-        second_event: "$pageview",
-        predicate: AiLanePredicate::Prefix,
-        rejected: true,
-    })]
-    // Under `Allowlist` a prefixed-but-unlisted name resolves to AnalyticsMain,
-    // so it is rejected too; under `Prefix` the same name is on the lane.
-    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+    #[case::any_ai_prefixed_name_passes(AiLaneGateCase {
         second_event: "$ai_call",
-        predicate: AiLanePredicate::Allowlist,
-        rejected: true,
-    })]
-    #[case::prefixed_but_unlisted_name_passes_under_prefix(AiLaneGateCase {
-        second_event: "$ai_call",
-        predicate: AiLanePredicate::Prefix,
         rejected: false,
     })]
     #[case::exception_is_rejected(AiLaneGateCase {
         second_event: "$exception",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+    #[case::second_ai_event_passes(AiLaneGateCase {
         second_event: "$ai_span",
-        predicate: AiLanePredicate::Allowlist,
         rejected: false,
     })]
     #[tokio::test]
@@ -1713,7 +1691,6 @@ mod tests {
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
         context.capture_mode = crate::config::CaptureMode::Ai;
-        context.ai_lane_predicate = case.predicate;
 
         let events = vec![
             create_test_event_with_name("$ai_generation", None, None, None),
@@ -1794,7 +1771,7 @@ mod tests {
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the small event fits, the large one takes the
@@ -1804,7 +1781,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1851,11 +1828,11 @@ mod tests {
             1,
             "only the under-budget event must reach the sink under Ai mode"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
-            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+            &*records[0].topic, ai_topic,
+            "an AI event diverts to the AI lane under Ai mode too"
         );
     }
 
@@ -2450,7 +2427,7 @@ mod tests {
 
     /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
     #[case::limiter_present(AiValveCase {
@@ -3241,7 +3218,7 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -3259,7 +3236,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
@@ -3279,7 +3256,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion_overflow",
+            &*records[0].topic, "events_plugin_ingestion_overflow",
             "ForceLimited must route to overflow topic"
         );
         assert_eq!(
@@ -3315,7 +3292,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
@@ -3335,11 +3312,11 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion",
+            &*records[0].topic, "events_plugin_ingestion",
             "event[0]: within burst -> main topic"
         );
         assert_eq!(
-            records[1].topic, "events_plugin_ingestion_overflow",
+            &*records[1].topic, "events_plugin_ingestion_overflow",
             "event[1]: over burst -> overflow topic"
         );
         assert!(
@@ -3703,7 +3680,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         run_pipeline(outputs, events, &context, PipelineOptions::default())
@@ -3719,11 +3696,11 @@ mod tests {
 
         let original = records
             .iter()
-            .find(|r| r.topic == "events_plugin_ingestion")
+            .find(|r| &*r.topic == "events_plugin_ingestion")
             .expect("original event should land on the main events topic");
         let redirect = records
             .iter()
-            .find(|r| r.topic == "heatmaps")
+            .find(|r| &*r.topic == "heatmaps")
             .expect("redirect should land on the heatmaps topic");
 
         // ---- original on events topic ----

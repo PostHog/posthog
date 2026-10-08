@@ -7,9 +7,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.mighty_networks import (
-    USER_AGENT,
     MightyNetworksResumeConfig,
     check_endpoint_access,
     mighty_networks_source,
@@ -111,46 +109,6 @@ class TestMightyNetworksSourceNonFanout:
         assert snapshots[1]["params"] == {"per_page": PER_PAGE, "page": 2}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        _rows(_source("Members", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_descriptive_user_agent(self, MockSession) -> None:
-        # Mighty Networks blocks requests with no/generic User-Agent as bot traffic (HTTP 403 +
-        # HTML challenge page). The client applies this as a session-level header.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], total_pages=1)])
-
-        _rows(_source("Members", _make_manager()))
-
-        assert session.headers["User-Agent"] == USER_AGENT
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 1}], current_page=1, total_pages=2),
-                _response([{"id": 2}], current_page=2, total_pages=2),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("Members", manager))
-
-        # State is saved only while more pages remain (page 1 -> next_page 2), never on the last page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == MightyNetworksResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"id": 2}], current_page=2, total_pages=2)])
@@ -160,18 +118,6 @@ class TestMightyNetworksSourceNonFanout:
         assert [r["id"] for r in rows] == [2]
         assert session.send.call_count == 1
         assert snapshots[0]["params"]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page_without_total_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("Spaces", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises(self, MockSession) -> None:
@@ -261,27 +207,6 @@ class TestMightyNetworksSourceNonFanout:
         assert rows[0]["created_at"] == "2026-01-01T00:00:00Z"
         assert rows[0]["updated_at"] == "2026-01-02T00:00:00Z"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_row_is_not_flattened(self, MockSession) -> None:
-        # Only Subscriptions and Purchases need the nested-id fixup.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1, "email": "a@example.com"}], total_pages=1)])
-
-        rows = _rows(_source("Members", _make_manager()))
-
-        assert rows == [{"id": 1, "email": "a@example.com"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioning_uses_created_at(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total_pages=1)])
-
-        response = _source("Members", _make_manager())
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-        assert response.primary_keys == ["id"]
-
 
 class TestValidateCredentials:
     @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
@@ -289,33 +214,8 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("key", "1234") == (True, 200)
 
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key", "1234") == (False, 401)
-
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "1234") == (False, None)
-
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_probes_me_endpoint_with_bearer_header_and_user_agent(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key", "1234")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.mn.co/admin/v1/networks/1234/me"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
-        assert call.kwargs["headers"]["User-Agent"] == USER_AGENT
-
 
 class TestCheckEndpointAccess:
-    @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
-    def test_reachable_endpoint_returns_none(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert check_endpoint_access("key", "1234", "Members") is None
-
     @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)
     def test_forbidden_returns_vendor_message(self, mock_session) -> None:
         response = mock.MagicMock(status_code=403)

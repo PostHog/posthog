@@ -43,7 +43,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Filter, Team
+from posthog.models import Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -51,6 +51,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -912,7 +913,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
                 )
             # :TRICKY: We need to ensure we don't have infinite loops in here
             # guaranteed during cohort creation
-            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
+            return expand_cohort_properties(parse_property_group_data(cohort.properties.to_dict()), team)
 
     # We have person properties only
     # TODO: Handle negating a complete property group

@@ -11,6 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     sync_new_schemas_activity,
 )
 
+# A source that puts a deadline on its own schema discovery keeps that deadline below this. The
+# source then fails with its own error, and the activity thread does not outlive the timeout.
+DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT = dt.timedelta(minutes=10)
+
 
 @workflow.defn(name="discover-schemas")
 class DiscoverSchemasWorkflow(PostHogWorkflow):
@@ -33,7 +37,7 @@ class DiscoverSchemasWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             sync_new_schemas_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=10),
+            start_to_close_timeout=DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),

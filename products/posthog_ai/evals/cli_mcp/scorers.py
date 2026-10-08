@@ -37,13 +37,8 @@ from __future__ import annotations
 
 import re
 
-from products.posthog_ai.eval_harness.log_parser import (
-    EXEC_TOOL_NAME,
-    INFO_SYNTHETIC_PREFIX,
-    LogParser,
-    ToolCall,
-    is_schema_discovery_call,
-)
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
@@ -107,7 +102,7 @@ def _exec_command_head(call: ToolCall) -> tuple[str, str]:
 
     Empty tuple for non-``exec`` or already-unwrapped calls. Lets scorers
     inspect the ``search`` / ``schema`` / ``tools`` verbs that
-    ``_parse_exec_command`` intentionally drops on the floor.
+    ``parse_exec_command`` intentionally drops on the floor.
     """
     if call.is_exec_unwrapped or call.name != EXEC_TOOL_NAME:
         return ("", "")

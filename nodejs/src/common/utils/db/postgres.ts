@@ -54,6 +54,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'no more connections allowed',
     'server closed the connection unexpectedly',
     'getaddrinfo EAI_AGAIN',
+    'getaddrinfo ENOTFOUND', // Cluster DNS briefly answering NXDOMAIN for the PgBouncer service name
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection

@@ -4,7 +4,7 @@ import re
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,8 +38,13 @@ from products.signals.backend.report_generation.repo_activity import (
     get_area_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.report_generation.team_membership import (
+    MembershipRoster,
+    MemberTeam,
+    resolve_membership_roster,
+)
 
-from ..models import SignalReportArtefact, SignalScoutConfig
+from ..models import SignalActorKind, SignalReportArtefact, SignalScoutConfig
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +127,7 @@ def enrich_reviewer_dicts_with_org_members(
     login_to_user: Mapping[str, User] | None = None,
     uuid_to_user: Mapping[str, User] | None = None,
     scout_display_names: Mapping[str, str] | None = None,
+    manual_adders: Sequence[User | None] | None = None,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
@@ -162,7 +168,7 @@ def enrich_reviewer_dicts_with_org_members(
         resolved_by_uuid = resolve_org_users_by_uuid(team_id, wanted_uuids) if wanted_uuids else {}
 
     enriched: list[dict] = []
-    for r in reviewer_dicts:
+    for index, r in enumerate(reviewer_dicts):
         login = r.get("github_login") or ""
         user_uuid = _normalized_reviewer_user_uuid(r.get("user_uuid"))
         user = resolved_by_uuid.get(user_uuid) if user_uuid else None
@@ -170,7 +176,11 @@ def enrich_reviewer_dicts_with_org_members(
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
-        enriched.append(_with_reviewer_presentation(r, user, scout_display_names))
+        enriched.append(
+            _with_reviewer_presentation(
+                r, user, scout_display_names, manual_adders[index] if manual_adders is not None else None
+            )
+        )
 
     return enriched
 
@@ -184,6 +194,82 @@ def bounded_reviewer_reason(reason: object) -> str | None:
     return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
 
 
+def trusted_manual_reviewer_adders(
+    artefact: SignalReportArtefact,
+    reviewers: list[dict],
+    history: Sequence[SignalReportArtefact] | None = None,
+) -> list[User | None]:
+    if not any(
+        isinstance(reviewer.get("reason"), str) and reviewer["reason"].startswith("Added as a reviewer by ")
+        for reviewer in reviewers
+    ):
+        return [None] * len(reviewers)
+
+    if history is None:
+        history = list(
+            SignalReportArtefact.objects.filter(
+                team_id=artefact.team_id,
+                report_id=artefact.report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                created_at__lte=artefact.created_at,
+            )
+            .only("id", "content", "created_by_id", "actor_kind", "created_at")
+            .order_by("created_at", "id")
+        )
+
+    previous = ReviewerPayloadIndex.build([])
+    previous_adders: dict[int, int] = {}
+    current = previous
+    current_adders: dict[int, int] = {}
+    for row in sorted(history, key=lambda item: (item.created_at, item.id)):
+        if row.created_at > artefact.created_at:
+            break
+        try:
+            entries = json.loads(row.content)
+        except (TypeError, ValueError):
+            return [None] * len(reviewers)
+        if not isinstance(entries, list):
+            return [None] * len(reviewers)
+        current = ReviewerPayloadIndex.build(entries)
+        current_adders = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            user_uuid = _normalized_reviewer_user_uuid(entry.get("user_uuid"))
+            github_login = str(entry.get("github_login") or "").strip().lower() or None
+            prior = previous.get(user_uuid=user_uuid, github_login=github_login)
+            prior_uuid = _normalized_reviewer_user_uuid(prior.get("user_uuid")) if prior else None
+            if user_uuid and prior_uuid and user_uuid != prior_uuid:
+                prior = None
+            if prior is not None:
+                adder_id = previous_adders.get(id(prior))
+            elif row.actor_kind == SignalActorKind.USER:
+                adder_id = row.created_by_id
+            else:
+                adder_id = None
+            if adder_id is not None:
+                current_adders[id(entry)] = adder_id
+        if row.id == artefact.id:
+            break
+        previous, previous_adders = current, current_adders
+    else:
+        return [None] * len(reviewers)
+
+    adder_ids: list[int | None] = []
+    for reviewer in reviewers:
+        reason = reviewer.get("reason")
+        if not isinstance(reason, str) or not reason.startswith("Added as a reviewer by "):
+            adder_ids.append(None)
+            continue
+        entry = current.get(
+            user_uuid=_normalized_reviewer_user_uuid(reviewer.get("user_uuid")),
+            github_login=str(reviewer.get("github_login") or "").strip().lower() or None,
+        )
+        adder_ids.append(current_adders.get(id(entry)) if entry is not None else None)
+    users = User.objects.in_bulk({adder_id for adder_id in adder_ids if adder_id is not None})
+    return [users.get(adder_id) if adder_id is not None else None for adder_id in adder_ids]
+
+
 def _commit_explanation(commits: list[object]) -> str:
     if len(commits) == 1 and isinstance(commits[0], dict):
         reason = commits[0].get("reason")
@@ -194,7 +280,9 @@ def _commit_explanation(commits: list[object]) -> str:
     return f"Authored {len(commits)} relevant changes to the affected code."
 
 
-def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display_names: Mapping[str, str]) -> dict:
+def _with_reviewer_presentation(
+    reviewer: dict, user: User | None, scout_display_names: Mapping[str, str], manual_adder: User | None
+) -> dict:
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
     safe_commits = [
@@ -218,7 +306,8 @@ def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display
         explanation = safe_reason
     elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):
         source_label = "Added by teammate"
-        explanation = None
+        name = manual_adder.get_full_name().strip() or manual_adder.email if manual_adder else None
+        explanation = f"Added by {name}" if name else None
     else:
         source_label = "Agent suggestion"
         explanation = safe_reason
@@ -872,7 +961,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
 MAX_PROJECT_MEMBERS = 200
 
 
-@dataclass
+@frozen
 class ProjectMemberIdentity:
     """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
 
@@ -881,12 +970,27 @@ class ProjectMemberIdentity:
     first_name: str
     last_name: str
     github_login: str | None
+    teams: tuple[MemberTeam, ...] = ()
+
+
+@frozen
+class ProjectMemberRoster:
+    """The members a roster call resolved, plus what the membership snapshot could say about them."""
+
+    members: tuple[ProjectMemberIdentity, ...]
+    # False when nothing is synced, so every member's `teams` is empty and a filter cannot resolve.
+    membership_synced: bool
+    # True when the roster read failed, which is a retry rather than a sync to turn on.
+    membership_read_failed: bool
+    # False when the snapshot holds no rows under the asked-for slug. Distinct from an empty
+    # ``members``, which means the team is synced but nobody on it can review here.
+    team_is_covered: bool
 
 
 def list_project_members(
-    team: Team, *, search: str | None = None, limit: int = MAX_PROJECT_MEMBERS
-) -> list[ProjectMemberIdentity]:
-    """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
+    team: Team, *, search: str | None = None, team_slug: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+) -> ProjectMemberRoster:
+    """Members with access to ``team`` — their UUID/email/name, resolved GitHub login, and teams.
 
     Backs the `scout-members-list` tool: the cold-start reviewer-routing path for a scout
     that can't read an owner off a fetched entity's ``created_by`` and has no cached
@@ -897,7 +1001,13 @@ def list_project_members(
     with no linked GitHub identity gets a null login rather than dropping out. ``search``
     (case-insensitive, over email + name) narrows the roster; the result is capped at ``limit`` so a
     large org can't push its whole directory into the scout's context in one call.
+
+    ``team_slug`` narrows to the people on one team and puts its maintainers first, so a caller that
+    takes the first few entries takes the people most likely to own the work. Teams are matched on
+    the GitHub login, so a member with no linked GitHub identity carries no teams and never matches
+    a filter. Search and the filter compose, and the cap applies after both.
     """
+    roster = resolve_membership_roster(team)
     users = team.all_users_with_access()
     if search:
         # Match the search against email, each name part, AND the concatenated full name, so a
@@ -909,17 +1019,62 @@ def list_project_members(
             | Q(last_name__icontains=search)
             | Q(_full_name__icontains=search)
         )
-    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
-    return [
-        ProjectMemberIdentity(
-            user_uuid=str(user.uuid),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            github_login=(login.lower() if (login := user.get_github_login()) else None),
+    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")
+    if team_slug is None:
+        users = users[:limit]
+    else:
+        # Narrowed in SQL, so a team filter never pulls a whole org's roster into memory to keep a
+        # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
+        users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
+    members: list[ProjectMemberIdentity] = []
+    for user in users:
+        login = raw.lower() if (raw := user.get_github_login()) else None
+        members.append(
+            ProjectMemberIdentity(
+                user_uuid=str(user.uuid),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                github_login=login,
+                teams=roster.teams_for(login),
+            )
         )
-        for user in users
-    ]
+    if team_slug is not None:
+        members = [member for member in members if _team_membership(member, team_slug) is not None]
+        # Stable, so members keep their id order inside each group and only the maintainer split moves.
+        members.sort(key=lambda member: not _is_maintainer_of(member, team_slug))
+    return ProjectMemberRoster(
+        members=tuple(members[:limit]),
+        membership_synced=roster.synced,
+        membership_read_failed=roster.read_failed,
+        team_is_covered=team_slug is None or team_slug in roster.covered_slugs,
+    )
+
+
+def _logins_on_team(roster: MembershipRoster, team_slug: str) -> frozenset[str]:
+    return frozenset(
+        login for login, teams in roster.teams_by_login.items() if any(team.slug == team_slug for team in teams)
+    )
+
+
+def _users_holding_logins(users: QuerySet, team: Team, logins: frozenset[str]) -> QuerySet:
+    """``users`` narrowed to those whose stored GitHub identity could be one of ``logins``.
+
+    A superset match on the same three identity sources ``User.get_github_login()`` reads, so the
+    caller still confirms each resolved login before it keeps the member.
+    """
+    if not logins:
+        return users.none()
+    return users.filter(id__in=_candidate_user_ids_for_org_and_logins(str(team.organization_id), logins))
+
+
+def _team_membership(member: ProjectMemberIdentity, team_slug: str) -> MemberTeam | None:
+    return next((team for team in member.teams if team.slug == team_slug), None)
+
+
+def _is_maintainer_of(member: ProjectMemberIdentity, team_slug: str) -> bool:
+    membership = _team_membership(member, team_slug)
+    return membership is not None and membership.is_maintainer
 
 
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:

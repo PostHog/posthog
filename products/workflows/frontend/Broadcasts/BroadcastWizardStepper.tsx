@@ -3,15 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { BROADCAST_WIZARD_STEPS, BroadcastWizardStep } from './broadcastWizardLogic'
-
-const STEP_LABELS: Record<BroadcastWizardStep, string> = {
-    recipients: 'Recipients',
-    goal: 'Goal',
-    content: 'Content',
-    schedule: 'Schedule',
-    review: 'Review',
-}
+import { BROADCAST_WIZARD_STEPS, BROADCAST_WIZARD_STEP_LABELS, BroadcastWizardStep } from './broadcastWizardLogic'
 
 interface BroadcastWizardStepperProps {
     currentStep: BroadcastWizardStep
@@ -84,7 +76,7 @@ export function BroadcastWizardStepper({
                                 !isCompleted && !isCurrent && 'text-secondary'
                             )}
                         >
-                            {STEP_LABELS[step]}
+                            {BROADCAST_WIZARD_STEP_LABELS[step]}
                         </span>
                     </button>
                 )

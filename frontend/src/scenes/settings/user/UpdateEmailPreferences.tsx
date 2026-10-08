@@ -21,9 +21,11 @@ enum NotificationBlock {
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
     WaWeeklyDigest = 'wa-weekly-digest',
+    DataCatalogWeeklyDigest = 'data-catalog-weekly-digest',
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    AiEvaluationDisabled = 'ai-evaluation-disabled',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -43,10 +45,12 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
+    ai_evaluation_disabled: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
+    data_catalog_weekly_digest: true,
 }
 
 function ProjectDigestSelector({
@@ -543,6 +547,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 )}
             </div>
         ),
+        [NotificationBlock.DataCatalogWeeklyDigest]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="data_catalog_weekly_digest"
+                    label="Data catalog weekly digest"
+                    description="Get a weekly summary of the metrics, relationships, and certifications waiting for review in your projects"
+                    dataAttr="data_catalog_weekly_digest_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.CommentMentions]: (
             <div className="border rounded p-4">
                 <SimpleSwitch
@@ -560,6 +574,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Private API key exposure"
                     description="Get notified when private API keys are publicly exposed"
                     dataAttr="project_api_key_exposure_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.AiEvaluationDisabled]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="ai_evaluation_disabled"
+                    label="Disabled AI evaluations"
+                    description="Get notified when an AI observability evaluation stops because of an error"
+                    dataAttr="ai_evaluation_disabled_enabled"
                 />
             </div>
         ),

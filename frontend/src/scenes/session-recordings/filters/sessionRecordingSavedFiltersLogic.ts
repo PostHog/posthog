@@ -7,7 +7,6 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -49,9 +48,6 @@ export interface sessionRecordingSavedFiltersLogicActions {
     setIsFiltersExpanded: (isFiltersExpanded: boolean) => {
         isFiltersExpanded: boolean
     } // playlistFiltersLogic
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
-    } // sessionRecordingEventUsageLogic
     checkForSavedFilterRedirect: () => {
         value: true
     }
@@ -174,12 +170,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
     path(() => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic']),
     connect(() => ({
         values: [playlistFiltersLogic, ['isFiltersExpanded']],
-        actions: [
-            sessionRecordingEventUsageLogic,
-            ['reportRecordingPlaylistCreated'],
-            playlistFiltersLogic,
-            ['setIsFiltersExpanded'],
-        ],
+        actions: [playlistFiltersLogic, ['setIsFiltersExpanded']],
     })),
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({

@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { AnyAssistantGeneratedQuery } from '~/queries/schema/schema-assistant-messages'
 import {

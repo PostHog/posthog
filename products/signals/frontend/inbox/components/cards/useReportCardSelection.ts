@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useSelector, useValues } from 'kea'
 import { MouseEvent, PointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 import { captureInboxSelectionModeEntered, InboxSelectionEntryMethod } from '../../inboxAnalytics'
@@ -40,8 +40,14 @@ export interface ReportCardSelection {
  * pointer events into its actions, and it does nothing at all on a row the list marks unselectable.
  */
 export function useReportCardSelection(reportId: string, enabled: boolean): ReportCardSelection {
-    const { selectedReportIds, hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
+    const { hasSelection, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
     const { toggleReportSelection, selectRange } = useActions(inboxBulkActionsLogic)
+    // Only this row's own flag, not the id list: reading the list subscribed every card to every
+    // other card's selection, so picking one row repainted the whole inbox. The booleans above
+    // stay subscribed because they really do change what every row does on a click.
+    const isReportSelected: boolean = useSelector((state) =>
+        inboxBulkActionsLogic.selectors.selectedReportIds(state).includes(reportId)
+    )
     const selectionDisabled = isDismissing || isResolving
 
     const holdTimerRef = useRef<number | null>(null)
@@ -162,7 +168,7 @@ export function useReportCardSelection(reportId: string, enabled: boolean): Repo
     )
 
     return {
-        isSelected: enabled && selectedReportIds.includes(reportId),
+        isSelected: enabled && isReportSelected,
         selectionMode: enabled && hasSelection,
         isHolding,
         selectionDisabled,

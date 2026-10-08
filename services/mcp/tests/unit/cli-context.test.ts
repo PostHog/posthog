@@ -37,8 +37,8 @@ describe('CLI context', () => {
         mocks.getApiKey.mockRejectedValue(new Error('offline'))
     })
 
-    it.each(['phx_secret-token', undefined])(
-        'captures tool calls when identity resolution fails with API key %s',
+    it.each(['phx_secret-token', 'pha_test-token', undefined])(
+        'retains telemetry when identity resolution fails with API key %s',
         async (apiKey) => {
             const context = await buildCliContext({ apiKey, host: 'https://us.posthog.com', version: 2 })
 
@@ -51,7 +51,7 @@ describe('CLI context', () => {
                 expect.objectContaining({
                     distinctId: expectedId,
                     event: AnalyticsEvent.MCP_TOOL_CALL,
-                    properties: expect.objectContaining({ is_impersonated: false }),
+                    properties: expect.objectContaining({ is_impersonated: false, suppress_analytics: false }),
                 })
             )
             if (apiKey) {
@@ -76,6 +76,25 @@ describe('CLI context', () => {
         expect(JSON.stringify(mocks.capture.mock.calls)).not.toContain(apiKey)
     })
 
+    it('suppresses only the CLI invocation that received private content', async () => {
+        const privateContext = await buildCliContext({
+            apiKey: 'phx_test-token',
+            host: 'https://example.com',
+            version: 2,
+        })
+        const ordinaryContext = await buildCliContext({
+            apiKey: 'phx_test-token',
+            host: 'https://example.com',
+            version: 2,
+        })
+        privateContext.api.config.onPrivateResponse?.()
+
+        await privateContext.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+        await ordinaryContext.trackEvent(AnalyticsEvent.MCP_TOOL_CALL)
+
+        expect(mocks.capture.mock.calls.map(([event]) => event.properties.suppress_analytics)).toEqual([true, false])
+    })
+
     it('uses an anonymous analytics distinct ID for feedback without an API key', async () => {
         const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
 
@@ -91,19 +110,26 @@ describe('CLI context', () => {
     })
 
     it.each(Object.values(AnalyticsEvent).flatMap((event) => [true, false].map((value) => [event, value] as const)))(
-        'passes impersonation status to the SDK for %s with impersonation %s',
+        'passes trusted capture policy to the SDK for %s with policy %s',
         async (event, impersonated) => {
             mocks.getDistinctId.mockResolvedValue('user-123')
-            mocks.getApiKey.mockResolvedValue({ scopes: [], is_impersonated: impersonated })
+            mocks.getApiKey.mockResolvedValue({
+                scopes: [],
+                is_impersonated: impersonated,
+                suppress_analytics: impersonated,
+            })
             const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
 
-            await context.trackEvent(event, { is_impersonated: !impersonated })
+            await context.trackEvent(event, { is_impersonated: !impersonated, suppress_analytics: !impersonated })
 
             expect(mocks.capture).toHaveBeenCalledWith(
                 expect.objectContaining({
                     distinctId: 'user-123',
                     event,
-                    properties: expect.objectContaining({ is_impersonated: impersonated }),
+                    properties: expect.objectContaining({
+                        is_impersonated: impersonated,
+                        suppress_analytics: impersonated,
+                    }),
                 })
             )
         }

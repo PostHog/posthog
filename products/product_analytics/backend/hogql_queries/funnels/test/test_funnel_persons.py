@@ -17,6 +17,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
@@ -203,6 +204,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(query, self.team, funnel_step=funnel_step)
 
         self.assertEqual(expected_count, len(results))
+
+    def test_missing_funnel_step_raises_validation_error(self) -> None:
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
+        )
+
+        with self.assertRaisesMessage(ValidationError, "funnelStep is required"):
+            get_actors(query, self.team, funnel_step=None)
 
     def _create_sample_data(self):
         for i in range(110):

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 import structlog
@@ -13,7 +14,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -59,6 +64,7 @@ class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConf
     # roughly two years, so the pin is a real choice rather than a constant.
     supported_versions = ("v22.0", "v23.0", "v26.0")
     default_version = "v26.0"
+    deprecated_versions = (VersionDeprecation(version="v22.0", sunset_at=date(2027, 5, 20)),)
 
     lists_tables_without_credentials = True
 

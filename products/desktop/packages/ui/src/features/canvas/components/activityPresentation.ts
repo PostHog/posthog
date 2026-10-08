@@ -24,7 +24,7 @@ interface ActivityEventPresentation {
 
 function ownedItemName(item: TaskActivityItem): string {
   switch (item.commentTarget?.scope) {
-    case "desktop_canvas":
+    case "canvas":
       return "canvas";
     case "task_artifact":
       return "artifact";

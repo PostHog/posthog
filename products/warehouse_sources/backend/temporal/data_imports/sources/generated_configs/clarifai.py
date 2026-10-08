@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class ClarifaiSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    user_id: str
+    app_id: str
+    api_host: str | None = None

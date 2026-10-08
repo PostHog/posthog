@@ -78,6 +78,28 @@ def test_alert_firing_email_lists_every_breach_description() -> None:
     assert "Signups dropped below 50" in html
 
 
+def test_alert_evaluation_failure_email_claims_no_cause_for_an_unavailable_detector() -> None:
+    html = render_to_string(
+        "email/alert_check_failed_to_evaluate.html",
+        {
+            "alert_error": "The AI detector could not complete this check.",
+            "alert_url": "/project/1/insights/example?alert_id=1",
+            "alert_name": "Example alert",
+            "insight_url": "/project/1/insights/example",
+            "insight_name": "Example insight",
+            "detector_unavailable": True,
+        },
+    )
+
+    assert "could not run the AI detector" in html
+    assert "model provider" not in html
+    assert "there is nothing to change" not in html
+    assert "Review the alert settings" not in html
+    assert "settings need attention" not in html
+    assert "PostHog will try again" in html
+    assert "View alert" in html
+
+
 def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timing() -> None:
     html = render_to_string(
         "email/alert_check_failed_to_evaluate.html",

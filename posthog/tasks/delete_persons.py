@@ -146,12 +146,22 @@ def delete_persons_async(
         return
 
     failures_by_step = Counter(failure.step.value for failure in result.failures)
-    failed_uuids = [str(u) for u in result.errors]
+    failed_uuids = [str(u) for u in result.retryable_errors]
     # A training failure with no person is the unmatched distinct IDs; they come back on the retry.
     unmatched_failed = any(
         f.step is PersonDeletionStep.QUEUE_TRAINING_DELETION and f.person_uuid is None for f in result.failures
     )
     summary = ", ".join(f"{step}={count}" for step, count in failures_by_step.items())
+    if not failed_uuids and not unmatched_failed:
+        # Every failed person is deleted and no longer resolves, so a retry would find nothing. The
+        # step's own metric reports the failure, and the deletion sweep repairs an unpublished tombstone.
+        logger.warning(
+            "delete_persons_async finished with failures a retry cannot fix",
+            team_id=team_id,
+            retries=retries,
+            failures_by_step=dict(failures_by_step),
+        )
+        return
     logger.warning(
         "delete_persons_async retrying failed persons",
         team_id=team_id,

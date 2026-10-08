@@ -1,5 +1,5 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { createFuse } from 'lib/utils/fuseSearch'
+import { FuseResultMatch, createFuse } from 'lib/utils/fuseSearch'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { pluralize } from 'lib/utils/strings'
 
@@ -11,30 +11,56 @@ interface FuseSearchable {
     displayName?: string
     category: string
     searchKeywords?: string[]
+    hiddenSearchText?: string
+    matchedSearchKeyword?: string | null
 }
+
+const SEARCH_KEYWORDS_KEY = 'searchKeywords'
+const NAME_KEYS = new Set(['name', 'displayName'])
 
 const FUSE_OPTIONS = {
     keys: [
         { name: 'name', weight: 2 },
         { name: 'displayName', weight: 2 },
         { name: 'category', weight: 0.5 },
-        { name: 'searchKeywords', weight: 1.5 },
+        { name: SEARCH_KEYWORDS_KEY, weight: 1.5 },
+        { name: 'hiddenSearchText', weight: 1 },
     ],
     ignoreLocation: true,
     useExtendedSearch: true,
+    includeMatches: true,
 }
+
+const keywordOnlyMatch = (matches: readonly FuseResultMatch[] = []): string | null => {
+    if (matches.some((match) => match.key && NAME_KEYS.has(match.key))) {
+        return null
+    }
+    return matches.find((match) => match.key === SEARCH_KEYWORDS_KEY)?.value ?? null
+}
+
+// Lists come from memoized selectors, so the same array reaches here on every keystroke.
+// Building the index once per array keeps typing to a search, not a rebuild.
+const fuseByItems = new WeakMap<FuseSearchable[], ReturnType<typeof createFuse<FuseSearchable>>>()
 
 /**
  * Filter items using Fuse.js fuzzy search. Searches across name, displayName,
  * category, and searchKeywords with weighted scoring.
  */
+
 export function filterSearchItems<T extends FuseSearchable>(items: T[], query: string): T[] {
     const trimmed = query.trim()
     if (!trimmed) {
         return items
     }
-    const fuse = createFuse<T>(items, FUSE_OPTIONS)
-    return fuse.search(trimmed).map((r) => r.item)
+    let fuse = fuseByItems.get(items)
+    if (!fuse) {
+        fuse = createFuse<FuseSearchable>(items, FUSE_OPTIONS)
+        fuseByItems.set(items, fuse)
+    }
+    return fuse.search(trimmed).map((result) => ({
+        ...(result.item as T),
+        matchedSearchKeyword: keywordOnlyMatch(result.matches),
+    }))
 }
 
 /** Structural so this module avoids importing searchLogic, which imports this one. */
@@ -84,7 +110,7 @@ export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
         create: 'Create new',
         'create-new': 'Create new',
-        tools: 'Tools',
+        tools: 'Products',
         'data-management': 'Data management',
         settings: 'Settings',
         early_access_feature: 'Early access features',

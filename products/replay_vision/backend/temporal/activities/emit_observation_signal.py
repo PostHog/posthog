@@ -132,22 +132,6 @@ def _emit_observation_signals(inputs: EmitObservationSignalInputs) -> list[Emitt
 
 @activity.defn
 @track_activity(side_effect="signal")
-def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int:
-    """Legacy count-returning entry point. Kept so in-flight workflow histories that scheduled it before the
-    problem-types patch still decode an int on replay; new executions use the summaries activity below."""
-    return len(_emit_observation_signals(inputs))
-
-
-@activity.defn
-@track_activity(side_effect="signal")
-def emit_observation_signals_activity(inputs: EmitObservationSignalInputs) -> list[str]:
-    """Legacy problem-type-returning entry point. Kept for the same reason as the count-returning one above:
-    histories that scheduled it before the summaries patch must still decode a list of strings on replay."""
-    return [signal.problem_type for signal in _emit_observation_signals(inputs)]
-
-
-@activity.defn
-@track_activity(side_effect="signal")
 def emit_observation_signal_summaries_activity(inputs: EmitObservationSignalInputs) -> list[EmittedSignal]:
     """Emit the observation's side-mission findings and return each emitted signal, in emission order — the
     watch feed names them on the card and weighs them by confidence when it ranks."""

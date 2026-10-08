@@ -11,7 +11,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.utils import DATERANGE_MAP
 
-from products.product_analytics.backend.hogql_queries.funnels.base import JOIN_ALGOS, FunnelBase
+from products.product_analytics.backend.hogql_queries.funnels.base import (
+    JOIN_ALGOS,
+    MISSING_FUNNEL_STEP_MESSAGE,
+    FunnelBase,
+)
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
 from products.product_analytics.backend.hogql_queries.funnels.funnel_validation_rules import validate_max_funnel_steps
 from products.product_analytics.backend.hogql_queries.funnels.utils import get_breakdown_cohort_name
@@ -237,11 +241,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
-        use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]
+        # Cohort values stay integer cohort ids, which have no supertype with the string `Other`.
+        use_breakdown_limit = bool(self.context.breakdown) and self.context.breakdownType != BreakdownType.COHORT
 
         final_prop = (
             f"if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation})"
@@ -346,7 +347,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         if funnelStep is None:
-            raise ValueError("Missing funnelStep in actors query")
+            raise ValidationError(MISSING_FUNNEL_STEP_MESSAGE)
 
         conditions: list[ast.Expr] = []
 

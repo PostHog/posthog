@@ -11,6 +11,11 @@ export function isKernelUiEnabled(featureFlags: FeatureFlagsSet): boolean {
     return !!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
 }
 
+// Jupyter mode lays out the sandbox-kernel cells, so it needs them available too.
+export function isJupyterModeAvailable(featureFlags: FeatureFlagsSet): boolean {
+    return isKernelUiEnabled(featureFlags) && !!featureFlags[FEATURE_FLAGS.NOTEBOOK_JUPYTER_MODE]
+}
+
 export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
     const initialContent = [
         {

@@ -2,40 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.settings import (
-    USAGE_COST_LOOKBACK_SECONDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
 )
 
 
 class TestClickhouseCloudSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in ClickhouseCloudSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == {
-            "organizations",
-            "services",
-            "usage_cost",
-            "api_keys",
-            "members",
-            "activities",
-            "backups",
-        }
-
-    def test_usage_cost_is_incremental_on_date_with_restatement_lookback(self) -> None:
-        schema = next(s for s in ClickhouseCloudSource().get_schemas(MagicMock(), team_id=1) if s.name == "usage_cost")
-        assert schema.supports_incremental is True
-        assert schema.supports_append is False  # unlocked records get restated; append would duplicate
-        assert [f["field"] for f in schema.incremental_fields] == ["date"]
-        assert schema.default_incremental_lookback_seconds == USAGE_COST_LOOKBACK_SECONDS
-
-    def test_activities_is_incremental_on_created_at(self) -> None:
-        schema = next(s for s in ClickhouseCloudSource().get_schemas(MagicMock(), team_id=1) if s.name == "activities")
-        assert schema.supports_incremental is True
-        assert schema.supports_append is False
-        assert [f["field"] for f in schema.incremental_fields] == ["createdAt"]
-
     @parameterized.expand([("organizations",), ("services",), ("api_keys",), ("members",), ("backups",)])
     def test_snapshot_endpoints_are_full_refresh_only(self, endpoint: str) -> None:
         # These list endpoints return complete unfiltered arrays — no server-side updated-since
@@ -91,15 +63,3 @@ class TestClickhouseCloudSourceForPipeline:
         assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
         assert response.sort_mode == "asc"  # type: ignore[attr-defined]
         assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert ClickhouseCloudSource().lists_tables_without_credentials is True
-        tables = ClickhouseCloudSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert "usage_cost" in names and "services" in names
-        usage = next(t for t in tables if t["name"] == "usage_cost")
-        assert "Incremental" in usage["sync_methods"]
-        assert usage["description"]

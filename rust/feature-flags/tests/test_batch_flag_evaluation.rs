@@ -211,19 +211,23 @@ async fn test_unsupported_config_format_rejected() -> Result<()> {
     let server = ServerHandle::for_config(batch_eval_config()).await;
 
     for version in [json!(2), json!(3), json!("1")] {
-        let key = format!("unsupported-{version}");
-        context
-            .insert_flag(
+        for active in [true, false] {
+            let key = format!("unsupported-{version}-{active}");
+            let mut row = flag_row(
                 team.id,
-                Some(flag_row(team.id, &key, json!({"version": version}))),
-            )
-            .await?;
+                &key,
+                json!({"version": version, "aggregation_group_type_index": 1}),
+            );
+            row.active = active;
+            context.insert_flag(team.id, Some(row)).await?;
 
-        let res =
-            send_batch_request(&server, Some(INTERNAL_TOKEN), &batch_body(team.id, &key, 0)).await;
-        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-        let json_response = res.json::<Value>().await?;
-        assert_eq!(json_response["error"], "unsupported_config_format");
+            let res =
+                send_batch_request(&server, Some(INTERNAL_TOKEN), &batch_body(team.id, &key, 0))
+                    .await;
+            assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+            let json_response = res.json::<Value>().await?;
+            assert_eq!(json_response["error"], "unsupported_config_format");
+        }
     }
 
     Ok(())

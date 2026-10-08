@@ -562,6 +562,7 @@ describe("convertStoredEntriesToEvents — imported user prompts", () => {
   const userChunkEntry = (
     text: string,
     meta?: Record<string, unknown>,
+    contentMeta?: Record<string, unknown>,
   ): StoredLogEntry =>
     ({
       timestamp: "2026-06-22T00:00:00.000Z",
@@ -571,7 +572,11 @@ describe("convertStoredEntriesToEvents — imported user prompts", () => {
         params: {
           update: {
             sessionUpdate: "user_message_chunk",
-            content: { type: "text", text },
+            content: {
+              type: "text",
+              text,
+              ...(contentMeta ? { _meta: contentMeta } : {}),
+            },
             ...(meta ? { _meta: meta } : {}),
           },
         },
@@ -589,6 +594,18 @@ describe("convertStoredEntriesToEvents — imported user prompts", () => {
       type: "text",
       text: "my earlier prompt",
     });
+  });
+
+  it("keeps a hidden imported chunk out of the thread", () => {
+    const events = convertStoredEntriesToEvents([
+      userChunkEntry(
+        "<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+        { importedUserPrompt: true },
+        { ui: { hidden: true } },
+      ),
+    ]);
+    const msg = events[0].message;
+    expect("method" in msg && msg.method).toBe("session/update");
   });
 
   it("leaves an unmarked user_message_chunk as a raw notification", () => {

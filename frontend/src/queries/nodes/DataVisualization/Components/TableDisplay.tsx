@@ -4,7 +4,15 @@ import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
+import {
+    Icon123,
+    IconAreaChart,
+    IconDonutChart,
+    IconHeatmap,
+    IconProportionBarChart,
+    IconTableChart,
+    IconTrendingUp,
+} from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -23,6 +31,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
     [ChartDisplayType.ActionsDonut]: 'Donut chart',
+    [ChartDisplayType.ActionsProportionBar]: 'Proportion bar',
     [ChartDisplayType.ActionsBarValue]: 'Horizontal bar chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',
@@ -133,11 +142,19 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
                     label: 'Pie chart',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsDonut,
                     icon: <IconDonutChart />,
                     label: 'Donut chart',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
+                },
+                {
+                    value: ChartDisplayType.ActionsProportionBar,
+                    icon: <IconProportionBarChart />,
+                    label: 'Proportion bar',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
                 },
                 {
                     value: ChartDisplayType.ScatterPlot,

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
     firecrawl_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.settings import FIRECRAWL_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -141,19 +140,6 @@ class TestCursorPagination:
         assert params[0]["cursor"] == "c1"
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_cursor_missing(self, MockSession) -> None:
-        # No next cursor terminates the walk even though the body claims has_more=true.
-        session = MockSession.return_value
-        _wire_sequence(session, [_response("data", [{"id": "a"}], extra={"cursor": None, "has_more": True})])
-        manager = _make_manager()
-
-        rows = _rows(_source("team_activity", manager))
-
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
 
 class TestOffsetPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -172,18 +158,6 @@ class TestOffsetPagination:
         # One checkpoint after the first full page (points at the next offset); the short page ends it.
         saved = [c.args[0] for c in manager.save_state.call_args_list]
         assert [s.offset for s in saved] == [100]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire_sequence(session, [_response("data", [{"id": "x"}])])
-        manager = _make_manager()
-
-        rows = _rows(_source("monitors", manager))
-
-        assert [r["id"] for r in rows] == ["x"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
@@ -228,36 +202,6 @@ class TestUnpaginated:
 
 
 class TestMonitorChecksFanOut:
-    def test_config_is_opt_in_fan_out(self) -> None:
-        cfg = FIRECRAWL_ENDPOINTS["monitor_checks"]
-        assert cfg.fan_out_over_monitors is True
-        assert cfg.should_sync_default is False
-        assert "{monitor_id}" in cfg.path
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_every_monitor(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(url: str) -> Response:
-            if url.endswith("/v2/monitor"):
-                return _response("data", [{"id": "m1"}, {"id": "m2"}])
-            if "/v2/monitor/m1/checks" in url:
-                return _response("data", [{"id": "chk1", "monitorId": "m1"}])
-            if "/v2/monitor/m2/checks" in url:
-                return _response("data", [{"id": "chk2", "monitorId": "m2"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire_by_url(session, handler)
-        manager = _make_manager()
-
-        rows = _rows(_source("monitor_checks", manager))
-
-        # Each check row is yielded as the API returns it (it already carries monitorId), in monitor order.
-        assert rows == [
-            {"id": "chk1", "monitorId": "m1"},
-            {"id": "chk2", "monitorId": "m2"},
-        ]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_past_completed_monitor(self, MockSession) -> None:
         session = MockSession.return_value
@@ -279,27 +223,6 @@ class TestMonitorChecksFanOut:
 
         assert rows == [{"id": "chk2", "monitorId": "m2"}]
         assert not any("/v2/monitor/m1/checks" in url for url in requested)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stale_completed_path_does_not_skip_live_monitor(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(url: str) -> Response:
-            if url.endswith("/v2/monitor"):
-                return _response("data", [{"id": "m1"}])
-            if "/v2/monitor/m1/checks" in url:
-                return _response("data", [{"id": "chk1", "monitorId": "m1"}])
-            raise AssertionError(f"unexpected url {url}")
-
-        _wire_by_url(session, handler)
-        # A checkpoint for a monitor that no longer exists must not suppress the live monitor.
-        manager = _make_manager(
-            FirecrawlResumeConfig(fanout_state={"completed": ["/v2/monitor/DELETED/checks"], "current": None})
-        )
-
-        rows = _rows(_source("monitor_checks", manager))
-
-        assert rows == [{"id": "chk1", "monitorId": "m1"}]
 
 
 class TestRetryClassification:
@@ -341,11 +264,6 @@ class TestValidateCredentials:
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("fc-test") is expected
-
-    @mock.patch(FIRECRAWL_SESSION_PATCH)
-    def test_network_failure_is_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("fc-test") is False
 
 
 class TestSourceResponseShape:

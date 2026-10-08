@@ -98,7 +98,7 @@ def write_check_expired(check: SignalReportCheck, expired_at: datetime) -> None:
 def write_check_cancelled(
     check: SignalReportCheck,
     *,
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"],
     attribution: ArtefactAttribution,
 ) -> None:
     """Record that a check was stopped before it could decide.

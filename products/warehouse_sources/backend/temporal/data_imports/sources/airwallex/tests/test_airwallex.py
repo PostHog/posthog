@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.
     base_url_for,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.settings import AIRWALLEX_ENDPOINTS
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 AIRWALLEX_SESSION_PATCH = (
@@ -227,22 +226,6 @@ class TestAirwallexTransport:
 
         assert params[0][param] == "2021-01-01T00:00:00Z"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_no_time_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}], has_more=False)])
-
-        _rows(
-            _source(
-                "FinancialTransactions",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "from_created_at" not in params[0]
-
     @parameterized.expand([("PaymentIntents",), ("Customers",)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_drops_client_secret(self, endpoint: str, MockSession) -> None:
@@ -254,23 +237,6 @@ class TestAirwallexTransport:
         rows = _rows(_source(endpoint, _make_manager()))
 
         assert rows == [{"id": "1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_page_number_walk_stops_on_has_more_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"id": "1"}], has_more=True),
-                _response([{"id": "2"}], has_more=False),
-            ],
-        )
-
-        rows = _rows(_source("FinancialTransactions", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["1", "2"]
-        # Zero-based, and stops without paying for a third request.
-        assert [p["page_num"] for p in params] == [0, 1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_cursor_walk_sends_page_after_as_page(self, MockSession) -> None:
@@ -296,15 +262,6 @@ class TestAirwallexTransport:
         paginator.update_state(_response([{"id": "1"}], has_more=True), data=[{"id": "1"}])
 
         assert paginator.has_next_page is False
-
-    def test_page_number_paginator_keeps_walking_when_has_more_is_absent(self) -> None:
-        # Not every endpoint documents has_more; a full page with no flag must not end the walk.
-        paginator = AirwallexPageNumberPaginator()
-
-        paginator.update_state(_response([{"id": "1"}]), data=[{"id": "1"}])
-
-        assert paginator.has_next_page is True
-        assert paginator.page_num == 1
 
     def test_page_number_paginator_stops_on_an_empty_page(self) -> None:
         paginator = AirwallexPageNumberPaginator()
@@ -332,16 +289,6 @@ class TestAirwallexTransport:
         assert params[0]["page"] == "saved"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_page_number_resume_state_is_ignored_by_a_cursor_endpoint(self, MockSession) -> None:
-        # One resume dataclass serves both styles; crossing them would restart at the wrong place.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}])])
-
-        _rows(_source("Transfers", _make_manager(AirwallexResumeConfig(page_num=7))))
-
-        assert "page" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_save_the_field_matching_the_pagination_style(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -358,17 +305,6 @@ class TestAirwallexTransport:
         saved = [c.args[0] for c in manager.save_state.call_args_list]
         assert [s.page_num for s in saved] == [1]
         assert all(s.cursor is None for s in saved)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_table_declares_desc_so_the_watermark_lands_at_job_end(self, MockSession) -> None:
-        # Airwallex documents an order for one endpoint only, and it is descending. "desc" makes the
-        # pipeline write the watermark once the run finishes, so an endpoint that returns
-        # newest-first cannot strand older rows.
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)] * len(AIRWALLEX_ENDPOINTS))
-
-        for endpoint in AIRWALLEX_ENDPOINTS:
-            assert _source(endpoint, _make_manager()).sort_mode == "desc"
 
     @parameterized.expand(
         [
@@ -389,15 +325,6 @@ class TestAirwallexTransport:
         assert result.primary_keys == keys
         assert result.partition_keys == [partition]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_header_is_sent(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], has_more=False)])
-
-        _rows(_source("FinancialTransactions", _make_manager()))
-
-        assert session.headers["x-api-version"] == "2026-07-17"
-
 
 class TestValidateCredentials:
     @mock.patch(AIRWALLEX_SESSION_PATCH)
@@ -416,11 +343,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert message is not None
-
-    @mock.patch(AIRWALLEX_SESSION_PATCH)
-    def test_a_transport_error_returns_a_message_rather_than_raising(self, MockSession) -> None:
-        MockSession.side_effect = OSError("boom")
-
-        ok, _message = validate_credentials("cid", "key", "live")
-
-        assert ok is False

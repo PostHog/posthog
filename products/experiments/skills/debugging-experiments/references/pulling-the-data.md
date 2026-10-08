@@ -2,7 +2,7 @@
 
 Run this sequence read-only before diagnosing or asking the customer anything.
 It produces the numbers you will cite back to them. The queries reuse the templates verified in
-[`../../diagnosing-experiment-results/references/diagnostic-snapshot.md`](../../diagnosing-experiment-results/references/diagnostic-snapshot.md) —
+[`../../diagnosing-experiment-health/references/diagnostic-snapshot.md`](../../diagnosing-experiment-health/references/diagnostic-snapshot.md) —
 read that file for the full rationale and edge cases; this is the customer-support-focused
 subset plus the numbers each cause needs.
 

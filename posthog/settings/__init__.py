@@ -56,6 +56,7 @@ from posthog.settings.payments import *
 from posthog.settings.personhog import *
 from posthog.settings.security_hub import *
 from posthog.settings.ses import *
+from posthog.settings.streamlit_apps import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
 
@@ -92,11 +93,6 @@ SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_EN
 # Same for GitHub App deliveries. Off by default for the same reason: a busy repository is a
 # firehose, and this is the only thing admitting it.
 GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
-
-# Vapi voice-AI integration (used by user_interviews to host public interview pages).
-VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
-VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")

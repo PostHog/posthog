@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -10,8 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.co
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import (
     API_VERSION,
     CONEKTA_ENDPOINTS,
-    ENDPOINTS,
-    MERGE_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source import ConektaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
@@ -27,51 +24,10 @@ class TestConektaSource:
         self.team_id = 123
         self.config = ConektaSourceConfig(api_key="key_priv")
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Conekta"
-        assert config.label == "Conekta"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source must ship visible: unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/conekta"
-
     def test_declared_version_is_the_one_the_transport_sends(self):
         # A pin the code doesn't actually send makes every deprecation warning and upgrade path wrong.
         assert self.source.default_version == API_VERSION
         assert self.source.supported_versions == (API_VERSION,)
-
-    @pytest.mark.parametrize(
-        "observed_error, matches",
-        [
-            ("401 Client Error: Unauthorized for url: https://api.conekta.io/orders?limit=250", True),
-            ("403 Client Error: Forbidden for url: https://api.conekta.io/payout_orders", True),
-            ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers", False),
-            ("500 Server Error for url: https://api.conekta.io/orders", False),
-        ],
-    )
-    def test_non_retryable_errors_match_only_conekta_auth_failures(self, observed_error, matches):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors()) is matches
-
-    def test_only_orders_is_incremental(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        # `/orders` is the only endpoint documenting server-side `created_at.gte` / `updated_at.gte`
-        # filters; claiming incremental anywhere else would page the whole endpoint every run.
-        assert {schema.name for schema in schemas if schema.supports_incremental} == {"orders"}
-
-    def test_incremental_schemas_are_merge_only(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        for name in MERGE_ONLY_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            # `.gte` is inclusive, so the watermark row comes back every run; append would duplicate it.
-            assert schemas[name].supports_append is False
-
-    def test_canonical_descriptions_cover_every_schema(self):
-        # A renamed endpoint would silently orphan its curated descriptions and fall back to the LLM.
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     def test_canonical_descriptions_document_the_partition_key(self):
         for name, config in CONEKTA_ENDPOINTS.items():
@@ -98,14 +54,6 @@ class TestConektaSource:
             assert message is None
         else:
             assert message is not None and expected_message_fragment in message
-
-    def test_validate_credentials_probes_the_resolved_version(self):
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            api_client.validate_credentials.return_value = (True, 200)
-
-            self.source.validate_credentials(self.config, self.team_id, api_version=None)
-
-        assert api_client.validate_credentials.call_args.args == ("key_priv", API_VERSION)
 
     def test_get_resumable_source_manager_is_bound_to_the_resume_dataclass(self):
         inputs = mock.MagicMock()

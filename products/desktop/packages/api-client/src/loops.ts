@@ -22,6 +22,8 @@ export namespace LoopSchemas {
     | "run_completed"
     | "run_failed"
     | "pr_created"
+    | "pr_merged"
+    | "pr_closed"
     | "needs_attention";
   export type LoopGithubTriggerEventEnum =
     | "issues"

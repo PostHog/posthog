@@ -16,7 +16,7 @@ import {
   ANALYTICS_EVENTS,
   type OnboardingStepCompletedProperties,
 } from "@posthog/shared/analytics-events";
-import { builderHog } from "@posthog/ui/assets/hedgehogs";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import {
   CliCheckPanel,
   InstalledBadge,
@@ -464,7 +464,7 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
             </Flex>
 
             <OnboardingHogTip
-              hogSrc={builderHog}
+              hogSrc={hoggiePng("construction-1")!}
               message="No CLI? You can still continue and install these any time."
               delay={0.15}
             />

@@ -33,6 +33,15 @@ class TestVercelAPIClient:
             mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
             return mock_response
 
+    @staticmethod
+    def real_response(status_code: int, text: str) -> requests.Response:
+        response = requests.Response()
+        response.status_code = status_code
+        response.reason = text
+        response._content = text.encode()
+        response.url = "https://api.vercel.com/v1/test"
+        return response
+
     @pytest.fixture
     def client(self):
         return VercelAPIClient("test_token")
@@ -148,6 +157,39 @@ class TestVercelAPIClient:
         assert not result.success
         assert result.error == "HTTP error"
         assert result.status_code == 400
+
+    @pytest.mark.parametrize(
+        "body,expected_detail",
+        [
+            ("Forbidden", "Forbidden"),
+            ("a" * 500 + "b" * 100, "a" * 500),
+        ],
+        ids=["short_body", "long_body"],
+    )
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_http_error_keeps_status_code_and_first_500_chars_of_body(
+        self,
+        mock_request: MagicMock,
+        client: VercelAPIClient,
+        test_ids: dict[str, str],
+        body: str,
+        expected_detail: str,
+    ) -> None:
+        mock_request.return_value = self.real_response(403, body)
+
+        result = client.update_resource_secrets(
+            test_ids["integration_config_id"], test_ids["resource_id"], [{"name": "A", "value": "b"}]
+        )
+
+        assert not result.success
+        assert result.status_code == 403
+        assert result.error_detail == expected_detail
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_check_installation_active_false_on_real_404(self, mock_request, client):
+        mock_request.return_value = self.real_response(404, "Not Found")
+
+        assert client.check_installation_active("icfg_x") is False
 
     @pytest.mark.parametrize(
         "method_name,args_func,error_setup,expected_error,expected_status",

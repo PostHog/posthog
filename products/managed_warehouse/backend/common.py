@@ -204,6 +204,16 @@ def get_duckgres_config_for_org(organization_id: str) -> dict[str, str]:
     raise ValueError(f"No DuckgresServer configured for organization {organization_id}")
 
 
+def get_trino_password_for_org(organization_id: str) -> str:
+    if is_dev_mode():
+        return _duckgres_dev_config()["DUCKGRES_PASSWORD"]
+
+    server = get_duckgres_server_for_organization(organization_id)
+    if server is None:
+        raise ValueError(f"No DuckgresServer configured for organization {organization_id}")
+    return server.trino_password or server.password
+
+
 def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer | None:
     """Look up DuckgresServer for an organization."""
     if is_dev_mode():

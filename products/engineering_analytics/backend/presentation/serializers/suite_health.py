@@ -15,7 +15,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
-from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
+from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer, ci_engine_field
 
 
 class FlakyTestItemSerializer(DataclassSerializer):
@@ -162,6 +162,8 @@ class FlakyTestListSerializer(DataclassSerializer):
 
 
 class BrokenTestRowSerializer(DataclassSerializer):
+    latest_ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {

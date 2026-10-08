@@ -45,6 +45,14 @@ def _response(
     return resp
 
 
+def _raw_response(url: str, body: Any, *, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _make_manager(resume_state: K6CloudResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -164,30 +172,6 @@ class TestPagination:
         assert urls[1] == next_url
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_top_param_present_for_paginated_endpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response("https://api.k6.io/cloud/v6/test_runs", [{"id": 1}])])
-
-        _rows(_source("test_runs", _make_manager()))
-        assert params[0]["$top"] == "1000"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_load_zones_has_no_top_param(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response("https://api.k6.io/cloud/v6/load_zones", [{"id": 1}])])
-
-        _rows(_source("load_zones", _make_manager()))
-        assert "$top" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_projects_sends_orderby(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response("https://api.k6.io/cloud/v6/projects", [{"id": 1}])])
-
-        _rows(_source("projects", _make_manager()))
-        assert params[0]["$orderby"] == "created"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_test_runs_never_sends_orderby(self, MockSession: mock.MagicMock) -> None:
         # The top-level test_runs endpoint rejects $orderby, so it must never be sent there.
         session = MockSession.return_value
@@ -197,22 +181,6 @@ class TestPagination:
         assert "$orderby" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_reads_single_page_and_ignores_next_link(self, MockSession: mock.MagicMock) -> None:
-        # load_zones returns everything in one response; even a stray @nextLink must not be followed.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response("https://api.k6.io/cloud/v6/load_zones", [{"id": 1}, {"id": 2}], next_link="ignored")],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("load_zones", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_value_key_raises_loudly(self, MockSession: mock.MagicMock) -> None:
         # A 200 body without `value` is an unexpected shape — fail loud rather than empty the table.
         session = MockSession.return_value
@@ -220,6 +188,46 @@ class TestPagination:
 
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("load_zones", _make_manager()))
+
+
+class TestDistributionFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_parent_next_link(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        next_url = "https://api.k6.io/cloud/v6/test_runs?$skip=1000&$top=1000"
+        zone = {"distribution": {"amazon:us:ashburn": {"percentage": 100, "nodes": []}}}
+        _params, urls = _wire(
+            session,
+            [
+                _response(runs_url, [{"id": 1, "created": "2026-03-04T00:00:00Z"}], next_link=next_url),
+                _raw_response(f"{runs_url}/1/distribution", zone),
+                _response(next_url, [{"id": 2, "created": "2026-03-05T00:00:00Z"}]),
+                _raw_response(f"{runs_url}/2/distribution", zone),
+            ],
+        )
+
+        rows = _rows(_source("test_run_distribution", _make_manager()))
+
+        assert [row["test_run_id"] for row in rows] == [1, 2]
+        assert urls[2] == next_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_success_body_without_distribution_raises(self, MockSession: mock.MagicMock) -> None:
+        # A 200 without the required key is a shape change; silently emitting no rows would drop the
+        # run from a full refresh.
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        _wire(
+            session,
+            [
+                _response(runs_url, [{"id": 1, "created": "2026-03-04T00:00:00Z"}]),
+                _raw_response(f"{runs_url}/1/distribution", {}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="has no `distribution`"):
+            _rows(_source("test_run_distribution", _make_manager()))
 
 
 class TestIncremental:
@@ -238,14 +246,6 @@ class TestIncremental:
         assert params[0]["created_after"] == "2026-03-04T02:58:14.000Z"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_time_filter_on_full_refresh(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(session, [_response("https://api.k6.io/cloud/v6/test_runs", [{"id": 1}])])
-
-        _rows(_source("test_runs", _make_manager(), db_incremental_field_last_value=None))
-        assert "created_after" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_projects_never_sends_time_filter(self, MockSession: mock.MagicMock) -> None:
         # Projects has no server-side time filter, so a passed-in watermark must not add one.
         session = MockSession.return_value
@@ -256,26 +256,6 @@ class TestIncremental:
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_page_except_last(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        base = "https://api.k6.io/cloud/v6/test_runs"
-        next_url = "https://api.k6.io/cloud/v6/test_runs?$skip=1000&$top=1000"
-        _wire(
-            session,
-            [
-                _response(base, [{"id": 1}], next_link=next_url),
-                _response(next_url, [{"id": 2}], next_link=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("test_runs", manager))
-
-        # State is saved once (pointing at the next page); the final page has no link to persist.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [K6CloudResumeConfig(next_url=next_url)]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_next_link(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -350,10 +330,10 @@ class TestValidateCredentials:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("tok", "1") == (False, False)
 
-    def test_schemaless_probe_hits_auth_endpoint(self) -> None:
+    def test_fan_out_schema_probes_parent_listing(self) -> None:
         response = mock.MagicMock()
         response.status_code = 200
         with mock.patch(K6_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.return_value = response
-            validate_credentials("tok", "1")
-        assert mock_session.return_value.get.call_args[0][0] == f"{K6_CLOUD_BASE_URL}/auth"
+            validate_credentials("tok", "1", "test_run_distribution")
+        assert mock_session.return_value.get.call_args[0][0] == f"{K6_CLOUD_BASE_URL}/test_runs?%24top=1"

@@ -231,6 +231,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
@@ -373,6 +374,7 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    bytecode_contract?: string
 }
 
 export interface HogFunctionMaskingApi {

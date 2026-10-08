@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import linkrunner
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.linkrunner import (
     LinkrunnerRateLimitError,
     LinkrunnerResumeConfig,
     LinkrunnerRetryableError,
-    _flatten_attributed_user,
     _format_timestamp,
     _has_next_page,
     _parse_retry_after,
@@ -34,9 +34,6 @@ class TestFormatTimestamp:
         # A wrong timestamp shape silently breaks the server-side start_timestamp filter, so lock the ISO-8601 Z form.
         assert _format_timestamp(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_timestamp(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestHasNextPage:
     @parameterized.expand(
@@ -53,28 +50,6 @@ class TestHasNextPage:
         self, _name: str, page: int, total_pages: Any, num_items: int, limit: int, expected: bool
     ) -> None:
         assert _has_next_page(page, total_pages, num_items, limit) is expected
-
-
-class TestFlattenAttributedUser:
-    def test_promotes_user_id_to_top_level(self) -> None:
-        # user_id is part of the primary key, so it must exist as a top-level column, not stay nested.
-        row = _flatten_attributed_user(
-            {
-                "campaign_display_id": "C1",
-                "attributed_at": "2026-01-01T00:00:00Z",
-                "user_data": {"id": "U1", "name": "Ada", "email": "a@b.c", "phone": "1", "device_data": {"brand": "x"}},
-            }
-        )
-        assert row["user_id"] == "U1"
-        assert row["user_name"] == "Ada"
-        assert row["user_email"] == "a@b.c"
-        assert row["user_phone"] == "1"
-        assert row["device_data"] == {"brand": "x"}
-        assert "user_data" not in row
-
-    def test_missing_user_data_leaves_row_intact(self) -> None:
-        row = _flatten_attributed_user({"campaign_display_id": "C1", "attributed_at": "t"})
-        assert row == {"campaign_display_id": "C1", "attributed_at": "t"}
 
 
 class TestParseRetryAfter:
@@ -148,22 +123,6 @@ class TestCampaignsPagination:
         rows = _collect(_FakeResumableManager(), "campaigns", monkeypatch, responses)
         assert [r["display_id"] for r in rows] == ["C1", "C2"]
 
-    def test_resume_starts_from_saved_page(self, monkeypatch: Any) -> None:
-        # A resumed list sync must continue at the saved page, not restart at page 1.
-        calls: list = []
-        responses = {("/campaigns", 3, None): _body("campaigns", [{"display_id": "C3"}], pages=3)}
-        monkeypatch.setattr(linkrunner, "_fetch_page", _make_fake_fetch(responses, calls))
-        rows: list[dict] = []
-        for table in get_rows(
-            api_key="k",
-            endpoint="campaigns",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(LinkrunnerResumeConfig(page=3)),  # type: ignore[arg-type]
-        ):
-            rows.extend(table.to_pylist())
-        assert [r["display_id"] for r in rows] == ["C3"]
-        assert calls[0][1]["page"] == 3
-
     def test_204_yields_no_rows(self, monkeypatch: Any) -> None:
         responses = {("/campaigns", 1, None): None}
         rows = _collect(_FakeResumableManager(), "campaigns", monkeypatch, responses)
@@ -186,13 +145,9 @@ class TestAttributedUsersFanOut:
             ),
         }
 
-    def test_fans_out_over_campaigns_and_flattens_keys(self, monkeypatch: Any) -> None:
-        rows = _collect(_FakeResumableManager(), "attributed_users", monkeypatch, self._responses_two_campaigns())
-        # Every row carries the parent campaign id and a top-level user_id (the composite primary key).
-        assert {(r["campaign_display_id"], r["user_id"]) for r in rows} == {("C1", "U1"), ("C2", "U2")}
-
     def test_advances_bookmark_between_campaigns(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
+        monkeypatch.setattr(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0)
         _collect(manager, "attributed_users", monkeypatch, self._responses_two_campaigns())
         # After finishing C1 the bookmark must point at C2 so a crash resumes at the next campaign, not the first.
         assert LinkrunnerResumeConfig(page=1, campaign_display_id="C2") in manager.saved

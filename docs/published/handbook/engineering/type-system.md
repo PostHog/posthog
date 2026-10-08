@@ -108,13 +108,36 @@ def my_action(self, request, **kwargs):
 
 This validates inputs AND documents the endpoint for OpenAPI. Use `request.validated_query_data`, not manual `request.query_params` parsing.
 
+### Side generators
+
+A side generator is a script that reads a Python module and writes TypeScript next to the OpenAPI flow, usually as a `*.generated.ts` file outside a `generated/` directory.
+Each one needs its own hogli step, CI path filters, formatter exclusions and drift check.
+New ones tend to copy the nearest existing one, so the count grows.
+
+When the frontend or the MCP server needs the values that an API accepts or returns, use the OpenAPI flow instead:
+
+1. Type the serializer field that carries the values, for example as a `ChoiceField`.
+2. Run `hogli build:openapi`. Orval emits the values as a `*EnumApi` const next to the other generated types.
+3. Read the list at runtime with `Object.values(SomethingEnumApi)` and use `SomethingEnumApi` as the type.
+
+The field must be on an endpoint that is in the schema. A viewset action marked `@extend_schema(exclude=True)` does not reach the generated types.
+
+Data rows that no endpoint serves, such as the task model catalog, go through the projection registry instead of a script of their own:
+
+1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path. The text only has to be valid: the runner formats each output with oxfmt, or with Biome under `products/desktop` and `packages/agent`, so do not add a formatter exclusion for it.
+2. Add an entry to `PROJECTIONS` in `tools/hogli-commands/hogli_commands/projections.py` with the renderer, its inputs and its outputs.
+3. Run `hogli build:projections` and commit the outputs. CI runs `hogli build:projections --check` and fails when one is out of date.
+
+The `test_generated_files_are_registered.py` repo invariant fails a PR that adds a `*.generated.*` file, or a new `generated/` directory, that no registered projection and no known pipeline produces.
+Ask #team-devex before you add a projection.
+
 ### Troubleshooting
 
 **Types not generating?** Ensure your ViewSet is in `products/your_product/backend/` and the `products/your_product/frontend/` directory exists. Auto-tagging happens based on module path.
 
 **Wrong type shapes?** The serializer is the source of truth. Use `@extend_schema_field` for custom `SerializerMethodField` types.
 
-**CI failing?** Run `hogli build:openapi` locally and commit the regenerated files.
+**CI failing?** Run `hogli build:openapi` locally and commit the regenerated files. For a drifted projection output, run `hogli build:projections`.
 
 ### Design decisions
 

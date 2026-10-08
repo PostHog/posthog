@@ -64,6 +64,7 @@ CHOICES: tuple[ModelChoice, ...] = (
     ModelChoice("codex", "gpt-5.6-sol", "GPT-5.6 Sol", _MAX),
     ModelChoice("codex", "gpt-5.6-terra", "GPT-5.6 Terra", _MAX),
     ModelChoice("codex", "gpt-5.6-luna", "GPT-5.6 Luna", _MAX),
+    ModelChoice("codex", "gpt-6.1-sol", "GPT-6.1 Sol", _MAX),
     ModelChoice("codex", "gpt-5.5", "GPT-5.5", _XHIGH),
     ModelChoice("codex", "gpt-5.4", "GPT-5.4", _STANDARD),
     ModelChoice("codex", "gpt-5.3-codex", "GPT-5.3 Codex", _STANDARD),
@@ -125,6 +126,11 @@ INSTRUCTION_CASES = [
         prompt="@PostHog use openai luna and work out why the nightly export job stalls at 90%",
         expected=_asks(model="gpt-5.6-luna"),
     ),
+    BaseEvalCase(
+        name="decimal_model_version",
+        prompt="@PostHog use GPT-6.1 Sol at max effort to fix the retry loop in the export worker",
+        expected=_asks(model="gpt-6.1-sol", reasoning_effort="max"),
+    ),
     # Two Opus versions are listed and the author named neither; the newest is what they
     # mean by "opus".
     BaseEvalCase(
@@ -171,6 +177,13 @@ SUBJECT_MATTER_CASES = [
     BaseEvalCase(
         name="names_model_in_code_change",
         prompt="@PostHog add gpt-5.6-luna to the model picker in settings, it's missing from the dropdown",
+        expected=_asks(),
+    ),
+    # "Switch X to model Y" reads like an instruction, but X is the code under change, not
+    # this task.
+    BaseEvalCase(
+        name="switches_component_to_model",
+        prompt="@PostHog switch the triage and digest agents to opus 5, they still run on haiku",
         expected=_asks(),
     ),
     BaseEvalCase(

@@ -93,7 +93,8 @@ function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Elem
 const meta: Meta<typeof ChecksSection> = {
     title: 'Scenes-App/Inbox/Detail/Follow-up checks',
     component: ChecksSection,
-    parameters: { layout: 'centered', viewMode: 'story' },
+    // The rows say how long ago a check started, so pin the clock to keep that text fixed.
+    parameters: { layout: 'centered', viewMode: 'story', mockDate: '2026-09-21T19:00:00Z' },
     decorators: [
         (Story, context) => (
             // The rail is 26rem wide, and about 20rem of it survives next to an open side panel.

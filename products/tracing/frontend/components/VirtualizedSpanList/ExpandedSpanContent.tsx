@@ -1,5 +1,6 @@
 import { PropertyFilterType } from '~/types'
 
+import { isAiEventSpan } from '../../aiEventSpans'
 import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
@@ -39,6 +40,9 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
                 title="Attributes"
                 attributes={attributes}
                 emptyLabel="No attributes set on this span"
+                // An AI row's attributes come from LLM analytics events, not trace_spans, so a span
+                // attribute filter built from them matches no span and empties the span list.
+                showFilterActions={!isAiEventSpan(span)}
                 propertyType={PropertyFilterType.SpanAttribute}
             />
             {/* Sibling section after the span attributes — same split the logs detail view uses.

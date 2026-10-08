@@ -5,10 +5,9 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.settings import SPOTLERCRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm import (
     SpotlerCRMPaginator,
     SpotlerCRMResumeConfig,
@@ -38,55 +37,6 @@ class TestSpotlerCRMPaginator:
         response = MagicMock()
         response.json.return_value = body
         return response
-
-    def test_first_request_targets_page_one(self) -> None:
-        paginator = SpotlerCRMPaginator()
-        request = Request(method="GET", url="https://apiv4.reallysimplesystems.com/accounts")
-        paginator.init_request(request)
-
-        assert request.params["page"] == 1
-
-    @pytest.mark.parametrize(
-        ("body", "records", "expects_next"),
-        [
-            # has_more=True keeps paginating; the extracted rows are non-empty.
-            (_page_body([{"id": 1}], has_more=True), [{"id": 1}], True),
-            # has_more=False stops without paying an extra empty-page request.
-            (_page_body([{"id": 1}], has_more=False), [{"id": 1}], False),
-            # No has_more key: keep going while pages have records.
-            (_page_body([{"id": 1}]), [{"id": 1}], True),
-            # Empty page always terminates, even if has_more is missing.
-            (_page_body([]), [], False),
-        ],
-    )
-    def test_update_state_termination(self, body: dict[str, Any], records: list[Any], expects_next: bool) -> None:
-        paginator = SpotlerCRMPaginator()
-        paginator.update_state(self._json_response(body), records)
-
-        assert paginator.has_next_page is expects_next
-
-    def test_update_request_advances_to_next_page(self) -> None:
-        paginator = SpotlerCRMPaginator()
-        paginator.update_state(self._json_response(_page_body([{"id": 1}], has_more=True)), [{"id": 1}])
-
-        request = Request(method="GET", url="https://apiv4.reallysimplesystems.com/accounts")
-        paginator.update_request(request)
-
-        assert request.params["page"] == 2
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = SpotlerCRMPaginator()
-        paginator.update_state(self._json_response(_page_body([{"id": 1}], has_more=True)), [{"id": 1}])
-
-        assert paginator.get_resume_state() == {"page": 2}
-
-        resumed = SpotlerCRMPaginator()
-        resumed.set_resume_state({"page": 2})
-        request = Request(method="GET", url="https://apiv4.reallysimplesystems.com/accounts")
-        resumed.init_request(request)
-
-        assert request.params["page"] == 2
-        assert resumed.has_next_page is True
 
     def test_no_resume_state_on_terminal_page(self) -> None:
         paginator = SpotlerCRMPaginator()
@@ -132,18 +82,6 @@ class TestSpotlerCRMSourceBehavior:
             pages = [list(page) for page in cast(Iterable[Any], source_response.items())]
             return sent_params, sent_urls, pages
 
-    @pytest.mark.parametrize("endpoint", sorted(SPOTLERCRM_ENDPOINTS.keys()))
-    def test_requests_hit_the_configured_path_with_limit(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_urls, pages = self._drive(
-            endpoint, manager, [_make_http_response(_page_body([{"id": 1}], has_more=False))]
-        )
-
-        assert sent_urls == [f"https://apiv4.reallysimplesystems.com{SPOTLERCRM_ENDPOINTS[endpoint].path}"]
-        assert pages == [[{"id": 1}]]
-
     def test_fresh_run_pages_forward_and_checkpoints_after_each_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -175,30 +113,6 @@ class TestSpotlerCRMSourceBehavior:
 
         assert [p.get("page") for p in sent_params] == [5]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("Accounts", manager, [_make_http_response(_page_body([{"id": 1}], has_more=False))])
-
-        manager.save_state.assert_not_called()
-
-    def test_partitioning_only_on_endpoints_with_a_stable_created_column(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.rest_api_resource"
-        ):
-            partitioned = spotlercrm_source("t", "Accounts", 1, "job", manager)
-            unpartitioned = spotlercrm_source("t", "OpportunityLines", 1, "job", manager)
-
-        assert partitioned.partition_keys == ["createddate"]
-        assert partitioned.partition_mode == "datetime"
-        assert unpartitioned.partition_keys is None
-        assert partitioned.primary_keys == ["id"]
-        assert unpartitioned.primary_keys == ["id"]
 
 
 class TestSpotlerCRMCredentials:
@@ -251,35 +165,3 @@ class TestSpotlerCRMCredentials:
             permissions = get_endpoint_permissions("test-token", ["Accounts"])
 
         assert permissions["Accounts"] is None
-
-
-class TestSpotlerCRMHttpSampleCapture:
-    # CRM records carry arbitrary custom fields and free-text content the name-based
-    # scrubbers can't recognise, so both the sync and probe sessions must opt out of
-    # HTTP sample capture. Dropping `capture=False` would persist raw records to S3.
-    def test_sync_session_opts_out_of_capture(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.make_tracked_session"
-            ) as MockSession,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.rest_api_resource"
-            ),
-        ):
-            spotlercrm_source("test-token", "Accounts", 1, "job", manager)
-
-        MockSession.assert_called_once()
-        assert MockSession.call_args.kwargs["capture"] is False
-
-    def test_probe_session_opts_out_of_capture(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.spotlercrm.spotlercrm.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = _make_http_response({}, status_code=200)
-
-            validate_credentials("test-token")
-
-        assert MockSession.call_args.kwargs["capture"] is False

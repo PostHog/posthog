@@ -416,7 +416,7 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
-describe('createQueryWrapper trace compaction', () => {
+describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
     function contextWithResults(results: unknown, warnings?: string[]): Context {
@@ -484,12 +484,12 @@ describe('createQueryWrapper trace compaction', () => {
         }
     )
 
-    it.each(['TraceQuery', 'TracesQuery'])('%s preserves full content unless summary is requested', async (kind) => {
+    it.each(['TraceQuery', 'TracesQuery'])('%s preserves the AI payload unless summary is requested', async (kind) => {
         const tool = createQueryWrapper({ name: 'test', schema, kind })()
         const trace = {
             id: 'trace-1',
             inputState: 'input'.repeat(1_000),
-            events: [{ properties: { custom_payload: 'x'.repeat(5_000) } }],
+            events: [{ properties: { $ai_input: 'x'.repeat(5_000), $ai_model: 'gpt-4' } }],
         }
 
         const byDefault = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
@@ -505,8 +505,53 @@ describe('createQueryWrapper trace compaction', () => {
         expect(byDefault.results).toEqual([trace])
         expect(full.results).toEqual(byDefault.results)
         expect(summary.results[0]._detail.mode).toBe('summary')
-        expect(summary.results[0].inputState.length).toBeLessThan(1_000)
-        expect(summary.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
+        expect(summary.results[0].inputState).toBeUndefined()
+        expect(summary.results[0].events[0].properties.$ai_model).toBe('gpt-4')
+        expect(summary.results[0].events[0].properties.$ai_input).toBeUndefined()
+    })
+
+    it.each([
+        ['TraceQuery', 'full'],
+        ['TraceQuery', 'summary'],
+        ['TracesQuery', 'full'],
+        ['TracesQuery', 'summary'],
+    ] as const)('%s at %s detail returns no property outside the allowlist', async (kind, detail) => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const trace = {
+            id: 'trace-1',
+            person: { uuid: 'p1', distinct_id: 'd1', properties: { email: 'invented@example.com' } },
+            events: [{ properties: { $ai_model: 'gpt-4', authorization_header: secret } }],
+        }
+        const context = contextWithResults([trace])
+        const tool = createQueryWrapper({ name: 'test', schema, kind, outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, tool.schema.parse({ kind, detail }))) as any
+
+        const serialized = JSON.stringify(result)
+        expect(serialized).not.toContain(secret)
+        expect(serialized).not.toContain('invented@example.com')
+        expect(result.results[0].events[0]._redactedKeys).toEqual(['authorization_header'])
+    })
+
+    it('never surfaces the formatted string, which the backend renders before redaction', async () => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({
+                        results: [{ id: 'trace-1', events: [] }],
+                        formatted_results: `api_key: ${secret}`,
+                    }),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery', outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, fullDetailParams)) as any
+
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
     })
 
     it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {

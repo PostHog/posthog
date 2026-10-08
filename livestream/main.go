@@ -345,6 +345,20 @@ func setupRedisPubSub(
 
 	tokenRouter := events.NewTokenRouter(subscriberClient, subChan, unSubChan)
 
+	var registry *events.SubscriberRegistry
+	if redisConfig.SubscriberAware {
+		registry, err = events.NewSubscriberRegistry(redisConfig)
+		if err != nil {
+			subscriberClient.Close()
+			broker.Close()
+			return nil, fmt.Errorf("create subscriber registry: %w", err)
+		}
+		broker.SetPublishGate(registry)
+		tokenRouter.SetRegistry(registry)
+		go registry.RunSnapshotRefresher(ctx)
+		log.Printf("Subscriber-aware publishing enabled: events for tokens with no registered subscriber are skipped")
+	}
+
 	consumer.Broker = broker
 	go broker.Run(ctx)
 	go tokenRouter.Run(ctx)
@@ -352,6 +366,9 @@ func setupRedisPubSub(
 	cleanup = func() {
 		subscriberClient.Close()
 		broker.Close()
+		if registry != nil {
+			registry.Close()
+		}
 	}
 	return cleanup, nil
 }

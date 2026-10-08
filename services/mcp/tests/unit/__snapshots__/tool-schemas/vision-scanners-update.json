@@ -75,6 +75,18 @@
             ],
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
+        "goal": {
+            "anyOf": [
+                {
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
+        },
         "id": {
             "description": "A UUID string identifying this replay scanner.",
             "type": "string"
@@ -112,8 +124,8 @@
             "description": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         },
         "scanner_type": {
-            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
-            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
         "tags": {

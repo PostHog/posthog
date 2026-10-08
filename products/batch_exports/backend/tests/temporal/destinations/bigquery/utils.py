@@ -221,6 +221,9 @@ async def assert_clickhouse_records_in_bigquery(
 
     assert len(inserted_records) == len(expected_records)
 
+    if model_name == "events" and fields is None and expected_fields is None:
+        assert "person_id" in inserted_records[0]
+
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter(sort_key))
     expected_records.sort(key=operator.itemgetter(sort_key))

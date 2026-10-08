@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Sequence
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -12,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
+from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -369,6 +371,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         finally:
             self._in_get_queryset = False
 
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
+        if self.paginator is not None and isinstance(queryset, QuerySet):
+            queryset = stable_queryset_ordering(queryset)
+        return super().paginate_queryset(queryset)
+
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         if self.action != "list":
             # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
@@ -657,6 +664,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
+        # Permission classes treat `view.team` as the target of the request, so a route that
+        # identifies no team must not gain one from a request parameter.
+        if not (self._is_team_view or self._is_project_view):
+            return None
+
         team_found = None
         token = get_token(None, self.request)
 

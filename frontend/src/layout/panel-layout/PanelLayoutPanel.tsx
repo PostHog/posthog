@@ -33,7 +33,7 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'pointer-events-auto w-full flex flex-col max-h-screen min-h-screen absolute border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'pointer-events-auto w-full flex flex-col h-full min-h-0 max-h-full absolute border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         isLayoutNavCollapsed: {
             true: '',

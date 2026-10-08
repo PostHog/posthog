@@ -7,8 +7,6 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
@@ -28,7 +26,6 @@ type OnboardingUpgradeStepProps = {
 
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billing, billingLoading } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepSkipped, reportOnboardingStepCompleted } = useActions(eventUsageLogic)
 
@@ -41,8 +38,7 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     }
 
     const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
-    const showPlatformPackages =
-        !!product.subscribed && featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test' && !!platformProduct
+    const showPlatformPackages = !!product.subscribed && !!platformProduct
     // The platform package the org is now on, whether via a free trial (billing.trial.target — a
     // 'paid'-plan trial won't match a platform addon) or a direct subscribe ("Add" when no trial is left).
     const trialAddon = platformProduct?.addons?.find((addon) => addon.type === billing?.trial?.target)

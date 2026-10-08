@@ -164,7 +164,7 @@ export async function listHogFlowTasks(
   projectId: string,
   hogFlowId: string,
   options: { limit: number },
-): Promise<Schemas.PaginatedTaskDetailDTOList> {
+): Promise<Schemas.PaginatedTaskListItemList> {
   return client.get("/api/projects/{project_id}/tasks/", {
     path: { project_id: projectId },
     query: {

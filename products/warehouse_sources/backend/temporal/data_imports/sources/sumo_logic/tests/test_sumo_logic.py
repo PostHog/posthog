@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -11,10 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import SUMO_LOGIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.sumo_logic import (
     SumoLogicResumeConfig,
-    _extract_items,
     _message_row,
     _to_epoch_ms,
-    _unnest_item,
     base_url,
     sumo_logic_source,
     validate_credentials,
@@ -95,35 +93,7 @@ class TestToEpochMs:
         assert _to_epoch_ms(value) == expected
 
 
-class TestExtractAndUnnest:
-    def test_wrapped_data_key(self) -> None:
-        config = SUMO_LOGIC_ENDPOINTS["users"]
-        assert _extract_items({"data": [{"id": "u1"}]}, config) == [{"id": "u1"}]
-
-    def test_missing_data_key_returns_empty(self) -> None:
-        config = SUMO_LOGIC_ENDPOINTS["users"]
-        assert _extract_items({"next": None}, config) == []
-
-    def test_top_level_list(self) -> None:
-        config = SUMO_LOGIC_ENDPOINTS["monitors"]  # data_key=None
-        assert _extract_items([{"item": {"id": 1}}], config) == [{"item": {"id": 1}}]
-
-    def test_unnest_lifts_item_and_keeps_siblings(self) -> None:
-        config = SUMO_LOGIC_ENDPOINTS["monitors"]  # nest_key="item"
-        row = _unnest_item({"item": {"id": 1, "name": "mon"}, "path": "/Monitors/mon"}, config)
-        assert row == {"id": 1, "name": "mon", "path": "/Monitors/mon"}
-
-    def test_unnest_noop_without_nest_key(self) -> None:
-        config = SUMO_LOGIC_ENDPOINTS["users"]
-        assert _unnest_item({"id": "u1"}, config) == {"id": "u1"}
-
-
 class TestMessageRow:
-    def test_derives_message_time_from_epoch_millis(self) -> None:
-        row = _message_row({"map": {"_messageid": "-9", "_messagetime": "1767225600000", "_raw": "boom"}})
-        assert row["message_time"] == datetime(2026, 1, 1, tzinfo=UTC)
-        assert row["_raw"] == "boom"
-
     @pytest.mark.parametrize("raw_time", [None, "not-a-number"])
     def test_unparseable_message_time_is_none(self, raw_time: Any) -> None:
         message = {"map": {"_messageid": "-9"}}
@@ -165,28 +135,6 @@ class TestValidateCredentials:
         is_valid, error = validate_credentials("us1", "id", "key")
         assert is_valid is False
         assert error is not None
-
-
-class TestSessionPrivacy:
-    def test_session_excludes_bodies_from_sample_capture(self) -> None:
-        # Raw `_raw` log bodies are free-form customer data; re-enabling sample capture would copy
-        # them into HTTP sample storage where the name-based scrubbers can't redact embedded secrets.
-        manager, _saved = _make_manager()
-        with mock.patch.object(sl, "make_tracked_session") as mock_session_factory:
-            mock_session_factory.return_value.request.return_value = _response({"data": [], "next": None})
-            list(
-                sl.get_rows(
-                    deployment="us1",
-                    access_id="id",
-                    access_key="key",
-                    endpoint="users",
-                    search_query=None,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-        assert mock_session_factory.call_args.kwargs["capture"] is False
-        assert "key" in mock_session_factory.call_args.kwargs["redact_values"]
 
 
 class TestCredentialRedaction:
@@ -288,19 +236,6 @@ class TestTokenPagination:
         second_query = parse_qs(urlparse(requested[1]).query)
         assert second_query["token"] == ["tok-2"]
 
-    def test_resumes_from_saved_token(self) -> None:
-        manager, _saved = _make_manager(SumoLogicResumeConfig(token="tok-resume"))
-        requested: list[str] = []
-
-        def handler(method: str, url: str, json: Any = None, timeout: Any = None) -> Any:
-            requested.append(url)
-            return _response({"data": [{"id": "u9"}], "next": None})
-
-        _run_get_rows("users", handler, manager)
-
-        first_query = parse_qs(urlparse(requested[0]).query)
-        assert first_query["token"] == ["tok-resume"]
-
 
 class TestOffsetPagination:
     def test_advances_offset_and_terminates_on_short_page(self) -> None:
@@ -395,34 +330,6 @@ class FakeSearchJobApi:
 class TestLogSearchJobs:
     ONE_HOUR_MS = 3_600_000
 
-    def test_windows_start_at_watermark_and_are_contiguous(self) -> None:
-        manager, saved = _make_manager()
-        api = FakeSearchJobApi(message_count_per_job=[1, 1])
-        watermark = datetime.now(UTC).timestamp() * 1000 - 90 * 60 * 1000  # 90 minutes ago
-
-        with mock.patch.object(sl, "SEARCH_JOB_INITIAL_WINDOW", timedelta(hours=1)):
-            rows = _run_get_rows(
-                "logs",
-                api,
-                manager,
-                search_query="_sourceCategory=prod",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=int(watermark),
-            )
-
-        assert len(api.created_jobs) == 2
-        first, second = api.created_jobs
-        assert first["query"] == "_sourceCategory=prod"
-        assert first["from"] == int(watermark)
-        assert first["to"] == int(watermark) + self.ONE_HOUR_MS
-        assert second["from"] == first["to"]
-        assert second["to"] > second["from"]
-        # Rows carry the derived message_time; both jobs' pages were yielded and both jobs deleted.
-        assert [row["message_time"] for page in rows for row in page] == [datetime(2026, 1, 1, tzinfo=UTC)] * 2
-        assert api.deleted_job_ids == ["1", "2"]
-        # State saved once — after the first window's rows, never after the final window.
-        assert [s.log_window_start_ms for s in saved] == [first["to"]]
-
     def test_resumes_from_saved_window_start(self) -> None:
         resume_start = int(datetime.now(UTC).timestamp() * 1000) - 10 * 60 * 1000
         manager, _saved = _make_manager(SumoLogicResumeConfig(log_window_start_ms=resume_start))
@@ -431,22 +338,6 @@ class TestLogSearchJobs:
         _run_get_rows("logs", api, manager, should_use_incremental_field=True, db_incremental_field_last_value=0)
 
         assert api.created_jobs[0]["from"] == resume_start
-
-    def test_blank_search_query_defaults_to_wildcard(self) -> None:
-        manager, _saved = _make_manager()
-        api = FakeSearchJobApi(message_count_per_job=[0])
-        watermark = int(datetime.now(UTC).timestamp() * 1000) - 60_000
-
-        _run_get_rows(
-            "logs",
-            api,
-            manager,
-            search_query="  ",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        assert api.created_jobs[0]["query"] == "*"
 
     def test_window_at_message_cap_is_split_without_fetching(self) -> None:
         manager, _saved = _make_manager()

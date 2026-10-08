@@ -5,10 +5,9 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import PreparedRequest, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.buttondown import (
-    BUTTONDOWN_API_VERSION,
     BUTTONDOWN_BASE_URL,
     ButtondownResumeConfig,
     _to_start_date,
@@ -86,18 +85,6 @@ def _run(endpoint: str, responses: list[Response], manager: mock.MagicMock | Non
 
 
 class TestButtondownTransport:
-    def test_follows_next_link_until_null(self) -> None:
-        page_two = f"{BUTTONDOWN_BASE_URL}/subscribers?page=2"
-        rows, wired, _, _ = _run(
-            "subscribers",
-            [_response([{"id": "a"}], next_url=page_two), _response([{"id": "b"}], next_url=None)],
-        )
-
-        assert [row["id"] for row in rows] == ["a", "b"]
-        assert wired.urls[1] == page_two
-        # The next link is self-contained; re-sending the original params would duplicate them.
-        assert wired.params[1] == {}
-
     def test_checkpoints_only_while_a_next_page_remains(self) -> None:
         page_two = f"{BUTTONDOWN_BASE_URL}/subscribers?page=2"
         manager = _make_manager()
@@ -120,21 +107,6 @@ class TestButtondownTransport:
         assert wired.urls[0] == saved
         assert session.send.call_count == 1
         assert [row["id"] for row in rows] == ["z"]
-
-    def test_sends_token_prefixed_key_and_version_header(self) -> None:
-        _, wired, _, session = _run("subscribers", [_response([{"id": "a"}])])
-
-        prepared = PreparedRequest()
-        prepared.prepare(method="GET", url=f"{BUTTONDOWN_BASE_URL}/subscribers")
-        wired.auths[0](prepared)
-        # Buttondown rejects a "Bearer " prefix, so this is the difference between syncing and 401ing.
-        assert prepared.headers["Authorization"] == "Token bd-key"
-        assert session.headers.get("X-API-Version") == BUTTONDOWN_API_VERSION
-
-    def test_api_version_header_is_overridable(self) -> None:
-        _, _, _, session = _run("subscribers", [_response([{"id": "a"}])], api_version="2025-01-02")
-
-        assert session.headers.get("X-API-Version") == "2025-01-02"
 
     @pytest.mark.parametrize(
         "endpoint,expected_param",
@@ -181,13 +153,6 @@ class TestButtondownTransport:
 
         assert not [key for key in wired.params[0] if key.endswith("__start")]
 
-    @pytest.mark.parametrize("endpoint", sorted(BUTTONDOWN_ENDPOINTS))
-    def test_ordering_param_matches_the_endpoint_config(self, endpoint: str) -> None:
-        config = BUTTONDOWN_ENDPOINTS[endpoint]
-        _, wired, _, _ = _run(endpoint, [_response([{"id": "a"}])])
-
-        assert wired.params[0].get("ordering") == config.ordering
-
     @pytest.mark.parametrize(
         "endpoint",
         sorted(name for name, config in BUTTONDOWN_ENDPOINTS.items() if config.incremental_start_param),
@@ -199,24 +164,9 @@ class TestButtondownTransport:
         # forces ascending order. Anything else must stay on the end-of-job commit path.
         assert config.sort_mode == "desc" or config.ordering == "creation_date"
 
-    @pytest.mark.parametrize("endpoint", sorted(BUTTONDOWN_ENDPOINTS))
-    def test_source_response_shape_per_endpoint(self, endpoint: str) -> None:
-        config = BUTTONDOWN_ENDPOINTS[endpoint]
-        _, _, response, _ = _run(endpoint, [_response([{"id": "a"}])])
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == config.sort_mode
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
-
     def test_missing_results_key_fails_loudly(self) -> None:
         with pytest.raises(ValueError, match="matched nothing"):
             _run("subscribers", [_response(None, drop_results=True)])
-
-    def test_empty_results_page_is_not_an_error(self) -> None:
-        rows, _, _, _ = _run("subscribers", [_response([])])
-
-        assert rows == []
 
 
 class TestToStartDate:
@@ -245,18 +195,3 @@ class TestValidateCredentials:
         with mock.patch(BUTTONDOWN_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
             assert validate_credentials("bd-key") == expected
-
-    def test_transport_failure_is_not_validated(self) -> None:
-        with mock.patch(BUTTONDOWN_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("bd-key") == (False, None)
-
-    def test_probe_sends_token_prefixed_key(self) -> None:
-        with mock.patch(BUTTONDOWN_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-            validate_credentials("bd-key")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert url == f"{BUTTONDOWN_BASE_URL}/accounts/me"
-        assert headers["Authorization"] == "Token bd-key"

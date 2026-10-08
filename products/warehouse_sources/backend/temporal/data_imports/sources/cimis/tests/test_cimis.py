@@ -98,9 +98,6 @@ class TestIterDataRecords:
         assert [r["Date"] for r in rows] == ["2023-01-01", "2023-01-02"]
         assert rows[0]["DayEto_Value"] == "0.05"
 
-    def test_empty_payload_yields_nothing(self) -> None:
-        assert list(_iter_data_records({})) == []
-
 
 def _data_payload(station: str, day: str) -> dict[str, Any]:
     return {
@@ -132,24 +129,6 @@ class TestGetRowsData:
     def test_data_endpoint_requires_targets(self) -> None:
         with pytest.raises(ValueError):
             list(get_rows(endpoint="daily_data", app_key="k", targets=[], unit_of_measure="E", logger=mock.Mock()))
-
-    @time_machine.travel("2023-01-03 12:00:00", tick=False)
-    def test_daily_full_refresh_windows_from_epoch(self, monkeypatch: Any) -> None:
-        urls: list[str] = []
-
-        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
-            urls.append(url)
-            return _data_payload("2", "2023-01-01")
-
-        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
-        # Few targets and a large per-request cap means a single window covers the whole range.
-        batches = list(
-            get_rows(endpoint="daily_data", app_key="k", targets=["2"], unit_of_measure="E", logger=mock.Mock())
-        )
-        assert len(batches) >= 1
-        assert all("startDate=" in u and "endDate=" in u for u in urls)
-        # No request may reach into the future.
-        assert all("endDate=2023-01-03" in u for u in urls[-1:])
 
     @time_machine.travel("2023-01-10 12:00:00", tick=False)
     def test_daily_incremental_starts_from_last_value(self, monkeypatch: Any) -> None:

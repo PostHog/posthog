@@ -60,6 +60,13 @@ export interface inboxBulkActionsLogicActions {
     clearSelection: () => {
         value: true
     }
+    reportReviewersChanged: (
+        reportId: string,
+        reviewerUuids: string[]
+    ) => {
+        reportId: string
+        reviewerUuids: string[]
+    }
     reportStateChanged: () => {
         value: true
     }
@@ -126,6 +133,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
          * the detail pane), so every mounted list reconciles itself. Persisting the change is the
          * caller's responsibility. */
         reportStateChanged: true,
+        /** Broadcast that a report's suggested reviewers were saved, with the PostHog user uuids now on
+         * it, so a list scoped to a reviewer who is no longer on the report drops the row in place. */
+        reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
     }),
 
     reducers({

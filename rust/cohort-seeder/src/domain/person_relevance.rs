@@ -43,10 +43,12 @@
 
 use std::collections::HashMap;
 
-use cohort_core::eligibility::{CohortEligibility, ExcludedReason};
+use cohort_core::eligibility::CohortEligibility;
 use cohort_core::filters::tree::{BoolOp, CohortLeaf, FilterNode};
 use cohort_core::filters::TeamFilters;
 use cohort_core::seed::MAX_PERSON_SEED_HASHES;
+
+use super::pinned::{composability, Composability};
 
 use super::person::EvaluatedConditions;
 
@@ -293,38 +295,6 @@ impl RelevanceOracle {
     }
 }
 
-/// Whether the *consumer* composes a cohort of this class at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Composability {
-    NeverComposed,
-    Composable,
-}
-
-/// The seeder freezes its catalog with cascade off, so every ref-bearing cohort reads
-/// `Excluded(HasCohortRef)` here while the consumer runs with cascade on and composes it. The
-/// seeder also holds only the run's own participations, never the referenced cohorts, so
-/// `CycleDetected` and `UnresolvedRef` cannot be trusted either. Only the structural exclusions —
-/// decided from the tree and the parse flags alone — classify identically in both services.
-///
-/// Exhaustive rather than defaulted: a new eligibility variant has to decide here rather than
-/// silently join the class whose members are pruned away.
-const fn composability(eligibility: CohortEligibility) -> Composability {
-    match eligibility {
-        CohortEligibility::SingleLeaf(_)
-        | CohortEligibility::Stage2Composable
-        | CohortEligibility::Stage2ComposableRef => Composability::Composable,
-        CohortEligibility::Excluded(reason) => match reason {
-            ExcludedReason::NotMultiLeaf
-            | ExcludedReason::TopLevelNegation
-            | ExcludedReason::EmptyGroup
-            | ExcludedReason::HasDroppedLeaf => Composability::NeverComposed,
-            ExcludedReason::HasCohortRef
-            | ExcludedReason::CycleDetected
-            | ExcludedReason::UnresolvedRef => Composability::Composable,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -483,6 +453,7 @@ mod tests {
     /// with cascade off, so a ref-bearing cohort it calls excluded is one the consumer composes.
     #[test]
     fn only_structurally_excluded_cohorts_count_as_never_composed() {
+        use cohort_core::eligibility::ExcludedReason;
         use cohort_core::LeafStateKey;
 
         for eligibility in [

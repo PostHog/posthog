@@ -63,6 +63,18 @@ export function defaultChartType(displayType: ChartDisplayType): ChartType {
     return 'line'
 }
 
+const DISPLAY_FOR_CHART_TYPE: Record<ChartType, ChartDisplayType> = {
+    line: 'ActionsLineGraph',
+    area: 'ActionsAreaGraph',
+    bar: 'ActionsUnstackedBar',
+    'stacked-bar': 'ActionsBar',
+    slope: 'SlopeGraph',
+}
+
+export function displayForChartType(chartType: ChartType): ChartDisplayType {
+    return DISPLAY_FOR_CHART_TYPE[chartType]
+}
+
 export function isBarFamily(chartType: ChartType): boolean {
     return chartType === 'bar' || chartType === 'stacked-bar'
 }

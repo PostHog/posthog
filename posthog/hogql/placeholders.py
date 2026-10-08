@@ -62,6 +62,12 @@ class FindPlaceholders(TraversingVisitor):
             # Dotted call forms like {filters.interval('week')} and {filters.breakdown(...)} are
             # resolved by replace_filters too.
             self.has_filters = True
+            if node.expr.expr.chain in (
+                ["filters", "previous"],
+                ["filters", "native"],
+                ["filters", "previous", "native"],
+            ):
+                self.has_date_filters = True
         else:
             self.placeholder_expressions.append(node.expr)
 

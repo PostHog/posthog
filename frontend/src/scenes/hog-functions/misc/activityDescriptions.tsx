@@ -66,14 +66,19 @@ export function DiffLink({ before, after, language, children }: DiffLinkProps): 
 
 type HogFunctionChange = { inline: string | JSX.Element; inlist: string | JSX.Element }
 
+function inputValue(input: unknown): unknown {
+    return isObject(input) ? (input as { value?: unknown }).value : input
+}
+
 function describeHogFunctionInputs(change: ActivityChange): HogFunctionChange {
-    const beforeValues = isObject(change.before) ? (change.before as Record<string, { value?: unknown }>) : {}
-    const afterValues = isObject(change.after) ? (change.after as Record<string, { value?: unknown }>) : {}
+    const beforeValues = isObject(change.before) ? (change.before as Record<string, unknown>) : {}
+    const afterValues = isObject(change.after) ? (change.after as Record<string, unknown>) : {}
 
     const changedFields = Object.entries(afterValues)
         .map(([key, value]) => {
-            const before = JSON.stringify(beforeValues[key]?.value)
-            const after = JSON.stringify(value?.value)
+            // Masked rows store a plain string per key instead of the input value
+            const before = JSON.stringify(inputValue(beforeValues[key]))
+            const after = JSON.stringify(inputValue(value))
 
             if (before !== after) {
                 return (
@@ -136,7 +141,12 @@ function describeHogFunctionField(change: ActivityChange, objectNoun: string): H
         case 'encrypted_inputs':
             return { inline: 'updated encrypted inputs for', inlist: 'updated encrypted inputs' }
         case 'inputs':
+            if (!isObject(change.before) && !isObject(change.after)) {
+                return { inline: 'updated inputs for', inlist: 'updated inputs' }
+            }
             return describeHogFunctionInputs(change)
+        case 'mappings':
+            return { inline: 'updated mappings for', inlist: 'updated mappings' }
         case 'deleted': {
             const verb = change.after ? 'deleted' : 'undeleted'
             return { inline: verb, inlist: `${verb} the ${objectNoun}` }
@@ -176,6 +186,10 @@ function describeHogFunctionUpdate(logItem: ActivityLogItem, objectNoun: string)
             if (!changes.some((c) => c.inlist === STAGED_CHANGES)) {
                 changes.push({ inline: `${STAGED_CHANGES} on`, inlist: STAGED_CHANGES })
             }
+            continue
+        }
+        // Older rows logged the compiled site code, which follows from the inputs and source already listed.
+        if (change.field === 'transpiled') {
             continue
         }
         changes.push(describeHogFunctionField(change, objectNoun))

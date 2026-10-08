@@ -125,6 +125,9 @@ class TestBedrockSpecific:
             pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
             pytest.param("claude-fable-5-1", "bedrock/us.anthropic.claude-fable-5-1", id="fable_5_1_inference_profile"),
             pytest.param("claude-sonnet-5", "bedrock/us.anthropic.claude-sonnet-5", id="sonnet_5_inference_profile"),
+            pytest.param(
+                "claude-sonnet-5-5", "bedrock/global.anthropic.claude-sonnet-5-5", id="sonnet_5_5_inference_profile"
+            ),
             pytest.param("claude-opus-5", "bedrock/us.anthropic.claude-opus-5", id="opus_5_inference_profile"),
             pytest.param(
                 "us.anthropic.claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="already_bedrock_id"
@@ -871,6 +874,7 @@ class TestModelMapping:
             pytest.param("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", id="sonnet_4_5"),
             pytest.param("claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="sonnet_4_6"),
             pytest.param("claude-sonnet-5", "us.anthropic.claude-sonnet-5", id="sonnet_5"),
+            pytest.param("claude-sonnet-5-5", "global.anthropic.claude-sonnet-5-5", id="sonnet_5_5"),
             pytest.param("claude-opus-5", "us.anthropic.claude-opus-5", id="opus_5"),
             pytest.param("claude-haiku-4-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0", id="haiku_4_5"),
         ],
@@ -890,6 +894,7 @@ class TestModelMapping:
         [
             pytest.param("claude-opus-4-6", "eu.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
             pytest.param("claude-fable-5", "global.anthropic.claude-fable-5", id="fable_5"),
+            pytest.param("claude-sonnet-5-5", "global.anthropic.claude-sonnet-5-5", id="sonnet_5_5"),
         ],
     )
     def test_maps_to_available_profile_for_eu_regions(self, anthropic_model: str, expected_bedrock_model: str) -> None:

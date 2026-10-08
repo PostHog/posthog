@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.runpod imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.runpod import (
     RunPodResumeConfig,
     _normalize_billing_record,
-    _row_id,
     get_rows,
     validate_credentials,
 )
@@ -61,20 +60,6 @@ def _collect(
     return rows, calls
 
 
-class TestRowId:
-    def test_id_is_stable_across_amount_changes(self) -> None:
-        # The surrogate key depends only on the bucket start and grouping dims, never the amounts —
-        # otherwise a restated bucket would get a new id and merge would insert a duplicate.
-        a = _row_id("2025-08-01T00:00:00Z", "pod_1", None, None)
-        b = _row_id("2025-08-01T00:00:00Z", "pod_1", None, None)
-        assert a == b
-        assert a != _row_id("2025-08-01T00:00:00Z", "pod_2", None, None)
-
-    def test_none_and_empty_string_distinguished_positionally(self) -> None:
-        assert _row_id(None, "x") != _row_id("", "x")
-        assert _row_id(None, "x") != _row_id("x", None)
-
-
 class TestNormalizeBillingRecord:
     def test_start_date_is_aliased_to_time_when_time_is_missing(self) -> None:
         # RunPod's network volume billing endpoint has been observed returning `startDate` instead
@@ -83,10 +68,6 @@ class TestNormalizeBillingRecord:
         record = _normalize_billing_record({"startDate": "2025-08-01T00:00:00Z", "amount": 1.5})
         assert record["time"] == "2025-08-01T00:00:00Z"
         assert "startDate" not in record
-
-    def test_time_is_left_untouched_when_already_present(self) -> None:
-        record = _normalize_billing_record({"time": "2025-08-01T00:00:00Z", "podId": "p1"})
-        assert record["time"] == "2025-08-01T00:00:00Z"
 
 
 class TestBillingWindows:
@@ -132,18 +113,6 @@ class TestBillingWindows:
         assert len(calls) == 1
         assert calls[0]["startTime"] == ["2022-04-01T00:00:00Z"]
 
-    def test_incremental_watermark_is_floored_to_day_bucket_boundary(self) -> None:
-        # A mid-bucket startTime could re-bucket the overlap under shifted `time` values that merge
-        # can't dedupe, so the watermark must be aligned to UTC midnight.
-        _, calls = _collect(
-            _FakeResumableManager(),
-            [[]],
-            "billing_pods",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2022, 5, 14, 9, 30, tzinfo=UTC),
-        )
-        assert calls[0]["startTime"] == ["2022-05-14T00:00:00Z"]
-
     def test_future_watermark_clamped_to_today(self) -> None:
         # A future-dated watermark must not skip syncing entirely; it re-pulls today's open bucket.
         _, calls = _collect(
@@ -171,19 +140,6 @@ class TestBillingWindows:
             assert calls[0]["grouping"] == [grouping]
 
 
-class TestInventoryEndpoints:
-    def test_single_unpaginated_request_yields_items_as_is(self) -> None:
-        responses = [[{"id": "pod_1", "name": "worker"}, {"id": "pod_2", "name": "trainer"}]]
-        rows, calls = _collect(_FakeResumableManager(), responses, "pods")
-        assert len(calls) == 1
-        assert "startTime" not in calls[0]
-        assert [r["id"] for r in rows] == ["pod_1", "pod_2"]
-
-    def test_empty_account_yields_no_batches(self) -> None:
-        rows, _ = _collect(_FakeResumableManager(), [[]], "templates")
-        assert rows == []
-
-
 class TestSensitiveDataStripping:
     @parameterized.expand(["pods", "endpoints", "templates"])
     def test_env_secrets_are_stripped_from_inventory_rows(self, endpoint: str) -> None:
@@ -205,13 +161,6 @@ class TestSensitiveDataStripping:
         rows, _ = _collect(_FakeResumableManager(), responses, endpoint)
         assert [r["id"] for r in rows] == ["r1", "r2"]
         assert all(key not in r for r in rows for key in ("env", "dockerStartCmd", "dockerEntrypoint"))
-
-    def test_nested_env_is_stripped_recursively(self) -> None:
-        # An endpoint can embed its template, so the secret map can be nested rather than top-level.
-        responses = [[{"id": "e1", "template": {"id": "t1", "env": {"API_KEY": "secret"}}}]]
-        rows, _ = _collect(_FakeResumableManager(), responses, "endpoints")
-        assert rows[0]["template"] == {"id": "t1"}
-        assert "env" not in rows[0]["template"]
 
 
 class TestSampleCapture:

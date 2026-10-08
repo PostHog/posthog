@@ -23,4 +23,6 @@ export const dashboardsSetupLogic = createSetupDetectionLogic({
     // creation" field defaults to off, so the usual path leaves the user on this scene
     // with no remount to re-run detection.
     recheckActionTypes: () => [dashboardsModel.actionTypes.addDashboardSuccess],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
 })

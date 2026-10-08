@@ -359,7 +359,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use actionsReferencesList() from 'products/actions/frontend/generated/api' instead.
                     const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
                     return response
                 },

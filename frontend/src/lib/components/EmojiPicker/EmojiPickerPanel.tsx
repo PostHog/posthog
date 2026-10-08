@@ -5,6 +5,11 @@ import {
     EmojiPickerListEmojiProps,
     EmojiPickerListRowProps,
 } from 'frimousse'
+import { useMountedLogic } from 'kea'
+import { useId, useRef } from 'react'
+
+import { EmojiPickerSuggestions } from './EmojiPickerSuggestions'
+import { emojiSuggestionsLogic } from './emojiSuggestionsLogic'
 
 // frimousse fetches `<emojibaseUrl>/<locale>/data.json` and `messages.json`, and the URL defaults to
 // cdn.jsdelivr.net. The app's connect-src does not allow that CDN, and frimousse has no error state, so a
@@ -52,8 +57,14 @@ export function EmojiPickerPanel({
     initialSearch,
     autoFocusSearch,
 }: EmojiPickerPanelProps): JSX.Element {
+    const rootRef = useRef<HTMLDivElement>(null)
+    const pickerKey = useId()
+    // Mounted for the whole picker session, so earlier results stay cached while the normal search has matches.
+    useMountedLogic(emojiSuggestionsLogic({ pickerKey }))
+
     return (
         <EmojiPicker.Root
+            ref={rootRef}
             className={clsx('isolate flex h-[368px] w-fit flex-col bg-bg-light', className)}
             emojibaseUrl={EMOJIBASE_URL}
             onEmojiSelect={({ emoji }) => {
@@ -64,13 +75,26 @@ export function EmojiPickerPanel({
                 className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border"
                 defaultValue={initialSearch}
                 autoFocus={autoFocusSearch}
+                onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown') {
+                        const firstSuggestion = rootRef.current?.querySelector<HTMLButtonElement>(
+                            '[data-attr="emoji-picker-related-button"]'
+                        )
+                        if (firstSuggestion) {
+                            event.preventDefault()
+                            firstSuggestion.focus()
+                        }
+                    }
+                }}
             />
             <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
                 <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
                     Loading…
                 </EmojiPicker.Loading>
                 <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
-                    No emoji found.
+                    {({ search }) => (
+                        <EmojiPickerSuggestions pickerKey={pickerKey} query={search} onEmojiSelect={onEmojiSelect} />
+                    )}
                 </EmojiPicker.Empty>
                 <EmojiPicker.List
                     className="select-none pb-1.5"

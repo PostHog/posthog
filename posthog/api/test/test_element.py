@@ -209,6 +209,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
+        # An empty value means no filter, the same as omitting the parameter.
+        empty = self.client.get("/api/element/stats/?paginate_response=true&properties=")
+        self.assertEqual(empty.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(empty.json()["results"]), 3)
+
     @parameterized.expand([(False, False), (True, False), (True, True)])
     def test_element_stats_can_filter_by_person_properties(self, person_on_events: bool, poe_v2: bool) -> None:
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=person_on_events, PERSON_ON_EVENTS_V2_OVERRIDE=poe_v2):

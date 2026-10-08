@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import updateFeatureFlagPreservingGroups from '@/tools/featureFlags/updateFeatureFlag'
+import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
 
 type ApiRequestArgs = { method: string; path: string; body?: unknown }
@@ -29,7 +29,7 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
 }
 
 describe('update-feature-flag preserving groups', () => {
-    const tool = updateFeatureFlagPreservingGroups()
+    const tool = GENERATED_TOOLS['update-feature-flag']!()
 
     it('GETs existing flag, merges group fields into filters, then PATCHes', async () => {
         const existing = {

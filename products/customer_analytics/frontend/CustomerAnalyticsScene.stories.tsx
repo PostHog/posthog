@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -185,6 +189,75 @@ export const CustomerTasks: Story = {
         testOptions: {
             waitForSelector: '[data-attr="customer-task-name"]',
         },
+    },
+}
+
+const roleStoryItems = [
+    {
+        id: '018f47de-7e12-7000-8000-000000000061',
+        name: 'Team Onboarding',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [
+            {
+                id: '018f47de-7e12-7000-8000-000000000071',
+                role_id: '018f47de-7e12-7000-8000-000000000061',
+                user: MOCK_DEFAULT_BASIC_USER,
+                user_uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                joined_at: '2024-01-01T10:00:00Z',
+                updated_at: '2024-01-01T10:00:00Z',
+            },
+        ],
+    },
+    {
+        id: '018f47de-7e12-7000-8000-000000000062',
+        name: 'Team Customer Success',
+        created_at: '2024-01-01T10:00:00Z',
+        created_by: null,
+        members: [],
+    },
+]
+
+export const CustomerTasksAssigneeRoles: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/customer_tasks/': {
+                    count: customerTaskStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: customerTaskStoryItems,
+                },
+                '/api/organizations/:organization_id/roles/': {
+                    count: roleStoryItems.length,
+                    next: null,
+                    previous: null,
+                    results: roleStoryItems,
+                },
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],
+        pageUrl: urls.customerAnalyticsTasks(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-task-name"]',
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>('[data-attr="customer-tasks-assignee-filter"]')
+                if (!element) {
+                    throw new Error('Assignee filter not rendered yet')
+                }
+                return element
+            },
+            { timeout: 15000 }
+        )
+        await userEvent.click(trigger)
+        await within(canvasElement.ownerDocument.body).findByText('Team Customer Success', {}, { timeout: 15000 })
     },
 }
 

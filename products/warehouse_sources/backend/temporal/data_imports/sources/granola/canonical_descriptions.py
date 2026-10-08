@@ -31,4 +31,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Name of the folder.",
         },
     },
+    "transcripts": {
+        "description": "A single item of a meeting transcript in Granola, one row per spoken segment.",
+        "docs_url": "https://docs.granola.ai/api-reference/get-transcript",
+        "columns": {
+            "note_id": "ID of the note the transcript belongs to.",
+            "speaker": "Speaker of the segment: audio source, attribution (`me` or `them`), diarization label, and resolved name when known.",
+            "text": "Text of the transcript segment.",
+            "start_time": "Start time of the transcript segment.",
+            "end_time": "End time of the transcript segment.",
+        },
+    },
 }

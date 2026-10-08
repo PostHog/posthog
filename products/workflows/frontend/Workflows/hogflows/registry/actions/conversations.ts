@@ -16,5 +16,11 @@ registerActionNodeCategory({
             description: 'Update a conversation ticket status or priority.',
             config: { template_id: 'template-posthog-update-ticket', inputs: {} },
         },
+        {
+            type: 'function',
+            name: 'Send message',
+            description: 'Post a reply on a ticket, or save it as a private note.',
+            config: { template_id: 'template-posthog-send-ticket-message', inputs: {} },
+        },
     ],
 })

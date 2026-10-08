@@ -432,8 +432,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
-                    const queryError = error.attr === 'query' ? error.detail : null
-                    actions.updateEndpointFailure(queryError)
+                    actions.updateEndpointFailure(error.detail || null)
                 }
             },
             updateEndpointSuccess: ({ response, endpointName, options }) => {

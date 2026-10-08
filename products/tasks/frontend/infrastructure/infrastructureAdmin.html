@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <meta name="robots" content="noindex,nofollow" />
+        <title>Agent infrastructure</title>
+        <script nonce="{{ request.csp_nonce }}">
+            window.JS_URL = '{{ js_url|escapejs }}'
+        </script>
+    </head>
+    <body>
+        <div id="root" data-region="{{ region|default:'local' }}"></div>
+    </body>
+</html>

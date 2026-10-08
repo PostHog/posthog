@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitLabEndpointConfig:
     name: str
     path: str  # Path template with a {project} placeholder (project id or URL-encoded path)
@@ -34,6 +34,12 @@ class GitLabEndpointConfig:
     # The order rows are emitted in. Endpoints we sort ascending stay "asc"; commits cannot be
     # sorted server-side and always come newest-first, so they are "desc".
     sort_mode: Literal["asc", "desc"] = "asc"
+    # Fan-out: name of the parent endpoint (issues / merge_requests) whose rows seed this child's
+    # path. The child path carries a {parent_iid} placeholder filled from the parent's `iid`.
+    fan_out_parent: Optional[str] = None
+    # Column the parent's iid is injected into on every child row. Part of the primary key, since
+    # the child API has no project-wide uniqueness guarantee we can rely on.
+    fan_out_parent_column: Optional[str] = None
 
 
 # Project-scoped endpoints. We cover the resources a user most commonly wants to analyze and that
@@ -127,6 +133,79 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
     "members": GitLabEndpointConfig(
         name="members",
         path="/projects/{project}/members/all",
+    ),
+    "deployments": GitLabEndpointConfig(
+        name="deployments",
+        path="/projects/{project}/deployments",
+        incremental_fields=[
+            _datetime_incremental_field("updated_at"),
+        ],
+        default_incremental_field="updated_at",
+        # GitLab rejects an updated_after filter unless the list is also ordered by updated_at,
+        # which _build_initial_params does for the active incremental field.
+        incremental_filter_params={"updated_at": "updated_after"},
+        supports_order_by=True,
+        stable_order_by="created_at",
+        partition_key="created_at",
+    ),
+    # The fan-out children have no server-side time filter of their own. An incremental sync
+    # instead bounds the parent walk with updated_after on the child watermark: creating a note or
+    # a state event bumps the parent's updated_at, so only parents bumped since then are re-fanned.
+    # Rows arrive grouped by parent rather than by created_at, hence "desc" (the watermark only
+    # advances once the run completes). GitLab skips the parent touch for cross-reference system
+    # notes ("mentioned in !12"), so an incremental sync picks those up only once the parent is next
+    # updated; a full refresh collects them all.
+    "issue_notes": GitLabEndpointConfig(
+        name="issue_notes",
+        path="/projects/{project}/issues/{parent_iid}/notes",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        supports_order_by=True,
+        stable_order_by="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="issues",
+        fan_out_parent_column="issue_iid",
+    ),
+    "merge_request_notes": GitLabEndpointConfig(
+        name="merge_request_notes",
+        path="/projects/{project}/merge_requests/{parent_iid}/notes",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        supports_order_by=True,
+        stable_order_by="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="merge_requests",
+        fan_out_parent_column="merge_request_iid",
+    ),
+    "issue_state_events": GitLabEndpointConfig(
+        name="issue_state_events",
+        path="/projects/{project}/issues/{parent_iid}/resource_state_events",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="issues",
+        fan_out_parent_column="issue_iid",
+    ),
+    "merge_request_state_events": GitLabEndpointConfig(
+        name="merge_request_state_events",
+        path="/projects/{project}/merge_requests/{parent_iid}/resource_state_events",
+        incremental_fields=[
+            _datetime_incremental_field("created_at"),
+        ],
+        default_incremental_field="created_at",
+        partition_key="created_at",
+        sort_mode="desc",
+        fan_out_parent="merge_requests",
+        fan_out_parent_column="merge_request_iid",
     ),
 }
 

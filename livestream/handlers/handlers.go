@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -50,6 +51,9 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 		if err != nil {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
+		}
 
 		if redisStore != nil {
 			ctx := c.Request().Context()
@@ -92,6 +96,29 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 
 var subID uint64 = 1
 
+func periodicAccessChecks(ctx context.Context, header http.Header, interval time.Duration) <-chan error {
+	errors := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := auth.CheckAccess(ctx, header); err != nil {
+					select {
+					case errors <- err:
+					case <-ctx.Done():
+					}
+					return
+				}
+			}
+		}
+	}()
+	return errors
+}
+
 func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
@@ -106,6 +133,9 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
 		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
+		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
 		}
 
 		eventType := c.QueryParam("eventType")
@@ -163,8 +193,14 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		timeout := time.After(30 * time.Minute)
+		accessContext, cancelAccessCheck := context.WithCancel(c.Request().Context())
+		defer cancelAccessCheck()
+		accessErrors := periodicAccessChecks(accessContext, c.Request().Header.Clone(), 30*time.Second)
 		for {
 			select {
+			case err := <-accessErrors:
+				log.Warnf("Live stream authorization check failed: %v", err)
+				return nil
 			case <-timeout:
 				log.Debug("SSE connection to be terminated after timeout")
 				return nil
@@ -275,11 +311,15 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 			// Old tokens without organization_id/user_id — no-op until all tokens refresh
 			return c.NoContent(http.StatusNoContent)
 		}
+		if err := auth.CheckAccess(c.Request().Context(), c.Request().Header); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
 
 		metrics.NotificationSubs.Inc()
 		defer metrics.NotificationSubs.Dec()
 
-		ctx := c.Request().Context()
 		channel := fmt.Sprintf("notifications:%s", claims.OrganizationID)
 
 		// Absorbs publish-rate bursts; drops on overflow to avoid blocking rueidis.
@@ -307,6 +347,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		heartbeat := time.NewTicker(15 * time.Second)
 		defer heartbeat.Stop()
 		timeout := time.After(30 * time.Minute)
+		accessErrors := periodicAccessChecks(ctx, c.Request().Header.Clone(), 15*time.Second)
 
 		for {
 			select {
@@ -318,6 +359,9 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				if err != nil {
 					log.Printf("Redis subscription error: %v", err)
 				}
+				return nil
+			case err := <-accessErrors:
+				log.Printf("Live stream authorization check failed: %v", err)
 				return nil
 			case msg := <-msgCh:
 				cleaned, ok, reason := filterNotificationForUser(msg, claims.UserID)

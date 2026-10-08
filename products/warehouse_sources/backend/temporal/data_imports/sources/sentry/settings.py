@@ -5,7 +5,10 @@ from typing import Any, Literal
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ParentRowFilter,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_SENTRY_API_BASE_URL = "https://sentry.io"
@@ -39,6 +42,12 @@ SENTRY_RETENTION_DAYS = 90
 # issue_events and issue_hashes stay on parent_source="api", and issue_tag_values reads the
 # warehouse only when an incremental watermark bounds the scan, with this window as the cap.
 SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=90)
+
+# A parent row (an issue, project, release, repo or monitor) can be deleted, merged or renamed
+# between the parent listing and its per-row child fetch, which then 404s. That's expected churn,
+# not a broken sync, so treat it as "no children for this row" instead of failing the whole schema
+# under the generic "404 Client Error" mapping in `SentrySource.get_non_retryable_errors`.
+DELETED_PARENT_RESPONSE_ACTIONS: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
 
@@ -207,6 +216,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "project_users": SentryEndpointConfig(
@@ -220,6 +230,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "project_client_keys": SentryEndpointConfig(
@@ -234,6 +245,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "project_service_hooks": SentryEndpointConfig(
@@ -248,6 +260,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "issue_events": SentryEndpointConfig(
@@ -272,6 +285,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # Not "warehouse": the issues listing is clamped by per-org event retention, which a
             # snapshot scan cannot reproduce — see SENTRY_FANOUT_PARENT_WINDOW.
             parent_source="api",
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -286,10 +300,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
-            # An issue can be deleted or merged into another between the `issues` listing and
-            # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
-            # it as "no hashes for this issue" instead of failing the whole schema.
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
             # Not "warehouse": same per-org retention clamp as issue_events.
             parent_source="api",
         ),
@@ -458,6 +469,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="version",
             include_from_parent=["version"],
             parent_field_renames={"version": "release_version"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "release_commits": SentryEndpointConfig(
@@ -473,6 +485,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="version",
             include_from_parent=["version"],
             parent_field_renames={"version": "release_version"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "repo_commits": SentryEndpointConfig(
@@ -488,6 +501,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "repo_id"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "monitor_checkins": SentryEndpointConfig(
@@ -503,6 +517,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "monitor_id"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "project_user_feedback": SentryEndpointConfig(
@@ -518,6 +533,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
     "project_filters": SentryEndpointConfig(
@@ -532,6 +548,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            child_response_actions=DELETED_PARENT_RESPONSE_ACTIONS,
         ),
     ),
 }

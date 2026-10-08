@@ -30,6 +30,8 @@ logger = structlog.get_logger(__name__)
 TIMEOUT = 10
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+# Shared template clients are set up for client_secret_post. Some providers, such as HubSpot, reject HTTP Basic.
+SHARED_TEMPLATE_DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_post"
 TOKEN_REFRESH_REJECTION_ERRORS = frozenset({"invalid_client", "invalid_grant"})
 
 
@@ -43,6 +45,10 @@ class OAuthTokenExchangeError(Exception):
 
 class OAuthAuthorizeURLError(Exception):
     pass
+
+
+class OAuthMetadataValidationError(ValueError):
+    """Discovered OAuth metadata fails a safety check. The message is safe to show to the user."""
 
 
 class DCRRegistrationRejectedError(Exception):
@@ -138,7 +144,12 @@ def requested_oauth_grant_types(metadata: dict) -> list[str]:
     return grant_types
 
 
-def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool = False) -> str:
+def select_token_endpoint_auth_method(
+    metadata: dict,
+    *,
+    has_client_secret: bool = False,
+    confidential_default: str = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD,
+) -> str:
     """Pick the token endpoint auth method we can actually use.
 
     Prefer public PKCE clients when the provider allows them. Otherwise use a
@@ -152,7 +163,7 @@ def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool
         else SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS
     )
     if not supported_methods:
-        return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if has_client_secret else "none"
+        return confidential_default if has_client_secret else "none"
     for method in preferred_methods:
         if method in supported_methods:
             return method
@@ -241,6 +252,28 @@ def _registrable_domain(hostname: str) -> str | None:
     return f"{extracted.domain}.{extracted.suffix}".lower()
 
 
+# Providers whose own metadata puts OAuth endpoints on a second registrable domain.
+# Discovery fetches issuer metadata from the issuer origin, so an attacker cannot claim these issuers.
+_TRUSTED_ISSUER_ENDPOINT_DOMAINS: dict[str, frozenset[str]] = {
+    # Google: issuer on accounts.google.com, token_endpoint on oauth2.googleapis.com.
+    "google.com": frozenset({"googleapis.com"}),
+}
+
+
+_GOOGLE_ISSUER = "https://accounts.google.com"
+# Google returns a refresh token only for an offline grant, and only when the user sees the consent screen.
+_GOOGLE_AUTHORIZE_PARAMS = {"access_type": "offline", "prompt": "consent"}
+
+
+def provider_authorize_params(metadata: dict) -> dict[str, str]:
+    """Return extra authorize parameters for a verified provider, or an empty dict for any other issuer."""
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    endpoint = urlparse(metadata.get("authorization_endpoint") or "")
+    if issuer == _GOOGLE_ISSUER and endpoint.scheme == "https" and endpoint.hostname == "accounts.google.com":
+        return dict(_GOOGLE_AUTHORIZE_PARAMS)
+    return {}
+
+
 def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     """Reject metadata where OAuth endpoints live on an unrelated registrable domain from the issuer.
 
@@ -256,16 +289,17 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     """
     issuer = (metadata.get("issuer") or "").rstrip("/")
     if not issuer:
-        raise ValueError("OAuth metadata is missing issuer")
+        raise OAuthMetadataValidationError("OAuth metadata is missing issuer")
 
     parsed_issuer = urlparse(issuer)
     if not parsed_issuer.scheme or not parsed_issuer.netloc:
-        raise ValueError("OAuth metadata issuer is not an absolute URL")
+        raise OAuthMetadataValidationError("OAuth metadata issuer is not an absolute URL")
 
     issuer_domain = _registrable_domain(parsed_issuer.hostname or "")
     if issuer_domain is None:
-        raise ValueError("OAuth metadata issuer has no registrable domain")
+        raise OAuthMetadataValidationError("OAuth metadata issuer has no registrable domain")
 
+    allowed_domains = {issuer_domain} | _TRUSTED_ISSUER_ENDPOINT_DOMAINS.get(issuer_domain, frozenset())
     for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
         url = metadata.get(field)
         if not url:
@@ -278,9 +312,9 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
                 field=field,
                 endpoint=url,
             )
-            raise ValueError(f"OAuth endpoint '{field}' scheme does not match issuer")
+            raise OAuthMetadataValidationError(f"OAuth endpoint '{field}' scheme does not match issuer")
         endpoint_domain = _registrable_domain(parsed.hostname or "")
-        if endpoint_domain != issuer_domain:
+        if endpoint_domain not in allowed_domains:
             logger.warning(
                 "OAuth endpoint registrable domain does not match issuer",
                 issuer=issuer,
@@ -289,7 +323,7 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
                 issuer_domain=issuer_domain,
                 endpoint_domain=endpoint_domain,
             )
-            raise ValueError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
+            raise OAuthMetadataValidationError(f"OAuth endpoint '{field}' is on an unrelated domain from issuer")
 
 
 def discover_oauth_metadata(server_url: str) -> dict:
@@ -465,12 +499,18 @@ class TokenRefreshRejectedError(TokenRefreshError):
 
 
 def _credential_auth_method(
-    credentials: Mapping[str, object], auth_method_key: str, client_secret: str | None, metadata: dict
+    credentials: Mapping[str, object],
+    auth_method_key: str,
+    client_secret: str | None,
+    metadata: dict,
+    confidential_default: str = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD,
 ) -> str:
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
-    return select_token_endpoint_auth_method(metadata, has_client_secret=bool(client_secret))
+    return select_token_endpoint_auth_method(
+        metadata, has_client_secret=bool(client_secret), confidential_default=confidential_default
+    )
 
 
 @frozen
@@ -518,7 +558,13 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
             client_secret = credentials.get("client_secret") or None
-            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret, metadata)
+            auth_method = _credential_auth_method(
+                credentials,
+                "token_endpoint_auth_method",
+                client_secret,
+                metadata,
+                confidential_default=SHARED_TEMPLATE_DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD,
+            )
             return InstallationOAuthContext(
                 metadata=metadata,
                 client_id=shared_client_id,

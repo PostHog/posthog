@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Literal
 
-from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationAction,
+    DestinationType,
+    EventKindSpec,
+    IncidentAction,
+)
 
-EventKind = Literal["firing", "resolved", "broken", "errored"]
-LOGS_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
+EventKind = Literal["firing", "resolved", "broken", "errored", "incident_opened", "incident_closed"]
+LOGS_DESTINATION_TYPES = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.PAGERDUTY,
+)
 
+
+LOGS_ALERT_INCIDENT_OPENED_EVENT = "$logs_alert_incident_opened"
+LOGS_ALERT_INCIDENT_CLOSED_EVENT = "$logs_alert_incident_closed"
 
 _PRODUCT_LABEL = "logs alert"
+_ALERT_URL = "{project.url}/logs/alerts/{event.properties.alert_id}"
 _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_id": "{event.properties.alert_id}",
     "alert_name": "{event.properties.alert_name}",
@@ -21,7 +36,7 @@ _FIRE_RESOLVE_DATA: dict[str, str] = {
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
     "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
-    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+    "alert_url": _ALERT_URL,
 }
 
 _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
@@ -30,32 +45,35 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
     "consecutive_failures": "{event.properties.consecutive_failures}",
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
-    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+    "alert_url": _ALERT_URL,
 }
 
 
-EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
-    "firing": EventKindSpec(
-        event_id="$logs_alert_firing",
-        display_kind="firing",
-        header="🔴 Log alert '{event.properties.alert_name}' is firing",
-        details=(
-            (
-                "Threshold breached",
-                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
-                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
-            ),
+_FIRING = EventKindSpec(
+    event_id="$logs_alert_firing",
+    display_kind="firing",
+    header="🔴 Log alert '{event.properties.alert_name}' is firing",
+    details=(
+        (
+            "Threshold breached",
+            "{event.properties.result_count} logs in {event.properties.window_minutes}m "
+            "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
         ),
-        primary_action_url="{project.url}/logs?{event.properties.logs_url_params}",
-        primary_action_label="View logs",
-        webhook_body={
-            "id": "{event.uuid}",
-            "type": "logs_alert.firing",
-            "timestamp": "{event.properties.triggered_at}",
-            "data": _FIRE_RESOLVE_DATA,
-        },
-        product_label=_PRODUCT_LABEL,
     ),
+    primary_action_url="{project.url}/logs?{event.properties.logs_url_params}",
+    primary_action_label="View logs",
+    webhook_body={
+        "id": "{event.uuid}",
+        "type": "logs_alert.firing",
+        "timestamp": "{event.properties.triggered_at}",
+        "data": _FIRE_RESOLVE_DATA,
+    },
+    product_label=_PRODUCT_LABEL,
+)
+
+
+EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
+    "firing": _FIRING,
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
         display_kind="resolved",
@@ -85,7 +103,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
             ("Last error", "{event.properties.last_error_message}"),
         ),
-        primary_action_url="{project.url}/logs/alerts/{event.properties.alert_id}",
+        primary_action_url=_ALERT_URL,
         primary_action_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -106,7 +124,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             ("Reason", "{event.properties.error_message}"),
             ("Failure count", "{event.properties.consecutive_failures}"),
         ),
-        primary_action_url="{project.url}/logs/alerts/{event.properties.alert_id}",
+        primary_action_url=_ALERT_URL,
         primary_action_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -118,6 +136,27 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             },
         },
         product_label=_PRODUCT_LABEL,
+    ),
+    # The edge kinds follow every move into and out of FIRING, whatever cooldown decided. An incident
+    # manager needs a resolve for every trigger, or the incident it opened stays open.
+    "incident_opened": replace(
+        _FIRING,
+        event_id=LOGS_ALERT_INCIDENT_OPENED_EVENT,
+        display_kind="incident opened",
+        webhook_body={},
+        additional_actions=(AlertDestinationAction(url=_ALERT_URL, label="View alert"),),
+        incident_action=IncidentAction.TRIGGER,
+    ),
+    "incident_closed": EventKindSpec(
+        event_id=LOGS_ALERT_INCIDENT_CLOSED_EVENT,
+        display_kind="incident closed",
+        header="Log alert '{event.properties.alert_name}' stopped firing",
+        details=(("Reason", "{event.properties.reason}"),),
+        primary_action_url=_ALERT_URL,
+        primary_action_label="View alert",
+        webhook_body={},
+        product_label=_PRODUCT_LABEL,
+        incident_action=IncidentAction.RESOLVE,
     ),
 }
 

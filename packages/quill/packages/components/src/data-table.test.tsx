@@ -40,4 +40,21 @@ describe('DataTable', () => {
 
         expect(onRowClick).toHaveBeenCalledWith(data[0])
     })
+
+    it('reports page changes with one-based page numbers', () => {
+        const onPageChange = jest.fn()
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        render(
+            <DataTable
+                columns={columns}
+                data={[{ name: 'Ada' }, { name: 'Grace' }]}
+                pageSize={1}
+                onPageChange={onPageChange}
+            />
+        )
+
+        fireEvent.click(screen.getByLabelText('Go to page 2'))
+
+        expect(onPageChange).toHaveBeenCalledWith(1, 2)
+    })
 })

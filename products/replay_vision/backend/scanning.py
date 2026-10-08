@@ -173,8 +173,7 @@ def start_observations(
     Decrementing a local counter as we start models each new in-flight row without re-querying (a
     started scan consumes exactly one slot).
     """
-    # Imported here to break the cycle: trigger imports quota, which imports prompt_evaluation, which
-    # reaches temporal, whose activities import this module.
+    # Imported here to break the cycle: trigger reaches the temporal package, whose activities import this module.
     from products.replay_vision.backend.api.trigger import (  # noqa: PLC0415
         WorkflowStartOutcome,
         start_apply_scanner_workflow,

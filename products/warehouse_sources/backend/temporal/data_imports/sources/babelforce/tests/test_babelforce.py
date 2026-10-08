@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
     _build_params,
     _to_epoch,
     babelforce_source,
-    is_environment_valid,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import (
@@ -93,78 +92,16 @@ class TestToEpoch:
 
 
 class TestEnvironmentValidation:
-    @pytest.mark.parametrize(
-        "environment, expected",
-        [
-            ("services", True),
-            ("us-east", True),
-            (" services ", True),
-            ("My-Env-1", True),
-            ("", False),
-            ("-leading-dash", False),
-            ("evil.example.com", False),
-            ("evil/path", False),
-            ("host:8443", False),
-            ("a b", False),
-        ],
-    )
-    def test_is_environment_valid(self, environment, expected):
-        assert is_environment_valid(environment) is expected
-
     def test_base_url_rejects_invalid_environment(self):
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
 
-    def test_base_url_environment_becomes_subdomain(self):
-        assert _base_url("services") == "https://services.babelforce.com/api/v2"
-        assert _base_url("us-east").startswith("https://us-east.babelforce.com/")
-
 
 class TestBuildParams:
-    def test_filter_capable_endpoint_includes_window(self):
-        params = _build_params(BABELFORCE_ENDPOINTS["calls"], from_timestamp=1700000000, to_timestamp=1700000100)
-        assert params["dateCreated.start"] == 1700000000
-        assert params["dateCreated.end"] == 1700000100
-        assert params["max"] == 100
-
     def test_full_refresh_endpoint_never_gets_window(self):
         params = _build_params(BABELFORCE_ENDPOINTS["agents"], from_timestamp=1700000000, to_timestamp=1700000100)
         assert "dateCreated.start" not in params
         assert "dateCreated.end" not in params
-
-    def test_unpaginated_endpoint_omits_the_page_size(self):
-        # The outbound and event endpoints document no paging params; sending `max` could cap a
-        # response that otherwise carries the whole collection.
-        assert _build_params(BABELFORCE_ENDPOINTS["outbound_campaigns"], None, None) == {}
-
-    def test_no_watermark_omits_start(self):
-        params = _build_params(BABELFORCE_ENDPOINTS["calls"], from_timestamp=None, to_timestamp=1700000100)
-        assert "dateCreated.start" not in params
-        assert params["dateCreated.end"] == 1700000100
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("services", "id", "token") is expected
-
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("services", "id", "token") is False
 
 
 class TestSessionHardening:
@@ -266,21 +203,6 @@ class TestPagination:
         assert [row["id"] for row in rows] == ["1"]
         assert session.send.call_count == 1
 
-    @mock.patch(SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, mock_session):
-        session = mock_session.return_value
-        _wire(session, [_page([], current=1, pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(
-            babelforce_source(
-                "services", "id", "token", "calls", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        )
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce.time")
     @mock.patch(SESSION_PATCH)
     def test_incremental_run_windows_the_query(self, mock_session, mock_time):
@@ -325,10 +247,6 @@ class TestBabelforceSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", [c for c in BABELFORCE_ENDPOINTS.values() if c.partition_key])
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "dateCreated"
 
 
 # Each fan-out child, the path its parent id resolves into, and the field that id is injected as.

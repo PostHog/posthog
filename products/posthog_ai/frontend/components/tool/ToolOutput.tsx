@@ -19,13 +19,19 @@ export function ToolOutput({ children }: { children: ReactNode }): JSX.Element {
     const preview = text?.slice(0, 4000).split('\n').slice(0, 12).join('\n')
     const truncated = text !== undefined && preview !== text
     return (
-        <div className="flex flex-col gap-1 min-w-0">
-            <pre className="m-0 font-mono text-xs leading-relaxed text-secondary whitespace-pre-wrap break-all">
+        // The actions sit in the block's top-right corner instead of on a row of their own, and the padding keeps text out from under them.
+        <div className="relative min-w-0">
+            <pre
+                className={clsx(
+                    'm-0 font-mono text-xs leading-relaxed text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]',
+                    text !== undefined && (truncated ? 'pr-13' : 'pr-7')
+                )}
+            >
                 {preview ?? children}
                 {truncated ? '\n…' : ''}
             </pre>
             {text !== undefined && (
-                <div className="flex gap-1">
+                <div className="absolute top-0 right-0 flex">
                     <LemonButton
                         type="tertiary"
                         size="xsmall"

@@ -689,6 +689,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         onUpdateWidgetTile={async (patch) => {
                                             await updateWidgetTile({ tile, ...patch })
                                         }}
+                                        onConfigPublished={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}

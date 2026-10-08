@@ -13,6 +13,7 @@ import {
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
+import { OAuthRedirectUri } from '../OAuthRedirectUri'
 import { isValidMcpUrl } from './gatewayAddServer'
 import { AGENT_GRANT_SCOPE_OPTIONS } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
@@ -158,6 +159,7 @@ export function GatewayAddServerModal(): JSX.Element | null {
                                 header: 'Advanced OAuth settings',
                                 content: (
                                     <div className="flex flex-col gap-3">
+                                        <OAuthRedirectUri />
                                         <LemonField.Pure
                                             label="OAuth client ID (optional)"
                                             help="Leave blank to let PostHog register a client."

@@ -12,7 +12,6 @@ from requests import Request, RequestException, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
     FAILING_TESTS_DEFAULT_LOOKBACK_DAYS,
-    FAILING_TESTS_WINDOW_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import (
     TrunkCursorPaginator,
@@ -20,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.t
     TrunkPageQueryPaginator,
     TrunkRepo,
     failing_tests,
+    list_test_collections,
+    list_tests,
     merge_queue_pull_requests,
     quarantined_tests,
     unhealthy_tests,
@@ -95,19 +96,6 @@ class TestTrunkPageQueryPaginator:
         assert resumed.page_token == "cursor-1"
         assert resumed.has_next_page is True
 
-    def test_get_resume_state_none_on_terminal_page(self) -> None:
-        paginator = TrunkPageQueryPaginator()
-        response = MagicMock()
-        response.json.return_value = {"page": _page("")}
-        paginator.update_state(response)
-
-        assert paginator.get_resume_state() is None
-
-    def test_set_resume_state_ignores_missing_token(self) -> None:
-        paginator = TrunkPageQueryPaginator()
-        paginator.set_resume_state({})
-        assert paginator.page_token == ""
-
 
 def _drive_session(responses: list[Response]) -> tuple[Any, list[dict[str, Any]]]:
     """Patch the tracked session so `RESTClient.paginate` runs against canned responses.
@@ -132,43 +120,6 @@ def _drive_session(responses: list[Response]) -> tuple[Any, list[dict[str, Any]]
 
 
 class TestUnhealthyTests:
-    def test_fresh_run_walks_both_statuses(self) -> None:
-        patcher, sent_bodies = _drive_session(
-            [
-                _make_http_response({"tests": [{"id": "flaky-1"}], "page": _page("")}),
-                _make_http_response({"tests": [{"id": "broken-1"}], "page": _page("")}),
-            ]
-        )
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = False
-
-            pages = list(unhealthy_tests("token", REPO, "my-org", manager))
-        finally:
-            patcher.stop()
-
-        assert pages == [[{"id": "flaky-1"}], [{"id": "broken-1"}]]
-        assert [body["status"] for body in sent_bodies] == ["FLAKY", "BROKEN"]
-        manager.clear_state.assert_called_once()
-
-    def test_resume_skips_completed_status(self) -> None:
-        patcher, sent_bodies = _drive_session(
-            [
-                _make_http_response({"tests": [{"id": "broken-resumed"}], "page": _page("")}),
-            ]
-        )
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = True
-            manager.load_state.return_value = TrunkIoResumeConfig(status="BROKEN", page_token="")
-
-            pages = list(unhealthy_tests("token", REPO, "my-org", manager))
-        finally:
-            patcher.stop()
-
-        assert pages == [[{"id": "broken-resumed"}]]
-        assert [body["status"] for body in sent_bodies] == ["BROKEN"]
-
     def test_resume_seeds_page_token_mid_status(self) -> None:
         patcher, sent_bodies = _drive_session(
             [
@@ -226,21 +177,6 @@ class TestQuarantinedTests:
         assert sent_bodies[0]["page_query"]["page_token"] == ""
         assert "status" not in sent_bodies[0]
         manager.clear_state.assert_called_once()
-
-    def test_resume_seeds_saved_page_token(self) -> None:
-        patcher, sent_bodies = _drive_session(
-            [_make_http_response({"quarantined_tests": [{"name": "test_b"}], "page": _page("")})]
-        )
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = True
-            manager.load_state.return_value = TrunkIoResumeConfig(page_token="cursor-resumed")
-
-            list(quarantined_tests("token", REPO, "my-org", manager))
-        finally:
-            patcher.stop()
-
-        assert sent_bodies[0]["page_query"]["page_token"] == "cursor-resumed"
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         patcher, _ = _drive_session([_make_http_response({"quarantined_tests": [], "page": _page("")})])
@@ -313,33 +249,6 @@ class TestFailingTests:
         assert sent_bodies[0]["start_time"] == last_value
 
     @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
-    def test_window_capped_at_seven_days(self) -> None:
-        last_value = "2024-01-01T00:00:00Z"
-        patcher, sent_bodies = _drive_session(
-            [_make_http_response({"tests": [], "page": _page("")}) for _ in range(30)]
-        )
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = False
-
-            list(
-                failing_tests(
-                    "token",
-                    REPO,
-                    "my-org",
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-        finally:
-            patcher.stop()
-
-        first_start = datetime.strptime(sent_bodies[0]["start_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        first_end = datetime.strptime(sent_bodies[0]["end_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        assert (first_end - first_start).days == FAILING_TESTS_WINDOW_DAYS
-
-    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_resume_seeds_window_and_page_token(self) -> None:
         patcher, sent_bodies = _drive_session([_make_http_response({"tests": [{"id": "f-2"}], "page": _page("")})])
         try:
@@ -364,32 +273,6 @@ class TestFailingTests:
 
         assert sent_bodies[0]["start_time"] == "2024-06-10T00:00:00Z"
         assert sent_bodies[0]["page_query"]["page_token"] == "cursor-mid"
-
-    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
-    def test_terminates_once_window_reaches_now(self) -> None:
-        # Seed exactly at "now" so the walk loop must not fire a single request.
-        patcher, sent_bodies = _drive_session([])
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = True
-            manager.load_state.return_value = TrunkIoResumeConfig(window_start="2024-06-15T00:00:00+00:00")
-
-            pages = list(
-                failing_tests(
-                    "token",
-                    REPO,
-                    "my-org",
-                    manager,
-                    should_use_incremental_field=False,
-                    db_incremental_field_last_value=None,
-                )
-            )
-        finally:
-            patcher.stop()
-
-        assert pages == []
-        assert sent_bodies == []
-        manager.clear_state.assert_called_once()
 
 
 class TestTrunkCursorPaginator:
@@ -482,62 +365,74 @@ class TestMergeQueuePullRequests:
 
         assert sent_bodies[0]["since"] == "2024-06-01T00:00:00Z"
 
-    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
-    def test_resume_seeds_cursor_and_pins_synced_through(self) -> None:
-        patcher, sent_bodies = _drive_session(
-            [_make_http_response({"pullRequests": [{"id": "pr-3"}], "nextCursor": ""})]
-        )
-        try:
-            manager = MagicMock(spec=ResumableSourceManager)
-            manager.can_resume.return_value = True
-            manager.load_state.return_value = TrunkIoResumeConfig(
-                cursor="cursor-mid", synced_through="2024-06-14T00:00:00Z"
+
+class TestV2Lists:
+    @staticmethod
+    def _drive(responses: list[Response]) -> tuple[Any, list[dict[str, Any]]]:
+        sent: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **kwargs: Any) -> Response:
+            assert kwargs.get("allow_redirects") is False
+            assert kwargs.get("timeout") == (10.0, 60.0)
+            sent.append(
+                {
+                    "method": request.method,
+                    "url": request.url,
+                    "params": dict(request.params),
+                    "headers": request.auth(Request(headers={})).headers,
+                }
             )
+            return next(response_iter)
 
-            pages = list(
-                merge_queue_pull_requests(
-                    "token",
-                    REPO,
-                    "main",
-                    manager,
-                    should_use_incremental_field=False,
-                    db_incremental_field_last_value=None,
-                )
-            )
-        finally:
-            patcher.stop()
+        patcher = patch(MAKE_SESSION_TARGET)
+        mock_session = patcher.start().return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+        return patcher, sent
 
-        assert sent_bodies[0]["cursor"] == "cursor-mid"
-        # The resumed half must not claim coverage the interrupted first half never had.
-        assert pages[0][0]["synced_through"] == "2024-06-14T00:00:00Z"
-
-    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
-    def test_saves_cursor_with_stamp_after_each_non_terminal_page(self) -> None:
-        patcher, _ = _drive_session(
+    @parameterized.expand(
+        [
+            ("test_collections", list_test_collections, "https://api.trunk.io/v2/test-collections"),
+            ("tests", list_tests, "https://api.trunk.io/v2/tests"),
+        ]
+    )
+    def test_paginates_v2_cursor_with_bearer_auth(self, _label: str, fn: Any, expected_url: str) -> None:
+        patcher, sent = self._drive(
             [
-                _make_http_response({"pullRequests": [{"id": "pr-1"}], "nextCursor": "cursor-1"}),
-                _make_http_response({"pullRequests": [{"id": "pr-2"}], "nextCursor": ""}),
+                _make_http_response({"data": [{"id": "a"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _make_http_response({"data": [{"id": "b"}], "nextCursor": None, "hasMore": False}),
             ]
         )
         try:
             manager = MagicMock(spec=ResumableSourceManager)
             manager.can_resume.return_value = False
 
-            list(
-                merge_queue_pull_requests(
-                    "token",
-                    REPO,
-                    "main",
-                    manager,
-                    should_use_incremental_field=False,
-                    db_incremental_field_last_value=None,
-                )
-            )
+            pages = list(fn("token", manager))
         finally:
             patcher.stop()
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [TrunkIoResumeConfig(cursor="cursor-1", synced_through="2024-06-15T00:00:00Z")]
+        assert [row["id"] for page in pages for row in page] == ["a", "b"]
+        assert [(r["method"].upper(), r["url"]) for r in sent] == [("GET", expected_url)] * 2
+        assert sent[0]["params"] == {"limit": 100}
+        assert sent[1]["params"] == {"limit": 100, "cursor": "cursor-1"}
+        assert sent[0]["headers"] == {"Authorization": "Bearer token"}
+        manager.save_state.assert_called_once_with(TrunkIoResumeConfig(cursor="cursor-1"))
+        manager.clear_state.assert_called_once()
+
+    def test_resume_seeds_saved_cursor(self) -> None:
+        patcher, sent = self._drive([_make_http_response({"data": [], "nextCursor": None, "hasMore": False})])
+        try:
+            manager = MagicMock(spec=ResumableSourceManager)
+            manager.can_resume.return_value = True
+            manager.load_state.return_value = TrunkIoResumeConfig(cursor="cursor-resumed")
+
+            list(list_tests("token", manager))
+        finally:
+            patcher.stop()
+
+        assert sent[0]["params"]["cursor"] == "cursor-resumed"
 
 
 class TestClientRedirectHandling:

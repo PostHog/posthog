@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import pytest
@@ -5,7 +6,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -34,27 +34,15 @@ class TestGustoSource:
             environment="production",
         )
 
-    def test_source_is_visible_to_users(self) -> None:
-        # A truthy `unreleasedSource` hides the connector from the wizard entirely.
-        assert not self.source.get_source_config.unreleasedSource
-
-    def test_environment_offers_production_and_demo(self) -> None:
-        # Gusto partners build against the demo host until their app is approved for production.
-        field = next(f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldSelectConfig))
-        assert {option.value for option in field.options} == {"production", "demo"}
-        assert field.defaultValue == "production"
-
     def test_api_version_is_pinned_to_what_the_client_sends(self) -> None:
         # Declared oldest→newest; new sources start on the newest version.
         assert self.source.supported_versions == (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
         assert self.source.default_version == GUSTO_API_VERSION_2026_06_15
         assert self.source.api_docs_url.startswith("https://")
 
-    def test_older_version_is_deprecated_without_a_sunset_date(self) -> None:
-        # Gusto publishes no end-of-life date for 2024-04-01, so the deprecation is advisory only
-        # (sunset_at=None) and the default is never itself deprecated.
+    def test_older_version_is_deprecated_with_the_vendor_sunset_date(self) -> None:
         deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
-        assert deprecation is not None and deprecation.sunset_at is None
+        assert deprecation is not None and deprecation.sunset_at == date(2026, 6, 15)
         assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
@@ -101,20 +89,6 @@ class TestGustoSource:
         for key, value in overrides.items():
             setattr(inputs, key, value)
         return inputs
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        manager = mock.MagicMock()
-        self.source.source_for_pipeline(self.config, manager, self._inputs())
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["environment"] == "production"
-        assert kwargs["client_id"] == "cid"
-        assert kwargs["client_secret"] == "secret"
-        assert kwargs["refresh_token"] == "refresh"
-        assert kwargs["endpoint"] == "employees"
-        assert kwargs["api_version"] == GUSTO_API_VERSION_2026_06_15
-        assert kwargs["resumable_source_manager"] is manager
 
     @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")

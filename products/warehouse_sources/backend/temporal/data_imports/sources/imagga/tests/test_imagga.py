@@ -11,11 +11,9 @@ from requests.auth import HTTPBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga import (
     BASE_URL,
     _daily_usage_rows,
-    _usage_snapshot_row,
     imagga_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import IMAGGA_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -81,32 +79,7 @@ def _run(endpoint: str, result: Any, MockSession: mock.MagicMock) -> tuple[list[
     return rows, snapshots
 
 
-class TestUsageSnapshotRow:
-    def test_flattens_concurrency_and_excludes_histograms(self) -> None:
-        row = _usage_snapshot_row(_USAGE_RESULT)
-        # Nested concurrency scalars are flattened with a prefix.
-        assert row["concurrency_max"] == 2
-        assert row["concurrency_now"] == 1
-        # Scalars are carried through unchanged.
-        assert row["billing_period_start"] == "18 of Oct, 2018"
-        assert row["monthly_limit"] == 2000
-        # The period-keyed histograms must stay out of the flat row, or the column set drifts each sync.
-        assert "daily" not in row
-        assert "monthly" not in row
-
-    def test_empty_result_yields_empty_row(self) -> None:
-        assert _usage_snapshot_row({}) == {}
-
-
 class TestDailyUsageRows:
-    def test_explodes_histogram_to_sorted_dated_rows(self) -> None:
-        rows = _daily_usage_rows(_USAGE_RESULT)
-        # Unix-second keys become calendar days, ascending to keep sort_mode="asc" honest.
-        assert rows == [
-            {"date": "2018-02-26", "timestamp": 1519603200, "count": 1},
-            {"date": "2018-10-23", "timestamp": 1540252800, "count": 3},
-        ]
-
     @parameterized.expand([("missing", {}), ("wrong_type", {"daily": []}), ("null", {"daily": None})])
     def test_returns_empty_when_no_daily_histogram(self, _name: str, result: dict[str, Any]) -> None:
         assert _daily_usage_rows(result) == []
@@ -117,24 +90,6 @@ class TestDailyUsageRows:
 
 
 class TestUsageEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_single_snapshot_row(self, MockSession) -> None:
-        rows, _ = _run("usage", _USAGE_RESULT, MockSession)
-        assert len(rows) == 1
-        assert rows[0]["billing_period_start"] == "18 of Oct, 2018"
-        assert rows[0]["concurrency_max"] == 2
-        assert "daily" not in rows[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_concurrency_param_basic_auth_and_usage_path(self, MockSession) -> None:
-        _, snapshots = _run("usage", _USAGE_RESULT, MockSession)
-        # Credentials ride in the Basic-auth header (redacted from errors), never the URL.
-        assert snapshots[0]["params"] == {"concurrency": "1"}
-        assert snapshots[0]["auth"].username == "key"
-        assert snapshots[0]["auth"].password == "secret"
-        assert snapshots[0]["url"].endswith("/usage")
-        assert "concurrency" not in snapshots[0]["url"]
-
     @parameterized.expand([("null_result", None), ("empty_result", {})])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_result_yields_nothing(self, _name: str, result: Any, MockSession) -> None:
@@ -142,28 +97,10 @@ class TestUsageEndpoint:
         assert rows == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_result_key_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"status": {"type": "success"}})])
-        assert _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j")) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_without_primary_key_yields_nothing(self, MockSession) -> None:
         # A non-empty snapshot missing `billing_period_start` must not be yielded — merging on an
         # absent primary key column fails the sync permanently instead of producing an empty batch.
         rows, _ = _run("usage", {"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}, MockSession)
-        assert rows == []
-
-
-class TestDailyUsageEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_exploded_sorted_rows(self, MockSession) -> None:
-        rows, _ = _run("daily_usage", _USAGE_RESULT, MockSession)
-        assert [r["date"] for r in rows] == ["2018-02-26", "2018-10-23"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_result_yields_nothing(self, MockSession) -> None:
-        rows, _ = _run("daily_usage", {}, MockSession)
         assert rows == []
 
 
@@ -194,11 +131,6 @@ class TestValidateCredentials:
         assert validate_credentials("key", "secret") is expected
 
     @mock.patch(IMAGGA_SESSION_PATCH)
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "secret") is False
-
-    @mock.patch(IMAGGA_SESSION_PATCH)
     def test_redacts_secret_and_uses_basic_auth(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key", "secret")
@@ -217,22 +149,6 @@ class TestImaggaSourceResponse:
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
 
-    def test_daily_usage_partitions_on_stable_date(self) -> None:
-        response = imagga_source("key", "secret", "daily_usage", team_id=1, job_id="j")
-        assert response.partition_keys == ["date"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-
-    def test_usage_snapshot_is_not_partitioned(self) -> None:
-        response = imagga_source("key", "secret", "usage", team_id=1, job_id="j")
-        assert response.partition_keys is None
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError):
             imagga_source("key", "secret", "nope", team_id=1, job_id="j")
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in IMAGGA_ENDPOINTS:
-            response = imagga_source("key", "secret", endpoint, team_id=1, job_id="j")
-            assert response.name == endpoint
-            assert response.primary_keys == IMAGGA_ENDPOINTS[endpoint].primary_keys

@@ -23,7 +23,7 @@ export const DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ['sessionId']
 export const DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ['message', 'msg', 'event']
 
 async function saveLogsConfig(teamId: number | null, patch: Partial<TeamLogsConfigApi>): Promise<TeamLogsConfigApi> {
-    // nosemgrep: prefer-codegen-api
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsLogsConfigPartialUpdate() from 'products/logs/frontend/generated/api' instead.
     return await api.update(`api/projects/${teamId}/logs_config/`, patch)
 }
 
@@ -189,7 +189,7 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
             null as TeamLogsConfigApi | null,
             {
                 loadLogsConfig: async (): Promise<TeamLogsConfigApi> => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsLogsConfigRetrieve() from 'products/logs/frontend/generated/api' instead.
                     return await api.get(`api/projects/${values.currentTeamId}/logs_config/`)
                 },
                 updateLogsConfig: async (patch: Partial<TeamLogsConfigApi>): Promise<TeamLogsConfigApi> => {

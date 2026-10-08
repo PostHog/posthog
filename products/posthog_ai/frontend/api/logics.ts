@@ -23,6 +23,10 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
+// The server-resolved default model/effort for this user in this project (their own preference over
+// the project default). A host that launches a run on the user's behalf reads it to tell whether a
+// stored default will apply, because a model sent with the run overrides one.
+export { taskRunDefaultsLogic } from '../logics/taskRunDefaultsLogic'
 
 export { tasksLogic } from '../logics/tasksLogic'
 
@@ -62,6 +66,7 @@ export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
 export { resolveToolCall } from '../utils/toolResolver'
+export { getToolOutputRecord } from '../utils/getToolOutputRecord'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a
@@ -83,4 +88,6 @@ export type { RunnerPanelLogicProps, ActiveCreation } from '../logics/runnerPane
 // A one-shot store that lets a host seed a not-yet-mounted composer with an initial prompt (optionally
 // auto-submitting it); the paired `taskTrackerSceneLogic` consumes it on mount or when it arrives.
 export { composerSeedLogic } from '../logics/composerSeedLogic'
+export { composerAttachmentsLogic } from '../logics/composerAttachmentsLogic'
+export { ATTACHMENT_MAX_SIZE_BYTES } from '../utils/attachments'
 export type { ComposerSeed, ComposerSeedLogicProps } from '../logics/composerSeedLogic'

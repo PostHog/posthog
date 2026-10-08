@@ -12,7 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.redis import get_client
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     STUCK_SESSION_THRESHOLD,
@@ -26,7 +26,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    SETTLE_INTERVAL,
+    ReplayScanner,
+    ScannerModel,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -41,14 +46,8 @@ from products.replay_vision.backend.temporal.activities.advance_scanner_watermar
     advance_scanner_watermark_activity,
 )
 from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
-    count_in_flight_applies_activity,
-    count_in_flight_by_team_activity,
-)
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
-from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
-    refresh_prompt_suggestion_activity,
-)
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
     DEEP_SWEEP_INTERVAL,
@@ -73,7 +72,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     InFlightApplyCounts,
     SweepScannerInputs,
 )
-from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
+from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
 _OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -171,6 +170,142 @@ class TestFindScannerCandidatesActivity:
     def test_returns_empty_when_scanner_missing(self) -> None:
         result = find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    def test_an_experiment_scanner_without_a_creator_skips_before_any_read(self) -> None:
+        # Every exposure read and every scan's variant lookup refuse a userless principal, so a tick
+        # that queried or dispatched anyway could only produce refusals.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT, created_by=None)
+        experiment = create_experiment(scanner.team, "orphan-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+
+        with _patched_queries() as (fast_query, deep_query):
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert result.candidates == [] and result.swept_through is None
+        assert not fast_query.called and not deep_query.called
+
+    @parameterized.expand([("paused",), ("ended",), ("archived",), ("deleted",)])
+    def test_an_experiment_that_is_not_running_stops_the_sweep(self, state: str) -> None:
+        # Paused, ended, and archived experiments come back (resume, or reset and relaunch), and a
+        # disabled scanner has no schedule to notice that, so those skip the tick and stay enabled.
+        # Their watermarks move to now, or a comeback would bill the whole gap. Only a deleted
+        # experiment disables.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+        if state == "paused":
+            experiment.feature_flag.active = False
+            experiment.feature_flag.save()
+        elif state == "ended":
+            # Ended before the scanner's watermark, so the run is already swept to its end.
+            experiment.end_date = timezone.now() - dt.timedelta(days=1)
+        elif state == "archived":
+            # No end date: no known end to sweep up to, so it stops like a pause.
+            experiment.archived = True
+        else:
+            experiment.deleted = True
+        experiment.save()
+
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts,
+        ):
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert result.candidates == []
+        assert not fast_query.called and not deep_query.called
+        # Once the data stops changing, the variant analysis scout would only re-read it on the
+        # customer's bill. A pause resumes, so its scout sits the pause out.
+        assert pause_scouts.called is (state != "paused")
+        scanner.refresh_from_db()
+        assert scanner.enabled is (state != "deleted")
+        if state != "deleted":
+            settled_now = timezone.now() - SETTLE_INTERVAL
+            assert result.swept_through is not None and result.deep_swept_through is not None
+            assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
+            assert result.deep_swept_through == result.swept_through
+
+    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+        # A disabled scanner has no schedule left to retry the pause, and the scout would keep
+        # running on the customer's bill. So the scanner stays on until a later tick pauses it.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+        experiment.deleted = True
+        experiment.save()
+        inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+        ):
+            result = find_scanner_candidates_activity(inputs)
+
+        assert result.candidates == []
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
+
+        with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
+            find_scanner_candidates_activity(inputs)
+
+        assert pause_scouts.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is False
+
+    @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
+    def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
+        # Jumping to now on the first tick after the end would drop the run's last sessions and the
+        # late arrivals the deep pass catches, which skews the per-variant readout.
+        end = timezone.now() - dt.timedelta(hours=1)
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT,
+            last_swept_at=end if fast_at_end else end - dt.timedelta(hours=2),
+            deep_swept_through=end - dt.timedelta(hours=2),
+        )
+        scanner.created_by = User.objects.create_and_join(scanner.team.organization, "sweeper@example.com", None)
+        experiment = create_experiment(scanner.team, "ended-flag", launched=True, variants=["control", "test"])
+        experiment.end_date = end
+        experiment.save()
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+
+        with _patched_queries() as (fast_query, _deep_query):
+            fast_query.return_value.settle_cutoff = end
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert fast_query.call_args.kwargs["until"] == end
+        assert fast_query.return_value.run_batch.called is not fast_at_end
+        # Held at the end rather than moved to now, so the deep pass can still finish behind it.
+        assert result.swept_through == end
+
+    def test_a_legacy_column_targeted_scanner_is_never_disabled(self) -> None:
+        # Scanners that target an experiment through the column predate the lifecycle gate;
+        # flipping them off on deploy would change scanners that exist today.
+        scanner = _make_scanner(experiment_targeting=None)
+        experiment = create_experiment(scanner.team, "legacy-flag", launched=True, variants=["control", "test"])
+        experiment.end_date = timezone.now()
+        experiment.save()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            experiment_targeting={"experiment_id": experiment.id, "variant": None, "variants": None}
+        )
+
+        with _patched_queries():
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
 
     def test_returns_empty_when_scanner_belongs_to_other_team(self) -> None:
         scanner = _make_scanner()
@@ -793,7 +928,9 @@ class TestFindScannerCandidatesActivity:
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
-        scanner.query = {"kind": "TrendsQuery"}
+        # A payload RecordingsQuery validation rejects; a real (non-recordings) query kind would
+        # read as this test driving that product's query runner.
+        scanner.query = {"kind": "RecordingsQuery", "date_from": 123}
         scanner.save(update_fields=["query"])
 
         with pytest.raises(ApplicationError) as exc_info:
@@ -1353,7 +1490,7 @@ def _sweep_inputs() -> SweepScannerInputs:
     return SweepScannerInputs(scanner_id=uuid.uuid4(), team_id=42)
 
 
-async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None, patched: bool = True) -> None:
+async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -1368,9 +1505,6 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
-        # `workflow.patched` also needs the runtime; new executions take the patched branch.
-        patch("temporalio.workflow.patched", return_value=patched),
-        patch("temporalio.workflow.deprecate_patch"),
         patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
@@ -1387,7 +1521,6 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
     await _run_sweep(mocks)
 
     assert [fn for fn, _ in mocks.activity_calls] == [
-        refresh_prompt_suggestion_activity,
         check_scanner_budget_activity,
         count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
@@ -1415,14 +1548,18 @@ async def test_empty_batch_with_horizon_advances_watermark_without_dispatch() ->
 
 
 @pytest.mark.asyncio
-async def test_non_saturated_batch_dispatches_and_clears_tiebreaker() -> None:
+async def test_batch_dispatches_and_advances_to_the_keyset_end() -> None:
     candidates = [
         _build_payload("sess-a", dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)),
         _build_payload("sess-b", dt.datetime(2026, 5, 1, 10, 5, 0, tzinfo=dt.UTC)),
     ]
+    # Exclusion dropped the batch's last fetched row, so the keyset sits ahead of the last candidate.
+    keyset_end = dt.datetime(2026, 5, 1, 10, 9, 0, tzinfo=dt.UTC)
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=candidates, saturated=False),
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=candidates, saturated=False, keyset_end=keyset_end, keyset_session_id="sess-c"
+            ),
         }
     )
     inputs = _sweep_inputs()
@@ -1435,24 +1572,8 @@ async def test_non_saturated_batch_dispatches_and_clears_tiebreaker() -> None:
     child_attrs = mocks.child_calls[0]["kwargs"]["search_attributes"]
     assert any(p.key.name == "PostHogScannerId" and p.value == str(inputs.scanner_id) for p in child_attrs)
     advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
-    assert advance_call.new_last_swept_at == candidates[-1].session_end
-    assert advance_call.new_last_seen_session_id == ""
-
-
-@pytest.mark.asyncio
-async def test_saturated_batch_carries_session_id_as_tiebreaker() -> None:
-    candidates = [_build_payload(f"sess-{i:02d}", dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)) for i in range(3)]
-    mocks = _SweepMocks(
-        activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=candidates, saturated=True),
-        }
-    )
-
-    await _run_sweep(mocks)
-
-    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
-    assert advance_call.new_last_swept_at == candidates[-1].session_end
-    assert advance_call.new_last_seen_session_id == "sess-02"
+    assert advance_call.new_last_swept_at == keyset_end
+    assert advance_call.new_last_seen_session_id == "sess-c"
 
 
 @pytest.mark.asyncio
@@ -1463,7 +1584,12 @@ async def test_deep_candidates_dispatch_alongside_fast_and_forward_deep_watermar
     mocks = _SweepMocks(
         activity_results={
             find_scanner_candidates_activity: FindScannerCandidatesOutput(
-                candidates=fast, saturated=False, deep_candidates=deep, deep_swept_through=deep_horizon
+                candidates=fast,
+                saturated=False,
+                keyset_end=fast[-1].session_end,
+                keyset_session_id=fast[-1].session_id,
+                deep_candidates=deep,
+                deep_swept_through=deep_horizon,
             ),
         }
     )
@@ -1518,7 +1644,12 @@ async def test_already_started_child_is_silently_skipped() -> None:
     already_started_id = f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a"
     mocks = _SweepMocks(
         activity_results={
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=candidates, saturated=False),
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=candidates,
+                saturated=False,
+                keyset_end=candidates[-1].session_end,
+                keyset_session_id=candidates[-1].session_id,
+            ),
         },
         child_errors_for_ids={
             already_started_id: WorkflowAlreadyStartedError(workflow_id=already_started_id, workflow_type="x"),
@@ -1601,7 +1732,6 @@ async def test_inflight_cap_gates_the_sweep(
     if expected_candidate_limit is None:
         # Throttled: no find, no apply dispatch.
         assert [fn for fn, _ in mocks.activity_calls] == [
-            refresh_prompt_suggestion_activity,
             check_scanner_budget_activity,
             count_in_flight_by_team_activity,
         ]
@@ -1622,8 +1752,6 @@ async def test_capped_scanner_skips_the_sweep_entirely() -> None:
     await _run_sweep(mocks)
 
     called = [fn for fn, _ in mocks.activity_calls]
-    # Capped means no session scans; the heartbeats spend no scanner credits, so they still run.
-    assert refresh_prompt_suggestion_activity in called
     assert find_scanner_candidates_activity not in called
     assert count_in_flight_by_team_activity not in called
     assert mocks.child_calls == []
@@ -1644,26 +1772,3 @@ async def test_budget_check_failure_does_not_fail_the_sweep() -> None:
 
     called = [fn for fn, _ in mocks.activity_calls]
     assert find_scanner_candidates_activity in called
-
-
-@pytest.mark.asyncio
-async def test_unpatched_sweep_replays_legacy_scanner_counter() -> None:
-    # A sweep that started before the team-cap patch must replay the legacy scanner-only counter (its
-    # recorded int result), never the team-aware activity that returns a different type; otherwise the
-    # in-flight execution wedges on a deserialization mismatch across the deploy.
-    mocks = _SweepMocks(
-        activity_results={
-            count_in_flight_applies_activity: 3,
-            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
-        },
-    )
-
-    await _run_sweep(mocks, patched=False)
-
-    called = [fn for fn, _ in mocks.activity_calls]
-    assert count_in_flight_applies_activity in called
-    assert count_in_flight_by_team_activity not in called
-    # The budget gate is patched too, so a pre-deploy sweep replays its history without it.
-    assert check_scanner_budget_activity not in called
-    find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
-    assert find_calls[0].candidate_limit == MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 3

@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import PreparedRequest
 
@@ -10,14 +11,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.settings import (
     FLEETIO_ENDPOINTS,
+    PER_PAGE,
     FleetioEndpointConfig,
 )
 
@@ -27,8 +33,9 @@ FLEETIO_API_HOST = "https://secure.fleetio.com"
 # `X-Api-Version` header overrides that lock per request. We pin a modern date version explicitly so
 # every index endpoint serves the same cursor-pagination + `filter`/`sort` contract regardless of the
 # key's locked version. Two labels are supported:
-#   "v1"         -> the 2024-06-30 date version, served under the integer `/api/v1` path.
-#   "2025-05-05" -> the same pagination/filter contract, but Fleetio drops the integer path segment
+#   "v1"         -> the 2024-06-30 date version, which carries each resource's API generation in the
+#                   path (`/api/v1/vehicles`, `/api/v2/service_entries/{id}/service_entry_line_items`).
+#   "2025-05-05" -> the same pagination/filter contract, but Fleetio dropped the generation segment
 #                   from this version onward (resources move to `/api/{resource}`).
 # See https://developer.fleetio.com/docs/overview/versioning.
 FLEETIO_LEGACY_VERSION = "v1"
@@ -42,26 +49,27 @@ DEFAULT_VERSION = SUPPORTED_VERSIONS[-1]
 # for that label). Referenced by tests as the header the "v1" pin sends.
 FLEETIO_API_VERSION = "2024-06-30"
 
+# Shared by every supported version; the per-resource generation segment, where a version still uses
+# one, is part of the resource path rather than the base.
+FLEETIO_BASE_URL = f"{FLEETIO_API_HOST}/api"
+
 
 @dataclasses.dataclass(frozen=True)
 class _VersionContract:
-    base_url: str
     version_header: str
+    uses_path_version_segment: bool
 
 
 # Maps every supported label to the wire contract it selects. Coverage is exhaustive by construction
 # (`_resolve_contract` raises on an unmapped pin) — never fall through to a default, which would send
 # no version header and silently track "latest", the drift versioning exists to prevent.
 _VERSION_CONTRACTS: dict[str, _VersionContract] = {
-    FLEETIO_LEGACY_VERSION: _VersionContract(base_url=f"{FLEETIO_API_HOST}/api/v1", version_header=FLEETIO_API_VERSION),
+    FLEETIO_LEGACY_VERSION: _VersionContract(version_header=FLEETIO_API_VERSION, uses_path_version_segment=True),
     FLEETIO_VERSION_2025_05_05: _VersionContract(
-        base_url=f"{FLEETIO_API_HOST}/api", version_header=FLEETIO_VERSION_2025_05_05
+        version_header=FLEETIO_VERSION_2025_05_05, uses_path_version_segment=False
     ),
 }
 
-# Base URL of the legacy contract; retained as a module constant for readability at call sites.
-FLEETIO_BASE_URL = _VERSION_CONTRACTS[FLEETIO_LEGACY_VERSION].base_url
-PER_PAGE = 100
 DEFAULT_INCREMENTAL_FIELD = "updated_at"
 
 
@@ -70,6 +78,12 @@ def _resolve_contract(api_version: str) -> _VersionContract:
         return _VERSION_CONTRACTS[api_version]
     except KeyError:
         raise ValueError(f"Unsupported Fleetio API version pin: {api_version!r}")
+
+
+def _resource_path(contract: _VersionContract, config: FleetioEndpointConfig) -> str:
+    if contract.uses_path_version_segment:
+        return f"/{config.path_version}{config.path}"
+    return config.path
 
 
 class FleetioAuth(AuthConfigBase):
@@ -145,10 +159,33 @@ def _build_base_params(
     return params
 
 
-@dataclasses.dataclass
+def _client_config(api_key: str, account_token: str, contract: _VersionContract) -> ClientConfig:
+    return {
+        "base_url": FLEETIO_BASE_URL,
+        "headers": _non_secret_headers(contract.version_header),
+        "auth": FleetioAuth(api_key, account_token),
+        # Every index endpoint returns the cursor envelope ({"records": [...], "next_cursor": ...});
+        # the cursor is carried forward as the `start_cursor` query param.
+        "paginator": JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="start_cursor"),
+        # Pin every request — including the paginator's next-page cursor requests — to the Fleetio
+        # host and refuse redirects, so a tampered/spoofed response can't exfiltrate the two
+        # credential headers to another origin.
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+@dataclasses.dataclass(frozen=True)
 class FleetioResumeConfig:
-    # The cursor to start the next page from. None means "start at the first page".
+    # The cursor to start the next page from, for a top-level endpoint. None means "start at the
+    # first page".
     start_cursor: str | None = None
+    # Fan-out endpoints resume by parent: the parent paths already fully synced, the parent in
+    # progress, and that parent's paginator state — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 def validate_credentials(api_key: str, account_token: str, api_version: str) -> bool:
@@ -160,51 +197,56 @@ def validate_credentials(api_key: str, account_token: str, api_version: str) -> 
     contract = _resolve_contract(api_version)
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key, account_token)),
-        f"{contract.base_url}/vehicles?per_page=1",
+        f"{FLEETIO_BASE_URL}{_resource_path(contract, FLEETIO_ENDPOINTS['vehicles'])}?per_page=1",
         headers=_non_secret_headers(contract.version_header),
         auth=FleetioAuth(api_key, account_token),
     )
     return ok
 
 
-def fleetio_source(
+def _make_source_response(
+    config: FleetioEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    sort_mode: SortMode | None,
+    column_hints: dict[str, Any] | None = None,
+) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode=sort_mode,
+        column_hints=column_hints,
+    )
+
+
+def _top_level_source(
+    config: FleetioEndpointConfig,
+    contract: _VersionContract,
     api_key: str,
     account_token: str,
-    endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[FleetioResumeConfig],
-    api_version: str = DEFAULT_VERSION,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
 ) -> SourceResponse:
-    config = FLEETIO_ENDPOINTS[endpoint]
-    contract = _resolve_contract(api_version)
-
     params = _build_base_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": contract.base_url,
-            "headers": _non_secret_headers(contract.version_header),
-            "auth": FleetioAuth(api_key, account_token),
-            # Every index endpoint returns the cursor envelope ({"records": [...], "next_cursor": ...});
-            # the cursor is carried forward as the `start_cursor` query param.
-            "paginator": JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="start_cursor"),
-            # Pin every request — including the paginator's next-page cursor requests — to the Fleetio
-            # host and refuse redirects, so a tampered/spoofed response can't exfiltrate the two
-            # credential headers to another origin.
-            "allowed_hosts": [],
-            "allow_redirects": False,
-        },
+        "client": _client_config(api_key, account_token, contract),
         "resources": [
             {
-                "name": endpoint,
+                "name": config.name,
                 "endpoint": {
-                    "path": config.path,
+                    "path": _resource_path(contract, config),
                     "params": params,
                     "data_selector": "records",
                     # A 200 body without `records` (e.g. a bare list because the version pin was
@@ -237,15 +279,109 @@ def fleetio_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
-        column_hints=resource.column_hints,
+    return _make_source_response(config, lambda: resource, sort_mode="asc", column_hints=resource.column_hints)
+
+
+def _fanout_source(
+    config: FleetioEndpointConfig,
+    contract: _VersionContract,
+    api_key: str,
+    account_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[FleetioResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = FLEETIO_ENDPOINTS[config.fanout.parent_name]
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                FleetioResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=FLEETIO_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key, account_token, contract),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # The parent and child sit on different API generations, so each resource's path has to
+            # carry its own version segment rather than share one from the client base URL.
+            parent_endpoint_extra={
+                "path": _resource_path(contract, parent_config),
+                "data_selector": "records",
+                "data_selector_required": True,
+            },
+            child_endpoint_extra={
+                "path": _resource_path(contract, config),
+                "data_selector": "records",
+                "data_selector_required": True,
+            },
+            page_size_param="per_page",
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    # Rows arrive grouped by parent service entry, so the partition key is not globally ascending.
+    return _make_source_response(config, lambda: dependent_resource, sort_mode=None)
+
+
+def fleetio_source(
+    api_key: str,
+    account_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[FleetioResumeConfig],
+    api_version: str = DEFAULT_VERSION,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    config = FLEETIO_ENDPOINTS[endpoint]
+    contract = _resolve_contract(api_version)
+
+    if config.fanout is not None:
+        return _fanout_source(
+            config,
+            contract,
+            api_key,
+            account_token,
+            team_id,
+            job_id,
+            resumable_source_manager,
+        )
+
+    return _top_level_source(
+        config,
+        contract,
+        api_key,
+        account_token,
+        team_id,
+        job_id,
+        resumable_source_manager,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        incremental_field,
     )

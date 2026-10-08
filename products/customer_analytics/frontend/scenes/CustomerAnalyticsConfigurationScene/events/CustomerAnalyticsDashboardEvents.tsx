@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
@@ -23,6 +24,10 @@ import { isPageviewWithoutFilters } from 'products/customer_analytics/frontend/u
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
+function reportCustomerAnalyticsDashboardEventPickerClicked({ event }: { event: string }): void {
+    posthog.capture('customer analytics dashboard event picker clicked', { event })
+}
+
 export interface EventSelectorProps {
     caption?: string
     filters: FilterType | null
@@ -35,7 +40,7 @@ export interface EventSelectorProps {
 function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
-    const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
+
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,

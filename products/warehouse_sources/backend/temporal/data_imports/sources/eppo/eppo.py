@@ -35,6 +35,9 @@ _ENDPOINT_PATHS: dict[str, str] = {
     "Tags": "/tags",
     "Audiences": "/audiences",
     "Environments": "/environments",
+    "EntityDefinitions": "/definitions/entities",
+    "FactDefinitions": "/definitions/facts",
+    "DimensionDefinitions": "/definitions/dimensions",
 }
 
 _ENDPOINT_STATIC_PARAMS: dict[str, dict[str, Any]] = {

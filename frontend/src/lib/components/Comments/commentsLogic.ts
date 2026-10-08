@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -629,6 +630,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         slug: discussionsSlug(props.scope, props.item_id),
                         is_task: asTask && !isReply,
                     })
+                    posthog.capture('comment created', { scope: props.scope, is_reply: isReply, is_emoji: false })
 
                     values.itemContext?.callback?.({ sent: true })
 
@@ -746,6 +748,11 @@ export const commentsLogic = kea<commentsLogicType>([
                             is_emoji: true,
                         },
                         mentions: [],
+                    })
+                    posthog.capture('comment created', {
+                        scope: props.scope,
+                        is_reply: !!sourceCommentId,
+                        is_emoji: true,
                     })
 
                     return [...existingComments, newComment]

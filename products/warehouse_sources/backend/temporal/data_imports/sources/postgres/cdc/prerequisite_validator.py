@@ -55,6 +55,7 @@ def validate_cdc_prerequisites(
     if management_mode == "posthog":
         errors.extend(_check_replication_role(conn))
         errors.extend(_check_replication_slot_capacity(conn))
+        errors.extend(_check_table_ownership(conn, qualified_tables))
     elif management_mode == "self_managed":
         # Self-managed: the DBA creates the publication out-of-band, PostHog creates
         # and owns the slot at source-creation time. So we only verify the publication
@@ -177,6 +178,48 @@ def _check_select_permission(conn: psycopg.Connection, tables: list[_QualifiedTa
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
                 errors.append(f"Table '{qualified.schema}.{qualified.table}' does not exist.")
+    return errors
+
+
+def _check_table_ownership(conn: psycopg.Connection, tables: list[_QualifiedTable]) -> list[str]:
+    """Each target table must be owned by the connecting role (PostHog-managed mode).
+
+    PostHog builds the publication itself, and PostgreSQL only lets a table's owner put it
+    in one. A role with REPLICATION and SELECT but no ownership passes every other check
+    here and then fails at CREATE PUBLICATION / ALTER PUBLICATION ADD TABLE with
+    "must be owner of table". Membership in the owning role counts as ownership, which is
+    what pg_has_role reports.
+
+    A table with no pg_class row is skipped, because the primary-key and SELECT checks
+    already report it as missing.
+    """
+    if not tables:
+        return []
+
+    errors: list[str] = []
+    with conn.cursor() as cur:
+        for qualified in tables:
+            cur.execute(
+                sql.SQL(
+                    "SELECT pg_has_role(current_user, c.relowner, 'USAGE') FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = {} AND c.relname = {}"
+                ).format(sql.Literal(qualified.schema), sql.Literal(qualified.table))
+            )
+            row = cur.fetchone()
+            if row is not None and row[0] is False:
+                # The user pastes this command, so the identifiers must survive PostgreSQL's
+                # folding of unquoted names to lower case. A table named "Orders" is addressed by
+                # ALTER TABLE public.Orders as `orders`, which does not exist.
+                quoted_name = sql.Identifier(qualified.schema, qualified.table).as_string(None)
+                errors.append(
+                    f"The database user does not own table '{qualified.schema}.{qualified.table}'. "
+                    "PostgreSQL only lets a table's owner publish it, and CDC publishes every table it syncs. "
+                    f"Grant ownership with ALTER TABLE {quoted_name} OWNER TO <username>, "
+                    "or add the user to the role that owns the table with GRANT <owner_role> TO <username>. "
+                    "If you can't change ownership, switch this table to Incremental sync instead of CDC. "
+                    "Incremental needs only SELECT permission."
+                )
     return errors
 
 

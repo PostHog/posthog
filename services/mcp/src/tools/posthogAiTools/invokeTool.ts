@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/generated'
+import { MCPToolResultError } from '@/lib/errors'
 import type { Context } from '@/tools/types'
 
 export type McpToolResult = Schemas.MCPToolResponse
@@ -25,9 +26,15 @@ export async function invokeMcpTool(
 ): Promise<McpToolResult> {
     const projectId = await context.stateManager.getProjectId()
 
-    return await context.api.request<McpToolResult>({
+    const result = await context.api.request<McpToolResult>({
         method: 'POST',
         path: `/api/environments/${projectId}/mcp_tools/${toolName}/`,
         body: { args },
     })
+    if (!result.success) {
+        throw result.error_type
+            ? new MCPToolResultError(result.content, result.error_type, result.error_code ?? undefined)
+            : new Error(result.content)
+    }
+    return result
 }

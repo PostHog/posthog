@@ -239,7 +239,8 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         &[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0];
     // Global rate limiter sync staleness (milliseconds)
     const GLOBAL_RATE_LIMITER_STALENESS_MS: &[f64] = &[
-        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0,
+        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0, 90000.0, 120000.0,
+        300000.0, 3600000.0,
     ];
 
     // Absolute client clock skew buckets (in seconds).

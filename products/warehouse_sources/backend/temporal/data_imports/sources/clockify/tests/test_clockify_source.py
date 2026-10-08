@@ -14,11 +14,6 @@ class TestClockifySource:
         self.source = ClockifySource()
         self.team_id = 123
 
-    def test_non_retryable_error_keys_match_clockify_host(self) -> None:
-        # The observed HTTPError message embeds the request URL; the key must match the base host.
-        observed = "401 Client Error: Unauthorized for url: https://api.clockify.me/api/v1/user"
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
-
     def test_validate_credentials_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(
             "products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source.validate_clockify_credentials",

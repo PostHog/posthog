@@ -7,9 +7,9 @@ so it depends on which other serializers declare a field with the same name:
 a new colliding field anywhere renames an unrelated enum.
 
 ChoicesEnumNameOverrides makes the name independent of that pool. On first
-access it walks every django.db.models.Choices subclass and registers the class under a
-name derived from its qualname, so the schema name follows the definition
-site of the choices and never depends on the enum pool. The explicit dict
+access it walks every django.db.models.Choices subclass and every labeled enum from
+posthog.enums, and registers each class under a name derived from its qualname, so the
+schema name follows the definition site of the choices and never depends on the enum pool. The explicit dict
 passed in wins over anything derived; it is reserved for choice sets no class
 can name (see the comment on the dict in posthog/settings/web.py).
 
@@ -22,7 +22,10 @@ import inspect
 from collections import defaultdict
 from collections.abc import ItemsView, Iterable, Iterator, KeysView, Mapping, ValuesView
 from enum import Enum
+from itertools import chain
 from typing import Any
+
+from posthog.enums import LabeledEnumType, LabeledIntEnum, LabeledStrEnum
 
 ENUM_SUFFIX = "Enum"
 
@@ -45,7 +48,7 @@ def derive_enum_name(qualname: str) -> str | None:
 
 
 def build_derived_overrides(classes: Iterable[type], explicit: Mapping[str, Any]) -> dict[str, Any]:
-    """Name -> Choices class for every class the explicit dict does not displace.
+    """Name -> override value for every class the explicit dict does not displace.
 
     Two safety rules keep the result unambiguous:
       - Classes with identical (value, label) pairs share one hash, so the
@@ -77,9 +80,16 @@ def build_derived_overrides(classes: Iterable[type], explicit: Mapping[str, Any]
             continue
         hashes_by_name[name].append(cls_hash)
         class_by_name[name] = next(iter(class_set))
-    # The value registered is the class itself, so drf-spectacular applies its own
-    # normalization and the hash always matches the fields built from the class.
-    return {name: class_by_name[name] for name, hashes in hashes_by_name.items() if len(hashes) == 1}
+    return {name: _override_value(class_by_name[name]) for name, hashes in hashes_by_name.items() if len(hashes) == 1}
+
+
+def _override_value(cls: type) -> Any:
+    # drf-spectacular hashes any Enum class as (value, name) pairs, but fields built from a
+    # labeled enum carry X.choices, which are (value, label) pairs. So a labeled enum registers
+    # its choices. A Choices class registers itself, and drf-spectacular reads its choices.
+    if isinstance(cls, LabeledEnumType):
+        return cls.choices
+    return cls
 
 
 def _choices_hash(value: Any) -> str | None:
@@ -98,7 +108,7 @@ def _choices_hash(value: Any) -> str | None:
     try:
         if isinstance(value, str):
             value = deep_import_string(value)
-        if inspect.isclass(value) and issubclass(value, Choices):
+        if inspect.isclass(value) and (issubclass(value, Choices) or isinstance(value, LabeledEnumType)):
             value = value.choices
         if inspect.isclass(value) and issubclass(value, Enum):
             value = [(member.value, member.name) for member in value]
@@ -160,5 +170,6 @@ class ChoicesEnumNameOverrides(Mapping[str, Any]):
     def _load(self) -> dict[str, Any]:
         from django.db.models import Choices  # noqa: PLC0415 because settings import this module before Django is ready
 
-        derived = build_derived_overrides(_all_subclasses(Choices), self._explicit)
+        classes = chain(_all_subclasses(Choices), _all_subclasses(LabeledStrEnum), _all_subclasses(LabeledIntEnum))
+        derived = build_derived_overrides(classes, self._explicit)
         return {**derived, **self._explicit}

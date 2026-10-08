@@ -15,14 +15,30 @@ describe('hogQLMetadataProvider', () => {
         return starts
     }
 
-    const codeActionsAt = (markers: ModelMarker[], activeMarker: ModelMarker): languagesCodeAction[] => {
-        const starts = lineStarts(SCRIPT)
+    const MODEL_VERSION = 7
+
+    const codeActionsAt = (
+        markers: ModelMarker[],
+        activeMarker: ModelMarker,
+        { metadataLoading = false, modelText = SCRIPT }: { metadataLoading?: boolean; modelText?: string } = {}
+    ): languagesCodeAction[] => {
+        const starts = lineStarts(modelText)
         const model = {
             uri: 'inmemory://model/1',
-            codeEditorLogic: { isMounted: () => true, values: { modelMarkers: markers } },
+            codeEditorLogic: {
+                isMounted: () => true,
+                props: { metadataQueryOffset: SECOND_STATEMENT_OFFSET },
+                values: {
+                    modelMarkers: markers,
+                    metadataLoading,
+                    // The metadata query covered the second statement.
+                    metadata: [SCRIPT.slice(SECOND_STATEMENT_OFFSET), {}],
+                },
+            },
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 starts[lineNumber - 1] + column - 1,
-            getValue: () => SCRIPT,
+            getValue: () => modelText,
+            getVersionId: () => MODEL_VERSION,
         }
         const result = hogQLMetadataProvider().provideCodeActions?.(
             model as any,
@@ -35,6 +51,7 @@ describe('hogQLMetadataProvider', () => {
 
     interface languagesCodeAction {
         title: string
+        edit?: { edits: { versionId?: number }[] }
     }
 
     // `event = 'pageview'` sits in the second statement. Its statement-relative offsets are small,
@@ -59,6 +76,21 @@ describe('hogQLMetadataProvider', () => {
         const actions = codeActionsAt([marker], marker)
 
         expect(actions.map((action) => action.title)).toEqual(["Replace with: '$pageview'"])
+        expect(actions[0].edit?.edits[0].versionId).toEqual(MODEL_VERSION)
+    })
+
+    // Typing before the analyzed statement shifts the text under the stored marker range, and a
+    // refresh in flight means the stored ranges are about to be replaced. Either way the offered
+    // edit would land on the wrong text.
+    it.each([
+        ['metadata is still loading', { metadataLoading: true }],
+        ['the model text has moved on from the analyzed text', { modelText: ` ${SCRIPT}` }],
+    ])('offers nothing when %s', (_, options) => {
+        const marker = taxonomyMarker()
+
+        const actions = codeActionsAt([marker], marker, options)
+
+        expect(actions).toEqual([])
     })
 
     it('does not offer a quick fix when the caret is on an unrelated marker', () => {

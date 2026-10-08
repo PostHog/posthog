@@ -70,6 +70,27 @@ Loading.parameters = {
     testOptions: { waitForLoadersToDisappear: false },
 }
 
+// Every other story leaves `synced_sources` unset, so they all show the not-used cell. This is
+// the only one that shows a destination a source actually writes to.
+export const Linked = Template.bind({})
+Linked.args = {
+    ...Default.args,
+    destinations: [
+        {
+            ...POSTGRES,
+            synced_sources: [
+                {
+                    id: '01a03e9c-1b80-0000-0000-000000000001',
+                    name: 'Stripe',
+                    source_type: 'Stripe',
+                    via_table_override: false,
+                },
+            ],
+        } as ExternalDataDestinationApi,
+        WAREHOUSE,
+    ],
+}
+
 export const Empty = Template.bind({})
 Empty.args = {
     ...Default.args,

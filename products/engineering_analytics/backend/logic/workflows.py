@@ -1,6 +1,7 @@
 """Workflow/run/job-scoped orchestration: health, activity, jobs, costs, and repo-level state."""
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CurrentBranchHealth,
     MasterFailureGroup,
     RepoOverview,
@@ -38,14 +39,16 @@ from products.engineering_analytics.backend.logic.queries.workflow_run_list impo
 _DEFAULT_WORKFLOW_WINDOW = "-24h"
 
 
-def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
-    return query_workflow_run(curated=curated, run_id=run_id)
+def build_workflow_run(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> WorkflowRunDetail | None:
+    return query_workflow_run(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_workflow_jobs(
-    *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int, run_attempt: int | None = None
 ) -> list[WorkflowJob]:
-    return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
+    return query_workflow_jobs(curated=curated, run_id=run_id, ci_engine=ci_engine, run_attempt=run_attempt)
 
 
 def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
@@ -207,8 +210,10 @@ def build_master_failures(
     return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
 
 
-def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
-    return query_run_failure_logs(curated=curated, run_id=run_id)
+def build_run_failure_logs(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_job_aggregates(

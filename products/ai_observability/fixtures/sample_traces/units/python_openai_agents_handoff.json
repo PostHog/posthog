@@ -1,0 +1,222 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Homework reminder chaser agent evaluates escalation",
+  "scenario": "An openai-agents pipeline evaluates whether an overdue essay warrants another reminder to a ninth-grade student, weighing prior reminder engagement and policy thresholds before recommending a channel switch and a guardian notification.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 3,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "openai-agents"
+    ],
+    "models": [
+      "gpt-5.6-luna"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_group_id": "5c267fca-7e17-79b8-ef4d-32b9aab9a1d3",
+        "$ai_parent_id": "span_n7DBeL3zDsDReBjabZkke91M",
+        "$ai_model": "gpt-5.6-luna",
+        "$ai_output_tokens": 89,
+        "$ai_stop_reason": "completed",
+        "environment": "prod",
+        "source": "backend",
+        "$os_version": "12",
+        "project_id": "vtrn-oHO3o3F2",
+        "$ai_trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy",
+        "$ai_total_tokens": 1831,
+        "source_system": "backend",
+        "$is_server": true,
+        "$ai_framework": "openai-agents",
+        "$ai_provider": "openai",
+        "$os_distro": "Debian GNU/Linux",
+        "$lib": "posthog-python",
+        "$ai_response_id": "BhwzGkfqSvxAOWEtmLEHKlcBcKzjYfuXTYhvAQuvk9Wu3jnfbI/2w11O2UTqHS+escZVe2Fvf0yXeOwxoeVquF7R5BdizTFxh19Qulo16yTlhe5Fkc4A411bD2Ka6SHnYlTqIFJ5nUWkoxBrK3rQxefplZcZ/av2REpopOqbDoy7De8CKG1EtgikDXmwdifZ5SDVipmnEaF5IJCl67Qc7EbjXLVXg2dwlZIGnue1pFkotQbjG",
+        "$python_version": "3.13.11",
+        "$os": "Linux",
+        "$python_runtime": "CPython",
+        "$ai_span_id": "span_wLzTAWYaUkUfWmv1ZxvM2R1V",
+        "$lib_version": "7.22.0",
+        "$ai_latency": 1.5705881118774414,
+        "$ai_input_tokens": 1742,
+        "$geoip_disable": true,
+        "$ai_input": [
+          {
+            "content": "ASSIGNMENT CONTEXT\ncourse: World History 9\nassignment: Essay - Causes of the Industrial Revolution\nassignment_id: wh9-ess-04\ndue_at: 2026-09-22T23:59:00Z\ncurrent_time: 2026-09-24T12:16:00Z\nhours_overdue: 36.3\nmin_word_count: 600\n\nSTUDENT\nstudent_id: stu_48213\ndisplay_name: withheld\ngrade_level: 9\ntimezone: America/Denver\n\nSUBMISSION STATUS\nsubmitted: false\ndraft_saved: true\ndraft_word_count: 210\ndraft_last_edited: 2026-09-21T20:04:00Z\nportal_last_login: 2026-09-23T08:11:00Z\n\nREMINDER HISTORY\nreminder_1_sent_at: 2026-09-21T09:00:00Z\nreminder_1_channel: email\nreminder_1_opened: true\nreminder_2_sent_at: 2026-09-23T09:00:00Z\nreminder_2_channel: email\nreminder_2_opened: false\nreminder_3_sent_at: null\n\nGUARDIAN CONTACT\nguardian_opted_in: true\nguardian_channel: sms\nguardian_last_notified_at: null\n\nPOLICY THRESHOLDS\nescalate_to_guardian_after_hours: 24\nescalate_to_teacher_after_hours: 48\nmax_reminders_before_escalation: 3\n\nTASK\nDecide whether to send another reminder now, and if so through which channel, given the\nhistory above. The student has a saved draft at only 210 of 600 required words and has not\nopened the second reminder email. Two reminders have already gone out through the same\nchannel without a submission. Consider whether switching channels or looping in the guardian\nis warranted at 36.3 hours overdue, given the policy thresholds, and note your reasoning\nbefore returning the structured evaluation. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": "{\"should_send_reminder\": true, \"urgency\": \"high\", \"recommended_channel\": \"sms\", \"notify_guardian\": true, \"reasoning\": \"Two email reminders have gone out with declining engagement and no submission; switching to SMS and looping in the guardian now, at 36 hours overdue, matches policy before the 48-hour teacher escalation threshold is reached.\"} Check the submission portal timestamp again before deciding. Check the submission portal timestamp again before deciding."
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 4,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib": "posthog-python",
+        "$ai_span_type": "turn",
+        "$ai_span_data": {
+          "data": {
+            "agent_name": "ChaserAgent",
+            "record_kind": "turn",
+            "turn": 1,
+            "usage": {
+              "cached_input_tokens": 0,
+              "input_tokens": 1742,
+              "output_tokens": 89
+            }
+          },
+          "name": "turn",
+          "type": "custom"
+        },
+        "$geoip_disable": true,
+        "$ai_latency": 1.5781753063201904,
+        "$os": "Linux",
+        "source": "backend",
+        "$os_version": "12",
+        "source_system": "backend",
+        "$is_server": true,
+        "$python_version": "3.13.11",
+        "$ai_parent_id": "span_TllqtNsnYn3z6gfjyPCldyWj",
+        "$os_distro": "Debian GNU/Linux",
+        "project_id": "vtrn-oHO3o3F2",
+        "$ai_framework": "openai-agents",
+        "$lib_version": "7.22.0",
+        "$ai_group_id": "5c267fca-7e17-79b8-ef4d-32b9aab9a1d3",
+        "$python_runtime": "CPython",
+        "$ai_provider": "openai",
+        "$ai_span_name": "turn",
+        "$ai_trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy",
+        "$ai_span_id": "span_n7DBeL3zDsDReBjabZkke91M",
+        "environment": "prod"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib": "posthog-python",
+        "$ai_agent_output_type": "NudgeDecisionStructure",
+        "$ai_latency": 1.581153154373169,
+        "$lib_version": "7.22.0",
+        "$os": "Linux",
+        "$geoip_disable": true,
+        "$ai_parent_id": "span_ZLWsmaTwunT5TCmj2kApiwQo",
+        "source_system": "backend",
+        "source": "backend",
+        "$ai_trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy",
+        "$ai_framework": "openai-agents",
+        "$python_runtime": "CPython",
+        "$os_version": "12",
+        "$is_server": true,
+        "project_id": "vtrn-oHO3o3F2",
+        "environment": "prod",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_span_type": "agent",
+        "$ai_span_name": "ChaserAgent",
+        "$ai_provider": "openai",
+        "$ai_group_id": "5c267fca-7e17-79b8-ef4d-32b9aab9a1d3",
+        "$ai_span_id": "span_TllqtNsnYn3z6gfjyPCldyWj",
+        "$python_version": "3.13.11"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 6,
+      "distinct_id": "user-1",
+      "properties": {
+        "$python_version": "3.13.11",
+        "project_id": "vtrn-oHO3o3F2",
+        "$ai_span_data": {
+          "data": {
+            "name": "homework_chaser_pipeline",
+            "record_kind": "eval",
+            "usage": {
+              "cached_input_tokens": 0,
+              "input_tokens": 1742,
+              "output_tokens": 89,
+              "requests": 1,
+              "total_tokens": 1831
+            }
+          },
+          "name": "eval",
+          "type": "custom"
+        },
+        "$ai_latency": 1.5847046375274658,
+        "$python_runtime": "CPython",
+        "$is_server": true,
+        "$ai_parent_id": null,
+        "$os_version": "12",
+        "$ai_group_id": "5c267fca-7e17-79b8-ef4d-32b9aab9a1d3",
+        "$os_distro": "Debian GNU/Linux",
+        "$lib_version": "7.22.0",
+        "$os": "Linux",
+        "$ai_framework": "openai-agents",
+        "$geoip_disable": true,
+        "source_system": "backend",
+        "$ai_span_id": "span_ZLWsmaTwunT5TCmj2kApiwQo",
+        "$ai_provider": "openai",
+        "$ai_span_type": "task",
+        "$ai_span_name": "eval",
+        "$lib": "posthog-python",
+        "environment": "prod",
+        "$ai_trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy",
+        "source": "backend"
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 6,
+      "distinct_id": "user-1",
+      "properties": {
+        "$python_version": "3.13.11",
+        "$lib_version": "7.22.0",
+        "$lib": "posthog-python",
+        "project_id": "vtrn-oHO3o3F2",
+        "$os_version": "12",
+        "$ai_trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy",
+        "$ai_provider": "openai",
+        "$ai_latency": 1.5880234241485596,
+        "$os_distro": "Debian GNU/Linux",
+        "$is_server": true,
+        "$os": "Linux",
+        "environment": "prod",
+        "source": "backend",
+        "$ai_trace_name": "homework_chaser_pipeline",
+        "$ai_group_id": "5c267fca-7e17-79b8-ef4d-32b9aab9a1d3",
+        "$ai_framework": "openai-agents",
+        "$ai_trace_metadata": {
+          "environment": "prod",
+          "feature": "essay_chaser",
+          "posthog_distinct_id": "u98213",
+          "project_id": "vtrn-oHO3o3F2",
+          "trace_id": "trace_hYNKAsJ30KRf4RST8E11KJO7C3Zpz0Qy"
+        },
+        "$geoip_disable": true,
+        "$python_runtime": "CPython",
+        "source_system": "backend"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

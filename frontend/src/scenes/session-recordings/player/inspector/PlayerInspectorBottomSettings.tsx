@@ -26,10 +26,12 @@ function HideProperties(): JSX.Element {
 
     return (
         <SettingsMenu
+            data-attr="inspector-hide-properties-menu"
             items={[
                 {
                     label: <>{hidePostHogPropertiesInTable ? <IconCheck /> : <BaseIcon />} Hide PostHog properties</>,
                     onClick: () => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable),
+                    'data-attr': 'inspector-hide-posthog-properties',
                     active: hidePostHogPropertiesInTable,
                     disabledReason:
                         hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list',
@@ -37,6 +39,7 @@ function HideProperties(): JSX.Element {
                 {
                     label: <>{hideNullValues ? <IconCheck /> : <BaseIcon />} Hide null values</>,
                     onClick: () => setHideNullValues(!hideNullValues),
+                    'data-attr': 'inspector-hide-null-values',
                     active: hideNullValues,
                     disabledReason:
                         hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list',
@@ -57,6 +60,7 @@ function SyncScrolling(): JSX.Element {
 
     return (
         <SettingsToggle
+            data-attr="inspector-sync-scrolling"
             title={
                 syncScrollPaused
                     ? 'Scroll the activity list in sync with playback'
@@ -85,6 +89,7 @@ function ShowOnlyMatching(): JSX.Element {
 
     return (
         <SettingsToggle
+            data-attr="inspector-show-only-matching"
             title={
                 showOnlyMatching
                     ? 'Show all events for this recording'
@@ -112,6 +117,7 @@ function GroupRepeatedItems(): JSX.Element {
 
     return (
         <SettingsToggle
+            data-attr="inspector-group-similar"
             title={
                 groupRepeatedItems
                     ? 'Stop grouping repeated items'
@@ -130,6 +136,7 @@ function ShowLineTooltips(): JSX.Element {
 
     return (
         <SettingsToggle
+            data-attr="inspector-line-tooltips"
             title={showLineTooltips ? 'Hide hover tooltips on inspector lines' : 'Show the full line content on hover'}
             label="Show line tooltips"
             onClick={() => setShowLineTooltips(!showLineTooltips)}

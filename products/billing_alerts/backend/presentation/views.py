@@ -18,7 +18,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminReadPermissions, PostHogFeatureFlagPermission
 
-from products.alerts.backend.facade.contracts import AlertDestinationValidationError
+from products.alerts_platform.backend.facade.contracts import AlertDestinationValidationError
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration
 from products.billing_alerts.backend.presentation.serializers import (

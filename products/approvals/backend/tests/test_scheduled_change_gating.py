@@ -232,6 +232,32 @@ class TestScheduledChangeGating(APIBaseTest):
         assert response.json()["code"] == "policy_conflict"
         assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
 
+    def test_scheduled_change_is_refused_when_detection_fails(self, _mock_enabled):
+        # A schedule saved past a failed detection fires later with no approver watching, so a
+        # detect() that raises must stop the row being saved rather than let it through ungated.
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        with patch(
+            "products.approvals.backend.actions.feature_flags.EnableFeatureFlagAction.detect",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                {
+                    "record_id": str(flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 500, response.content
+        assert response.json()["code"] == "approval_detection_failed"
+        assert "needs approval" in response.json()["detail"]
+        assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
+
     def test_scheduled_change_without_policy_applies_normally(self, _mock_enabled):
         flag = self._disabled_flag()
 

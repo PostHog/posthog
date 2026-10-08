@@ -11,9 +11,9 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 
-from products.access_control.backend.models.role import RoleMembership
+from products.access_control.backend.facade.api import valid_role_member_user_ids
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
@@ -112,11 +112,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(
-            RoleMembership.objects.filter(role=assignment.role)
-            .valid_for_authorization()
-            .values_list("user_id", flat=True)
-        )
+        role_member_user_ids = valid_role_member_user_ids(role_id=assignment.role_id)
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
@@ -657,6 +653,7 @@ def create_external_reference(
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
+    analytics_props: AnalyticsProps | None = None,
 ) -> contracts.ErrorTrackingExternalReference:
     reference, created = external_references.create_external_reference(
         team_id=team_id,
@@ -673,6 +670,7 @@ def create_external_reference(
             distinct_id=distinct_id,
             groups=groups(reference.issue.team.organization, reference.issue.team),
             properties={
+                **(analytics_props or {}),
                 "issue_id": reference.issue_id,
                 "integration_kind": reference.integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.

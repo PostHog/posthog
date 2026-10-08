@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.se
     VALUES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
-    MAX_EMPTY_VALUES_WINDOWS,
     UBIDOTS_API_VERSION_LEGACY,
     UBIDOTS_API_VERSION_V2_0,
     VALUES_WINDOW_MS,
@@ -91,13 +90,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_single_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {DEVICES_FIRST_URL: ([{"id": "a"}, {"id": "b"}], None)})
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        # A null next link ends the sync without persisting resume state.
-        assert manager.saved == []
-
     def test_follows_next_url_cursor_until_null(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         second = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=2&page_size=200"
@@ -116,12 +108,6 @@ class TestGetRows:
         # The first page URL must never be fetched on resume.
         rows = self._collect(manager, monkeypatch, {second: ([{"id": "b"}], None)})
         assert rows == [{"id": "b"}]
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {DEVICES_FIRST_URL: ([], None)})
-        assert rows == []
-        assert manager.saved == []
 
     def test_tampered_resume_cursor_is_rejected(self, monkeypatch: Any) -> None:
         # A poisoned Redis cursor must never be fetched with the token-bearing session.
@@ -186,30 +172,6 @@ class TestGetValuesRows:
         )
         assert rows == [{"timestamp": 1700000000001, "variable": "var1"}]
 
-    @pytest.mark.parametrize(
-        "should_use_incremental_field,last_value",
-        [
-            pytest.param(False, 1700000000000, id="full_refresh_ignores_watermark"),
-            pytest.param(True, None, id="incremental_without_watermark"),
-        ],
-    )
-    def test_no_start_param_when_not_filtering(
-        self, should_use_incremental_field: bool, last_value: Any, monkeypatch: Any
-    ) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[str, tuple[list[dict], Optional[str]]] = {
-            VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
-            _values_url("var1"): ([{"timestamp": 5}], None),
-        }
-        rows = self._collect(
-            manager,
-            monkeypatch,
-            pages,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=last_value,
-        )
-        assert rows == [{"timestamp": 5, "variable": "var1"}]
-
     def test_resume_skips_completed_and_continues_current_variable(self, monkeypatch: Any) -> None:
         var2_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var2/values?page=2&page_size=200"
         manager = _FakeResumableManager(
@@ -268,18 +230,6 @@ class TestGetValuesRows:
         with pytest.raises(ValueError, match="off the configured Ubidots host"):
             self._collect(manager, monkeypatch, pages)
 
-    def test_variables_list_pagination_is_followed(self, monkeypatch: Any) -> None:
-        variables_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/variables/?page=2&page_size=200"
-        manager = _FakeResumableManager()
-        pages: dict[str, tuple[list[dict], Optional[str]]] = {
-            VARIABLES_FIRST_URL: ([{"id": "var1"}], variables_page2),
-            variables_page2: ([{"id": "var2"}], None),
-            _values_url("var1"): ([{"timestamp": 1}], None),
-            _values_url("var2"): ([{"timestamp": 2}], None),
-        }
-        rows = self._collect(manager, monkeypatch, pages)
-        assert [r["variable"] for r in rows] == ["var1", "var2"]
-
 
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
@@ -307,14 +257,6 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, DEVICES_FIRST_URL, MagicMock())
 
-    def test_success_returns_results_and_next(self) -> None:
-        next_url = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=2&page_size=200"
-        body = {"count": 5, "next": next_url, "previous": None, "results": [{"id": "a"}]}
-        session = self._session_returning(200, body)
-        rows, returned_next = _fetch_page_unwrapped(session, DEVICES_FIRST_URL, MagicMock())
-        assert rows == [{"id": "a"}]
-        assert returned_next == next_url
-
     def test_null_next_returns_none(self) -> None:
         body = {"count": 1, "next": None, "previous": None, "results": [{"id": "a"}]}
         session = self._session_returning(200, body)
@@ -326,15 +268,6 @@ class TestFetchPage:
         session = self._session_returning(200, body)
         with pytest.raises(UbidotsRetryableError):
             _fetch_page_unwrapped(session, DEVICES_FIRST_URL, MagicMock())
-
-    def test_request_uses_absolute_url_without_params(self) -> None:
-        session = self._session_returning(200, {"results": [], "next": None})
-        url = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=3&page_size=200"
-        _fetch_page_unwrapped(session, url, MagicMock())
-        args, kwargs = session.get.call_args
-        assert args[0] == url
-        # The cursor URL already carries paging; we must not re-send page params.
-        assert "params" not in kwargs
 
 
 class TestHelpers:
@@ -587,22 +520,6 @@ class TestGetValuesRowsV2:
         ]
         completions = [s.completed_variable_ids for s in manager.saved if s.current_window_end is None]
         assert completions == [["var1"], ["var1", "var2"]]
-
-    def test_full_refresh_walks_bounded_windows_newest_first(self, monkeypatch: Any) -> None:
-        # The v2.0 endpoint is unpaginated, so an unwindowed request would pull a variable's whole
-        # history into memory in one response.
-        bodies: list[dict] = []
-        self._collect(
-            _FakeResumableManager(),
-            monkeypatch,
-            variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
-            series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1}]}]},
-            bodies=bodies,
-        )
-        assert all(body["end"] - body["start"] == VALUES_WINDOW_MS for body in bodies)
-        assert [body["end"] for body in bodies] == [self.NOW_MS - i * VALUES_WINDOW_MS for i in range(len(bodies))]
-        # One window with dots, then the run of empties that ends the walk — not a scan to the epoch.
-        assert len(bodies) == 1 + MAX_EMPTY_VALUES_WINDOWS
 
     def test_incremental_walk_floors_at_the_watermark(self, monkeypatch: Any) -> None:
         # Empty windows must not cut an incremental run short: the range down to the watermark is

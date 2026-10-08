@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardControlScopeText } from 'scenes/dashboard/dashboardControls'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,8 +35,18 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
  * breakdown color override.
  */
 export function DashboardEditBarAdvancedFilters(): JSX.Element {
-    const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        dashboardEditing,
+        placement,
+        canEditDashboard,
+        effectiveEditBarFilters,
+        dashboardControlScopes,
+    } = useValues(dashboardLogic)
+    const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const testAccountsScopeText = controlsEnabled
+        ? dashboardControlScopeText(dashboardControlScopes.testAccounts)
+        : null
     const { setFilterTestAccounts, setDashboardEditing } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -117,6 +128,7 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         ]}
                     />
                     <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    {testAccountsScopeText && <p className="mb-0 text-xs text-secondary">{testAccountsScopeText}.</p>}
                     {showColors && (
                         <>
                             <LemonDivider className="my-0" />

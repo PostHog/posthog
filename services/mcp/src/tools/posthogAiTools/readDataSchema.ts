@@ -17,10 +17,6 @@ export const readDataSchemaHandler: ToolBase<typeof schema, string>['handler'] =
         query: params.query,
     })
 
-    if (!result.success) {
-        throw new Error(result.content)
-    }
-
     return result.content
 }
 

@@ -25,6 +25,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import DashboardFilter, EndpointRunRequest, HogQLVariable, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -310,6 +311,7 @@ class EndpointQueryStrategy(abc.ABC):
 
     supports_pagination: ClassVar[bool] = False
     supports_ducklake: ClassVar[bool] = False
+    materialized_limit_context: ClassVar[LimitContext | None] = None
 
     def __init__(self, endpoint: Endpoint, version: EndpointVersion, team: Team):
         self.endpoint = endpoint
@@ -462,8 +464,10 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
     ) -> tuple[ast.SelectQuery, int | None]:
         """Build the base SELECT query against a materialized table.
 
-        Wraps aggregate columns with their reaggregate_fn (e.g. sum("count()"))
-        when needed to preserve SQL semantics. This happens in two cases:
+        Wraps aggregate columns with their reaggregate_fn and aliases the result back
+        to the declared column name (e.g. sum("impressions") AS "impressions"), so a
+        materialized read returns the same keys as an inline read. This happens in two
+        cases:
 
         1. Range variables (bucket_fn != None): multiple materialized rows must
            be collapsed back into one aggregate per group.
@@ -489,7 +493,12 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                 reagg_select: list[ast.Expr] = []
                 for col in original_select:
                     if col.is_aggregate and col.reaggregate_fn:
-                        reagg_select.append(ast.Call(name=col.reaggregate_fn, args=[col.expr]))
+                        reagg_select.append(
+                            ast.Alias(
+                                alias=col.name,
+                                expr=ast.Call(name=col.reaggregate_fn, args=[col.expr]),
+                            )
+                        )
                     else:
                         reagg_select.append(col.expr)
                         if not col.is_aggregate:
@@ -602,6 +611,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
     """
 
     BREAKDOWN_SUPPORTED_QUERY_TYPES: ClassVar[frozenset[str]] = BREAKDOWN_SUPPORTED_QUERY_TYPES
+    materialized_limit_context = LimitContext.SAVED_QUERY
     # Query types with a materialized-response transformer
     INSIGHT_TRANSFORM_TYPES: ClassVar[set[str]] = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
 

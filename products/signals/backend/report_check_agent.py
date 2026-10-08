@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -39,8 +41,7 @@ logger = structlog.get_logger(__name__)
 # The lane a check runs on when its author named no skill. The fleet's follow-up scout already
 # exists to re-measure resolved reports, and it is an operational scout, so it is seeded enabled on
 # every enrolled team and exempt from the inactivity sweep and the enabled-scout cap. A person can
-# still pause it by hand, which the dispatch path reports as an errored run rather than working
-# around.
+# still pause it by hand. The dispatch path then waits for the resume rather than working around it.
 FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 
 # How long a dispatched run has to record its verdict before the coordinator gives up on it. A scout
@@ -50,8 +51,8 @@ FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 # dispatched over the top of a live one.
 AGENT_CHECK_RESULT_WINDOW = timedelta(hours=2)
 
-# How long a check waits after a dispatch the fleet refused for a reason that passes on its own: a
-# run of the same scout already in flight, a project at its daily run budget, a paused spend gate.
+# How long a check waits after a dispatch the fleet refused for a reason that can pass: a run of the
+# same scout already in flight, a project at its daily run budget, a paused spend gate, a paused scout.
 # Shorter than the errored-run retry because none of these says anything is wrong with the check.
 CHECK_DISPATCH_DEFER_AFTER = timedelta(hours=1)
 
@@ -61,16 +62,22 @@ CHECK_DISPATCH_DEFER_AFTER = timedelta(hours=1)
 MAX_CHECK_NOTE_REPORT_TITLE_LENGTH = 300
 MAX_CHECK_NOTE_RESOLUTION_LENGTH = 1_000
 
+# The end of the explanation a paused-scout refusal writes. Dispatch once recorded that refusal as an
+# errored result, so the repair of those checks matches it (`reactivate_checks_errored_by_scout_pause`).
+SCOUT_PAUSED_REFUSAL_SUFFIX = "scout is paused, so the check could not run."
+
 
 @frozen
 class CheckDispatchRefusal:
     """Why a check could not be dispatched this tick.
 
-    `retryable` splits the two things a refusal can mean. A project at its daily run budget, or a
-    lane already running, will be dispatchable again without anyone doing anything, so the check
-    waits. A project not enrolled in scouts, or a lane a person paused, will not, so the check
-    records an errored run: the report's log is where a reader finds out their follow-up never ran,
-    and three of those retire the check instead of leaving it to expire in silence.
+    `retryable` splits the two things a refusal can mean. A project at its daily run budget, a lane
+    already running, or a paused lane can become dispatchable again, so the check waits without
+    spending its error budget. A paused lane is in that group because a pause is often temporary,
+    and three errored runs during a pause would retire the check before the scout resumes. A project
+    not enrolled in scouts, or a lane that does not exist, will not, so the check records an errored
+    run: the report's log is where a reader finds out their follow-up never ran, and three of those
+    retire the check instead of leaving it to expire in silence.
     """
 
     reason: str
@@ -90,7 +97,7 @@ def resolve_check_skill_name(config: AgentCheckConfig, canonical_team_id: int | 
     one is gone.
 
     A pause is deliberately not one of those reasons. Somebody switched that scout off on purpose,
-    and reporting the refusal is more honest than quietly running the question somewhere else.
+    so the check waits for that scout rather than quietly running the question somewhere else.
     """
     skill_name = config.skill_name or FALLBACK_CHECK_SKILL_NAME
     if canonical_team_id is None or skill_name == FALLBACK_CHECK_SKILL_NAME:
@@ -161,8 +168,9 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
     lines += [
         "",
         f"Finish by calling `scout-check-record-result` with check_id `{check.id}` and an outcome of "
-        "`passed` (the expectation still holds), `failed` (it does not), or `errored` (you could not "
-        "establish either). That call is the only thing that closes the check.",
+        "`passed` (the evidence meets the bar and the expectation holds), `failed` (it meets the bar "
+        "and the expectation does not hold), `inconclusive` with a `reason` (the evidence cannot settle "
+        "it), or `errored` (a tool or model call failed). That call is the only thing that closes the check.",
     ]
     return "\n".join(lines)
 
@@ -210,8 +218,8 @@ def _refuse_dispatch(skill_name: str, canonical_team_id: int) -> CheckDispatchRe
     if not config.enabled:
         return CheckDispatchRefusal(
             reason="scout_paused",
-            detail=f"The `{skill_name}` scout is paused, so the check could not run.",
-            retryable=False,
+            detail=f"The `{skill_name}` {SCOUT_PAUSED_REFUSAL_SUFFIX}",
+            retryable=True,
         )
 
     team = Team.objects.select_related("organization").get(pk=canonical_team_id)
@@ -225,6 +233,127 @@ def _refuse_dispatch(skill_name: str, canonical_team_id: int) -> CheckDispatchRe
     return None
 
 
+def _lane_paused(canonical_team_id: int, skill_name: str) -> bool:
+    """Whether a person or the harness paused this lane. A retired lane is not a pause: its checks
+    fall back to another scout (`resolve_check_skill_name`)."""
+    return (
+        SignalScoutConfig.all_teams.filter(team_id=canonical_team_id, skill_name=skill_name, enabled=False)
+        .exclude(pause_reason=SignalScoutConfig.PauseReason.RETIRED)
+        .exists()
+    )
+
+
+def _paused_dispatched_lane(check: SignalReportCheck) -> str | None:
+    """The lane of a dispatched check when that lane is paused now, else None."""
+    try:
+        config = parse_check_config(check.kind, check.config)
+        if not isinstance(config, AgentCheckConfig):
+            return None
+        report_team = check.report.team
+        canonical_team_id = report_team.parent_team_id or report_team.id
+        skill_name = resolve_check_skill_name(config, canonical_team_id)
+        return skill_name if _lane_paused(canonical_team_id, skill_name) else None
+    except Exception:
+        logger.exception("signals.report_check.agent_pause_read_failed", check_id=str(check.id), team_id=check.team_id)
+        return None
+
+
+def requeue_checks_waiting_on_scout(canonical_team_id: int, skill_name: str, *, now: datetime | None = None) -> int:
+    """Make the checks a refusal deferred on this lane due now, so a resumed scout answers them on the
+    next tick rather than up to `CHECK_DISPATCH_DEFER_AFTER` later. Returns how many moved.
+
+    A deferral is the only thing that puts a check at most `CHECK_DISPATCH_DEFER_AFTER` away, because a
+    re-armed check waits at least `MIN_CHECK_INTERVAL_MINUTES`. A check that is due inside that window
+    for another reason only runs a little early.
+    """
+    now = now or timezone.now()
+    lane = Q(config__skill_name=skill_name)
+    if skill_name == FALLBACK_CHECK_SKILL_NAME:
+        lane |= ~Q(config__has_key="skill_name") | Q(config__skill_name=None)
+    team_ids = Team.objects.filter(Q(id=canonical_team_id) | Q(parent_team_id=canonical_team_id)).values("id")
+    return SignalReportCheck.all_teams.filter(
+        lane,
+        team_id__in=team_ids,
+        kind=SignalReportCheck.Kind.AGENT,
+        status=SignalReportCheck.Status.ACTIVE,
+        dispatched_at__isnull=True,
+        report__status=SignalReport.Status.RESOLVED,
+        next_run_at__gt=now,
+        next_run_at__lte=now + CHECK_DISPATCH_DEFER_AFTER,
+    ).update(next_run_at=now, updated_at=now)
+
+
+@frozen
+class PauseErroredChecksSummary:
+    matched: int
+    reactivated: int
+    team_ids: list[int]
+
+
+def reactivate_checks_errored_by_scout_pause(
+    *, apply: bool, team_id: int | None = None, now: datetime | None = None
+) -> PauseErroredChecksSummary:
+    """Put back the agent checks that dispatch retired as `errored` only because their scout was paused.
+
+    Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired the
+    check. A check matches when its last result is that refusal, and its report is still resolved and
+    its horizon has not passed. A match becomes active and due again with a clear error count. If its
+    scout is still paused, it then waits for the resume like any other check.
+    """
+    now = now or timezone.now()
+    candidates = SignalReportCheck.all_teams.filter(
+        kind=SignalReportCheck.Kind.AGENT,
+        status=SignalReportCheck.Status.ERRORED,
+        last_outcome=SignalReportCheck.Outcome.ERRORED,
+        expires_at__gt=now,
+        report__status=SignalReport.Status.RESOLVED,
+    )
+    if team_id is not None:
+        candidates = candidates.filter(team_id=team_id)
+
+    matched: list[SignalReportCheck] = []
+    for check in candidates.only("id", "team_id", "report_id").iterator():
+        latest = (
+            SignalReportArtefact.objects.filter(
+                team_id=check.team_id,
+                report_id=check.report_id,
+                type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+                content__contains=str(check.id),
+            )
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        if latest is None:
+            continue
+        try:
+            explanation = json.loads(latest).get("explanation")
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if isinstance(explanation, str) and explanation.endswith(SCOUT_PAUSED_REFUSAL_SUFFIX):
+            matched.append(check)
+
+    reactivated = 0
+    if apply:
+        for check in matched:
+            reactivated += (
+                SignalReportCheck.objects.for_team(check.team_id)
+                .filter(id=check.id, status=SignalReportCheck.Status.ERRORED)
+                .update(
+                    status=SignalReportCheck.Status.ACTIVE,
+                    consecutive_errors=0,
+                    dispatched_at=None,
+                    next_run_at=now,
+                    updated_at=now,
+                )
+            )
+    return PauseErroredChecksSummary(
+        matched=len(matched),
+        reactivated=reactivated,
+        team_ids=sorted({check.team_id for check in matched}),
+    )
+
+
 def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """Stamp the check as dispatched, and say whether this caller is the one that stamped it.
 
@@ -233,12 +362,16 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     run is waiting on. The conditional update is also the concurrency guard: a check cancelled
     between collection and dispatch, or already claimed by an overlapping tick, matches nothing.
     """
-    claimed = (
-        SignalReportCheck.objects.for_team(check.team_id)
-        .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE, dispatched_at__isnull=True)
-        .update(dispatched_at=now, next_run_at=now + AGENT_CHECK_RESULT_WINDOW, updated_at=now)
-    )
-    return bool(claimed)
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return False
+        claimed = (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE, dispatched_at__isnull=True)
+            .update(dispatched_at=now, next_run_at=now + AGENT_CHECK_RESULT_WINDOW, updated_at=now)
+        )
+        return bool(claimed)
 
 
 def _release_dispatch_claim(check: SignalReportCheck, now: datetime) -> None:
@@ -274,6 +407,15 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     now = now or timezone.now()
 
     if check.dispatched_at is not None:
+        paused_skill_name = _paused_dispatched_lane(check)
+        if paused_skill_name is not None:
+            # The lane was paused while the check waited, so the pause explains the missing verdict.
+            # The check waits for the resume without spending an error, the same as a paused refusal.
+            _release_dispatch_claim(check, now)
+            capture_report_check_dispatch(
+                check.team, check, outcome="deferred", skill_name=paused_skill_name, reason="scout_paused"
+            )
+            return "deferred"
         # The window passed with the row still stamped, so the run this check was waiting on ended
         # without calling the tool: it crashed, ran out of budget, or finished on something else.
         # That is an errored run, so it retries on the next window and retires after three.
@@ -338,7 +480,11 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             )
             return "deferred"
         record_check_verdict(
-            check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"), now=now
+            check,
+            CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"),
+            now=now,
+            skill_name=skill_name,
+            refusal_reason=refusal.reason,
         )
         return "errored"
 
@@ -353,6 +499,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             team_id=canonical_team_id,
             skill_name=skill_name,
             run_note=build_check_run_note(check, config),
+            check_id=str(check.id),
         )
     except WorkflowAlreadyStartedError:
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next

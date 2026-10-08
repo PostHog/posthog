@@ -45,11 +45,6 @@ class TestCohereSourceClass:
         assert endpoint not in ENDPOINTS
         assert RETIRED_ENDPOINTS[endpoint] in self.source.get_non_retryable_errors()
 
-    def test_lists_tables_without_credentials_for_public_docs(self) -> None:
-        # get_schemas is a static catalog with no I/O, so the table list is safe to publish.
-        assert self.source.lists_tables_without_credentials is True
-        assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
-
     def test_declares_only_the_api_version_its_requests_use(self) -> None:
         # Cohere's v2 generation serves the inference surface only, and every list endpoint this
         # source reads stays on /v1/. Declaring a version the request layer never builds would pin

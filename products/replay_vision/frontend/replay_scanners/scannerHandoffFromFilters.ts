@@ -32,11 +32,11 @@ export interface ScannerHandoffFromFilters {
  *
  * - Session IDs pin the query to recordings that already exist. Nothing downstream removes them and
  *   the sweep only moves forward, so a scanner carrying them never matches again.
- * - Experiment exposure is rejected inside `query` by the API, which resolves it from
- *   `experiment_targeting` at scan time so the experiment stays behind that field's access check.
+ * - Experiment exposure is rejected inside `query` by the API, which resolves it from the
+ *   experiment scanner's config at scan time so the experiment stays behind its access check.
  *   Left in, the wizard can't be saved; dropped, the scanner silently widens past the experiment.
- *   It becomes the wizard's experiment deep link instead, which carries the same targeting the
- *   experiment's own entry point uses.
+ *   It becomes the wizard's experiment deep link instead, which builds the same experiment
+ *   scanner the experiment's own entry point does.
  * - The date range is dropped by the backend on save, because a scanner's schedule owns time.
  */
 export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): ScannerHandoffFromFilters {

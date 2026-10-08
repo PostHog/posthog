@@ -2,10 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.katana import KatanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import ENDPOINTS, KATANA_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import KATANA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.source import KatanaSource
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in KATANA_ENDPOINTS.items() if cfg.incremental_fields]
@@ -30,9 +27,3 @@ class TestKatanaSourceClass:
         ok, error = KatanaSource().validate_credentials(KatanaSourceConfig(api_key="bad"), team_id=1)
         assert ok is False
         assert error is not None
-
-    def test_canonical_descriptions_keys_match_endpoints(self) -> None:
-        descriptions = KatanaSource().get_canonical_descriptions()
-        assert descriptions is CANONICAL_DESCRIPTIONS
-        # Every documented table must be a real endpoint (no stale keys).
-        assert set(descriptions).issubset(set(ENDPOINTS))

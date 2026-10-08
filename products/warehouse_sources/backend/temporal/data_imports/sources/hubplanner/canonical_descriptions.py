@@ -161,4 +161,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedDate": "Date the record was last updated.",
         },
     },
+    "booking_categories": {
+        "description": "Booking categories used to classify bookings, grouped into category groups.",
+        "docs_url": "https://github.com/hubplanner/API/blob/master/Sections/booking-categories.md",
+        "columns": {
+            "_id": "Unique identifier for the booking category.",
+            "name": "Booking category name.",
+            "gridColor": "Color used to display bookings in this category on the scheduler.",
+            "type": "Whether the category is the default in its group (NON_OPTIONAL) or not (CUSTOM).",
+            "categoryGroupId": "ID of the category group the category belongs to.",
+            "categoryGroupName": "Name of the category group the category belongs to.",
+            "createdDate": "Date the booking category was created.",
+            "updatedDate": "Date the booking category was last updated.",
+        },
+    },
+    "cost_categories": {
+        "description": "Project cost categories used to classify project costs.",
+        "docs_url": "https://github.com/hubplanner/API/blob/master/Sections/project-cost-categories.md",
+        "columns": {
+            "_id": "Unique identifier for the project cost category.",
+            "name": "Project cost category name.",
+            "createdDate": "Date the project cost category was created.",
+            "updatedDate": "Date the project cost category was last updated.",
+        },
+    },
+    "project_tags": {
+        "description": "Tags that can be applied to projects.",
+        "docs_url": "https://github.com/hubplanner/API/blob/master/Sections/project-tag.md",
+        "columns": {
+            "_id": "Unique identifier for the project tag.",
+            "value": "Project tag value.",
+            "category": "Project tag category.",
+        },
+    },
+    "unassigned_work": {
+        "description": "Unassigned work items, available when the Unassigned Work extension is enabled.",
+        "docs_url": "https://github.com/hubplanner/API/blob/master/Sections/unassigned-work.md",
+        "columns": {
+            "_id": "Unique identifier for the unassigned work item.",
+            "value": "Unassigned work item name.",
+        },
+    },
 }

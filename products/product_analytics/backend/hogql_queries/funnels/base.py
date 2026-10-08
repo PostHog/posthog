@@ -3,6 +3,8 @@ from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BreakdownType,
@@ -36,6 +38,13 @@ from products.product_analytics.backend.hogql_queries.funnels.utils import (
 )
 
 JOIN_ALGOS = "auto"
+
+MISSING_FUNNEL_STEP_MESSAGE = (
+    "funnelStep is required for a funnel actors query in steps mode. "
+    "Set it to a positive step number to get persons who completed that step, for example 1 for the first step. "
+    "Set it to -2 or lower to get persons who dropped off at that step, "
+    "for example -2 for persons who completed the first step but not the second."
+)
 
 
 class FunnelBase(ABC):
@@ -345,7 +354,7 @@ class FunnelBase(ABC):
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         if funnelStep is None:
-            raise ValueError("Missing funnelStep in actors query")
+            raise ValidationError(MISSING_FUNNEL_STEP_MESSAGE)
 
         conditions: list[ast.Expr] = []
 

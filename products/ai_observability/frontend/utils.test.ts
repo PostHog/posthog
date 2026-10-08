@@ -75,6 +75,72 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.49, 1])('preserves a System One probability of %s without inventing reasoning', (probability) => {
+        const row = makeEvaluationRunRow()
+        row[7] = ''
+        row[21] = probability
+        const run = mapEvaluationRunRow(row)
+        expect(run.probability).toBe(probability)
+        expect(run.reasoning).toBe('')
+    })
+
+    it.each([
+        ['["resolved"]', ['resolved']],
+        ['[]', []],
+        [null, []],
+        ['invalid', null],
+        ['[1]', null],
+    ])('preserves categorical JSON %p without confusing empty and absent results', (raw, expected) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical' })
+        row[18] = raw
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'categorical',
+            categories: expected,
+            result: null,
+        })
+    })
+
+    it.each([false, 'false'])('keeps an inapplicable categorical result as N/A (%p)', (applicable) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical', applicable })
+        row[18] = null
+        expect(mapEvaluationRunRow(row).categories).toBeNull()
+    })
+
+    it.each([
+        ['a backfilled verdict', '2026-04-11T08:00:00Z', 'backfill-1'],
+        ['a verdict written before these properties existed', null, null],
+    ])('maps the run time and backfill of %s', (_case, startTime, backfillId) => {
+        const row = makeEvaluationRunRow()
+        row[18] = null
+        row[19] = startTime
+        row[20] = backfillId
+        expect(mapEvaluationRunRow(row)).toMatchObject({ start_time: startTime, backfill_id: backfillId })
+    })
+
+    it.each([0, 0.5, -2, '0', '0.5', '-2'])('keeps numeric score %p and its original bounds', (score) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
+        row[15] = score
+        row[16] = -5
+        row[17] = 10
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'numeric',
+            result: null,
+            score: Number(score),
+            score_min: -5,
+            score_max: 10,
+        })
+    })
+
+    it.each([null, true, false, '', 'true', 'false'])(
+        'does not read a numeric score from the boolean result property (%p)',
+        (result) => {
+            expect(mapEvaluationRunRow(makeEvaluationRunRow({ result, resultType: 'numeric' }))).toMatchObject({
+                result: null,
+                score: null,
+            })
+        }
+    )
+
     it('maps sentiment rows without coercing missing boolean results to false', () => {
         const run = mapEvaluationRunRow(
             makeEvaluationRunRow({
@@ -2980,6 +3046,9 @@ describe('queryEvaluationRuns', () => {
     it('leaves the runs unfiltered when no backfill is given', async () => {
         await queryEvaluationRuns({ evaluationId: 'eval-1' })
 
-        expect(queryHogQL.mock.calls[0][0]).not.toContain('$ai_evaluation_backfill_id')
+        expect(queryHogQL.mock.calls[0][0]).not.toContain('AND properties.$ai_evaluation_backfill_id =')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result as score')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_min as score_min')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_max as score_max')
     })
 })

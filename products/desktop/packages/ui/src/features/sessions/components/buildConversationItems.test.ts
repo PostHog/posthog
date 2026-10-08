@@ -584,6 +584,56 @@ describe("buildConversationItems", () => {
     ]);
   });
 
+  it.each([
+    {
+      name: "a memory watchdog kill as a status row",
+      params: {
+        pid: 4242,
+        comm: "vitest",
+        treeRssBytes: 13.46 * 1024 ** 3,
+        memoryCurrentBytes: 15 * 1024 ** 3,
+        memoryLimitBytes: 16 * 1024 ** 3,
+        signal: "SIGTERM",
+        at: "2026-01-01T00:00:00.000Z",
+      },
+      expected: [
+        {
+          sessionUpdate: "status",
+          status: "process_killed",
+          message:
+            "The sandbox stopped vitest because it was using 13.5 GiB of the 16.0 GiB available. The agent is still running.",
+        },
+      ],
+    },
+    {
+      name: "nothing for a kill without sizes",
+      params: { comm: "vitest" },
+      expected: [],
+    },
+  ])("renders $name", ({ params, expected }) => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "hi"),
+        {
+          type: "acp_message",
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/process_killed",
+            params,
+          },
+        },
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    expect(statusItems.map((i) => i.update)).toEqual(expected);
+  });
+
   it("marks cloud turns complete from structured turn completion notifications", () => {
     const result = buildConversationItems(
       [userPromptMsg(10, 42, "hello"), turnCompleteMsg(25)],

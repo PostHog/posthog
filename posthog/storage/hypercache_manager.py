@@ -303,6 +303,17 @@ class HyperCacheManagementConfig:
     # label value (e.g. "python", "rust", "unknown"). None labels every fix "python".
     get_primary_writer_fn: Callable[[int], str] | None = None
 
+    # Lowest fraction of the cache's TTL a refreshed entry may be given. A flat refresh TTL
+    # preserves whatever bunching the entries already have and never widens it, so a cohort
+    # written together keeps coming due together for as long as the cache lives. The bound is
+    # a fraction rather than a duration because the sweep serves every hypercache, and their
+    # TTLs span a minute to a month.
+    refresh_ttl_min_fraction: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.refresh_ttl_min_fraction is not None and not 0 < self.refresh_ttl_min_fraction <= 1:
+            raise ValueError(f"refresh_ttl_min_fraction must be within (0, 1], got {self.refresh_ttl_min_fraction}")
+
     # Derived properties (computed from required properties using conventions)
     @property
     def namespace(self) -> str:

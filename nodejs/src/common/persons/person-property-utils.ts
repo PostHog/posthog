@@ -57,6 +57,7 @@ const CAMPAIGN_PROPERTIES = new Set([
     'epik',
     'qclid',
     'sccid',
+    'oppref', // openai ads
 ])
 
 // Session and page tracking properties

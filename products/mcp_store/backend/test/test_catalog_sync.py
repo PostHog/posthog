@@ -103,19 +103,21 @@ class TestSyncMCPCatalog(TestCase):
             counts = sync_mcp_catalog(entries=[entry])
             template = MCPServerTemplate.objects.get(url=entry.url)
             assert template.name == "Slack via PostHog (dev)"
-            assert template.description == "Search public Slack channels with the internal PostHog development app."
+            assert template.description == (
+                "Search public Slack channels and read messages, user profiles, and canvases you can access."
+            )
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
             assert entry.oauth_scope_allowlist is not None
-            assert template.oauth_scope_allowlist == list(entry.oauth_scope_allowlist)
+            assert "canvases:read" not in entry.oauth_scope_allowlist
+            expected_scopes = (*entry.oauth_scope_allowlist, "canvases:read")
+            assert template.oauth_scope_allowlist == list(expected_scopes)
             assert counts.activated == 1
             assert MCPServerTemplate.available_for_team(42).filter(id=template.id).exists()
             assert not MCPServerTemplate.available_for_team(43).filter(id=template.id).exists()
 
         instance_settings.assert_called_with(["SLACK_DEV_APP_CLIENT_ID", "SLACK_DEV_APP_CLIENT_SECRET"])
-        probe.assert_called_once_with(
-            entry.url, scope_allowlist=entry.oauth_scope_allowlist, shared_client_id="dev-client"
-        )
+        probe.assert_called_once_with(entry.url, scope_allowlist=expected_scopes, shared_client_id="dev-client")
 
         with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
             sync_mcp_catalog(entries=[entry])

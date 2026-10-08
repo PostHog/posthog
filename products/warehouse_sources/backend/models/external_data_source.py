@@ -37,7 +37,7 @@ class ExternalDataSourceManager(models.Manager):
 
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    # Kept on the model so the nested names stay unchanged.
     AccessMethod = ExternalDataSourceAccessMethod
     CreatedVia = ExternalDataSourceCreatedVia
     Status = ExternalDataSourceStatus
@@ -51,7 +51,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Deprecated, use `ExternalDataSchema.sync_frequency_interval`
-    sync_frequency = models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
+    sync_frequency = models.CharField(
+        max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY.value, blank=True
+    )
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
@@ -68,8 +70,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     description = models.CharField(max_length=400, null=True, blank=True)
     # How this source was created — e.g. web UI, direct API call, or MCP tool. Required for new rows
     # via the serializer; NULL on historical rows created before this field existed.
-    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
-    access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
+    created_via = models.CharField(max_length=20, choices=CreatedVia.choices, null=True, blank=True)
+    access_method = models.CharField(max_length=32, choices=AccessMethod.choices, default=AccessMethod.WAREHOUSE.value)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
     # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
     direct_query_enabled = models.BooleanField(default=False)

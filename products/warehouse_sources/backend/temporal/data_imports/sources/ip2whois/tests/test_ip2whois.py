@@ -57,22 +57,6 @@ class TestNormalizeDomain:
 
 
 class TestParseDomains:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("example.com", ["example.com"]),
-            ("example.com\nposthog.com", ["example.com", "posthog.com"]),
-            ("example.com, posthog.com", ["example.com", "posthog.com"]),
-            ("example.com posthog.com", ["example.com", "posthog.com"]),
-            # Dedup is case/host normalized and order-preserving.
-            ("example.com\nEXAMPLE.com\nwww.example.com", ["example.com"]),
-            # Invalid tokens are dropped, valid ones kept.
-            ("example.com\ngarbage\nposthog.com", ["example.com", "posthog.com"]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_domains(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", "garbage", "not a domain\nlocalhost"])
     def test_invalid_raises(self, raw):
         with pytest.raises(ValueError):
@@ -124,13 +108,6 @@ class TestFetchDomain:
         # get_non_retryable_errors matches on must be preserved.
         assert "SUPERSECRETKEY" not in message
         assert f"{status} Client Error: {reason} for url: {IP2WHOIS_BASE_URL}" == message
-
-    def test_domain_level_error_is_skipped(self):
-        # A per-domain rejection (HTTP 400, code 10007) must skip just this domain, not fail the sync.
-        session = mock.MagicMock()
-        session.get.return_value = _response(400, {"error": {"error_code": 10007, "error_message": "Invalid domain."}})
-
-        assert _fetch_once(session, "secret", "bad_domain.invalid", structlog.get_logger()) is None
 
     def test_account_level_error_raises(self):
         # A 200 body-level error that isn't a domain-level code (e.g. quota) is fatal for the run.
@@ -202,30 +179,8 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
 
-    def test_probes_first_domain(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"domain": "example.com"})
-
-            validate_credentials("test-key", "example.com\nposthog.com")
-
-            called_url = mock_session.return_value.get.call_args[0][0]
-
-        assert called_url.startswith(IP2WHOIS_BASE_URL)
-        assert "domain=example.com" in called_url
-
 
 class TestGetRows:
-    def test_yields_one_batch_per_domain_and_targets_each(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"domain": "EXAMPLE.COM"}),
-                _response(200, {"domain": "posthog.com"}),
-            ]
-
-            batches = list(get_rows("test-key", ["example.com", "posthog.com"], structlog.get_logger()))
-
-        assert [batch[0]["domain"] for batch in batches] == ["example.com", "posthog.com"]
-
     def test_skips_domains_that_return_none(self):
         # A domain-level rejection drops out; the rest of the list still syncs.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:

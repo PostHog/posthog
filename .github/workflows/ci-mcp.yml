@@ -204,7 +204,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -426,7 +426,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -691,7 +691,7 @@ jobs:
                   import django, os
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
-                  from posthog.models import Organization, Team, User, EventDefinition
+                  from posthog.models import Organization, Team, User, EventDefinition, PropertyDefinition
                   from posthog.models.personal_api_key import PersonalAPIKey
                   from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
@@ -706,6 +706,10 @@ jobs:
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
                       EventDefinition.objects.get_or_create(name=event_name, team=team)
+                  PropertyDefinition.objects.get_or_create(
+                      name='\$browser', team=team, type=PropertyDefinition.Type.EVENT,
+                      defaults={'property_type': 'String'},
+                  )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV
@@ -757,6 +761,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/mcp/junit-integration.xml
+                  test-collection-id: Nt38b1Ej # mcp
                   previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

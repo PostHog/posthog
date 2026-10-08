@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
 
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from '../person-utils'
 import { PersonPreview } from './PersonPreview'

@@ -23,8 +23,7 @@ from products.review_hog.backend.temporal.types import TRIGGER_LABEL, resolve_pr
 
 logger = logging.getLogger(__name__)
 
-# v1 scope: ReviewHog only runs against the main PostHog monorepo. Matched case-insensitively.
-ALLOWED_REPOS = {"posthog/posthog"}
+ALLOWED_REPOS = {"posthog/posthog", "posthog/ai-gateway"}
 
 
 class ReviewHogTriggerRequestSerializer(serializers.Serializer):

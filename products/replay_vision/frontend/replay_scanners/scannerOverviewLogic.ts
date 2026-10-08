@@ -12,26 +12,22 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { IntervalType } from '~/types'
 
-import {
-    visionScannersImpactRetrieve,
-    visionScannersObservationsStatsRetrieve,
-    visionScannersRetrieve,
-} from '../generated/api'
-import type { ObservationStatsApi, ScannerImpactApi } from '../generated/api.schemas'
+import { visionScannersObservationsStatsRetrieve, visionScannersRetrieve } from '../generated/api'
+import type { ObservationStatsApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
-import type { ObservationVerdictValue } from './replayScannerLogic'
+import type { AffectedCohortQualifier, ObservationVerdictValue } from './replayScannerLogic'
 import type { ClassifierTagStats, CoverageStats, MonitorStats, ScorerHistogram, ScorerSummary } from './scannerStats'
 import {
     availableTagsFromStats,
@@ -63,13 +59,6 @@ const FIRST_SCAN_POLL_INTERVAL_MS = 15_000
 // The pending panel hides the overview's reload affordances, so after this many straight failed
 // checks it has to admit the failure itself instead of spinning on a promise it can't verify.
 const FIRST_SCAN_CHECK_FAILING_AFTER = 3
-
-export interface CreditLimitStats {
-    limit: number
-    used: number
-    usedPct: number
-    limitReached: boolean
-}
 
 /** The bucket size of the Overview charts; the drill-down only knows how to map day buckets onto the Observations tab. */
 export const OVERVIEW_CHART_INTERVAL: IntervalType = 'day'
@@ -108,8 +97,9 @@ export interface scannerOverviewLogicValues {
     scanner: ScannerFormValues // replayScannerLogic
     availableTags: string[]
     classifierTagStats: ClassifierTagStats
+    cohortDisabledReason: string | null
+    cohortWindowDays: number
     coverageStats: CoverageStats
-    creditLimitStats: CreditLimitStats | null
     firstScanCheckFailing: boolean
     firstScanPending: boolean
     firstScanSettled: boolean
@@ -117,8 +107,6 @@ export interface scannerOverviewLogicValues {
     monitorStats: MonitorStats
     overviewDateFrom: string | null
     overviewDateTo: string | null
-    overviewImpact: ScannerImpactApi | null
-    overviewImpactLoading: boolean
     overviewStatsApi: ObservationStatsApi | null
     overviewStatsApiLoading: boolean
     overviewStatsCheckedAt: number
@@ -134,6 +122,13 @@ export interface scannerOverviewLogicActions {
     loadScannerSuccess: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     } // replayScannerLogic
+    saveAffectedCohort: (
+        windowDays: number,
+        qualifier?: AffectedCohortQualifier | undefined
+    ) => {
+        qualifier: AffectedCohortQualifier
+        windowDays: number
+    } // replayScannerLogic
     scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
     } // replayScannerLogic
@@ -147,21 +142,6 @@ export interface scannerOverviewLogicActions {
         breakdown: unknown
         day: number | string | undefined
     }
-    loadOverviewImpact: () => any
-    loadOverviewImpactFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadOverviewImpactSuccess: (
-        overviewImpact: ScannerImpactApi | null,
-        payload?: any
-    ) => {
-        overviewImpact: ScannerImpactApi | null
-        payload?: any
-    }
     loadOverviewStats: () => {
         value: true
     }
@@ -173,6 +153,9 @@ export interface scannerOverviewLogicActions {
     }
     markFirstScanSettled: () => {
         value: true
+    }
+    saveCohort: (qualifier: AffectedCohortQualifier) => {
+        qualifier: AffectedCohortQualifier
     }
     setOverviewDateRange: (
         dateFrom: string | null,
@@ -213,7 +196,8 @@ export interface scannerOverviewLogicMeta {
             overviewStatsCheckedAt: number
         ) => boolean
         firstScanCheckFailing: (firstScanPending: boolean, overviewStatsFailureCount: number) => boolean
-        creditLimitStats: (scanner: ScannerFormValues) => CreditLimitStats | null
+        cohortWindowDays: (overviewDateFrom: string | null, overviewDateTo: string | null) => number
+        cohortDisabledReason: (overviewDateTo: string | null) => string | null
     }
 }
 
@@ -224,15 +208,15 @@ export type scannerOverviewLogicType = MakeLogicType<
     scannerOverviewLogicMeta
 >
 
-// The impact endpoint caps its lookback at 90 days; the overview date range can go wider.
-const MAX_IMPACT_WINDOW_DAYS = 90
+// The cohort endpoint caps its lookback at 90 days; the overview date range can go wider.
+const MAX_COHORT_WINDOW_DAYS = 90
 
 /**
  * Backs the scanner's Overview tab: the built-in charts and stat panels, with their OWN filter set
  * (date range + verdict/tag), independent of the Observations tab's list filters. It loads the same
  * observations-stats endpoint as the Observations tab, but with these filters — so filtering the
- * overview never disturbs the observations list and vice versa. Impact lives here too, loaded with a
- * window derived from the overview date range so every widget honors the same timing.
+ * overview never disturbs the observations list and vice versa. Cohorts saved from the panels use a
+ * window derived from the same date range, so they match the counts beside them.
  */
 export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerOverviewLogic']),
@@ -242,7 +226,10 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     connect((props: ScannerOverviewLogicProps) => ({
         values: [replayScannerLogic({ id: props.scannerId }), ['scanner']],
         // Bound at build time, so dispatching into the scanner logic can't depend on it being mounted.
-        actions: [replayScannerLogic({ id: props.scannerId }), ['loadScannerSuccess', 'scannerWatermarkRefreshed']],
+        actions: [
+            replayScannerLogic({ id: props.scannerId }),
+            ['loadScannerSuccess', 'scannerWatermarkRefreshed', 'saveAffectedCohort'],
+        ],
     })),
 
     actions({
@@ -255,6 +242,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
         setOverviewTagFilter: (values: string[]) => ({ values }),
         clearOverviewFilters: true,
         drillIntoObservations: (day: string | number | undefined, breakdown?: unknown) => ({ day, breakdown }),
+        saveCohort: (qualifier: AffectedCohortQualifier) => ({ qualifier }),
     }),
 
     reducers({
@@ -392,56 +380,25 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             (pending: boolean, failureCount: number): boolean =>
                 pending && failureCount >= FIRST_SCAN_CHECK_FAILING_AFTER,
         ],
-        // Null when the scanner has no limit set, so callers can render nothing rather than a "0% of 0" panel.
-        creditLimitStats: [
-            (s) => [s.scanner],
-            (scanner: ReplayScanner): CreditLimitStats | null => {
-                const limit = scanner.credit_limit
-                if (limit == null) {
-                    return null
-                }
-                const used = scanner.credits_used_against_limit
-                return {
-                    limit,
-                    used,
-                    usedPct: limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0,
-                    // Comes from the API, not from usedPct: a scanner stops as soon as what's left can't
-                    // cover another scan, so this can be true below 100%.
-                    limitReached: !!scanner.limit_reached,
-                }
+        cohortWindowDays: [
+            (s) => [s.overviewDateFrom, s.overviewDateTo],
+            (dateFrom: string | null, dateTo: string | null): number =>
+                Math.min(MAX_COHORT_WINDOW_DAYS, Math.max(1, daysFromDateRange(dateFrom, dateTo))),
+        ],
+        // A cohort always covers the last N days, so a range that ended earlier would save different users than the panels show.
+        cohortDisabledReason: [
+            (s) => [s.overviewDateTo],
+            (dateTo: string | null): string | null => {
+                const end = dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null
+                return end && end.endOf('day').isBefore(dayjs().startOf('day'))
+                    ? 'Cohorts cover the most recent days. Pick a date range that ends today to save one.'
+                    : null
             },
         ],
     }),
 
-    loaders(({ props, values }) => ({
-        overviewImpact: [
-            null as ScannerImpactApi | null,
-            {
-                loadOverviewImpact: async () => {
-                    const teamId = teamLogic.values.currentTeamId
-                    // Impact only exists for monitors (a qualifier-free predicate); other types show no panel.
-                    if (!teamId || props.scannerId === 'new' || values.scanner?.scanner_type !== 'monitor') {
-                        return null
-                    }
-                    const windowDays = Math.min(
-                        MAX_IMPACT_WINDOW_DAYS,
-                        Math.max(1, daysFromDateRange(values.overviewDateFrom, values.overviewDateTo))
-                    )
-                    return await visionScannersImpactRetrieve(String(teamId), props.scannerId, {
-                        window_days: windowDays,
-                    })
-                },
-            },
-        ],
-    })),
-
     listeners(({ actions, cache, props, values }) => {
         const reloadStats = (): void => actions.loadOverviewStats()
-        // Only the date range changes the impact window; verdict/tag filters don't apply to impact.
-        const reloadDateScoped = (): void => {
-            actions.loadOverviewStats()
-            actions.loadOverviewImpact()
-        }
         // Pending also hangs off the scanner's sweep watermark, which only the scanner endpoint
         // reports; without refreshing it a first sweep that matches nothing would never clear
         // pending. Fetched directly because loadScanner flips scannerLoading, which blanks the scene,
@@ -494,7 +451,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
         }
         return {
             setOverviewDateRange: () => {
-                reloadDateScoped()
+                reloadStats()
                 syncFirstScanPoll()
             },
             setOverviewVerdictFilter: () => {
@@ -506,19 +463,16 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                 syncFirstScanPoll()
             },
             clearOverviewFilters: () => {
-                reloadDateScoped()
+                reloadStats()
                 syncFirstScanPoll()
             },
             loadOverviewStatsSuccess: syncFirstScanPoll,
             loadOverviewStatsFailure: syncFirstScanPoll,
             scannerWatermarkRefreshed: syncFirstScanPoll,
-            // Impact needs the scanner type; refire once the scanner (and its type) resolves. The
-            // poll syncs too: pending depends on the sweep watermark, which may resolve after the
-            // first stats response.
-            loadScannerSuccess: () => {
-                actions.loadOverviewImpact()
-                syncFirstScanPoll()
-            },
+            // Pending depends on the sweep watermark, which may resolve after the first stats response.
+            loadScannerSuccess: syncFirstScanPoll,
+
+            saveCohort: ({ qualifier }) => actions.saveAffectedCohort(values.cohortWindowDays, qualifier),
 
             drillIntoObservations: ({ day, breakdown }) => {
                 const searchParams = observationsDrilldownSearchParams({
@@ -578,7 +532,5 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadOverviewStats()
-        // If the scanner is already cached, loadScannerSuccess won't refire — load impact now too.
-        actions.loadOverviewImpact()
     }),
 ])

@@ -1,14 +1,44 @@
 import type { AgentSession } from "@posthog/shared";
 import type { TaskRun } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
+import { cloudAccessFor, cloudModelAccessFromState } from "./cloudModelAccess";
 import {
   getCloudPrAuthorshipMode,
   getCloudRunSource,
   getCloudRuntimeOptions,
   resolveCloudResumeOptions,
+  sendConfiguredCloudPrompt,
 } from "./cloudRunOptions";
 
 describe("getCloudPrAuthorshipMode", () => {
+  it.each([
+    [{}, "posthog-gateway", "posthog-gateway"],
+    [
+      { claude_model_access: "own-subscription" },
+      "own-subscription",
+      "posthog-gateway",
+    ],
+    [
+      { runtime_adapter: "codex", codex_model_access: "own-subscription" },
+      "posthog-gateway",
+      "own-subscription",
+    ],
+  ])("decodes legacy model access %s", (state, claude, codex) => {
+    const access = cloudModelAccessFromState(state);
+    expect(cloudAccessFor(access, "claude")).toBe(claude);
+    expect(cloudAccessFor(access, "codex")).toBe(codex);
+  });
+
+  it.each([
+    {
+      claude_model_access: "own-subscription",
+      codex_model_access: "own-subscription",
+    },
+    { runtime_adapter: "claude", codex_model_access: "own-subscription" },
+  ])("rejects incompatible model access %s", (state) => {
+    expect(() => cloudModelAccessFromState(state)).toThrow();
+  });
+
   it("honors an explicit user/bot mode", () => {
     expect(getCloudPrAuthorshipMode({ pr_authorship_mode: "bot" })).toBe("bot");
     expect(getCloudPrAuthorshipMode({ pr_authorship_mode: "user" })).toBe(
@@ -189,5 +219,93 @@ describe("resolveCloudResumeOptions", () => {
       reasoningLevel: "high",
       initialPermissionMode: "auto",
     });
+  });
+});
+
+describe("sendConfiguredCloudPrompt", () => {
+  it.each(["acp", "pi"] as const)(
+    "sends with the selected model and effort on %s",
+    async (runtime) => {
+      const agent = { model: "old-model", effort: "low" };
+      const messages: Array<typeof agent & { content: unknown }> = [];
+      await sendConfiguredCloudPrompt(
+        async (method, params) => {
+          if (method === "user_message") {
+            messages.push({ ...agent, content: params.content });
+            return {};
+          }
+          if (method === "pi/rpc") {
+            const command = params.command as {
+              type: string;
+              modelId?: string;
+              level?: string;
+            };
+            if (command.type === "set_model")
+              agent.model = String(command.modelId);
+            else agent.effort = String(command.level);
+            return { success: true };
+          }
+          if (params.configId === "model") agent.model = String(params.value);
+          else agent.effort = String(params.value);
+          return {
+            configOptions: Object.entries(agent).map(([id, currentValue]) => ({
+              id,
+              currentValue,
+            })),
+          };
+        },
+        { model: "selected-model", reasoningLevel: "high" },
+        "Continue",
+        runtime,
+      );
+      expect(messages).toEqual([
+        { content: "Continue", model: "selected-model", effort: "high" },
+      ]);
+    },
+  );
+
+  it.each(["model", "effort"])(
+    "keeps the message unsent when %s is not accepted",
+    async (rejected) => {
+      const messages: unknown[] = [];
+      await expect(
+        sendConfiguredCloudPrompt(
+          async (method, params) => {
+            if (method === "user_message") {
+              messages.push(params.content);
+              return {};
+            }
+            return {
+              configOptions: [
+                {
+                  id: params.configId,
+                  currentValue:
+                    params.configId === rejected ? "old-value" : params.value,
+                },
+              ],
+            };
+          },
+          { model: "selected-model", reasoningLevel: "high" },
+          "Continue",
+        ),
+      ).rejects.toThrow("did not accept");
+      expect(messages).toEqual([]);
+    },
+  );
+
+  it("keeps a Pi message unsent after a rejected model change", async () => {
+    const messages: unknown[] = [];
+    await expect(
+      sendConfiguredCloudPrompt(
+        async (method, params) => {
+          if (method === "user_message") messages.push(params.content);
+          return { success: false, error: "Unavailable model" };
+        },
+        { model: "selected-model" },
+        "Continue",
+        "pi",
+      ),
+    ).rejects.toThrow("did not accept");
+    expect(messages).toEqual([]);
   });
 });

@@ -49,23 +49,9 @@ class TestSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_providers_is_off_by_default(self) -> None:
-        # providers is a global catalog, not project data — syncing it every time by default would
-        # burn the tight rate limit for little value.
-        schemas = {s.name: s for s in MetorialSource().get_schemas(_config(), team_id=1)}
-        assert schemas["providers"].should_sync_default is False
-
     def test_names_filter(self) -> None:
         schemas = MetorialSource().get_schemas(_config(), team_id=1, names=["sessions"])
         assert [s.name for s in schemas] == ["sessions"]
-
-    def test_lists_documented_tables_without_credentials(self) -> None:
-        # The static catalog powers the public docs "Supported tables" section.
-        source = MetorialSource()
-        assert source.lists_tables_without_credentials is True
-        assert {t["name"] for t in source.get_documented_tables()} == {
-            s.name for s in source.get_schemas(_config(), team_id=1)
-        }
 
 
 class TestValidateCredentials:

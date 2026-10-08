@@ -1,18 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconHide, IconPlusSmall } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,6 +28,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, HeatmapScreenshotType } from '~/types'
 
+import { heatmapCaptureSettingsLogic, isUrlCoveredByAllowlist } from '../../components/heatmapCaptureSettingsLogic'
+import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { HeatmapsWarnings } from '../../components/HeatmapsWarnings'
 import { heatmapsEmptyState } from '../../emptyState/heatmapsEmptyState'
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
@@ -34,6 +44,14 @@ export const scene: SceneExport = {
 export function HeatmapsScene(): JSX.Element {
     const { savedHeatmaps, savedHeatmapsLoading, filters, totalCount } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { settings, urlAllowlist, captureMode } = useValues(
+        heatmapCaptureSettingsLogic({ teamId: currentTeamId ?? 0 })
+    )
+    const showCaptureStatus = !!settings && captureMode === 'url_allowlist'
+    const wontCaptureTooltip = settings?.enforcement_enabled
+        ? 'Not in your capture URLs, so this page is not collecting new heatmap data.'
+        : 'Not in your capture URLs. When capture limits take effect, this page stops collecting new heatmap data.'
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
@@ -48,11 +66,21 @@ export function HeatmapsScene(): JSX.Element {
         {
             title: 'Page',
             dataIndex: 'url',
-            render: (_, row) => (
-                <Link to={urls.heatmap(row.short_id)}>
-                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.url}</span>
-                </Link>
-            ),
+            render: (_, row) => {
+                const wontCapture = showCaptureStatus && !!row.url && !isUrlCoveredByAllowlist(row.url, urlAllowlist)
+                return (
+                    <div className="flex items-center gap-2">
+                        <Link to={urls.heatmap(row.short_id)}>
+                            <span className="truncate max-w-[28rem] inline-block align-middle">{row.url}</span>
+                        </Link>
+                        {wontCapture && (
+                            <Tooltip title={wontCaptureTooltip}>
+                                <IconHide className="text-muted shrink-0" />
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Heatmap data URL',
@@ -121,42 +149,42 @@ export function HeatmapsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Heatmaps].iconType || 'default',
                 }}
                 actions={
-                    <Shortcut
-                        name="NewHeatmap"
-                        keybind={[keyBinds.new]}
-                        intent="New heatmap"
-                        interaction="click"
-                        scope={Scene.Heatmaps}
-                    >
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Heatmap}
-                            minAccessLevel={AccessControlLevel.Editor}
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            id="heatmaps-feedback-button"
+                            data-attr="heatmaps-feedback-button"
                         >
-                            <LemonButton
-                                type="primary"
-                                to={urls.heatmap('new')}
-                                data-attr="heatmaps-new-heatmap-button"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                tooltip="New heatmap"
+                            Send feedback
+                        </LemonButton>
+                        <Shortcut
+                            name="NewHeatmap"
+                            keybind={[keyBinds.new]}
+                            intent="New heatmap"
+                            interaction="click"
+                            scope={Scene.Heatmaps}
+                        >
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Heatmap}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                New heatmap
-                            </LemonButton>
-                        </AccessControlAction>
-                    </Shortcut>
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.heatmap('new')}
+                                    data-attr="heatmaps-new-heatmap-button"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    tooltip="New heatmap"
+                                >
+                                    New heatmap
+                                </LemonButton>
+                            </AccessControlAction>
+                        </Shortcut>
+                    </>
                 }
             />
-            <LemonBanner
-                type="info"
-                dismissKey="heatmaps-beta-banner"
-                className="mb-4"
-                action={{ children: 'Send feedback', id: 'heatmaps-feedback-button' }}
-            >
-                <p>
-                    Heatmaps is in beta. Please let us know what you'd like to see here and/or report any issues
-                    directly to us!
-                </p>
-            </LemonBanner>
+            <HeatmapsPricingNotice />
             <div className="flex justify-between gap-2 items-center flex-wrap">
                 <Shortcut
                     name="SearchHeatmaps"

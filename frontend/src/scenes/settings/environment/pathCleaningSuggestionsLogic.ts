@@ -199,6 +199,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                     }
                     // Suggestions are stored as health issues; the newest active, non-dismissed one is
                     // the actionable suggestion.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<{ results: HealthIssueRecord[] }>(
                         `api/projects/${values.currentTeamId}/health_issues/?kind=${PATH_CLEANING_SUGGESTIONS_KIND}&status=active&dismissed=false`
                     )
@@ -281,6 +282,7 @@ export const pathCleaningSuggestionsLogic = kea<pathCleaningSuggestionsLogicType
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update(`api/projects/${values.currentTeamId}/health_issues/${id}/`, { dismissed: true })
             } catch {
                 actions.unhandleSuggestion(id)

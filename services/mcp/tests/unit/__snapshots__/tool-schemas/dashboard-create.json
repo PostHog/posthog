@@ -131,17 +131,10 @@
             "description": "List of quick filter IDs associated with this dashboard"
         },
         "restriction_level": {
-            "anyOf": [
-                {
-                    "const": 21,
-                    "type": "number"
-                },
-                {
-                    "const": 37,
-                    "type": "number"
-                }
-            ],
-            "description": "* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
+            "description": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.",
+            "maximum": 21,
+            "minimum": 21,
+            "type": "number"
         },
         "tags": {
             "items": {},

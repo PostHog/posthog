@@ -1,9 +1,11 @@
+from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.utils import timezone
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -67,6 +69,10 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
             return None
 
     return team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
+
+
+def events_retention_floor_date(team: Team, retention_months: int) -> date:
+    return (timezone.now() - relativedelta(months=retention_months)).astimezone(team.timezone_info).date()
 
 
 def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> int:

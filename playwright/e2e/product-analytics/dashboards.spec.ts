@@ -399,6 +399,7 @@ test.describe('Dashboard duplication', () => {
         await test.step('set date filter', async () => {
             sourceDashboardUrl = page.url()
             await dashboard.setDateFilter('Last 30 days')
+            await dashboard.saveFilters()
         })
 
         await test.step('duplicate the dashboard', async () => {

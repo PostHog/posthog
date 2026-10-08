@@ -1,25 +1,30 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useNotebookJupyterCommands } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
+import { applyVisualizationType, columnsFromResponse } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
 
+import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { notebookDataframeHintLogic } from './components/notebookDataframeHintLogic'
 import { NotebookDataframeHintPopover } from './components/NotebookDataframeHintPopover'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
@@ -42,6 +47,8 @@ export type NotebookNodeSQLV2Result = {
     stdout?: string
     stderr?: string
     media?: NotebookNodeSQLV2Media[]
+    // A Python node's last expression as text, for a value that is not a dataframe.
+    result_text?: string
 }
 
 export type NotebookNodeSQLV2Attributes = {
@@ -170,6 +177,8 @@ const Component = ({
         result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
+    const isJupyterMode = !!useNotebookJupyterCommands()
+    const { executionCounts } = useValues(notebookJupyterLogic({ shortId: notebookShortId }))
 
     const usageLabel = (nodeIndex: number | undefined, title: string): string =>
         title.trim() || getCellLabel(nodeIndex) || 'SQL'
@@ -208,14 +217,14 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
-    const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
+    const activeTab = attributes.outputTab === OutputTab.Results ? OutputTab.Results : OutputTab.Visualization
 
     // The stored viz config wins, but the source always tracks the node's current code — and the
     // connection it runs on, so anything the viz layer re-queries lands on the same engine.
-    const vizQuery = useMemo(
-        (): DataVisualizationNode => ({
+    const vizQuery = useMemo((): DataVisualizationNode => {
+        const query: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,
-            display: ChartDisplayType.ActionsLineGraph,
+            display: ChartDisplayType.Auto,
             ...attributes.vizQuery,
             source: {
                 kind: NodeKind.HogQLQuery,
@@ -223,9 +232,17 @@ const Component = ({
                 connectionId: attributes.connectionId ?? undefined,
                 sendRawQuery: attributes.connectionId ? !!attributes.sendRawQuery || undefined : undefined,
             },
-        }),
-        [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery]
-    )
+        }
+        if (cachedResults) {
+            query.chartSettings = applyVisualizationType(
+                query,
+                query.display ?? ChartDisplayType.Auto,
+                columnsFromResponse(cachedResults),
+                cachedResults.results.length
+            ).chartSettings
+        }
+        return query
+    }, [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery, cachedResults])
 
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
@@ -238,7 +255,7 @@ const Component = ({
         const runId = attributes.runId ?? null
         // A read-only notebook lays the node out from its content, so there is no fixed height to
         // outgrow — and no editor to persist one into.
-        if (!result || !isEditable || runId === sizedRunIdRef.current) {
+        if (!result || !isEditable || isJupyterMode || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -252,8 +269,80 @@ const Component = ({
         // oxlint-disable-next-line exhaustive-deps
     }, [result, attributes.runId, isEditable])
 
+    const visualization = (
+        <Query
+            // Keyed per run so a fresh envelope re-seeds the cached response.
+            // The SQLEditor prefix opts into container-governed chart sizing
+            // (dataVisualizationLogic.presetChartHeight) — without it charts
+            // render at 60vh, dwarfing the node.
+            uniqueKey={`SQLEditor-notebook-sqlv2-${nodeId}-${attributes.runId ?? 'initial'}`}
+            query={vizQuery}
+            setQuery={(query) => {
+                // DataVisualization pushes default settings during its render;
+                // defer the doc write so we don't update Tiptap mid-render.
+                const vizQuery = query as DataVisualizationNode
+                setTimeout(() => updateAttributes({ vizQuery }), 0)
+            }}
+            cachedResults={cachedResults ?? undefined}
+            attachTo={notebookLogic}
+        />
+    )
+
     if (!expanded) {
         return null
+    }
+
+    if (isJupyterMode) {
+        const showsChart = activeTab === OutputTab.Visualization && !!cachedResults
+        return (
+            <NotebookJupyterCellOutput
+                result={result}
+                dataframeResult={dataframeResult && result?.columns?.length ? dataframeResult : null}
+                dataframeProps={{
+                    page,
+                    pageSize,
+                    hasMore: hasMorePages,
+                    loading: isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length),
+                    paginationDisabledReason: pageLoading
+                        ? 'Fetching page…'
+                        : isRunning
+                          ? 'Query is running'
+                          : (operationBlockReason ?? undefined),
+                    onNextPage: () => setPage(page + 1),
+                    onPreviousPage: () => setPage(page - 1),
+                }}
+                runError={runError}
+                status={
+                    isRunning && pendingKernelStart
+                        ? 'Starting compute sandbox…'
+                        : resultRestoreUnavailable
+                          ? 'Run the cell again to see its full output.'
+                          : isRestoringResult
+                            ? 'Loading saved output…'
+                            : null
+                }
+                executionCount={executionCounts[nodeId] ?? null}
+                returnVariable={returnVariable}
+                onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
+                isEditable={isEditable}
+                valueOverride={showsChart ? <div className="h-80 flex flex-col">{visualization}</div> : undefined}
+                footerExtra={
+                    cachedResults ? (
+                        <LemonButton
+                            size="xsmall"
+                            onClick={() =>
+                                updateAttributes({
+                                    outputTab: showsChart ? OutputTab.Results : OutputTab.Visualization,
+                                })
+                            }
+                            data-attr="notebook-jupyter-sql-toggle-chart"
+                        >
+                            {showsChart ? 'Show table' : 'Show chart'}
+                        </LemonButton>
+                    ) : null
+                }
+            />
+        )
     }
 
     return (
@@ -342,22 +431,7 @@ const Component = ({
                                 className="px-2 py-2 flex min-h-0 flex-1 flex-col overflow-hidden"
                                 onClick={(event) => event.stopPropagation()}
                             >
-                                <Query
-                                    // Keyed per run so a fresh envelope re-seeds the cached response.
-                                    // The SQLEditor prefix opts into container-governed chart sizing
-                                    // (dataVisualizationLogic.presetChartHeight) — without it charts
-                                    // render at 60vh, dwarfing the node.
-                                    uniqueKey={`SQLEditor-notebook-sqlv2-${nodeId}-${attributes.runId ?? 'initial'}`}
-                                    query={vizQuery}
-                                    setQuery={(query) => {
-                                        // DataVisualization pushes default settings during its render;
-                                        // defer the doc write so we don't update Tiptap mid-render.
-                                        const vizQuery = query as DataVisualizationNode
-                                        setTimeout(() => updateAttributes({ vizQuery }), 0)
-                                    }}
-                                    cachedResults={cachedResults}
-                                    attachTo={notebookLogic}
-                                />
+                                {visualization}
                             </div>
                         )}
                     </>
@@ -457,7 +531,7 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: null,
         },
         outputTab: {
-            default: OutputTab.Results,
+            default: OutputTab.Visualization,
         },
         vizQuery: {
             default: null,

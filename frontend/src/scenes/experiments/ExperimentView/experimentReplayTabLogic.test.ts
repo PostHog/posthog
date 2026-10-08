@@ -2173,8 +2173,28 @@ describe('experimentReplayTabLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
         ;(visionScannersList as jest.Mock).mockResolvedValue({
             results: [
-                { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
-                { id: 's2', name: 'Rage clicks', scanner_type: 'summarizer', observations_this_month: 3 },
+                {
+                    id: 's1',
+                    name: 'Checkout confusion',
+                    scanner_type: 'classifier',
+                    enabled: true,
+                    observations_this_month: 50,
+                },
+                {
+                    id: 's2',
+                    name: 'Rage clicks',
+                    scanner_type: 'summarizer',
+                    enabled: false,
+                    observations_this_month: 3,
+                },
+                {
+                    id: 's3',
+                    name: 'Checkout redesign (#42)',
+                    scanner_type: 'experiment',
+                    enabled: false,
+                    scanner_config: { experiment_id: 42, start_on_launch: true },
+                    observations_this_month: 0,
+                },
             ],
         })
         const withScanners = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -2183,9 +2203,29 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(withScanners)
             .toFinishAllListeners()
             .toMatchValues({
+                // Only an off scanner that waits for launch says so; a scanner turned off by hand does not.
                 linkedScanners: [
-                    { id: 's1', name: 'Checkout confusion', scannerType: 'classifier', observationsThisMonth: 50 },
-                    { id: 's2', name: 'Rage clicks', scannerType: 'summarizer', observationsThisMonth: 3 },
+                    {
+                        id: 's1',
+                        name: 'Checkout confusion',
+                        scannerType: 'classifier',
+                        observationsThisMonth: 50,
+                        startsAtLaunch: false,
+                    },
+                    {
+                        id: 's2',
+                        name: 'Rage clicks',
+                        scannerType: 'summarizer',
+                        observationsThisMonth: 3,
+                        startsAtLaunch: false,
+                    },
+                    {
+                        id: 's3',
+                        name: 'Checkout redesign (#42)',
+                        scannerType: 'experiment',
+                        observationsThisMonth: 0,
+                        startsAtLaunch: true,
+                    },
                 ],
             })
         expect(visionScannersList).toHaveBeenCalledWith(expect.any(String), { experiment_id: '42' })

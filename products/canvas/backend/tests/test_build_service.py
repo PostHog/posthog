@@ -369,6 +369,7 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert properties["outcome"] == outcome
         assert properties["error_codes"] == error_codes
         assert properties["build_id"] == str(build.id)
+        assert properties["canvas_kind"] == "freeform"
 
 
 class TestBuildDispatch(BuildServiceBaseTest):

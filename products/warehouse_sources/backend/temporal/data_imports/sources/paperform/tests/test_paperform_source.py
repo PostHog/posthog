@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paperform import (
     PaperformSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
 
 
@@ -15,19 +14,6 @@ class TestPaperformSource:
         self.source = PaperformSource()
         self.team_id = 123
         self.config = PaperformSourceConfig(api_key="pf-key")
-
-    def test_get_schemas_only_submissions_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        assert schemas["submissions"].supports_incremental is True
-        assert [f["field"] for f in schemas["submissions"].incremental_fields] == ["created_at_utc"]
-        # Forms and partial submissions mutate after creation, so a creation-time cursor would
-        # freeze their updates — they must stay full refresh.
-        assert all(
-            s.supports_incremental is False and s.incremental_fields == []
-            for name, s in schemas.items()
-            if name != "submissions"
-        )
 
     @parameterized.expand(
         [

@@ -34,10 +34,6 @@ export function DestinationList({
     toggleDisabledReason,
     metricsSourceId,
 }: DestinationListProps): JSX.Element {
-    // Turning the last one off would leave the source syncing nowhere, which is what disabling a
-    // table is for. Pin it on rather than letting the save fail.
-    const isLastSelected = (id: string): boolean => selectedIds.length === 1 && selectedIds[0] === id
-
     const columns: LemonTableColumn<ExternalDataDestinationApi, any>[] = [
         {
             title: '',
@@ -116,16 +112,14 @@ export function DestinationList({
                             destination.is_posthog_warehouse ? 'The PostHog warehouse is managed for you' : undefined
                         }
                     />
+                    {/* Every toggle stays free, the last one on included, so a person can turn the
+                        warehouse off before turning another destination on. The caller's save button
+                        rejects an empty set. */}
                     <LemonSwitch
                         checked={selectedIds.includes(destination.id)}
                         onChange={() => onToggle(destination.id)}
                         data-attr="warehouse-destination-toggle"
-                        disabledReason={
-                            toggleDisabledReason ??
-                            (isLastSelected(destination.id)
-                                ? 'Pick at least one destination. To stop syncing, turn off syncing instead.'
-                                : undefined)
-                        }
+                        disabledReason={toggleDisabledReason}
                     />
                 </div>
             ),

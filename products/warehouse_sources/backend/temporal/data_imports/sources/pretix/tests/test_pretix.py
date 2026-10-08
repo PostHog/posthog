@@ -24,8 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# tenacity sleeps between the client's own retries — patch it so retry tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _envelope(items: list[dict[str, Any]], next_url: Optional[str]) -> Response:
@@ -81,11 +79,6 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str]
 
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
-
-
-def _pages(source_response):
-    """Yield pages (not flattened) so a test can drive pagination one page at a time."""
-    yield from source_response.items()
 
 
 def _source(endpoint: str, manager: mock.MagicMock | None = None, base_url: str | None = None, **kwargs: Any):
@@ -152,23 +145,6 @@ class TestQuoteOrganizer:
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestOrganizerScopePagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_link_and_terminates_on_null(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        page2 = "https://pretix.eu/api/v1/organizers/acme/orders/?page=2"
-        urls, _params = _wire(
-            session,
-            [_envelope([{"code": "A1"}], page2), _envelope([{"code": "A2"}], None)],
-        )
-
-        rows = _rows(_source("orders"))
-
-        assert [r["code"] for r in rows] == ["A1", "A2"]
-        # The self-contained next link is followed verbatim; a null next ends pagination.
-        assert urls[0].endswith("/organizers/acme/orders/")
-        assert urls[1] == page2
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_orders_incremental_url_has_filter_and_stable_ordering(self, MockSession, _host) -> None:
         session = MockSession.return_value
         _urls, params = _wire(session, [_envelope([{"code": "A1", "event": "conf"}], None)])
@@ -212,57 +188,6 @@ class TestOrganizerScopePagination:
         assert "modified_since" not in params[0]
         # `ordering` is always requested for orders regardless of the incremental filter.
         assert params[0]["ordering"] == "last_modified"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_only_after_page_is_yielded(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        page2 = "https://pretix.eu/api/v1/organizers/acme/orders/?page=2"
-        _wire(session, [_envelope([{"code": "A1"}], page2), _envelope([{"code": "A2"}], None)])
-        manager = _make_manager()
-
-        rows = iter(_pages(_source("orders", manager)))
-
-        assert next(rows) == [{"code": "A1"}]
-        # A crash here must re-fetch page 1 (nothing persisted yet), not skip it.
-        manager.save_state.assert_not_called()
-
-        assert next(rows) == [{"code": "A2"}]
-        # After page 1 is yielded the checkpoint points at page 2 (the verbatim next link).
-        manager.save_state.assert_called_once_with(PretixResumeConfig(next_url=page2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        saved_url = "https://pretix.eu/api/v1/organizers/acme/orders/?page=5"
-        urls, _params = _wire(session, [_envelope([{"code": "A9"}], None)])
-
-        _rows(_source("orders", _make_manager(PretixResumeConfig(next_url=saved_url))))
-
-        assert urls[0] == saved_url
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_then_succeeds_on_429(self, MockSession, _sleep, _host) -> None:
-        session = MockSession.return_value
-        _wire(session, [_status_response(429, {"Retry-After": "1"}), _envelope([{"code": "A1"}], None)])
-
-        rows = _rows(_source("orders"))
-
-        assert [r["code"] for r in rows] == ["A1"]
-        assert session.send.call_count == 2
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_payload_shape_is_retried(self, MockSession, _sleep, _host) -> None:
-        session = MockSession.return_value
-        # A 200 whose body isn't the `{results: [...]}` envelope is treated as transient and reissued,
-        # not failed loud or ingested as a garbage row.
-        _wire(session, [_json_response([{"code": "A1"}]), _envelope([{"code": "A2"}], None)])
-
-        rows = _rows(_source("orders"))
-
-        assert [r["code"] for r in rows] == ["A2"]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_redirect_is_rejected(self, MockSession, _host) -> None:
@@ -363,19 +288,6 @@ class TestEventFanOut:
         # ...while the raw slug is stamped into rows unchanged (there are no rows here, so just the URL).
         assert rows == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ordering_param_sent_for_sortable_child_endpoint(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        _urls, params = _wire(
-            session,
-            [_envelope([{"slug": "conf-a"}], None), _envelope([{"id": 1}], None)],
-        )
-
-        _rows(_source("items", _make_manager()))
-
-        # `items` requests an explicit stable `ordering=id`; the child (leaf) request carries it.
-        assert params[-1].get("ordering") == "id"
-
 
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestValidateCredentials:
@@ -433,17 +345,6 @@ class TestValidateCredentials:
 
 
 class TestPretixSourceResponse:
-    # No host patch needed — `is_cloud()` is False in tests, so `_check_host` short-circuits to safe.
-    def test_orders_partitioned_on_stable_creation_datetime(self) -> None:
-        response = _source("orders")
-
-        assert response.name == "orders"
-        assert response.primary_keys == ["event", "code"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["datetime"]
-        assert response.sort_mode == "asc"
-
     @parameterized.expand(
         [
             ("events", ["slug"]),

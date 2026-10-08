@@ -2,7 +2,10 @@ from typing import Any
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 
@@ -21,10 +24,16 @@ def _finding(title: str = "Off-by-one", file: str = "f.py") -> ReviewIssueFindin
 
 
 class TestFindFindingComment:
-    def test_matches_by_path_and_title_heading(self):
+    @parameterized.expand(
+        [
+            ("current_layout", "### Off-by-one\n\n**Must fix** · bug"),
+            ("old_flash_banner", f"{LEGACY_FLASH_MODE_MESSAGE_PREFIX}### Off-by-one\n\n![badge](x)"),
+        ]
+    )
+    def test_matches_by_path_and_title_heading(self, _name: str, body: str):
         # ReviewHog's comment body leads with "### {title}"; matching on that + path is how a finding
         # maps to its posted comment without a stored id, and it must survive extra body content.
-        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": "### Off-by-one\n\n![badge](x)"}]
+        comments: list[dict[str, Any]] = [{"id": 1, "path": "f.py", "body": body}]
         assert find_finding_comment(finding=_finding(), review_comments=comments) == comments[0]
 
     def test_no_match_on_different_path(self):

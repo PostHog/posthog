@@ -120,6 +120,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Name of the title.",
         },
     },
+    "cost_centers": {
+        "description": "A cost center defined in the Brex account. Resolves the cost_center_id carried on users and expenses.",
+        "docs_url": "https://developer.brex.com/openapi/team_api/#tag/Cost-Centers/operation/listCostCenters",
+        "columns": {
+            "id": "Unique identifier of the cost center.",
+            "name": "Name of the cost center.",
+        },
+    },
     "cards": {
         "description": "A Brex card issued to a user or vendor, with its spend controls. Resolves the card_id carried on card transactions.",
         "docs_url": "https://developer.brex.com/openapi/team_api/#tag/Cards/operation/listCardsByUserId",

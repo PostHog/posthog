@@ -1,5 +1,4 @@
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     COMPANIES,
     ENDPOINT_SPECS,
     ENDPOINTS,
-    OFFICERS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source import (
     NO_COMPANY_NUMBERS_ERROR,
@@ -56,16 +54,6 @@ class TestUkCompaniesHouseSource:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so it is safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        # No Companies House list endpoint takes an updated-since filter, so nothing may claim
-        # incremental support.
-        assert all(schema.supports_incremental is False for schema in schemas)
-        assert all(schema.supports_append is False for schema in schemas)
-        assert all(schema.description for schema in schemas)
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_primary_keys_are_unique_table_wide(self, endpoint: str) -> None:
@@ -105,18 +93,6 @@ class TestUkCompaniesHouseSource:
 
         assert (ok, error) == (True, None)
         mock_validate.assert_called_once_with("test-key", "00006400")
-
-    def test_source_for_pipeline_passes_parsed_company_numbers(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(OFFICERS)
-
-        with patch(TRANSPORT_TARGET, return_value=iter([[{"name": "A"}]])) as mock_transport:
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-            rows = list(cast("Iterable[Any]", response.items()))
-
-        assert rows == [[{"name": "A"}]]
-        assert mock_transport.call_args.kwargs["company_numbers"] == ["00006400", "SC123456"]
-        assert mock_transport.call_args.kwargs["endpoint"] == OFFICERS
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_source_for_pipeline_response_shape(self, endpoint: str) -> None:

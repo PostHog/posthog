@@ -27,6 +27,7 @@ interface ShortcutBase {
     keybind: string[][]
     intent: string
     scope?: 'global' | keyof typeof Scene
+    ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
 }
@@ -170,6 +171,11 @@ export const shortcutLogic = kea<shortcutLogicType>([
 
         cache.onKeyDown = (event: KeyboardEvent) => {
             const target = event.composedPath()[0]
+            if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+                return
+            }
             const controlKeyCapture =
                 target instanceof HTMLElement ? target.closest<HTMLElement>('[data-shortcuts-ignore="ctrl"]') : null
             if (
@@ -221,7 +227,11 @@ export const shortcutLogic = kea<shortcutLogicType>([
                     )
                 )
 
-                if (matchingShortcut && !values.disabledShortcutNames.includes(matchingShortcut.name)) {
+                if (
+                    matchingShortcut &&
+                    !values.disabledShortcutNames.includes(matchingShortcut.name) &&
+                    !(matchingShortcut.ignoreInEditable && isEditableElement(event))
+                ) {
                     event.preventDefault()
                     event.stopPropagation()
                     triggerShortcut(matchingShortcut, pressedKeys)

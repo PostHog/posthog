@@ -76,6 +76,8 @@ def run_investigation_notification_safety_net() -> int:
             targets_notified={},
             alert_configuration__investigation_agent_enabled=True,
         )
+        # A skipped check copies the alert's FIRING state but evaluated nothing, so it has no fire to deliver.
+        .exclude(triggered_metadata__has_key="skipped_reason")
         .filter(
             # Terminal investigation states (DONE / FAILED): the workflow is not coming
             # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal

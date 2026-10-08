@@ -10,14 +10,13 @@ import {
     type LemonMenuItems,
 } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
-
-import type { CustomerTaskAssigneeFilter, CustomerTasksContext } from './customerTaskFilters'
+import type { CustomerTasksContext } from './customerTaskFilters'
 import {
     CUSTOMER_TASK_ARCHIVE_OPTIONS,
     CUSTOMER_TASK_DUE_OPTIONS,
     CUSTOMER_TASK_STATUS_OPTIONS,
 } from './customerTaskFilters'
+import { CustomerTasksAssigneeDropdown } from './CustomerTasksAssigneeDropdown'
 import type { customerTasksLogicType } from './customerTasksLogic'
 export interface CustomerTasksFiltersProps {
     logic: import('kea').BuiltLogic<customerTasksLogicType>
@@ -27,8 +26,15 @@ export interface CustomerTasksFiltersProps {
 export function CustomerTasksFilters({ logic, context, canViewAll = false }: CustomerTasksFiltersProps): JSX.Element {
     const { filters, hasActiveFilters, accountOptions, accountOptionsResponseLoading, accountFilterOpen } =
         useValues(logic)
-    const { setFilters, setSearch, setAccountFilter, setAccountFilterOpen, loadAccountOptions, resetFilters } =
-        useActions(logic)
+    const {
+        setAssignee,
+        setFilters,
+        setSearch,
+        setAccountFilter,
+        setAccountFilterOpen,
+        loadAccountOptions,
+        resetFilters,
+    } = useActions(logic)
     const status: LemonMenuItems = [
         {
             items: CUSTOMER_TASK_STATUS_OPTIONS.map((o) => ({
@@ -56,23 +62,6 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
             })),
         },
     ]
-    const assignee: LemonMenuItems = [
-        {
-            items: [
-                { label: 'Anyone', active: filters.assignee === 'any', onClick: () => setFilters({ assignee: 'any' }) },
-                { label: 'Me', active: filters.assignee === 'me', onClick: () => setFilters({ assignee: 'me' }) },
-                ...(canViewAll
-                    ? [
-                          {
-                              label: 'Unassigned',
-                              active: filters.assignee === 'unassigned',
-                              onClick: () => setFilters({ assignee: 'unassigned' }),
-                          },
-                      ]
-                    : []),
-            ],
-        },
-    ]
     // The account tab always lists every visible task for the account, so the query drops
     // assigned_to there — offering the control would do nothing.
     const showAssigneeFilters = canViewAll && context === 'inbox'
@@ -96,22 +85,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                     {CUSTOMER_TASK_STATUS_OPTIONS.find((o) => o.value === filters.status)?.label}
                 </LemonButton>
             </LemonMenu>
-            {showAssigneeFilters && (
-                <LemonMenu items={assignee}>
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {assigneeLabel(filters.assignee)}
-                    </LemonButton>
-                </LemonMenu>
-            )}
-            {showAssigneeFilters && (
-                <MemberSelect
-                    value={typeof filters.assignee === 'number' ? filters.assignee : null}
-                    defaultLabel="Choose member"
-                    type="secondary"
-                    size="small"
-                    onChange={(u) => setFilters({ assignee: u?.id ?? 'any' })}
-                />
-            )}{' '}
+            {showAssigneeFilters && <CustomerTasksAssigneeDropdown value={filters.assignee} onChange={setAssignee} />}
             {context === 'inbox' && (
                 <LemonMenu items={due}>
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
@@ -161,7 +135,4 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
             )}
         </div>
     )
-}
-function assigneeLabel(value: CustomerTaskAssigneeFilter): string {
-    return value === 'any' ? 'Anyone' : value === 'me' ? 'Me' : value === 'unassigned' ? 'Unassigned' : 'Member'
 }

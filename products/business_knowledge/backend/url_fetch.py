@@ -53,6 +53,10 @@ def normalize_url(raw: str) -> str:
     """
 
     raw = raw.strip()
+    # urlparse silently drops tab and newline characters and keeps the text after them,
+    # so reject control characters before parsing.
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
+        raise UrlFetchError("Invalid URL.")
     parsed = urlparse.urlparse(raw)
     if not parsed.scheme or not parsed.netloc:
         raise UrlFetchError("Invalid URL.")

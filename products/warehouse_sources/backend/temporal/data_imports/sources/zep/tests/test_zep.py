@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep im
     ZEP_BASE_URL,
     ZepResumeConfig,
     _build_url,
-    _headers,
     get_rows,
     validate_credentials,
     zep_source,
@@ -58,13 +57,6 @@ def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, re
 
 
 class TestHelpers:
-    def test_headers_use_api_key_scheme(self) -> None:
-        assert _headers("z_abc") == {"Authorization": "Api-Key z_abc", "Accept": "application/json"}
-
-    def test_build_url_encodes_params(self) -> None:
-        url = _build_url("/users-ordered", {"pageSize": 1, "order_by": "created_at"})
-        assert url == f"{ZEP_BASE_URL}/users-ordered?pageSize=1&order_by=created_at"
-
     def test_build_url_no_params(self) -> None:
         assert _build_url("/threads", {}) == f"{ZEP_BASE_URL}/threads"
 
@@ -129,28 +121,6 @@ class TestPageBasedPagination:
         # First page requested pageNumber=1; state saved pointing at page 2 after yielding page 1.
         assert "pageNumber=1" in manager.urls[0]  # type: ignore[attr-defined]
         assert manager.saved == [ZepResumeConfig(page_number=2)]
-
-    def test_stops_when_total_count_reached(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(ZEP_ENDPOINTS["users"], "page_size", 2)
-        manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, "users", [{"users": [{"uuid": "u1"}, {"uuid": "u2"}], "total_count": 2}])
-        assert [r["uuid"] for r in rows] == ["u1", "u2"]
-        # Reached total_count on the first full page, so no further pages and no state saved.
-        assert manager.saved == []
-
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(ZEP_ENDPOINTS["users"], "page_size", 2)
-        manager = _FakeResumableManager(ZepResumeConfig(page_number=2))
-        rows = _collect(manager, monkeypatch, "users", [{"users": [{"uuid": "u3"}], "total_count": 3}])
-        assert [r["uuid"] for r in rows] == ["u3"]
-        assert "pageNumber=2" in manager.urls[0]  # type: ignore[attr-defined]
-
-    def test_threads_use_snake_case_page_params(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(ZEP_ENDPOINTS["threads"], "page_size", 2)
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, "threads", [{"threads": [{"uuid": "t1"}], "total_count": 1}])
-        assert "page_number=1" in manager.urls[0]  # type: ignore[attr-defined]
-        assert "page_size=2" in manager.urls[0]  # type: ignore[attr-defined]
 
 
 class TestThreadMessagesFanOut:

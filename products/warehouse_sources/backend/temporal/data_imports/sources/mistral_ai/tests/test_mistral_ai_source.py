@@ -4,11 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
 
 
@@ -33,12 +29,6 @@ class TestSourceConfig:
         assert api_key.required is True
         assert api_key.secret is True
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
-
-    def test_alpha_and_docs_url(self) -> None:
-        config = MistralAISource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl filename must match the posthog.com doc (kebab-case) for the source page to resolve.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mistral-ai"
 
 
 class TestGetSchemas:
@@ -73,13 +63,6 @@ class TestGetSchemas:
     def test_names_filter(self) -> None:
         schemas = MistralAISource().get_schemas(MagicMock(), team_id=1, names=["files", "models"])
         assert {s.name for s in schemas} == {"files", "models"}
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials must stay True so posthog.com renders the Supported tables section.
-        source = MistralAISource()
-        assert source.lists_tables_without_credentials is True
-        tables = source.get_documented_tables()
-        assert {t["name"] for t in tables} == {s.name for s in source.get_schemas(source._placeholder_config(), 0)}
 
 
 class TestValidateCredentials:

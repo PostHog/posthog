@@ -125,7 +125,7 @@ def kustomer_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"page[size]": PAGE_SIZE},
+                    "params": {"page[size]": PAGE_SIZE, **config.params},
                     # JSON:API rows live under `data`. A missing key is a legit
                     # zero-row page (the hand-rolled loop used `.get("data", [])`),
                     # so this is NOT required — it stops rather than failing loud.

@@ -20,6 +20,20 @@
 # paths filtered in .github/workflows/ci-ml-mirror-image-scrub-container.yml change. Once a pinned
 # digest expires, running pods keep serving from their cached copy, so the loss only surfaces as new
 # nodes failing to pull.
+
+# The replay-anonymizer Node addon, which src/pixel-convert.ts loads for the pixel layout conversions
+# that build the model inputs. The crate is a member of the rust/ workspace, so cargo needs the whole
+# workspace to resolve it, but it compiles only this crate and its dependencies. Bookworm on both
+# stages, so the addon links against the glibc that the runtime stage ships.
+FROM rust:1.91.1-slim-bookworm AS native-addon
+WORKDIR /build/rust
+COPY rust ./
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=ml-mirror-image-scrub-cargo-target,target=/build/rust/target,sharing=locked \
+    cargo build --release --locked -p replay-anonymizer-node && \
+    cp target/release/libreplay_anonymizer_node.so /build/replay-anonymizer.node
+
 FROM node:24.13.0-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -39,15 +53,16 @@ COPY nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/
 COPY nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/src ./src
 # Tests co-locate in src/ but must not ship in the runtime image.
 RUN rm -f src/*.test.ts
+COPY --from=native-addon /build/replay-anonymizer.node native/replay-anonymizer.node
 
 # The ONNX models (safety gate, face, text), pinned to immutable upstream refs and checksum-verified
 # by BuildKit; loadModels() reads them from WORKDIR-relative models/. Keep URLs + digests in sync
 # with dev/setup.ts (the dev-machine download path).
-ADD --checksum=sha256:f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b \
-    https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx \
+ADD --checksum=sha256:193bab7a04fca699a6c82e6abb5b81bdb28177f0abd4062552b04908dafb19f8 \
+    https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx/resolve/2ba1506c0380b8f0b03dd142459aac66d4421f6c/inference.onnx \
     models/dbnet_det.onnx
-ADD --checksum=sha256:8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4 \
-    https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx \
+ADD --checksum=sha256:ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0 \
+    https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2026may.onnx \
     models/yunet.onnx
 ADD --checksum=sha256:8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689 \
     https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx \

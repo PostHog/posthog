@@ -6,9 +6,8 @@ import { cn } from 'lib/utils/css-classes'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
-import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
-import { ScoutSuggestButton } from './ScoutSuggestButton'
+import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutSuggestionsEmptyStateCards } from './ScoutSuggestionsStrip'
 
 export function ScoutsEmptyState(): JSX.Element {
@@ -39,8 +38,7 @@ export function ScoutsEmptyState(): JSX.Element {
                 </div>
             )}
             <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
-                <ScoutSuggestButton />
+                <ScoutNewButton layout="buttons" surface="empty_state" onCreated={() => loadScoutConfigs()} />
             </div>
             <ScoutHelperSkillLinks />
         </div>

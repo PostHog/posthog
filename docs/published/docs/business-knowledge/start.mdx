@@ -1,0 +1,53 @@
+---
+title: Business knowledge
+sidebar: Docs
+showTitle: true
+---
+
+Business knowledge stores the facts PostHog uses when it answers questions about your business.
+PostHog AI, Support, and the Business knowledge MCP tools all read the same sources.
+
+Open **Business knowledge** and choose **Add source**.
+
+## Text
+
+Paste a policy, an FAQ, or any other text, and give the source a name.
+Edit the source when the text changes.
+
+## URL
+
+Paste a public URL and choose how PostHog should read it.
+
+- **Single page** fetches that page.
+- **Sitemap.xml** reads the sitemap at that URL, or `/sitemap.xml` on the same site, and indexes each listed page.
+- **Same-origin crawl** indexes that page and other pages on the same site, staying under the page's path. A URL at the site root covers the whole site. Skip paths you do not want. Depth and max pages bound the crawl. The crawl follows `robots.txt`.
+
+## File
+
+Upload a PDF, DOCX, Markdown, CSV, or plain text file.
+PostHog stores the text it reads from the file. It does not keep the original file.
+To change a file, delete the source and upload it again.
+
+## Auto-refresh
+
+A URL source can refresh on a schedule: every hour, every 6 hours, every day, or every week.
+**Manual only** means PostHog fetches the source when you add it, and again when you refresh that row yourself.
+
+Text and file sources do not refresh on a schedule.
+
+## Playground
+
+The **Playground** tab asks a question against your sources and shows the answer.
+Use it to check that a source is found before you rely on it in Support or PostHog AI.
+
+## Content checks
+
+PostHog checks each document before using it in an answer.
+A document marked unsafe is left out.
+A document is also left out until that check finishes.
+The source shows when it has unsafe content.
+
+## Learn from support
+
+You can also let PostHog add reusable answers from resolved support tickets.
+See [Learn from support](/docs/business-knowledge/learn-from-support).

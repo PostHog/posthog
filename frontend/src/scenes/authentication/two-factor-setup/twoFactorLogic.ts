@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -11,6 +11,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { usersTwoFactorStatusRetrieve } from '~/generated/core/api'
 import type { TwoFactorStatusApi } from '~/generated/core/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
@@ -55,6 +56,7 @@ export interface twoFactorLogicValues {
     } | null
     startSetupLoading: boolean
     status: TwoFactorStatusApi | null
+    statusLoadFailed: boolean
     statusLoading: boolean
     token: {
         token: string
@@ -268,7 +270,26 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         toggleBackupCodesModal: (open: boolean) => ({ open }),
         setSetupCallOngoing: (ongoing: boolean) => ({ ongoing }),
     }),
+    // GlobalModals mounts this logic on every page, so the status loads on first read instead of on mount.
+    lazyLoaders(() => ({
+        status: [
+            null as TwoFactorStatusApi | null,
+            {
+                loadStatus: async () => {
+                    return await usersTwoFactorStatusRetrieve('@me')
+                },
+            },
+        ],
+    })),
     reducers({
+        statusLoadFailed: [
+            false,
+            {
+                loadStatus: () => false,
+                loadStatusSuccess: () => false,
+                loadStatusFailure: () => true,
+            },
+        ],
         isTwoFactorSetupModalOpen: [
             false,
             {
@@ -321,21 +342,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 closeTwoFactorSetupModal: (state) => ({ ...state, isOngoing: false }),
             },
         ],
-        status: [
-            null as TwoFactorStatusApi | null,
-            {
-                loadStatusSuccess: (_, { status }) => status,
-                generateBackupCodesSuccess: (state, { generatingCodes }) => {
-                    if (!state) {
-                        return null
-                    }
-                    return {
-                        ...state,
-                        backup_codes_remaining: generatingCodes?.backup_codes.length ?? state.backup_codes_remaining,
-                    }
-                },
-            },
-        ],
     }),
     selectors({
         is2FAEnabled: [(s) => [s.status], (status: TwoFactorStatusApi | null): boolean => !!status?.is_enabled],
@@ -359,16 +365,9 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                     actions.setSetupCallOngoing(true)
 
                     breakpoint()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorStartSetupRetrieve() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get('api/users/@me/two_factor_start_setup/')
                     return response
-                },
-            },
-        ],
-        status: [
-            null as TwoFactorStatusApi | null,
-            {
-                loadStatus: async () => {
-                    return await api.get<TwoFactorStatusApi>('api/users/@me/two_factor_status/')
                 },
             },
         ],
@@ -376,6 +375,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             null as { backup_codes: string[] } | null,
             {
                 generateBackupCodes: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorBackupCodesCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.create<any>('api/users/@me/two_factor_backup_codes/')
                 },
             },
@@ -390,6 +390,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorValidateCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.create<any>('api/users/@me/two_factor_validate/', { token })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
@@ -399,7 +400,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             },
         },
     })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         submitTokenSuccess: () => {
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()
@@ -407,6 +408,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         },
         disable2FA: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorDisableCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create<any>('api/users/@me/two_factor_disable/')
                 lemonToast.success('2FA disabled successfully. The page will reload.')
                 actions.loadStatus()
@@ -421,8 +423,14 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 throw e
             }
         },
-        generateBackupCodesSuccess: () => {
+        generateBackupCodesSuccess: ({ generatingCodes }) => {
             lemonToast.success('Backup codes generated successfully')
+            if (values.status && generatingCodes) {
+                actions.loadStatusSuccess({
+                    ...values.status,
+                    backup_codes_remaining: generatingCodes.backup_codes.length,
+                })
+            }
         },
         closeTwoFactorSetupModal: () => {
             // Clear the form when closing the modal
@@ -431,8 +439,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadStatus()
-
         if (
             values.user &&
             values.user.organization?.enforce_2fa &&

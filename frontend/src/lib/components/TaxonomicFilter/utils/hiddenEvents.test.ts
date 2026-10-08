@@ -4,34 +4,43 @@ import {
     hiddenEventNames,
     withHiddenEventsExcluded,
 } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-const FLAG_ON = { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true }
-const FLAG_OFF = {}
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 
 describe('events hidden from query builders', () => {
-    // The whole feature keys off this taxonomy entry.
-    it('hides $feature_flag_called while the kill switch is on', () => {
-        expect(hiddenEventNames(FLAG_ON)).toContain('$feature_flag_called')
+    // The mode gate belongs to the flag evaluations rollout. A second event marked
+    // hidden_in_query_builders fails this test until it gets its own gate.
+    it.each([
+        ['reads flag evaluations', FlagEvaluationsModeEnumApi.Number1],
+        ['writes only flag evaluations', FlagEvaluationsModeEnumApi.Number2],
+    ])('hides $feature_flag_called for a team that %s', (_label, mode) => {
+        expect(hiddenEventNames(mode)).toEqual(['$feature_flag_called'])
     })
 
     it.each([
-        ['the kill switch is off', FLAG_OFF, undefined],
+        ['the team is on the Events mode', FlagEvaluationsModeEnumApi.Number0, undefined],
+        ['the team has no mode', undefined, undefined],
         // Pickers that read live event data, and the experiment exposure pickers, opt back in.
-        ['the picker opts out', FLAG_ON, true],
-    ])('hides nothing when %s', (_label, featureFlags, includeHiddenEvents) => {
-        expect(hiddenEventNames(featureFlags, includeHiddenEvents)).toEqual([])
+        ['the picker opts out', FlagEvaluationsModeEnumApi.Number1, true],
+    ])('hides nothing when %s', (_label, mode, includeHiddenEvents) => {
+        expect(hiddenEventNames(mode, includeHiddenEvents)).toEqual([])
     })
 
     describe('withHiddenEventsExcluded', () => {
         // Cohort pickers exclude "All events" as null, so appending must not replace what came in.
         it('adds the hidden names to the Events group and keeps the ones the caller passed', () => {
-            const merged = withHiddenEventsExcluded({ [TaxonomicFilterGroupType.Events]: [null] }, FLAG_ON)
+            const merged = withHiddenEventsExcluded(
+                { [TaxonomicFilterGroupType.Events]: [null] },
+                FlagEvaluationsModeEnumApi.Number1
+            )
             expect(merged?.[TaxonomicFilterGroupType.Events]).toEqual([null, '$feature_flag_called'])
         })
 
-        it('leaves the record alone while the kill switch is off', () => {
-            const merged = withHiddenEventsExcluded({ [TaxonomicFilterGroupType.Events]: [null] }, FLAG_OFF)
+        it('leaves the record alone for a team on the Events mode', () => {
+            const merged = withHiddenEventsExcluded(
+                { [TaxonomicFilterGroupType.Events]: [null] },
+                FlagEvaluationsModeEnumApi.Number0
+            )
             expect(merged?.[TaxonomicFilterGroupType.Events]).toEqual([null])
         })
     })
@@ -59,7 +68,7 @@ describe('events hidden from query builders', () => {
         // Two derivations off the same taxonomy scan. If they disagree, a picker hides an event it
         // then refuses to explain.
         it('recognizes every name the Events group hides', () => {
-            for (const name of hiddenEventNames(FLAG_ON)) {
+            for (const name of hiddenEventNames(FlagEvaluationsModeEnumApi.Number1)) {
                 expect(hiddenEventMatchingSearch(name, [name])).toBe(name)
             }
         })

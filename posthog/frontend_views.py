@@ -1,10 +1,13 @@
+import json
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -13,6 +16,82 @@ APP_POSTHOG_HOST = "app.posthog.com"
 # Canonical per-region hosts a `ph_current_instance` cookie is allowed to resolve to.
 # Restricting to this set keeps the cookie from being turned into an open redirect.
 _REGION_HOSTS = {"us.posthog.com", "eu.posthog.com"}
+
+
+@frozen
+class _PageMetadata:
+    title: str
+    description: str
+
+
+# Same share image as posthog.com, so links to the app and the website preview alike.
+_PREVIEW_IMAGE_URL = "https://posthog.com/images/og/default.png"
+
+# Each title matches the document title the SPA sets for the scene, so the tab title doesn't change when the app boots.
+_PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
+    "/login": _PageMetadata(
+        title="Log in • PostHog",
+        description="Log in to PostHog, the single platform for engineers to analyze, test, observe, and deploy new features.",
+    ),
+    "/signup": _PageMetadata(
+        title="Sign up • PostHog",
+        description=(
+            "Create a free PostHog account to analyze, test, observe, and deploy new features. "
+            "Every product has a monthly free tier, and no credit card is required."
+        ),
+    ),
+}
+
+
+def _structured_data_json(metadata: _PageMetadata, canonical_url: str) -> str:
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": metadata.title,
+        "description": metadata.description,
+        "url": canonical_url,
+        "isPartOf": {"@type": "WebSite", "name": "PostHog", "url": settings.SITE_URL},
+        "about": {
+            "@type": "SoftwareApplication",
+            "name": "PostHog",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": "https://posthog.com",
+            "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        },
+        # Matches the Organization that posthog.com publishes, so search engines tie the app to the same entity.
+        "publisher": {
+            "@type": "Organization",
+            "name": "PostHog",
+            "url": "https://posthog.com",
+            "logo": "https://posthog.com/brand/posthog-logo-stacked.png",
+            "sameAs": [
+                "https://twitter.com/PostHog",
+                "https://github.com/PostHog",
+                "https://www.linkedin.com/company/posthog",
+            ],
+        },
+    }
+    # The template renders this inside <script> with |safe, so no character may close the element.
+    return json.dumps(structured_data).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
+    """Template context for the search and link-preview tags of a public page, or an empty
+    dict for every other path. The canonical URL drops the query string, so links such as
+    `/login?next=...` count as one page."""
+    path = request.path.rstrip("/")
+    metadata = _PUBLIC_PAGE_METADATA.get(path)
+    if metadata is None:
+        return {}
+    canonical_url = f"{settings.SITE_URL}{path}"
+    return {
+        "page_title": metadata.title,
+        "page_description": metadata.description,
+        "canonical_url": canonical_url,
+        "preview_image_url": _PREVIEW_IMAGE_URL,
+        "structured_data_json": _structured_data_json(metadata, canonical_url),
+    }
 
 
 def region_host_from_current_instance(cookie_value: str | None) -> str | None:
@@ -54,7 +133,7 @@ def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
 
 @ensure_csrf_cookie
 def _render_home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-    return render_template("index.html", request)
+    return render_template("index.html", request, public_page_metadata_context(request))
 
 
 # Wrapped once at import time (as `login_required(home)` used to be) so the catch-all

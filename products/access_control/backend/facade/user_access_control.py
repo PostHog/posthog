@@ -89,6 +89,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "ticket",
     "web_analytics",
     "activity_log",
+    "business_knowledge",
     "error_tracking",
     "logs",
     "mcp_analytics",
@@ -126,6 +127,13 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # separate resource.
     "vision_alert": "replay_scanner",
 }
+
+# Every scope a rule write accepts: the project, the resource types with resource-level rules,
+# the resource types that inherit from one of them and take object rules only, and properties.
+# The schema names it RuleResourceEnum through ENUM_NAME_OVERRIDES in posthog/settings/web.py.
+RULE_RESOURCE_CHOICES: list[str] = sorted(
+    {"project", "property_definition", *ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP}
+)
 
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
 # parent's, this checks the child's own access first and falls back to the parent.
@@ -202,6 +210,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "business_knowledge":
+        return "business knowledge"
     if resource == "stamphog":
         # Product name: a proper noun, and it does not take a plural
         return "Stamphog"
@@ -1671,6 +1681,27 @@ class UserAccessControl:
                 "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
             )
         return access.access_level if access else None
+
+    def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
+        that supplied it kept so a display can attribute the level."""
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        if self._is_most_specific_access_control_enabled:
+            return self.resolve_most_specific_object_access(obj)
+
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        if resolved:
+            return access
+
+        object_access_controls = self._get_access_controls(
+            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        )
+        return self._object_access_level_from_rows(
+            resource, object_access_controls, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
 
     def bulk_object_access_levels(
         self,

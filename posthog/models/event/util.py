@@ -1,5 +1,8 @@
 import json
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
@@ -24,6 +27,22 @@ from posthog.settings import TEST
 ZERO_DATE = datetime(1970, 1, 1)
 CLICKHOUSE_JSON_MIN_INT = -(2**63)
 CLICKHOUSE_JSON_MAX_UINT = 2**64 - 1
+_events_only_in_active_schema: ContextVar[bool] = ContextVar("events_only_in_active_schema", default=False)
+
+
+@contextmanager
+def events_only_in_active_schema() -> Iterator[None]:
+    """Omit the legacy fixture copy in native tests so legacy reads cannot pass unnoticed.
+
+    Keep deferred event flushing inside the scope, or decorate the entire test.
+    """
+    if not TEST:
+        raise RuntimeError("This function is only meant for setting up tests")
+    token = _events_only_in_active_schema.set(True)
+    try:
+        yield
+    finally:
+        _events_only_in_active_schema.reset(token)
 
 
 def _normalize_clickhouse_json_value(value: Any) -> Any:
@@ -114,7 +133,8 @@ def create_event(
             "person_properties": _json_dumps_for_clickhouse(person_properties),
         }
         p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
-    p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
+    if not (TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and _events_only_in_active_schema.get()):
+        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 
     return str(event_uuid)
 
@@ -172,6 +192,12 @@ def bulk_create_events(
             timestamp = timestamp.replace(tzinfo=ZoneInfo(team_timezone))
         # Format for ClickHouse
         timestamp = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+        created_at = event.get("created_at")
+        created_at = (
+            created_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+            if isinstance(created_at, datetime)
+            else timestamp
+        )
 
         elements_chain = ""
         if tentative_elements_chain := event.get("elements_chain"):
@@ -274,7 +300,7 @@ def bulk_create_events(
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
-            "created_at": timestamp,
+            "created_at": created_at,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "person_created_at": (
@@ -324,7 +350,8 @@ def bulk_create_events(
             json_params,
             flush=False,
         )
-    sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
+    if not (settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and _events_only_in_active_schema.get()):
+        sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
 @extend_schema_serializer(component_name="EventElement")

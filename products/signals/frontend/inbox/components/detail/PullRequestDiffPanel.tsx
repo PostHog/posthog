@@ -82,11 +82,11 @@ export function PullRequestDiffPending({ artefactsLoaded }: { artefactsLoaded: b
 
 /**
  * The report's branch as a git-branch tag. Rendered in the "Files changed" section header, so the section
- * signals which branch the diff comes from.
+ * signals which change the diff comes from.
  */
 export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX.Element {
     return (
-        <Tooltip title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}>
+        <Tooltip title={`Changes on ${commit.repository}@${commit.branch}`}>
             <LemonTag type="muted" className="font-mono min-w-0">
                 <IconGitBranch className="shrink-0" />
                 <span className="truncate">{commit.branch}</span>
@@ -96,11 +96,11 @@ export function PullRequestBranchTag({ commit }: { commit: CommitContent }): JSX
 }
 
 /**
- * "Files changed" section body: the report's branch diff against the repository default branch, rendered
- * GitHub-style and read-only. The section header carries the branch tag; this toolbar balances diff stats on the
- * left with the unified/split toggle on the right. The diff itself is loaded by `inboxReportDetailLogic`
+ * "Files changed" section body: the report's pull request or pre-PR branch diff, rendered GitHub-style and
+ * read-only. The section header carries the branch tag; this toolbar balances diff stats on the left with the
+ * unified/split toggle on the right. The diff itself is loaded by `inboxReportDetailLogic`
  * (keyed to the report, cascading off the artefact load) — this component just renders the current
- * state, tracking the branch tip as the work moves.
+ * state, tracking the change as the work moves.
  */
 export function PullRequestDiffPanel({ report, commit }: { report: SignalReport; commit: CommitContent }): JSX.Element {
     const logicProps = useMemo(() => ({ reportId: report.id, report }), [report])
@@ -229,7 +229,7 @@ function DiffToolbarSummary({
     return (
         <span
             className="min-w-0 truncate font-mono text-xs text-tertiary"
-            title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}
+            title={`Changes on ${commit.repository}@${commit.branch}`}
         >
             {commit.repository}
         </span>

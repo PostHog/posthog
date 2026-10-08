@@ -103,7 +103,8 @@ class LoopCRUDAPITest(LoopsAPITestCase):
     @parameterized.expand(
         [
             ("blank_model_with_effort_the_default_supports", "claude", "", "high", status.HTTP_201_CREATED),
-            ("blank_model_with_effort_the_default_rejects", "codex", "", "xhigh", status.HTTP_400_BAD_REQUEST),
+            ("blank_codex_model_with_effort_the_default_supports", "codex", "", "xhigh", status.HTTP_201_CREATED),
+            ("blank_model_with_effort_the_default_rejects", "codex", "", "ultracode", status.HTTP_400_BAD_REQUEST),
             ("pinned_glm_with_supported_effort", "claude", "@cf/zai-org/glm-5.2", "max", status.HTTP_201_CREATED),
             (
                 "pinned_glm_with_unsupported_effort",

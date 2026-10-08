@@ -3,9 +3,12 @@
 from collections.abc import Iterable, Mapping
 
 import structlog
+from owners_yaml.schema import TeamEntry
 
-from products.engineering_analytics.backend.facade.api import resolve_path_owners
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
+from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.ownership.github_files import fetcher_for_team
+from posthog.ownership.paths import UNOWNED_TEAM, resolve_path_owners
 
 from ..facade.enums import RunType
 from ..models import Repo, Run
@@ -20,22 +23,30 @@ logger = structlog.get_logger(__name__)
 _MAX_OWNED_PATHS = 2_000
 
 
-def owner_teams(
-    repo: Repo, keys: Iterable[SnapshotKey], newest_run_by_type: Mapping[str, Run]
-) -> dict[SnapshotKey, str]:
-    """The owning team of each Storybook snapshot whose story file is known.
+@frozen
+class SnapshotOwners:
+    """The owning team of each snapshot whose story file is known, and the registry that routes to it."""
+
+    team_by_key: dict[SnapshotKey, str]
+    path_by_key: dict[SnapshotKey, str]
+    registry: Mapping[str, TeamEntry]
+
+
+def snapshot_owners(repo: Repo, keys: Iterable[SnapshotKey], newest_run_by_type: Mapping[str, Run]) -> SnapshotOwners:
+    """The owning team and story file of each Storybook snapshot whose story file is known.
 
     A key is left out when there is no team to name: the run type has no story index, the newest
     default-branch run sent none, the story is not in it, or the ownership files could not be read.
     `UNOWNED_TEAM` means the file is known and no ownership entry covers it.
     """
+    nobody = SnapshotOwners(team_by_key={}, path_by_key={}, registry={})
     storybook_keys = [key for key in keys if key.run_type == RunType.STORYBOOK]
     if not storybook_keys:
-        return {}
+        return nobody
 
     index = story_index.latest_story_index(repo, newest_run_by_type)
     if isinstance(index, str):
-        return {}
+        return nobody
 
     path_by_key: dict[SnapshotKey, str] = {}
     for key in storybook_keys:
@@ -43,15 +54,32 @@ def owner_teams(
         if path is not None:
             path_by_key[key] = path
     if not path_by_key:
-        return {}
+        return nobody
 
     paths = sorted(set(path_by_key.values()))
     if len(paths) > _MAX_OWNED_PATHS:
         logger.warning("visual_review.owner_teams_too_many_paths", repo_id=str(repo.id), paths=len(paths))
-        return {}
+        return nobody
 
-    ownership = resolve_path_owners(repo.repo_full_name, paths)
+    ownership = resolve_path_owners(
+        repo.repo_full_name,
+        paths,
+        # A person is waiting on the snapshot list or just asked for a notice, so the reads run on the
+        # interactive lane.
+        files=fetcher_for_team(repo.team_id, repo.repo_full_name, priority=Priority.NORMAL),
+    )
     if not ownership.resolved:
         logger.info("visual_review.owner_teams_unresolved", repo_id=str(repo.id))
-        return {}
-    return {key: ownership.team_by_path.get(path, UNOWNED_TEAM) for key, path in path_by_key.items()}
+        return nobody
+    return SnapshotOwners(
+        team_by_key={key: ownership.team_by_path.get(path, UNOWNED_TEAM) for key, path in path_by_key.items()},
+        path_by_key=path_by_key,
+        registry=ownership.registry,
+    )
+
+
+def owner_teams(
+    repo: Repo, keys: Iterable[SnapshotKey], newest_run_by_type: Mapping[str, Run]
+) -> dict[SnapshotKey, str]:
+    """The owning team of each Storybook snapshot whose story file is known. See `snapshot_owners`."""
+    return snapshot_owners(repo, keys, newest_run_by_type).team_by_key

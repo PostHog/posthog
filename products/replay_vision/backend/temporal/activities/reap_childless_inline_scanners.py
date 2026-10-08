@@ -19,8 +19,13 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.enqueue_claims import pending_enqueue_claims_for_scanner
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
-from products.replay_vision.backend.temporal.constants import INLINE_SCANNER_REAP_BATCH_SIZE, INLINE_SCANNER_REAP_GRACE
+from products.replay_vision.backend.temporal.constants import (
+    INLINE_SCANNER_REAP_BATCH_SIZE,
+    INLINE_SCANNER_REAP_GRACE,
+    REAPER_OP_TIMEOUT,
+)
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 
 @database_sync_to_async
@@ -28,12 +33,13 @@ def _reap_childless_inline_scanners() -> int:
     # The grace period covers the gap between minting a scanner and its first observation row landing,
     # which spans a Temporal workflow start and an activity.
     cutoff = timezone.now() - INLINE_SCANNER_REAP_GRACE
-    candidates = list(
-        ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE, created_at__lt=cutoff)
-        .annotate(has_observations=Exists(ReplayObservation.objects.filter(scanner_id=OuterRef("pk"))))
-        .filter(has_observations=False)
-        .values_list("id", flat=True)[:INLINE_SCANNER_REAP_BATCH_SIZE]
-    )
+    with bounded_queries(REAPER_OP_TIMEOUT):
+        candidates = list(
+            ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE, created_at__lt=cutoff)
+            .annotate(has_observations=Exists(ReplayObservation.objects.filter(scanner_id=OuterRef("pk"))))
+            .filter(has_observations=False)
+            .values_list("id", flat=True)[:INLINE_SCANNER_REAP_BATCH_SIZE]
+        )
     if not candidates:
         return 0
     # A childless scanner can still have a scan in flight: reuse resolves an old row, starts a workflow,
@@ -46,11 +52,12 @@ def _reap_childless_inline_scanners() -> int:
         return 0
     # Re-check emptiness in the DELETE itself: an observation can land between the two statements, and
     # the FK cascade would take it with the scanner.
-    deleted, _ = (
-        ReplayScanner.all_origins.filter(id__in=unclaimed)
-        .exclude(id__in=ReplayObservation.objects.filter(scanner_id__in=unclaimed).values("scanner_id"))
-        .delete()
-    )
+    with bounded_queries(REAPER_OP_TIMEOUT):
+        deleted, _ = (
+            ReplayScanner.all_origins.filter(id__in=unclaimed)
+            .exclude(id__in=ReplayObservation.objects.filter(scanner_id__in=unclaimed).values("scanner_id"))
+            .delete()
+        )
     return deleted
 
 

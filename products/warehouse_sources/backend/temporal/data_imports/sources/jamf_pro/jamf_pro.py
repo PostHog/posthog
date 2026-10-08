@@ -2,10 +2,11 @@ import re
 import json
 import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -47,6 +48,11 @@ MAX_DOWNLOAD_SECONDS = 300
 # Cap the highest page we will ever fetch for one endpoint. At 100-200 rows per page this is far
 # more than any real Jamf tenant holds, so it only ever trips on a server that never terminates.
 MAX_PAGES = 50_000
+# Fan-out parents are collected before any child is fetched, so the host also must not be able to
+# grow that list without bound. Real parents (titles, policies, groups) number in the hundreds and
+# have short numeric ids.
+MAX_PARENT_IDS = 100_000
+MAX_PARENT_ID_LENGTH = 256
 
 # Jamf Pro bearer tokens are short-lived (~20 minutes for basic-auth tokens; OAuth tokens report
 # their own expires_in). Re-mint this many seconds before the deadline so a request never rides
@@ -135,11 +141,13 @@ def _read_body_preview(response: requests.Response) -> str:
     return b"".join(chunks)[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JamfProResumeConfig:
     # Zero-based page index to fetch next. Query params are rebuilt deterministically from the
     # schema inputs on resume, so the page number is the only state we need.
     page: int
+    # Fan-out endpoints only: the parent whose child pages `page` indexes into.
+    parent_id: str | None = None
 
 
 @frozen
@@ -272,7 +280,7 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"page-size": config.page_size}
+    params: dict[str, Any] = {"page-size": config.page_size} if config.paginated else {}
 
     sort = config.sort
     if should_use_incremental_field and config.rsql_incremental_field:
@@ -284,6 +292,9 @@ def _build_params(
             # double-quoted because RSQL treats bare colons in timestamps as reserved characters.
             params["filter"] = f'{config.rsql_incremental_field}>="{formatted}"'
 
+    if "filter" not in params and config.default_filter:
+        params["filter"] = config.default_filter
+
     if sort:
         params["sort"] = sort
     if config.sections:
@@ -292,8 +303,9 @@ def _build_params(
     return params
 
 
-def _build_url(host: str, config: JamfProEndpointConfig, params: dict[str, Any]) -> str:
-    url = f"{_base_url(host)}{config.path}"
+def _build_url(host: str, config: JamfProEndpointConfig, params: dict[str, Any], parent_id: str | None = None) -> str:
+    path = config.path if parent_id is None else config.path.replace("{id}", quote(parent_id, safe=""))
+    url = f"{_base_url(host)}{path}"
     if not params:
         return url
     return f"{url}?{urlencode(params, doseq=True)}"
@@ -360,12 +372,16 @@ def validate_credentials(
         return True, None
 
     config = JAMF_PRO_ENDPOINTS[schema_name]
-    probe_params = {"page": 0, "page-size": 1} if config.paginated else {}
+    # Fan-out children need a parent id to address, and they share the parent's read privilege.
+    probe_config = JAMF_PRO_ENDPOINTS[config.parent] if config.parent else config
+    probe_params: dict[str, Any] = {"page": 0, "page-size": 1} if probe_config.paginated else {}
+    if probe_config.default_filter:
+        probe_params["filter"] = probe_config.default_filter
     try:
         # Stream and close without touching the body — the probe only needs the status. This keeps
         # a customer-controlled server from buffering an unbounded body into memory at source-create.
         response = session.get(
-            _build_url(normalized, config, probe_params),
+            _build_url(normalized, probe_config, probe_params),
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             timeout=10,
             allow_redirects=False,
@@ -389,6 +405,117 @@ def validate_credentials(
         return False, f"Your Jamf Pro API client lacks the read privilege for {schema_name}"
 
     return False, f"Jamf Pro API returned status {status_code} for {schema_name}"
+
+
+def _parent_sort_key(parent_id: str) -> tuple[int, int | str]:
+    return (0, int(parent_id)) if parent_id.isdigit() else (1, parent_id)
+
+
+def _iter_endpoint_pages(
+    fetch_page: Callable[[str], Any],
+    host: str,
+    config: JamfProEndpointConfig,
+    params: dict[str, Any],
+    page: int,
+    resumable_source_manager: ResumableSourceManager[JamfProResumeConfig],
+    resume_state: Callable[[int], JamfProResumeConfig],
+    parent_id: str | None = None,
+    request_budget: list[int] | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    def fetch_bounded(page_url: str) -> Any:
+        if request_budget is not None:
+            if request_budget[0] >= MAX_PAGES:
+                raise JamfProPaginationLimitError(
+                    f"Jamf Pro pagination for {config.name} exceeded {MAX_PAGES} requests without terminating"
+                )
+            request_budget[0] += 1
+        return fetch_page(page_url)
+
+    def shape(row: dict[str, Any]) -> dict[str, Any]:
+        row = _hoist_cursor(config, row)
+        if config.row_fields:
+            row = {key: row.get(key) for key in config.row_fields}
+        if parent_id is not None and config.parent_id_field:
+            row = {**row, config.parent_id_field: parent_id}
+        return row
+
+    if not config.paginated:
+        data = fetch_bounded(_build_url(host, config, params, parent_id))
+        if isinstance(data, list):
+            rows = data
+        elif "results" in data:
+            rows = data["results"]
+        else:
+            # Single-object responses (e.g. a title's patch summary) become one row.
+            rows = [data] if data else []
+        if rows:
+            yield [shape(row) for row in rows]
+        return
+
+    while True:
+        # A server that never signals termination (non-empty results, missing/inflated totalCount)
+        # would otherwise loop until the activity's week-long timeout — bound the page count. The
+        # check is on the absolute page index so it holds across resumes, not just per run.
+        if page >= MAX_PAGES:
+            raise JamfProPaginationLimitError(
+                f"Jamf Pro pagination for {config.name} exceeded {MAX_PAGES} pages without terminating"
+            )
+
+        data = fetch_bounded(_build_url(host, config, {**params, "page": page}, parent_id))
+
+        results = data.get("results", [])
+        if not results:
+            break
+
+        total_count = data.get("totalCount")
+        has_more = total_count is None or (page + 1) * config.page_size < total_count
+        if has_more:
+            resumable_source_manager.save_state(resume_state(page + 1))
+
+        yield [shape(row) for row in results]
+
+        if not has_more:
+            break
+        page += 1
+
+
+def _fetch_parent_ids(
+    fetch_page: Callable[[str], Any], host: str, config: JamfProEndpointConfig, parent_config: JamfProEndpointConfig
+) -> list[str]:
+    """Collect the ids of the parents to fan out over, keeping only the ids so memory stays bounded."""
+    ids: list[str] = []
+
+    def collect(rows: list[dict[str, Any]]) -> None:
+        for row in rows:
+            if row.get("id") is None:
+                continue
+            if config.parent_filter is not None and row.get(config.parent_filter[0]) != config.parent_filter[1]:
+                continue
+            parent_id = str(row["id"])
+            if len(parent_id) > MAX_PARENT_ID_LENGTH or len(ids) >= MAX_PARENT_IDS:
+                raise JamfProPaginationLimitError(
+                    f"Jamf Pro {parent_config.name} returned more parents or longer ids than any real tenant holds"
+                )
+            ids.append(parent_id)
+
+    if not parent_config.paginated:
+        data = fetch_page(_build_url(host, parent_config, {}))
+        collect(data if isinstance(data, list) else data.get("results", []))
+        return ids
+
+    params = _build_params(parent_config, False, None)
+    seen = 0
+    for page in range(MAX_PAGES):
+        data = fetch_page(_build_url(host, parent_config, {**params, "page": page}))
+        results = data.get("results", [])
+        collect(results)
+        seen += len(results)
+        total_count = data.get("totalCount")
+        if not results or (total_count is not None and seen >= total_count):
+            return ids
+    raise JamfProPaginationLimitError(
+        f"Jamf Pro pagination for {parent_config.name} exceeded {MAX_PAGES} pages without terminating"
+    )
 
 
 def get_rows(
@@ -453,45 +580,61 @@ def get_rows(
         finally:
             response.close()
 
-    if not config.paginated:
-        data = fetch_page(_build_url(host, config, {}))
-        rows = data if isinstance(data, list) else data.get("results", [])
-        if rows:
-            yield [_hoist_cursor(config, row) for row in rows]
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.parent is None:
+        page = resume_config.page if resume_config is not None else 0
+        if resume_config is not None:
+            logger.debug(f"Jamf Pro: resuming {endpoint} from page {page}")
+        yield from _iter_endpoint_pages(
+            fetch_page,
+            host,
+            config,
+            params,
+            page,
+            resumable_source_manager,
+            lambda next_page: JamfProResumeConfig(page=next_page),
+        )
         return
 
-    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    parent_config = JAMF_PRO_ENDPOINTS[config.parent]
+    # Walk parents in a deterministic order so a resume can skip the parents already synced.
+    parent_ids = sorted(_fetch_parent_ids(fetch_page, host, config, parent_config), key=_parent_sort_key)
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume_config.page if resume_config is not None else 0
-    if resume_config is not None:
-        logger.debug(f"Jamf Pro: resuming {endpoint} from page {page}")
+    if resume_config is not None and resume_config.parent_id is not None:
+        resume_key = _parent_sort_key(resume_config.parent_id)
+        parent_ids = [pid for pid in parent_ids if _parent_sort_key(pid) >= resume_key]
+        logger.debug(f"Jamf Pro: resuming {endpoint} from parent {resume_config.parent_id} page {resume_config.page}")
 
-    while True:
-        # A server that never signals termination (non-empty results, missing/inflated totalCount)
-        # would otherwise loop until the activity's week-long timeout — bound the page count. The
-        # check is on the absolute page index so it holds across resumes, not just per run.
-        if page >= MAX_PAGES:
-            raise JamfProPaginationLimitError(
-                f"Jamf Pro pagination for {endpoint} exceeded {MAX_PAGES} pages without terminating"
+    request_budget = [0]
+    for index, parent_id in enumerate(parent_ids):
+        start_page = (
+            resume_config.page
+            if resume_config is not None and index == 0 and resume_config.parent_id == parent_id
+            else 0
+        )
+        try:
+            yield from _iter_endpoint_pages(
+                fetch_page,
+                host,
+                config,
+                params,
+                start_page,
+                resumable_source_manager,
+                partial(JamfProResumeConfig, parent_id=parent_id),
+                parent_id=parent_id,
+                request_budget=request_budget,
             )
+        except requests.HTTPError as e:
+            # A title deleted between listing the parents and fetching its children 404s.
+            if e.response is None or e.response.status_code != 404:
+                raise
+            logger.debug(f"Jamf Pro: {endpoint} parent {parent_id} no longer exists, skipping")
 
-        data = fetch_page(_build_url(host, config, {**params, "page": page}))
-
-        results = data.get("results", [])
-        if not results:
-            break
-
-        yield [_hoist_cursor(config, row) for row in results]
-
-        total_count = data.get("totalCount")
-        if total_count is not None and (page + 1) * config.page_size >= total_count:
-            break
-
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-        # page rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(JamfProResumeConfig(page=page + 1))
-        page += 1
+        if index + 1 < len(parent_ids):
+            resumable_source_manager.save_state(JamfProResumeConfig(page=0, parent_id=parent_ids[index + 1]))
+        resumable_source_manager.safe_point()
 
 
 def jamf_pro_source(
@@ -518,7 +661,7 @@ def jamf_pro_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=endpoint_config.primary_keys,
         # Incremental runs request sort=general.reportDate:asc so the watermark can checkpoint
         # per batch; full refreshes sort by id for stable page boundaries.
         sort_mode="asc",

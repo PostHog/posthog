@@ -148,6 +148,112 @@ query VulnerabilityOccurrences($login: String!, $vcsProvider: VCSProvider!, $nam
     }
 }"""
 
+# Shared between the nested (per analysis run) and follow-up (per run, by node ID) queries.
+_CHECK_FRAGMENT = """
+fragment CheckFields on Check {
+    id
+    sequence
+    status
+    createdAt
+    updatedAt
+    finishedAt
+    analyzer { shortcode name }
+    summary {
+        occurrencesIntroduced
+        occurrencesResolved
+        occurrencesSuppressed
+    }
+}"""
+
+# Checks hang off analysis runs, so they are fetched nested inside the repository's run
+# walk rather than one request per run. `checkPageSize` is generous enough that a run's
+# checks almost always fit in this first page; ANALYSIS_RUN_CHECKS_QUERY picks up the rest.
+CHECKS_QUERY = (
+    _CHECK_FRAGMENT
+    + """
+query RepositoryChecks($login: String!, $vcsProvider: VCSProvider!, $name: String!, $pageSize: Int!, $cursor: String, $checkPageSize: Int!) {
+    repository(login: $login, vcsProvider: $vcsProvider, name: $name) {
+        id
+        name
+        analysisRuns(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                runUid
+                commitOid
+                branchName
+                checks(first: $checkPageSize) {
+                    pageInfo { hasNextPage endCursor }
+                    edges { node { ...CheckFields } }
+                }
+            } }
+        }
+    }
+}"""
+)
+
+ANALYSIS_RUN_CHECKS_QUERY = (
+    _CHECK_FRAGMENT
+    + """
+query AnalysisRunChecks($id: ID!, $checkPageSize: Int!, $cursor: String) {
+    node(id: $id) {
+        ... on AnalysisRun {
+            checks(first: $checkPageSize, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                edges { node { ...CheckFields } }
+            }
+        }
+    }
+}"""
+)
+
+PULL_REQUESTS_QUERY = """
+query RepositoryPullRequests($login: String!, $vcsProvider: VCSProvider!, $name: String!, $pageSize: Int!, $cursor: String) {
+    repository(login: $login, vcsProvider: $vcsProvider, name: $name) {
+        id
+        name
+        pullRequests(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                number
+                title
+                state
+                baseBranch
+                branch
+                vcsUrl
+                createdAt
+                summary {
+                    issuesRaised
+                    issuesResolved
+                    issuesSuppressed
+                    vulnerabilitiesRaised
+                }
+                latestAnalysisRun { id status }
+            } }
+        }
+    }
+}"""
+
+# The analyzer catalog is the same for every DeepSource user, so this query takes no
+# account or repository argument.
+ANALYZERS_QUERY = """
+query Analyzers($pageSize: Int!, $cursor: String) {
+    analyzers(first: $pageSize, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        edges { node {
+            id
+            shortcode
+            name
+            version
+            description
+            type
+            logo
+            numIssues
+        } }
+    }
+}"""
+
 METRICS_QUERY = """
 query RepositoryMetrics($login: String!, $vcsProvider: VCSProvider!, $name: String!) {
     repository(login: $login, vcsProvider: $vcsProvider, name: $name) {
@@ -204,6 +310,8 @@ query Validate($login: String!, $vcsProvider: VCSProvider!) {
 
 CONNECTION_QUERIES: dict[str, str] = {
     "analysis_runs": ANALYSIS_RUNS_QUERY,
+    "checks": CHECKS_QUERY,
+    "pull_requests": PULL_REQUESTS_QUERY,
     "issues": ISSUES_QUERY,
     "issue_occurrences": ISSUE_OCCURRENCES_QUERY,
     "vulnerability_occurrences": VULNERABILITY_OCCURRENCES_QUERY,
@@ -212,4 +320,8 @@ CONNECTION_QUERIES: dict[str, str] = {
 PER_REPOSITORY_QUERIES: dict[str, str] = {
     "metrics": METRICS_QUERY,
     "reports": REPORTS_QUERY,
+}
+
+ROOT_CONNECTION_QUERIES: dict[str, str] = {
+    "analyzers": ANALYZERS_QUERY,
 }

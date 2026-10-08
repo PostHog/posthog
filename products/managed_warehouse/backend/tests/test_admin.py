@@ -5,6 +5,8 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.db import connection
+from django.forms.models import model_to_dict
 from django.http import Http404, HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
@@ -195,6 +197,36 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         assert "username" in field_names
         assert "password" not in field_names
+        assert "trino_password" not in field_names
+        assert "new_trino_password" in field_names
+
+    def test_change_form_sets_encrypted_trino_password_without_revealing_or_erasing_it(self) -> None:
+        server = self._server()
+        request = self._get("/admin/posthog/duckgresserver/")
+        form_class = self.admin.get_form(request, server)
+        assert "trino_password" not in form_class.base_fields
+        assert "password" not in form_class.base_fields
+
+        data = model_to_dict(server)
+        data["new_trino_password"] = "trino-test-secret"
+        form = form_class(data=data, instance=server)
+        assert form.is_valid(), form.errors
+        form.save()
+
+        server.refresh_from_db()
+        assert server.trino_password == "trino-test-secret"
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT trino_password FROM posthog_duckgresserver WHERE id = %s", [str(server.id)])
+            stored = cursor.fetchone()[0]
+        assert stored != "trino-test-secret"
+        assert stored.startswith("gAAAAA")
+        assert "trino-test-secret" not in form_class(instance=server).as_p()
+
+        form = form_class(data=model_to_dict(server), instance=server)
+        assert form.is_valid(), form.errors
+        form.save()
+        server.refresh_from_db()
+        assert server.trino_password == "trino-test-secret"
 
     def test_provision_post_calls_managed_warehouse_bypassing_flag(self) -> None:
         request = self._post(

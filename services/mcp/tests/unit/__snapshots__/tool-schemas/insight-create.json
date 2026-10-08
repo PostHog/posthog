@@ -169,6 +169,44 @@
                                     },
                                     "type": "object"
                                 },
+                                "legendPosition": {
+                                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                                    "enum": ["top", "bottom", "left", "right"],
+                                    "type": "string"
+                                },
+                                "metric": {
+                                    "description": "Settings for `Metric`. `summary` defaults to `latest`.",
+                                    "properties": {
+                                        "showChange": {
+                                            "type": "boolean"
+                                        },
+                                        "summary": {
+                                            "enum": ["total", "average", "latest"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "pie": {
+                                    "description": "Settings for `ActionsPie` and `ActionsDonut`.",
+                                    "properties": {
+                                        "showTotal": {
+                                            "description": "Whether to show the aggregation total. Defaults to on only when slices show values.",
+                                            "type": "boolean"
+                                        },
+                                        "sliceContent": {
+                                            "description": "What to render on each slice. Defaults to values.",
+                                            "enum": ["labels", "values", "none"],
+                                            "type": "string"
+                                        },
+                                        "valueDisplay": {
+                                            "description": "Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.",
+                                            "enum": ["absolute", "percentage"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "rightYAxisSettings": {
                                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
                                     "properties": {
@@ -374,13 +412,16 @@
                             "type": "object"
                         },
                         "display": {
-                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.",
+                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.",
                             "enum": [
                                 "ActionsTable",
                                 "BoldNumber",
+                                "Metric",
                                 "ActionsLineGraph",
                                 "ActionsBar",
+                                "ActionsBarValue",
                                 "ActionsPie",
+                                "ActionsDonut",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
                                 "TwoDimensionalHeatmap",

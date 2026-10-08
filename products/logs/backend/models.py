@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -11,14 +10,12 @@ from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
 
-logger = logging.getLogger(__name__)
 
 # Default log attribute key whose value matches a PostHog person's distinct_id. Mirrors
 # the convention documented at https://posthog.com/docs/logs/link-session-replay: the
@@ -163,8 +160,6 @@ class TeamLogsConfig(models.Model):
         db_default=Value("{message,msg,event}"),
     )
 
-
-register_team_extension_signal(TeamLogsConfig, logger=logger)
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many

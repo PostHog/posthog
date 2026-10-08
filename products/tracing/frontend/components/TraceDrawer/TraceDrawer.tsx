@@ -16,6 +16,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
+import { buildAiEventSpans, isAiEventSpan } from '../../aiEventSpans'
 import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
@@ -24,9 +25,12 @@ import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span, SpanInspectorTab } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { MissingParentSpanNotice } from './MissingParentSpanNotice'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { TraceAiEventsCapNotice } from './TraceAiEventsCapNotice'
+import { traceAiEventsLogic } from './traceAiEventsLogic'
 import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
 
@@ -70,7 +74,7 @@ export function TraceDrawer({
     isOpen,
     traceId,
     ts,
-    spans,
+    spans: realSpans,
     identity,
     sessionId,
     showErrorsTab,
@@ -85,6 +89,12 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
+    const { aiEvents, hasMoreAiEvents, aiEventsLimit } = useValues(traceAiEventsLogic({ traceId }))
+    // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
+    const spans = useMemo(() => {
+        const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
+        return aiEventSpans.length > 0 ? [...realSpans, ...aiEventSpans] : realSpans
+    }, [realSpans, aiEvents])
     // Waterfall|inspector split. Persisted so a user's preferred split sticks across traces;
     // desiredSize is null until the first drag, leaving the responsive default (w-2/5) in place.
     // One props object feeds both the value-read and the <Resizer>, so the logicKey can't desync.
@@ -109,6 +119,14 @@ export function TraceDrawer({
     const selectedSpan = useMemo(
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
+    )
+    // The waterfall's "<parent span missing>" row selects an id that only appears as a parent id.
+    const missingParentSpanId = useMemo(
+        () =>
+            selectedSpanId && !selectedSpan && spans.some((span) => span.parent_span_id === selectedSpanId)
+                ? selectedSpanId
+                : null,
+        [spans, selectedSpanId, selectedSpan]
     )
     // Shared with the waterfall so a service is the same color in the bars and the summary header.
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
@@ -167,6 +185,7 @@ export function TraceDrawer({
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
                 <div className="flex-1 min-w-0">
+                    <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} limit={aiEventsLimit} />
                     {/* Keyed by trace so a new trace resets selection + scroll state. */}
                     <TraceWaterfallView
                         key={traceId ?? ''}
@@ -191,7 +210,9 @@ export function TraceDrawer({
                     data-attr="tracing-span-inspector"
                 >
                     <Resizer {...inspectorResizerProps} />
-                    {inspectedSpan ? (
+                    {missingParentSpanId ? (
+                        <MissingParentSpanNotice traceId={traceId ?? ''} parentSpanId={missingParentSpanId} />
+                    ) : inspectedSpan ? (
                         <>
                             <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
                             <LemonTabs
@@ -242,7 +263,10 @@ export function TraceDrawer({
                                                   <TraceErrorsTab
                                                       key={inspectedSpan.span_id}
                                                       traceId={inspectedSpan.trace_id}
-                                                      spanId={inspectedSpan.span_id}
+                                                      // A synthetic AI row has no OTel span id, so it scopes to the trace.
+                                                      spanId={
+                                                          isAiEventSpan(inspectedSpan) ? null : inspectedSpan.span_id
+                                                      }
                                                       timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
                                                       sessionId={sessionId}
                                                       initialScope={errorsScope}

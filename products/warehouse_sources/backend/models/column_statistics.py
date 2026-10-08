@@ -45,8 +45,14 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     computed_at = models.DateTimeField(null=True)
     # Delta table version the stats were computed against; provenance + lets us spot staleness.
     computed_for_delta_version = models.BigIntegerField(null=True)
-    # How the stats were produced. "delta_log" today; reserved for a future scan/sample basis.
+    # How the stats were produced. "delta_log" (a full Add-action scan) or "incremental" (folded commits
+    # on top of a prior scan); reserved values for a future scan/sample basis too.
     stats_basis = models.CharField(max_length=32, default="delta_log")
+    # When the last full Add-action scan wrote this row. Unlike `computed_at`, an incremental fold
+    # leaves this alone, so it anchors how long the folded numbers have gone uncorrected by a full
+    # scan. Null on rows written before this field existed; treat null the same as `computed_at`
+    # (every row was a full scan before incremental folding existed).
+    full_scan_at = models.DateTimeField(null=True)
 
     __repr__ = sane_repr("table_id", "column_name", "computed_at")
 

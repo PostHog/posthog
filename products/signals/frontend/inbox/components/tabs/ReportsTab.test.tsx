@@ -252,6 +252,7 @@ describe('ReportsTab', () => {
             sortField: 'priority',
             sortDirection: 'asc',
             searchQuery: '',
+            createdWindow: null,
         })
 
         render(<ReportsTab />)

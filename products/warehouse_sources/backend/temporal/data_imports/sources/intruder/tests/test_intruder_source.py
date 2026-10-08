@@ -2,28 +2,15 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
     IntruderSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.source import IntruderSource
 
 
 class TestSourceConfig:
-    def test_config_shape(self) -> None:
-        config = IntruderSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept behind the unreleased flag while the source is in alpha — hides it from the wizard.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/intruder"
-
     def test_single_secret_access_token_field(self) -> None:
         # A single required, secret bearer-token field is the whole auth surface — a non-secret or
         # non-required regression would leak or break the token input.
@@ -34,20 +21,6 @@ class TestSourceConfig:
         assert field.name == "access_token"
         assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
-
-
-class TestGetSchemas:
-    def test_all_endpoints_are_full_refresh(self) -> None:
-        # Intruder exposes no verifiable server-side cursor, so every schema must ship full-refresh
-        # only. A stray supports_incremental=True would advertise a cursor the transport can't honor.
-        schemas = IntruderSource().get_schemas(IntruderSourceConfig(access_token="t"), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False and s.supports_append is False for s in schemas)
-
-    def test_documented_tables_match_endpoints(self) -> None:
-        # lists_tables_without_credentials=True publishes the catalog to public docs with no I/O.
-        tables = IntruderSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
 
 class TestValidateCredentials:

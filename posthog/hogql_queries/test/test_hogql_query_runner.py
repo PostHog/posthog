@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
@@ -122,6 +123,20 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
+
+    @parameterized.expand([(3, False), (4, True)])
+    def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
+        query = HogQLQuery(query=f"SELECT arrayJoin(range({row_count + 2})) AS value ORDER BY value LIMIT 3 OFFSET 2")
+        runner = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.SQL_ALERT)
+        normal = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        assert runner.get_cache_key() != normal.get_cache_key()
+        response = runner.calculate()
+        assert response.results == [(2,), (3,), (4,)]
+        assert response.hasMore is has_more
+        normal_response = normal.calculate()
+        assert normal_response.results == response.results
+        assert normal_response.hasMore is None
+        assert query.query.endswith("LIMIT 3 OFFSET 2")
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(

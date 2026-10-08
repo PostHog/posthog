@@ -1,0 +1,601 @@
+"""Stop the personhog shadow lane and measure drift between the two write paths.
+
+The job scales the lane's consumers to zero, waits for every in-flight write
+to land (the personhog writer keeps draining its changelog backlog after the
+consumers stop), then compares the legacy tables against the personhog tmp
+tables in the shadow persons database and reports drift per category.
+
+It never resets the database: after the run an operator can connect directly
+and inspect the exact rows behind every reported number. A fresh validation
+run starts with personhog_shadow_lane_start_job and reset_state=true.
+"""
+
+import time
+from collections.abc import Callable, Mapping
+from contextlib import closing
+from itertools import groupby
+from typing import Literal
+
+import dagster
+import psycopg2
+from prometheus_client import CollectorRegistry, Gauge
+
+from posthog.dags.common import JobOwners
+from posthog.dags.personhog_shadow_lane import (
+    SHADOW_CONSUMER_DEPLOYMENT,
+    SHADOW_DB_URL_ENV_VAR,
+    SHADOW_NAMESPACE,
+    SHADOW_PROCESSOR_DEPLOYMENT,
+    apps_api,
+    deployment_pod_count,
+    read_shadow_write_counter,
+    scale_deployment,
+    shadow_db_connection,
+    wait_for_deployments,
+    wait_for_quiescence,
+)
+from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
+
+SETTLE_METRICS_JOB = "personhog_shadow_lane_settle"
+DRIFT_METRICS_JOB = "personhog_shadow_lane_drift"
+
+
+@frozen
+class DriftCategoryReport:
+    category: str
+    legacy_total: int
+    personhog_total: int
+    missing_in_personhog: int
+    missing_in_legacy: int
+    # Matched keys where at least one compared field differs. Field-level
+    # counts overlap on a row, so this is counted separately in SQL.
+    mismatched_rows: int
+    field_mismatches: dict[str, int]
+    samples: list[str]
+
+    @property
+    def compared_keys(self) -> int:
+        # Legacy keys plus the keys only personhog has: the union of both sides.
+        return self.legacy_total + self.missing_in_legacy
+
+    @property
+    def drifted_rows(self) -> int:
+        return self.missing_in_personhog + self.missing_in_legacy + self.mismatched_rows
+
+    @property
+    def drift_pct(self) -> float:
+        if self.compared_keys == 0:
+            return 0.0
+        return 100.0 * self.drifted_rows / self.compared_keys
+
+
+PropertyDriftKind = Literal["only_in_legacy", "only_in_personhog", "value_differs"]
+
+_PROPERTY_DRIFT_MAX_ROWS = 100
+
+
+@frozen
+class PropertyKeyDrift:
+    key: str
+    kind: PropertyDriftKind
+    persons: int
+
+
+@frozen
+class PropertyDriftSample:
+    sampled_persons: int
+    key_drifts: list[PropertyKeyDrift]
+    person_details: list[str]
+
+
+# Each category is a pair of queries over the same two CTEs: one aggregates
+# the counts, the other lists sample rows. They share the CTE prefix and the
+# mismatch condition so the samples always explain the counts.
+#
+# Both paths see the same deletions but record them differently: the legacy
+# path deletes rows, personhog tombstones them with is_deleted. Every
+# comparison filters is_deleted on both sides so a tombstone against a
+# deleted row does not read as drift.
+# The join hashes one whole side, so carrying properties through it costs
+# memory proportional to the documents. jsonb text output is canonical
+# (sorted keys, no duplicates, fixed whitespace), so hashing it shrinks
+# each row to 32 bytes. This is stricter than jsonb equality: numeric
+# formatting differences (1 vs 1.0) hash differently but compare equal
+# as jsonb, so they count as drift here.
+_PERSON_SIDES = """
+WITH legacy AS (
+    SELECT team_id, uuid, md5(properties::text) AS properties_hash, is_identified, created_at, version
+    FROM posthog_person WHERE NOT is_deleted
+), personhog AS (
+    SELECT team_id, uuid, md5(properties::text) AS properties_hash, is_identified, created_at, version
+    FROM personhog_person_tmp WHERE NOT is_deleted
+)
+"""
+
+# version differences are reported per field but excluded from
+# mismatched_rows: version counts how many writes a row took, so a benign
+# difference in update batching shifts it without any end-state divergence.
+_PERSON_ROW_DIFFERS = """(
+    l.properties_hash IS DISTINCT FROM p.properties_hash
+    OR l.is_identified IS DISTINCT FROM p.is_identified
+    OR l.created_at IS DISTINCT FROM p.created_at)"""
+
+_PERSON_DRIFT_SQL = f"""
+{_PERSON_SIDES}
+SELECT
+    (SELECT count(*) FROM legacy) AS legacy_total,
+    (SELECT count(*) FROM personhog) AS personhog_total,
+    count(*) FILTER (WHERE p.uuid IS NULL) AS missing_in_personhog,
+    count(*) FILTER (WHERE l.uuid IS NULL) AS missing_in_legacy,
+    count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
+        AND l.properties_hash IS DISTINCT FROM p.properties_hash) AS properties,
+    count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
+        AND l.is_identified IS DISTINCT FROM p.is_identified) AS is_identified,
+    count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
+        AND l.created_at IS DISTINCT FROM p.created_at) AS created_at,
+    count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
+        AND l.version IS DISTINCT FROM p.version) AS version,
+    count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
+        AND {_PERSON_ROW_DIFFERS}) AS mismatched_rows
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, uuid)
+"""
+
+_PERSON_SAMPLE_SQL = f"""
+{_PERSON_SIDES}
+SELECT team_id, uuid,
+    CASE WHEN p.uuid IS NULL THEN 'missing_in_personhog'
+         WHEN l.uuid IS NULL THEN 'missing_in_legacy'
+         ELSE 'field_mismatch' END AS drift
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, uuid)
+WHERE p.uuid IS NULL OR l.uuid IS NULL OR {_PERSON_ROW_DIFFERS}
+LIMIT %(limit)s
+"""
+
+_DISTINCT_ID_SIDES = """
+WITH legacy AS (
+    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
+    FROM posthog_persondistinctid d
+    JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id
+    WHERE NOT d.is_deleted AND NOT p.is_deleted
+), personhog AS (
+    SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
+    FROM personhog_persondistinctid_tmp d
+    JOIN personhog_person_tmp p ON p.team_id = d.team_id AND p.id = d.person_id
+    WHERE NOT d.is_deleted AND NOT p.is_deleted
+)
+"""
+
+_DISTINCT_ID_DRIFT_SQL = f"""
+{_DISTINCT_ID_SIDES}
+SELECT
+    (SELECT count(*) FROM legacy) AS legacy_total,
+    (SELECT count(*) FROM personhog) AS personhog_total,
+    count(*) FILTER (WHERE p.person_uuid IS NULL) AS missing_in_personhog,
+    count(*) FILTER (WHERE l.person_uuid IS NULL) AS missing_in_legacy,
+    count(*) FILTER (WHERE l.person_uuid IS NOT NULL AND p.person_uuid IS NOT NULL
+        AND l.person_uuid <> p.person_uuid) AS mismatched_rows,
+    count(*) FILTER (WHERE l.person_uuid IS NOT NULL AND p.person_uuid IS NOT NULL
+        AND l.version IS DISTINCT FROM p.version) AS version
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, distinct_id)
+"""
+
+_DISTINCT_ID_SAMPLE_SQL = f"""
+{_DISTINCT_ID_SIDES}
+SELECT team_id, distinct_id, l.person_uuid AS legacy_person, p.person_uuid AS personhog_person,
+    CASE WHEN p.person_uuid IS NULL THEN 'missing_in_personhog'
+         WHEN l.person_uuid IS NULL THEN 'missing_in_legacy'
+         ELSE 'person_mismatch' END AS drift
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, distinct_id)
+WHERE p.person_uuid IS NULL OR l.person_uuid IS NULL OR l.person_uuid <> p.person_uuid
+LIMIT %(limit)s
+"""
+
+_HASH_KEY_SIDES = """
+WITH legacy AS (
+    SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
+    FROM posthog_featureflaghashkeyoverride h
+    JOIN posthog_person p ON p.id = h.person_id AND p.team_id = h.team_id
+    WHERE NOT p.is_deleted
+), personhog AS (
+    SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
+    FROM personhog_featureflaghashkeyoverride_tmp h
+    JOIN personhog_person_tmp p ON p.team_id = h.team_id AND p.id = h.person_id
+    WHERE NOT p.is_deleted
+)
+"""
+
+_HASH_KEY_DRIFT_SQL = f"""
+{_HASH_KEY_SIDES}
+SELECT
+    (SELECT count(*) FROM legacy) AS legacy_total,
+    (SELECT count(*) FROM personhog) AS personhog_total,
+    count(*) FILTER (WHERE p.hash_key IS NULL) AS missing_in_personhog,
+    count(*) FILTER (WHERE l.hash_key IS NULL) AS missing_in_legacy,
+    count(*) FILTER (WHERE l.hash_key IS NOT NULL AND p.hash_key IS NOT NULL
+        AND l.hash_key <> p.hash_key) AS mismatched_rows
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, person_uuid, feature_flag_key)
+"""
+
+_HASH_KEY_SAMPLE_SQL = f"""
+{_HASH_KEY_SIDES}
+SELECT team_id, person_uuid, feature_flag_key,
+    CASE WHEN p.hash_key IS NULL THEN 'missing_in_personhog'
+         WHEN l.hash_key IS NULL THEN 'missing_in_legacy'
+         ELSE 'hash_key_mismatch' END AS drift
+FROM legacy l
+FULL OUTER JOIN personhog p USING (team_id, person_uuid, feature_flag_key)
+WHERE p.hash_key IS NULL OR l.hash_key IS NULL OR l.hash_key <> p.hash_key
+LIMIT %(limit)s
+"""
+
+_PROPERTY_DIFF_ROWS = f"""
+{_PERSON_SIDES}, mismatched AS (
+    SELECT team_id, uuid
+    FROM legacy l
+    JOIN personhog p USING (team_id, uuid)
+    WHERE l.properties_hash IS DISTINCT FROM p.properties_hash
+    ORDER BY team_id, uuid
+    LIMIT %(limit)s
+), pairs AS (
+    SELECT m.team_id, m.uuid, l.properties AS legacy_props, p.properties AS personhog_props
+    FROM mismatched m
+    JOIN posthog_person l USING (team_id, uuid)
+    JOIN personhog_person_tmp p USING (team_id, uuid)
+), keys AS (
+    SELECT team_id, uuid, legacy_props, personhog_props, k.key
+    FROM pairs, LATERAL (
+        SELECT jsonb_object_keys(legacy_props) AS key
+        UNION SELECT jsonb_object_keys(personhog_props)
+    ) k
+), diff AS (
+    SELECT team_id, uuid, key,
+        CASE WHEN NOT legacy_props ? key THEN 'only_in_personhog'
+             WHEN NOT personhog_props ? key THEN 'only_in_legacy'
+             ELSE 'value_differs' END AS kind,
+        jsonb_typeof(legacy_props -> key) AS legacy_type,
+        jsonb_typeof(personhog_props -> key) AS personhog_type,
+        length((legacy_props -> key)::text) AS legacy_length,
+        length((personhog_props -> key)::text) AS personhog_length
+    FROM keys
+    WHERE (legacy_props -> key)::text IS DISTINCT FROM (personhog_props -> key)::text
+)
+"""
+
+_PROPERTY_KEY_DRIFT_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT key, kind, count(*) AS persons, (SELECT count(*) FROM mismatched) AS sampled_persons
+FROM diff
+GROUP BY key, kind
+ORDER BY persons DESC, key
+"""
+
+_PROPERTY_DETAIL_SQL = f"""
+{_PROPERTY_DIFF_ROWS}
+SELECT * FROM diff ORDER BY team_id, uuid, key
+"""
+
+# Columns every *_DRIFT_SQL returns. _run_category reports any other column
+# as a per-field mismatch count, so a new summary column must be added here.
+_TOTAL_COLUMNS = frozenset(
+    {"legacy_total", "personhog_total", "missing_in_personhog", "missing_in_legacy", "mismatched_rows"}
+)
+
+
+def _person_samples(row: Mapping[str, object]) -> str:
+    return f"team={row['team_id']} uuid={row['uuid']} {row['drift']}"
+
+
+def _distinct_id_samples(row: Mapping[str, object]) -> str:
+    return (
+        f"team={row['team_id']} distinct_id={row['distinct_id']!r} "
+        f"legacy_person={row['legacy_person']} personhog_person={row['personhog_person']} {row['drift']}"
+    )
+
+
+def _hash_key_samples(row: Mapping[str, object]) -> str:
+    return f"team={row['team_id']} person={row['person_uuid']} flag={row['feature_flag_key']} {row['drift']}"
+
+
+def _run_category(
+    cursor: psycopg2.extensions.cursor,
+    category: str,
+    drift_sql: str,
+    sample_sql: str,
+    format_sample: Callable[[Mapping[str, object]], str],
+    sample_size: int,
+) -> DriftCategoryReport:
+    cursor.execute(drift_sql)
+    row = cursor.fetchone()
+    totals = {key: int(row[key]) for key in _TOTAL_COLUMNS}
+    field_mismatches = {key: int(value) for key, value in row.items() if key not in _TOTAL_COLUMNS}
+    drifted = totals["missing_in_personhog"] + totals["missing_in_legacy"] + totals["mismatched_rows"]
+    samples: list[str] = []
+    # The sample query repeats the full join, so skip it when the counts already say it returns nothing.
+    if sample_size > 0 and drifted > 0:
+        cursor.execute(sample_sql, {"limit": sample_size})
+        samples = [format_sample(sample) for sample in cursor.fetchall()]
+    return DriftCategoryReport(category=category, field_mismatches=field_mismatches, samples=samples, **totals)
+
+
+def _configure_session(cursor: psycopg2.extensions.cursor) -> None:
+    cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
+    cursor.execute("SET statement_timeout = '30min'")
+    # work_mem applies per hash node and per parallel worker, and hash joins
+    # get hash_mem_multiplier times it, so a three-join query can reserve
+    # many times this value at once.
+    cursor.execute("SET work_mem = '256MB'")
+
+
+def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size: int) -> list[DriftCategoryReport]:
+    with connection.cursor() as cursor:
+        _configure_session(cursor)
+        return [
+            _run_category(cursor, "persons", _PERSON_DRIFT_SQL, _PERSON_SAMPLE_SQL, _person_samples, sample_size),
+            _run_category(
+                cursor,
+                "distinct_ids",
+                _DISTINCT_ID_DRIFT_SQL,
+                _DISTINCT_ID_SAMPLE_SQL,
+                _distinct_id_samples,
+                sample_size,
+            ),
+            _run_category(
+                cursor,
+                "hash_key_overrides",
+                _HASH_KEY_DRIFT_SQL,
+                _HASH_KEY_SAMPLE_SQL,
+                _hash_key_samples,
+                sample_size,
+            ),
+        ]
+
+
+def _format_property_side(jsonb_type: object, text_length: object) -> str:
+    if jsonb_type is None:
+        return "absent"
+    return f"{jsonb_type}({text_length})"
+
+
+def _format_person_property_detail(team_id: object, person_uuid: object, rows: list[Mapping[str, object]]) -> str:
+    keys = "; ".join(
+        f"{row['key']!r} {row['kind']} "
+        f"legacy={_format_property_side(row['legacy_type'], row['legacy_length'])} "
+        f"personhog={_format_property_side(row['personhog_type'], row['personhog_length'])}"
+        for row in rows[:_PROPERTY_DRIFT_MAX_ROWS]
+    )
+    if len(rows) > _PROPERTY_DRIFT_MAX_ROWS:
+        keys += "; ..."
+    return f"team={team_id} uuid={person_uuid} differing_keys={len(rows)}: {keys}"
+
+
+def sample_property_drift(
+    connection: psycopg2.extensions.connection, persons_limit: int, detail_limit: int
+) -> PropertyDriftSample:
+    detail_rows: list[Mapping[str, object]] = []
+    with connection.cursor() as cursor:
+        _configure_session(cursor)
+        cursor.execute(_PROPERTY_KEY_DRIFT_SQL, {"limit": persons_limit})
+        key_rows = cursor.fetchall()
+        if detail_limit > 0:
+            cursor.execute(_PROPERTY_DETAIL_SQL, {"limit": min(detail_limit, persons_limit)})
+            detail_rows = cursor.fetchall()
+
+    key_drifts = [PropertyKeyDrift(key=row["key"], kind=row["kind"], persons=int(row["persons"])) for row in key_rows]
+    sampled_persons = int(key_rows[0]["sampled_persons"]) if key_rows else 0
+    person_details = [
+        _format_person_property_detail(team_id, person_uuid, list(person_rows))
+        for (team_id, person_uuid), person_rows in groupby(detail_rows, key=lambda row: (row["team_id"], row["uuid"]))
+    ]
+    return PropertyDriftSample(sampled_persons=sampled_persons, key_drifts=key_drifts, person_details=person_details)
+
+
+def _property_drift_table(sample: PropertyDriftSample) -> str:
+    lines = ["| key | kind | persons |", "|---|---|---|"]
+    for drift in sample.key_drifts[:_PROPERTY_DRIFT_MAX_ROWS]:
+        key = drift.key.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+        lines.append(f"| {key} | {drift.kind} | {drift.persons} |")
+    return "\n".join(lines)
+
+
+def record_settle_gauges(
+    registry: CollectorRegistry, database: str, settle_seconds: float, completed_at: float
+) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_seconds",
+        "Time the shadow persons database took to stop receiving writes after the lane stopped",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(settle_seconds)
+    Gauge(
+        "posthog_personhog_shadow_lane_settle_last_success_timestamp_seconds",
+        "Unix time when the shadow persons database last settled after a stop",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(completed_at)
+
+
+def record_drift_gauges(
+    registry: CollectorRegistry, database: str, reports: list[DriftCategoryReport], completed_at: float
+) -> None:
+    def per_category(name: str, help_text: str) -> Gauge:
+        return Gauge(
+            f"posthog_personhog_shadow_lane_drift_{name}", help_text, ["database", "category"], registry=registry
+        )
+
+    legacy_rows = per_category("legacy_rows", "Live rows the legacy path holds")
+    personhog_rows = per_category("personhog_rows", "Live rows the personhog path holds")
+    missing_in_personhog = per_category("missing_in_personhog_rows", "Keys only the legacy path holds")
+    missing_in_legacy = per_category("missing_in_legacy_rows", "Keys only the personhog path holds")
+    mismatched = per_category("mismatched_rows", "Keys both paths hold with different content; excludes version")
+    ratio = per_category("ratio", "Drifted keys over all compared keys, from 0 to 1")
+    field_mismatched = Gauge(
+        "posthog_personhog_shadow_lane_drift_field_mismatched_rows",
+        "Keys both paths hold where one field differs. A key with two different fields counts in both",
+        ["database", "category", "field"],
+        registry=registry,
+    )
+
+    for report in reports:
+        labels = {"database": database, "category": report.category}
+        legacy_rows.labels(**labels).set(report.legacy_total)
+        personhog_rows.labels(**labels).set(report.personhog_total)
+        missing_in_personhog.labels(**labels).set(report.missing_in_personhog)
+        missing_in_legacy.labels(**labels).set(report.missing_in_legacy)
+        mismatched.labels(**labels).set(report.mismatched_rows)
+        ratio.labels(**labels).set(report.drift_pct / 100)
+        for field_name, count in report.field_mismatches.items():
+            field_mismatched.labels(field=field_name, **labels).set(count)
+
+    Gauge(
+        "posthog_personhog_shadow_lane_drift_last_success_timestamp_seconds",
+        "Unix time when the last drift report finished",
+        ["database"],
+        registry=registry,
+    ).labels(database=database).set(completed_at)
+
+
+class ShadowLaneStopConfig(dagster.Config):
+    namespace: str = SHADOW_NAMESPACE
+    consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
+    processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
+    stop_timeout_seconds: int = 600
+
+
+class ShadowSettleConfig(dagster.Config):
+    shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
+    poll_seconds: int = 30
+    stable_checks: int = 4
+    timeout_seconds: int = 3600
+
+
+class ShadowDriftConfig(dagster.Config):
+    shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
+    sample_size: int = 10
+    property_diff_sample_size: int = 500
+
+
+@dagster.op
+def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStopConfig) -> None:
+    apps = apps_api()
+    deployments = [config.consumer_deployment, config.processor_deployment]
+    for deployment in deployments:
+        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
+        scale_deployment(apps, config.namespace, deployment, 0)
+
+    def is_stopped(deployment: str) -> bool:
+        if deployment_pod_count(apps, config.namespace, deployment) > 0:
+            return False
+        context.log.info(f"{deployment} has no pods left")
+        return True
+
+    pending = wait_for_deployments(deployments, is_stopped, timeout_seconds=config.stop_timeout_seconds)
+    if pending:
+        raise dagster.Failure(
+            description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
+        )
+
+
+@dagster.op(ins={"lane_stopped": dagster.In(dagster.Nothing)})
+def wait_for_shadow_settle(context: dagster.OpExecutionContext, config: ShadowSettleConfig) -> None:
+    """Wait until nothing writes to the shadow persons database any more.
+
+    The consumers are down, but the personhog writer keeps applying its
+    changelog backlog. A quiet database cannot be told apart from a stalled
+    writer here: if the writer crashed with backlog uncommitted, the counter
+    also holds still. Identity creates the person row immediately with
+    empty properties, and the writer fills them in later, so a stalled
+    writer mostly shows as properties mismatches, not missing_in_personhog.
+    Check the writer's health before trusting an unexpectedly large
+    properties count.
+    """
+    with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
+        connection.autocommit = True
+
+        started = time.monotonic()
+        try:
+            polls = wait_for_quiescence(
+                lambda: read_shadow_write_counter(connection),
+                poll_seconds=config.poll_seconds,
+                stable_checks=config.stable_checks,
+                timeout_seconds=config.timeout_seconds,
+                on_progress=context.log.info,
+            )
+        except TimeoutError as timeout:
+            raise dagster.Failure(
+                description=(
+                    f"The shadow persons database is still receiving writes after {config.timeout_seconds}s. "
+                    "The personhog writer may still be draining a large backlog, or something outside the lane "
+                    "is writing to this database. The consumers stay down; re-run this job to keep waiting."
+                )
+            ) from timeout
+
+    waited = time.monotonic() - started
+    context.log.info(f"Shadow persons database settled after {waited:.0f}s ({polls} polls)")
+    with pushed_metrics_registry(f"{SETTLE_METRICS_JOB}_{config.shadow_db_env_var}") as registry:
+        record_settle_gauges(registry, config.shadow_db_env_var, waited, time.time())
+    context.add_output_metadata({"settle_seconds": dagster.MetadataValue.float(round(waited, 1))})
+
+
+@dagster.op(ins={"settled": dagster.In(dagster.Nothing)})
+def report_shadow_drift(context: dagster.OpExecutionContext, config: ShadowDriftConfig) -> None:
+    with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
+        reports = compute_shadow_drift(connection, config.sample_size)
+        persons_report = next(report for report in reports if report.category == "persons")
+        property_drift: PropertyDriftSample | None = None
+        if config.property_diff_sample_size > 0 and persons_report.field_mismatches.get("properties", 0) > 0:
+            property_drift = sample_property_drift(
+                connection, persons_limit=config.property_diff_sample_size, detail_limit=config.sample_size
+            )
+
+    with pushed_metrics_registry(f"{DRIFT_METRICS_JOB}_{config.shadow_db_env_var}") as registry:
+        record_drift_gauges(registry, config.shadow_db_env_var, reports, time.time())
+
+    header = "| category | legacy | personhog | missing in personhog | missing in legacy | mismatched | drift % |"
+    separator = "|---|---|---|---|---|---|---|"
+    lines = [header, separator]
+    metadata: dict[str, dagster.MetadataValue] = {}
+    for report in reports:
+        lines.append(
+            f"| {report.category} | {report.legacy_total} | {report.personhog_total} "
+            f"| {report.missing_in_personhog} | {report.missing_in_legacy} "
+            f"| {report.mismatched_rows} | {report.drift_pct:.4f} |"
+        )
+        metadata[f"{report.category}_drift_pct"] = dagster.MetadataValue.float(round(report.drift_pct, 4))
+        context.log.info(
+            f"[{report.category}] legacy={report.legacy_total} personhog={report.personhog_total} "
+            f"missing_in_personhog={report.missing_in_personhog} missing_in_legacy={report.missing_in_legacy} "
+            f"mismatched_rows={report.mismatched_rows} drift={report.drift_pct:.4f}% "
+            f"field_mismatches={report.field_mismatches}"
+        )
+        for sample in report.samples:
+            context.log.info(f"[{report.category}] drift sample: {sample}")
+
+    metadata["summary"] = dagster.MetadataValue.md("\n".join(lines))
+    if property_drift is not None:
+        context.log.info(
+            f"[persons] property drift by key over {property_drift.sampled_persons} sampled persons "
+            f"({len(property_drift.key_drifts)} key rows, up to {_PROPERTY_DRIFT_MAX_ROWS} shown):\n"
+            f"{_property_drift_table(property_drift)}"
+        )
+        for detail in property_drift.person_details:
+            context.log.info(f"[persons] property drift detail: {detail}")
+        metadata["persons_property_drift_sampled_persons"] = dagster.MetadataValue.int(property_drift.sampled_persons)
+        metadata["persons_property_drift_key_rows"] = dagster.MetadataValue.int(len(property_drift.key_drifts))
+        metadata["persons_property_drift_keys"] = dagster.MetadataValue.md(_property_drift_table(property_drift))
+    context.add_output_metadata(metadata)
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_INGESTION.value})
+def personhog_shadow_lane_stop_and_compare_job() -> None:
+    """Stop the shadow lane, wait for writes to drain, and report drift between the two paths.
+
+    Leaves the shadow persons database untouched so the drift behind the
+    report can be inspected over a direct connection afterwards.
+    """
+    report_shadow_drift(wait_for_shadow_settle(stop_shadow_lane()))

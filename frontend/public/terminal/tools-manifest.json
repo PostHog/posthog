@@ -2,6 +2,14 @@
     "repository": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86",
     "packages": [
         {
+            "file": "bash-5.2.37-r0.apk",
+            "sha256": "6a139a0072d450d3428b15798268871fbae2934a0c71b38784af9dc7b2d4e9c1"
+        },
+        {
+            "file": "readline-8.2.13-r1.apk",
+            "sha256": "29e35b5876481d0d1d4f60fdfdbd59a0c974d86e6355f7c38ea85518645ada6b"
+        },
+        {
             "file": "e2fsprogs-libs-1.47.2-r2.apk",
             "sha256": "8a3009b0b395ea5a8677b7fe140348d2a7024cc92b87b0d6bff5c41f09fd95a9"
         },
@@ -91,6 +99,20 @@
         }
     ],
     "sources": [
+        {
+            "name": "bash",
+            "url": "https://ftp.gnu.org/gnu/bash/bash-5.2.tar.gz",
+            "sha512": "5647636223ba336bf33e0c65e516d8ebcf6932de8b44f37bc468eedb87579c628ad44213f78534beb10f47aebb9c6fa670cb0bed3b4e7717e5faf7e9a1ef81ae",
+            "recipe": "https://github.com/alpinelinux/aports/tree/dfdce3cefb431614e410ac9bc3665d33ea45020c/main/bash",
+            "license_files": ["bash-5.2/COPYING"]
+        },
+        {
+            "name": "readline",
+            "url": "https://ftp.gnu.org/gnu/readline/readline-8.2.tar.gz",
+            "sha512": "0a451d459146bfdeecc9cdd94bda6a6416d3e93abd80885a40b334312f16eb890f8618a27ca26868cebbddf1224983e631b1cbc002c1a4d1cd0d65fba9fea49a",
+            "recipe": "https://github.com/alpinelinux/aports/tree/be0833caee3020f089f02c5d7223e971a9a11ffb/main/readline",
+            "license_files": ["readline-8.2/COPYING"]
+        },
         {
             "name": "nano",
             "url": "https://distfiles.alpinelinux.org/distfiles/v3.22/nano-8.4.tar.xz",

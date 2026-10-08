@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import Organization
@@ -74,27 +75,32 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
 
     @parameterized.expand(
         [
-            ("removed_204", 204, True),
-            ("already_gone_404", 404, True),
-            ("unexpected_500", 500, False),
+            ("removed_204", 204, True, "uninstalled"),
+            ("already_gone_404", 404, True, "already_absent"),
+            ("unexpected_500", 500, False, "failed"),
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_uninstall_app_installation_status_handling(self, _name, status_code, expected, mock_client_request):
+    def test_uninstall_app_installation_status_handling(
+        self, _name, status_code, expected, expected_status, mock_client_request
+    ):
         mock_client_request.return_value = MagicMock(status_code=status_code)
         self.assertEqual(GitHubIntegration.uninstall_app_installation("12345"), expected)
         mock_client_request.assert_called_once_with("installations/12345", method="DELETE", timeout=10)
+        self.assertEqual(GitHubIntegration.uninstall_app_installation_status("12345"), expected_status)
 
     @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_uninstall_app_installation_false_when_request_raises(self, mock_client_request):
         mock_client_request.side_effect = Exception("network error")
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
+        self.assertEqual(GitHubIntegration.uninstall_app_installation_status("12345"), "failed")
 
     @override_settings(GITHUB_APP_CLIENT_ID="", GITHUB_APP_PRIVATE_KEY="")
     def test_uninstall_app_installation_false_when_not_configured(self):
         self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
+        self.assertEqual(GitHubIntegration.uninstall_app_installation_status("12345"), "skipped")
 
     @patch("posthog.models.integration.github.GitHubIntegration.uninstall_app_installation")
     def test_uninstall_if_last_reference_skips_when_references_remain(self, mock_uninstall):
@@ -143,10 +149,16 @@ class TestGitHubInstallationWebhook(TestCase):
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_deleted_removes_all_rows_and_does_not_call_github(self, mock_client_request, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
-        self._team_integration("12345")
+        integration = self._team_integration("12345")
+        integration_id = str(integration.pk)
         self._user_integration("12345")
 
-        response = self._post({"action": "deleted", "installation": {"id": 12345}})
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post({"action": "deleted", "installation": {"id": 12345}})
+        log = ActivityLog.objects.get(item_id=integration_id, activity="deleted")
+        self.assertEqual(log.team_id, self.team.id)
+        assert log.detail is not None
+        self.assertEqual(log.detail["trigger"]["payload"]["outcome"], "disconnected")
 
         self.assertEqual(response.status_code, 202)
         self.assertFalse(Integration.objects.filter(kind="github", integration_id="12345").exists())

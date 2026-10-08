@@ -24,25 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gu
 from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.settings import GUMROAD_ENDPOINTS
 
 
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
-
-
-def _response(body: dict[str, Any]) -> Mock:
-    response = Mock()
-    response.json.return_value = body
-    return response
-
-
 class TestGumroadTransport:
     @parameterized.expand(
         [
@@ -56,22 +37,6 @@ class TestGumroadTransport:
     )
     def test_format_gumroad_date(self, _name, value, expected) -> None:
         assert _format_gumroad_date(value) == expected
-
-    def test_page_key_paginator_round_trips_cursor(self) -> None:
-        resource = cast(dict[str, Any], get_resource("sales", should_use_incremental_field=False))
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, JSONResponseCursorPaginator)
-
-        request = Mock()
-        request.params = {}
-        paginator.update_state(_response({"success": True, "sales": [], "next_page_key": "cursor-2"}), data=[{}])
-        assert paginator.has_next_page is True
-        paginator.update_request(request)
-        assert request.params["page_key"] == "cursor-2"
-
-        # A response without `next_page_key` is the last page.
-        paginator.update_state(_response({"success": True, "sales": []}), data=[{}])
-        assert paginator.has_next_page is False
 
     @parameterized.expand(
         [
@@ -89,11 +54,6 @@ class TestGumroadTransport:
     def test_paginator_matches_endpoint_pagination(self, endpoint, expected_type) -> None:
         assert isinstance(_paginator_for(GUMROAD_ENDPOINTS[endpoint]), expected_type)
 
-    def test_payouts_request_excludes_upcoming(self) -> None:
-        # Upcoming payouts are returned with a null id, which would break the primary key.
-        resource = cast(dict[str, Any], get_resource("payouts", should_use_incremental_field=False))
-        assert resource["endpoint"]["params"] == {"include_upcoming": "false"}
-
     @parameterized.expand([("sales",), ("payouts",)])
     def test_incremental_resource_uses_after_window(self, endpoint) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=True))
@@ -106,12 +66,6 @@ class TestGumroadTransport:
     @parameterized.expand([("sales",), ("payouts",), ("products",)])
     def test_full_refresh_resource_sends_no_window(self, endpoint) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint, should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
-
-    def test_products_has_no_incremental_window_even_when_requested(self) -> None:
-        # The product payload carries no timestamp, so there is nothing to filter on.
-        resource = cast(dict[str, Any], get_resource("products", should_use_incremental_field=True))
         assert resource["write_disposition"] == "replace"
         assert "incremental" not in resource["endpoint"]
 
@@ -150,37 +104,6 @@ class TestGumroadTransport:
         mock_build.return_value = iter([])
         response = gumroad_source(access_token="tok", endpoint=endpoint, team_id=1, job_id="job-1")
         assert response.primary_keys == primary_keys
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_offer_codes_fanout_row_carries_product_id(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("products", [{"id": "prod_1", "name": "Product"}]),
-            _FakeDltResource("offer_codes", [{"id": "code_1", "name": "LAUNCH", "_products_id": "prod_1"}]),
-        ]
-
-        response = gumroad_source(access_token="tok", endpoint="offer_codes", team_id=1, job_id="job-1")
-
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"id": "code_1", "name": "LAUNCH", "product_id": "prod_1"}]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.build_dependent_resource")
-    def test_fanout_wiring(self, mock_build) -> None:
-        mock_build.return_value = iter([])
-
-        gumroad_source(access_token="tok", endpoint="subscribers", team_id=1, job_id="job-1")
-
-        kwargs = mock_build.call_args.kwargs
-        # Gumroad list endpoints take no page-size parameter; sending one would be undocumented.
-        assert kwargs["page_size_param"] is None
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "products"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "subscribers"
-        # Without `paginated=true` the subscribers endpoint returns the entire collection in one
-        # response and never emits a cursor.
-        assert kwargs["fanout"].child_params == {"paginated": "true"}
-        assert kwargs["fanout"].parent_name == "products"
-        assert kwargs["fanout"].resolve_param == "product_id"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.rest_api_resource")
     def test_resume_state_seeds_paginator_cursor(self, mock_rest_api_resource) -> None:

@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, narrowedJsonTargetsShards, DJANGO_FALLBACK_SHARDS, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -51,6 +51,11 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 
 // Sizing to the shared flat wall target: every shard carries
 // (target - overhead) of work, so walls land near the target in every lane.
+test('a narrowed events_json list without durations takes the fallback shard count, not one shard', () => {
+    assert.equal(narrowedJsonTargetsShards(['posthog/hogql'], null), DJANGO_FALLBACK_SHARDS.JsonTargets)
+    assert.equal(narrowedJsonTargetsShards([], null), 0)
+})
+
 test('calculateShards sizes shards to the flat wall target', () => {
     // 105 min of work, 5 min overhead: each shard gets 7 min of tests,
     // walls land at the 12 min target.
@@ -207,7 +212,17 @@ test("a split product's last shard absorbs a small product without leaking split
     const shared = matrix.find((entry) => entry.group.includes('small-one'))
     assert.equal(shared.group, 'big-one (2/2), small-one')
     assert.equal(shared.legs.length, 2)
-    assert.match(shared.legs[0].pytest_args, /--splits 2 --group 2/)
+    // Both shards split by file, so neither collects the other's test files.
+    assert.deepEqual(
+        matrix
+            .flatMap((entry) => entry.legs)
+            .filter((leg) => leg.filters === '--filter=@posthog/products-big-one')
+            .map((leg) => leg.pytest_args),
+        [
+            '-- --splits 2 --group 1 --splitting-algorithm optimal_chunks --split-granularity file',
+            '-- --splits 2 --group 2 --splitting-algorithm optimal_chunks --split-granularity file',
+        ]
+    )
     // The whole product runs in its own leg, so it never sees --splits/--group.
     assert.equal(shared.legs[1].filters, '--filter=@posthog/products-small-one')
     assert.equal(shared.legs[1].pytest_args, '')

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -8,10 +9,8 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { metricsSceneLogic } from '../metricsSceneLogic'
 import { MetricNameFilter } from './MetricNameFilter'
 import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
-import { metricsFundamentalsLogic } from './metricsFundamentalsLogic'
 import { MetricsGroupByButton } from './MetricsGroupByButton'
 import {
     MAX_CLAUSES,
@@ -60,6 +59,13 @@ export function MetricsClauseRow({
         removeClause,
     } = useActions(metricsViewerLogic)
 
+    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name.
+    const metricName = clause.metricName.trim()
+    const clauseEndpointFilters = useMemo(
+        () => (metricName ? { ...attributeEndpointFilters, metricName } : attributeEndpointFilters),
+        [attributeEndpointFilters, metricName]
+    )
+
     const select = (): void => {
         if (!isActive) {
             setActiveClauseIndex(index)
@@ -77,9 +83,6 @@ export function MetricsClauseRow({
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
-    const { setActiveTab } = useActions(metricsSceneLogic)
-    const { explainMetric } = useActions(metricsFundamentalsLogic)
-
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
@@ -102,31 +105,12 @@ export function MetricsClauseRow({
                 </Tooltip>
             )}
             <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-1">
-                    <MetricNameFilter
-                        value={clause.metricName}
-                        onChange={withSelect(setMetricName)}
-                        disabled={!!disabledReason}
-                        disabledReason={disabledReason}
-                    />
-                    {clause.metricName && clause.selectedMetricType && (
-                        <Tooltip title="Take this metric apart: see how its chart value is recomputed from raw samples.">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                icon={<IconInfo />}
-                                onClick={() => {
-                                    explainMetric({
-                                        metricName: clause.metricName,
-                                        aggregation: clause.aggregation,
-                                    })
-                                    setActiveTab('fundamentals')
-                                }}
-                                data-attr="metrics-clause-explain"
-                            />
-                        </Tooltip>
-                    )}
-                </div>
+                <MetricNameFilter
+                    value={clause.metricName}
+                    onChange={withSelect(setMetricName)}
+                    disabled={!!disabledReason}
+                    disabledReason={disabledReason}
+                />
                 {clause.selectedMetricType &&
                     recommendedAggregation &&
                     (clause.aggregation !== recommendedAggregation ? (
@@ -153,7 +137,7 @@ export function MetricsClauseRow({
                 rootKey={`metrics-viewer-filters-${clause.name}`}
                 group={clause.filterGroup.values[0] as UniversalFiltersGroup}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                endpointFilters={attributeEndpointFilters}
+                endpointFilters={clauseEndpointFilters}
                 onChange={(group) => {
                     if (!disabledReason) {
                         withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })

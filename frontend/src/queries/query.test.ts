@@ -138,7 +138,7 @@ describe('query', () => {
         })
     })
 
-    it('emits an event when a query errors', async () => {
+    it.each([undefined, 'client-query-id'])('emits an event when a query errors with query ID %s', async (queryId) => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
@@ -147,13 +147,14 @@ describe('query', () => {
         })
         captureSpy.mockClear()
         await expect(async () => {
-            await performQuery(q)
+            await performQuery(q, undefined, undefined, queryId)
         }).rejects.toThrow(ApiError)
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
         expect(queryFailedCalls[0][1]).toMatchObject({
             query: q,
+            queryId,
             duration: expect.any(Number),
             error_status: 500,
             error_code: null,
@@ -324,20 +325,25 @@ describe('query', () => {
         })
 
         it.each([
-            ['an error that is not a 404', new ApiError('boom', 500)],
+            ['an error that is not a 404', new ApiError('boom', 500), undefined],
+            ['an error with a caller-supplied ID', new ApiError('boom', 500), 'client-query-id'],
             [
                 'a warehouse whose connection is down',
                 new ApiError('unavailable', 404, undefined, { code: 'managed_warehouse_connection_unavailable' }),
+                undefined,
             ],
-        ])('does not resubmit on %s', async (_name, failure) => {
+        ])('reports the failed poll without resubmitting on %s', async (_name, failure, clientQueryId) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
             const querySpy = jest.spyOn(api, 'query').mockResolvedValueOnce(submitted('gone'))
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce(failure)
 
-            await expect(performQuery(query, undefined, 'async')).rejects.toMatchObject({
-                status: failure.status,
-            })
+            await expect(performQuery(query, undefined, 'async', clientQueryId)).rejects.toBe(failure)
 
             expect(querySpy).toHaveBeenCalledTimes(1)
+            const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+            expect(queryFailedCalls).toHaveLength(1)
+            expect(queryFailedCalls[0][1]).toMatchObject({ queryId: 'gone', error_status: failure.status })
+            expect(captureSpy.mock.calls.filter((call) => call[0] === 'query completed')).toHaveLength(0)
         })
 
         it('gives up when the second attempt is forgotten too', async () => {

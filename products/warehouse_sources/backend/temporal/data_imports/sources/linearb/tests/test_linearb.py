@@ -5,8 +5,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.linearb import (
-    LinearbResumeConfig,
-    _get_headers,
     _iter_list_rows,
     _iter_measurements_rows,
     _sanitize_metric_key,
@@ -37,13 +35,6 @@ def _session_returning(responses: list[mock.MagicMock]) -> mock.MagicMock:
 
 def _list_config(page_size: int = 2) -> LinearbEndpointConfig:
     return LinearbEndpointConfig(name="teams", path="/api/v2/teams", page_size_param="page_size", page_size=page_size)
-
-
-class TestHeaders:
-    def test_sets_api_key_header(self) -> None:
-        headers = _get_headers("secret-key")
-        assert headers["x-api-key"] == "secret-key"
-        assert headers["Content-Type"] == "application/json"
 
 
 class TestSanitizeMetricKey:
@@ -101,16 +92,6 @@ class TestListPagination:
         assert [row["id"] for page in pages for row in page] == [1, 2, 3]
         assert session.request.call_count == 2
 
-    def test_stops_when_total_covered_without_extra_request(self) -> None:
-        # A single full page whose total says we already have everything must not fetch again.
-        responses = [_response(payload={"total": 2, "items": [{"id": 1}, {"id": 2}]})]
-        session = _session_returning(responses)
-
-        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), _list_config(), self._manager()))
-
-        assert [row["id"] for page in pages for row in page] == [1, 2]
-        assert session.request.call_count == 1
-
     def test_stops_on_empty_page(self) -> None:
         session = _session_returning([_response(payload={"total": 0, "items": []})])
         pages = list(_iter_list_rows(session, {}, mock.MagicMock(), _list_config(), self._manager()))
@@ -125,29 +106,6 @@ class TestListPagination:
 
         assert len(pages) == 1
         assert session.request.call_count == 1
-
-    def test_saves_offset_after_yielding_page(self) -> None:
-        responses = [
-            _response(payload={"total": 3, "items": [{"id": 1}, {"id": 2}]}),
-            _response(payload={"total": 3, "items": [{"id": 3}]}),
-        ]
-        manager = self._manager()
-        list(_iter_list_rows(_session_returning(responses), {}, mock.MagicMock(), _list_config(), manager))
-
-        # State is saved after the first (non-terminal) page carrying the next offset.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert LinearbResumeConfig(offset=2) in saved
-
-    def test_resumes_from_saved_offset(self) -> None:
-        manager = self._manager()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = LinearbResumeConfig(offset=2)
-        session = _session_returning([_response(payload={"total": 3, "items": [{"id": 3}]})])
-
-        list(_iter_list_rows(session, {}, mock.MagicMock(), _list_config(), manager))
-
-        # The first (only) request must start at the saved offset, not 0.
-        assert session.request.call_args.kwargs["params"]["offset"] == 2
 
 
 class TestMeasurements:

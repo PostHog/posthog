@@ -31,10 +31,15 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     },
     redirects: {
@@ -93,7 +98,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [

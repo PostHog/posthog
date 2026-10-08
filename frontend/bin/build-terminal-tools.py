@@ -44,7 +44,7 @@ def build() -> None:
             data = download(f"{manifest['repository']}/{package['file']}", "sha256", package["sha256"])
             # APK signatures, metadata, and payload are concatenated tar streams.
             with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz", ignore_zeros=True) as archive:
-                members = [member for member in archive if member.name.startswith(("etc/", "lib/", "usr/"))]
+                members = [member for member in archive if member.name.startswith(("bin/", "etc/", "lib/", "usr/"))]
                 archive.extractall(tools, members=members, filter="data")
 
         licenses = tools / "licenses"
@@ -68,13 +68,14 @@ def build() -> None:
 
         wrappers = root / "usr/bin"
         wrappers.mkdir(parents=True, exist_ok=True)
-        for command in ("nano", "tree", "ncdu", "mc", "mcview", "mcedit", "mcdiff"):
+        for command in ("bash", "nano", "tree", "ncdu", "mc", "mcview", "mcedit", "mcdiff"):
             arguments = ""
             if command == "nano":
                 arguments = f"--rcfile=/{PREFIX}/etc/nanorc "
             elif command.startswith("mc"):
                 arguments = "-u "
             wrapper = wrappers / command
+            binary = f"bin/{command}" if command == "bash" else f"usr/bin/{command}"
             # Isolate musl and ncurses from the guest's existing uClibc programs.
             wrapper.write_text(
                 "#!/bin/sh\n"
@@ -82,7 +83,7 @@ def build() -> None:
                 'export TZ="$(cat /etc/TZ)"\n'
                 f"exec /{PREFIX}/lib/ld-musl-i386.so.1 "
                 f"--library-path /{PREFIX}/lib:/{PREFIX}/usr/lib "
-                f'/{PREFIX}/usr/bin/{command} {arguments}"$@"\n'
+                f'/{PREFIX}/{binary} {arguments}"$@"\n'
             )
             wrapper.chmod(0o755)
 

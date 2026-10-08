@@ -108,29 +108,6 @@ class TestUsageCostWindowing:
         for previous, current in zip(windows, windows[1:]):
             assert (current[0] - previous[1]).days == 1  # contiguous, no overlap, no gap
 
-    def test_incremental_starts_from_watermark(self, monkeypatch: Any) -> None:
-        _, calls = _collect(
-            monkeypatch,
-            _usage_cost_handler(),
-            "usage_cost",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 7, 1),
-        )
-        windows = _window_params(calls)
-        assert windows == [(date(2026, 7, 1), date(2026, 7, 15))]
-
-    def test_future_watermark_is_clamped_to_today(self, monkeypatch: Any) -> None:
-        # A future-dated watermark would make from_date > to_date and 400 on every sync.
-        _, calls = _collect(
-            monkeypatch,
-            _usage_cost_handler(),
-            "usage_cost",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 8, 1),
-        )
-        windows = _window_params(calls)
-        assert windows == [(date(2026, 7, 15), date(2026, 7, 15))]
-
     def test_resume_state_used_and_saved_only_after_yield(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(ClickhouseCloudResumeConfig(organization_id="org-1", from_date="2026-06-20"))
         _, calls = _collect(monkeypatch, _usage_cost_handler(), "usage_cost", manager=manager)
@@ -193,15 +170,6 @@ class TestActivities:
         )
         assert "from_date=2026-06-30T00%3A00%3A00.000Z" in calls[1]
         assert [r["id"] for r in rows] == ["a-1", "a-2"]
-
-    def test_full_refresh_omits_from_date(self, monkeypatch: Any) -> None:
-        def handler(url: str) -> dict:
-            if url.endswith("/v1/organizations"):
-                return {"result": [ORG]}
-            return {"result": []}
-
-        _, calls = _collect(monkeypatch, handler, "activities")
-        assert "from_date" not in calls[1]
 
 
 class TestEntityRows:

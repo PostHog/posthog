@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
@@ -136,6 +137,7 @@ class TestUserFacingErrorMessage(SimpleTestCase):
             (RateLimitError("429"),),
             (ContextWindowExceededError("too long"),),
             (OutputTokenLimitError("output limit was reached"),),
+            (ContentFilteredError("rejected by the content filter"),),
             (ProviderConnectionError("reset by peer"),),
             (StructuredOutputParseError("bad json"),),
         ]

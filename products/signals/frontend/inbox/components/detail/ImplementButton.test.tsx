@@ -163,7 +163,7 @@ describe('ImplementButton', () => {
         await user.click(screen.getByLabelText('Open prompt in an agent'))
 
         expect(screen.queryByText('PostHog AI')).not.toBeInTheDocument()
-        await user.click(screen.getByText('Claude Code'))
+        await user.click(screen.getByText('Claude Code CLI'))
 
         expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
         expect(captureInboxReportAction).toHaveBeenCalledWith(

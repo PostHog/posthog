@@ -1,6 +1,3 @@
-import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
-import { formatResponse } from '@/lib/response'
-
 /**
  * Bounds the size of LLM trace results before they are serialized toward the MCP
  * client. `query-llm-trace` returns every event in a trace at every nesting
@@ -8,9 +5,9 @@ import { formatResponse } from '@/lib/response'
  * completions, and tool payloads. Left unbounded these responses have reached
  * tens of millions of tokens, which exhausts the calling agent's context window.
  *
- * Two layers keep that in check. `summary` detail replaces event content with
- * short previews so the summary response is trace metadata plus enough of each
- * prompt and output to decide what to read next. On top of that, compaction
+ * Two layers keep that in check. `summary` detail leaves event content out
+ * altogether and reports the omitted names, so the summary response is trace and
+ * event metadata an agent reads to decide what to open. On top of that, compaction
  * walks the result within a character budget, truncating long string values and
  * dropping content that doesn't fit, and stops traversing once the budget is
  * spent so it never materializes a full clone of a pathological trace. A final
@@ -26,6 +23,10 @@ import { formatResponse } from '@/lib/response'
  * PostHog.
  */
 
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
+import { assignKey, isRecord } from '@/lib/plain-object'
+import { formatResponse } from '@/lib/response'
+
 /** Longest single string value kept verbatim; longer values are truncated. */
 export const PER_VALUE_CHAR_LIMIT = 10_000
 
@@ -38,13 +39,11 @@ export const MAX_TRACE_CHARS = MCP_TOOL_OUTPUT_CHAR_BUDGET
  */
 export const MAX_SUMMARY_CHARS = 60_000
 
-/** How much of each previewed value a summary keeps. */
-export const SUMMARY_PREVIEW_CHARS = 600
-
 /**
  * How much of an event's content reaches the client. `summary` keeps identity,
- * timing, model, cost, tool, and error metadata verbatim and previews everything
- * else. `full` keeps all properties, bounded by the compaction budget.
+ * timing, model, cost, tool, and error metadata and omits the content, so a
+ * survey of a trace never carries prompts or completions. `full` keeps every
+ * retained property, bounded by the compaction budget.
  */
 export type TraceDetail = 'summary' | 'full'
 
@@ -75,11 +74,24 @@ const MAX_FIT_PASSES = 4
 const FIT_HEADROOM = 1.2
 
 /**
- * Event properties that stay verbatim in a summary. These are the fields an
- * agent needs to navigate a trace: tree position, timing, model, spend, tool
- * calls, and failures. Everything else is content and gets previewed.
+ * Event properties that stay in a summary. These are the fields an agent needs
+ * to navigate a trace: tree position, timing, model, spend, tool calls, and
+ * failures. Everything else is content and is omitted, name only.
+ *
+ * A name belongs here when its value is a number, a boolean, a short label, or
+ * an identifier — never free text and never a document. That is why the cost,
+ * token and timing fields are listed one by one rather than taken from the
+ * redaction allowlist wholesale: the allowlist is what a trace may return at
+ * all, and most of it is the conversation.
+ *
+ * `$ai_error` and `$ai_feedback_text` are deliberately absent, though they read
+ * as metadata. Both are free text a person or a provider wrote, and a provider
+ * error routinely quotes the prompt back, so keeping them would put
+ * conversation content in the mode that promises none. `$ai_is_error`,
+ * `$ai_http_status`, `$ai_error_type` and `$ai_status` stay, so a survey can
+ * still find the failures and then read them at `full` detail.
  */
-const SUMMARY_METADATA_PROPERTIES = new Set([
+export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
     '$ai_span_id',
     '$ai_generation_id',
@@ -88,6 +100,9 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_session_id',
     '$ai_model',
     '$ai_provider',
+    '$ai_temperature',
+    '$ai_stream',
+    '$ai_effort',
     '$ai_latency',
     '$ai_input_tokens',
     '$ai_output_tokens',
@@ -97,19 +112,75 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_output_cost_usd',
     '$ai_total_cost_usd',
     '$ai_tools_called',
+    '$ai_tool_call_count',
     '$ai_is_error',
-    '$ai_error',
     '$ai_http_status',
+    '$ai_error_type',
+    '$ai_status',
+    '$ai_stop_reason',
+    '$ai_time_to_first_token',
     '$ai_metric_name',
     '$ai_metric_value',
-    '$ai_feedback_text',
+    '$ai_score',
+    '$ai_score_max',
+    '$ai_score_min',
+    '$ai_span_type',
+    // Spend. A cost or latency survey is what summary detail is for, so the
+    // whole breakdown stays: every token count, every per-token price, and the
+    // per-modality costs the total is made of.
+    '$ai_max_tokens',
+    '$ai_total_tokens',
+    '$ai_total_input_tokens',
+    '$ai_total_output_tokens',
+    '$ai_text_input_tokens',
+    '$ai_text_output_tokens',
+    '$ai_audio_input_tokens',
+    '$ai_audio_output_tokens',
+    '$ai_image_input_tokens',
+    '$ai_image_output_tokens',
+    '$ai_video_input_tokens',
+    '$ai_video_output_tokens',
+    '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_read_audio_tokens',
+    '$ai_audio_cost_usd',
+    '$ai_image_cost_usd',
+    '$ai_video_cost_usd',
+    '$ai_web_search_cost_usd',
+    '$ai_web_search_count',
+    '$ai_web_search_price',
+    '$ai_request_cost_usd',
+    '$ai_request_count',
+    '$ai_request_price',
+    '$ai_input_token_price',
+    '$ai_output_token_price',
+    '$ai_cache_read_token_price',
+    '$ai_cache_write_token_price',
+    '$ai_cache_write_1h_token_price',
+    '$ai_cache_read_cost_usd',
+    '$ai_cache_creation_cost_usd',
+    '$ai_billable',
+    '$ai_cost_passthrough',
+    '$ai_cost_model_source',
+    '$ai_cost_model_provider',
+    '$ai_model_cost_used',
+    '$ai_cache_reporting_exclusive',
+    '$ai_tokens_source',
 ])
 
 /** Trace-level fields that carry conversation content rather than metadata. */
-const SUMMARY_PREVIEWED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
+const SUMMARY_OMITTED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
+
+/**
+ * Names of the content fields a summary leaves out, reported in place of their
+ * values. It sits beside `properties` rather than inside it, so it cannot
+ * collide with a captured property of the same name.
+ */
+const SUMMARY_OMITTED_KEYS_FIELD = '_summaryOmittedKeys'
 
 const SUMMARY_NOTE =
-    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts, outputs, and custom properties, or open the trace in PostHog.'
+    'Event content is omitted; only the names of the omitted properties are listed. Re-run this tool with detail: "full" for prompts, outputs, error messages, and feedback text, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))
@@ -117,10 +188,6 @@ function metaReserveFor(budget: number): number {
 
 function minItemBudgetFor(budget: number): number {
     return Math.min(MIN_ITEM_BUDGET, Math.floor(Math.max(0, budget) * SMALL_BUDGET_MIN_ITEM_RATIO))
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function serializedLength(value: unknown): number {
@@ -150,21 +217,6 @@ function deliveredLength(value: unknown, outputFormat?: 'optimized' | 'json'): n
  */
 function encodedStringLength(value: string): number {
     return serializedLength(value)
-}
-
-/**
- * Assign a key without triggering the inherited `__proto__` setter. Trace
- * payloads are arbitrary parsed JSON and can legitimately carry an own
- * `__proto__` key (e.g. a tool payload being debugged); a plain `out[key] = v`
- * would set the clone's prototype instead of creating an own property and drop
- * the value from serialization.
- */
-function assignKey(target: Record<string, unknown>, key: string, value: unknown): void {
-    if (key === '__proto__') {
-        Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true })
-    } else {
-        target[key] = value
-    }
 }
 
 function truncateString(value: string, budget: number): string {
@@ -289,16 +341,12 @@ function fitToEncodedBudget<T>(
     return measure(out) <= budget ? out : fallback
 }
 
-/** Shorten one value to a preview an agent can scan without reading it in full. */
-function previewValue(value: unknown): unknown {
-    return compactValue(value, SUMMARY_PREVIEW_CHARS).value
-}
-
 function summarizeEvent(event: unknown): unknown {
     if (!isRecord(event)) {
-        return previewValue(event)
+        return event
     }
     const out: Record<string, unknown> = {}
+    const omitted: string[] = []
     for (const [key, value] of Object.entries(event)) {
         if (key !== 'properties' || !isRecord(value)) {
             assignKey(out, key, value)
@@ -306,29 +354,37 @@ function summarizeEvent(event: unknown): unknown {
         }
         const properties: Record<string, unknown> = {}
         for (const [propertyKey, propertyValue] of Object.entries(value)) {
-            assignKey(
-                properties,
-                propertyKey,
-                SUMMARY_METADATA_PROPERTIES.has(propertyKey) ? propertyValue : previewValue(propertyValue)
-            )
+            if (SUMMARY_METADATA_PROPERTIES.has(propertyKey)) {
+                assignKey(properties, propertyKey, propertyValue)
+            } else {
+                omitted.push(propertyKey)
+            }
         }
         assignKey(out, 'properties', properties)
+    }
+    if (omitted.length > 0) {
+        assignKey(out, SUMMARY_OMITTED_KEYS_FIELD, omitted)
     }
     return out
 }
 
-/** Preview the trace-level fields that carry conversation content. */
+/** Leave out the trace-level fields that carry conversation content. */
 function summarizeTraceFields(fields: Record<string, unknown>): void {
-    for (const key of SUMMARY_PREVIEWED_TRACE_FIELDS) {
+    const omitted: string[] = []
+    for (const key of SUMMARY_OMITTED_TRACE_FIELDS) {
         if (key in fields) {
-            assignKey(fields, key, previewValue(fields[key]))
+            delete fields[key]
+            omitted.push(key)
         }
+    }
+    if (omitted.length > 0) {
+        assignKey(fields, SUMMARY_OMITTED_KEYS_FIELD, omitted)
     }
     assignKey(fields, '_detail', { mode: 'summary', note: SUMMARY_NOTE })
 }
 
 /**
- * Compact a single trace to fit `budget` characters, previewing event content
+ * Compact a single trace to fit `budget` characters, dropping event content
  * first when `detail` is `summary`. Non-event fields are
  * budgeted first (so a huge `inputState` can't starve the events), then events
  * are filled in until the budget runs out; the first event is compacted to fit
@@ -389,7 +445,7 @@ function compactTraceWithin(trace: Record<string, unknown>, budget: number, deta
     if (omitted > 0) {
         const note =
             detail === 'full'
-                ? 'Re-run with detail: "summary" for smaller previews. Summary responses can also omit events; narrow the query or open the trace in PostHog for the complete data.'
+                ? 'Re-run with detail: "summary" for metadata alone. Summary responses can also omit events; narrow the query or open the trace in PostHog for the complete data.'
                 : 'Open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.'
         assignKey(base, '_truncated', {
             omittedEvents: omitted,

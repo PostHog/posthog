@@ -15,6 +15,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -333,3 +334,66 @@ def test_wiring_reexports_resolve() -> None:
     assert temporal.ACTIVITIES is not None and temporal.WORKFLOWS is not None
     assert isinstance(sources.CHARGE_RESOURCE_NAME, str)
     assert sources.NamingConvention is not None
+
+
+_PAT_INPUTS = {"auth_method": {"selection": "pat", "personal_access_token": "t0ken"}}
+
+
+class TestGitHubSourceCredential(BaseTest):
+    def _source(self, job_inputs: dict, **overrides) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=overrides.pop("team_id", self.team.pk),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type=overrides.pop("source_type", ExternalDataSourceType.GITHUB),
+            job_inputs=job_inputs,
+            **overrides,
+        )
+
+    @parameterized.expand(
+        [
+            ("a_personal_access_token", _PAT_INPUTS, contracts.GitHubSourceCredential(personal_access_token="t0ken")),
+            ("a_pat_selection_with_no_token", {"auth_method": {"selection": "pat"}}, None),
+            (
+                "an_oauth_integration",
+                {"auth_method": {"selection": "oauth", "github_integration_id": 7}},
+                contracts.GitHubSourceCredential(integration_id=7),
+            ),
+            ("an_oauth_selection_with_no_integration", {"auth_method": {"selection": "oauth"}}, None),
+            ("a_config_that_does_not_parse", {"auth_method": "oauth"}, None),
+        ]
+    )
+    def test_the_auth_method_decides_the_credential(
+        self, _name: str, job_inputs: dict, expected: contracts.GitHubSourceCredential | None
+    ) -> None:
+        # A half-configured source is a normal state, and the consumer falls back on no credential,
+        # so every unusable auth method has to answer None rather than raise.
+        source = self._source(job_inputs)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=str(source.id)) == expected
+
+    @parameterized.expand(
+        [
+            ("a_deleted_source", {"deleted": True}),
+            ("a_source_of_another_type", {"source_type": "Stripe"}),
+        ]
+    )
+    def test_a_source_that_syncs_no_github_repository_yields_no_credential(self, _name: str, overrides: dict) -> None:
+        source = self._source(_PAT_INPUTS, **overrides)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=str(source.id)) is None
+
+    def test_another_teams_source_yields_no_credential(self) -> None:
+        # The id travels from a resolve the caller made, so a stale or crafted value must not hand
+        # a team the credential of a source it cannot see.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        source = self._source(_PAT_INPUTS)
+
+        assert api.github_source_credential(team_id=other_team.pk, source_id=str(source.id)) is None
+
+    @parameterized.expand([("an_id_that_is_gone", str(uuid.uuid4())), ("an_id_that_is_no_uuid", "not-a-uuid")])
+    def test_an_id_that_names_no_source_yields_no_credential(self, _name: str, source_id: str) -> None:
+        self._source(_PAT_INPUTS)
+
+        assert api.github_source_credential(team_id=self.team.pk, source_id=source_id) is None

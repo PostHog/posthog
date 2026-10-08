@@ -50,7 +50,8 @@ const skipNonCode = (query: string, i: number): number | null => {
     return null
 }
 
-export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
+// Whether any of `tokens` appears in the query outside string literals and comments.
+const queryContainsInCode = (query: string | null, tokens: string[]): boolean => {
     if (!query) {
         return false
     }
@@ -63,11 +64,7 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
             continue
         }
 
-        if (
-            query.startsWith('{filters}', i) ||
-            query.startsWith('{filters.', i) ||
-            query.startsWith(FILTERS_BOUND_PREFIX, i)
-        ) {
+        if (tokens.some((token) => query.startsWith(token, i))) {
             return true
         }
 
@@ -76,6 +73,12 @@ export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
 
     return false
 }
+
+export const queryUsesFiltersPlaceholder = (query: string | null): boolean =>
+    queryContainsInCode(query, ['{filters}', '{filters.', FILTERS_BOUND_PREFIX])
+
+export const queryUsesPlaceholder = (query: string | null, name: string): boolean =>
+    queryContainsInCode(query, [`{${name}}`])
 
 const readBindingArgs = (query: string, start: number): { args: string[]; end: number } => {
     const args: string[] = []

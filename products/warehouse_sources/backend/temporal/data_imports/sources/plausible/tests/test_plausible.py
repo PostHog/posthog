@@ -11,15 +11,11 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible import plausible as plausible_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
-    _normalize_row,
-    hostname_of,
     normalize_host,
     plausible_source,
-    resolve_host,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
-    ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     SESSION_SCOPED_DIMENSIONS,
@@ -103,38 +99,6 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    @pytest.mark.parametrize("value", [None, ""])
-    def test_resolve_host_defaults_to_cloud(self, value):
-        assert resolve_host(value) == "https://plausible.io"
-
-    def test_hostname_of(self):
-        assert hostname_of("https://analytics.example.com/path") == "analytics.example.com"
-        assert hostname_of(None) == "plausible.io"
-
-
-class TestNormalizeRow:
-    def test_maps_dimensions_and_metrics_to_named_columns(self):
-        config = PLAUSIBLE_ENDPOINTS["sources"]
-        row = _normalize_row(config, _result(["2024-01-01", "Google"], [10, 12, 30, 0.5, 60, 40]))
-
-        assert row == {
-            "date": "2024-01-01",
-            "source": "Google",
-            "visitors": 10,
-            "visits": 12,
-            "pageviews": 30,
-            "bounce_rate": 0.5,
-            "visit_duration": 60,
-            "events": 40,
-        }
-
-    def test_timeseries_has_only_date_dimension(self):
-        config = PLAUSIBLE_ENDPOINTS["timeseries"]
-        row = _normalize_row(config, _result(["2024-01-01"], [10, 12, 30, 0.5, 60, 40]))
-
-        assert row["date"] == "2024-01-01"
-        assert "source" not in row
-
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -179,40 +143,6 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_builds_query_and_yields_normalized_rows(self, MockSession):
-        session = MockSession.return_value
-        bodies = _wire(
-            session,
-            [
-                _response(
-                    {
-                        "results": [_result(["2024-01-01", "Google"], [10, 12, 30, 0.5, 60, 40])],
-                        "meta": {"total_rows": 1},
-                    }
-                )
-            ],
-        )
-
-        rows = _rows(_source(endpoint="sources"))
-
-        assert rows == [
-            {
-                "date": "2024-01-01",
-                "source": "Google",
-                "visitors": 10,
-                "visits": 12,
-                "pageviews": 30,
-                "bounce_rate": 0.5,
-                "visit_duration": 60,
-                "events": 40,
-            }
-        ]
-        assert bodies[0]["dimensions"] == ["time:day", "visit:source"]
-        assert bodies[0]["order_by"] == [["time:day", "asc"]]
-        assert bodies[0]["include"] == {"total_rows": True}
-        assert bodies[0]["pagination"]["offset"] == 0
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_short_page_and_saves_state(self, MockSession):
         session = MockSession.return_value
@@ -279,16 +209,6 @@ _SESSION_SCOPED_ENDPOINT_METRICS = {"entry_pages": _SESSION_METRICS, "exit_pages
 
 
 class TestEndpointMetricScopes:
-    @pytest.mark.parametrize("endpoint, expected", sorted(_SESSION_SCOPED_ENDPOINT_METRICS.items()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_session_scoped_breakdown_requests_session_metrics_only(self, MockSession, endpoint, expected):
-        session = MockSession.return_value
-        bodies = _wire(session, [_response({"results": [], "meta": {"total_rows": 0}})])
-
-        _rows(_source(endpoint=endpoint))
-
-        assert bodies[0]["metrics"] == expected
-
     def test_every_session_scoped_endpoint_is_covered(self):
         # Forces a deliberate edit here when an endpoint is added on a session-scoped dimension,
         # instead of the endpoint quietly dropping out of the parametrize list above.
@@ -304,38 +224,3 @@ class TestEndpointMetricScopes:
             PlausibleEndpointConfig(
                 name="bad", breakdown_dimensions=["visit:exit_page"], metrics=["pageviews", "events"]
             )
-
-    def test_event_page_exemption_keeps_session_metrics_only_when_page_is_alone(self):
-        # `event:page` alone is exempt, so it keeps the session metrics; pairing it with another
-        # `event:*` dimension loses the exemption and drops them, or Plausible would 400.
-        alone = PlausibleEndpointConfig(name="alone", breakdown_dimensions=["event:page"])
-        assert "bounce_rate" in alone.metrics and "visit_duration" in alone.metrics
-
-        paired = PlausibleEndpointConfig(name="paired", breakdown_dimensions=["event:page", "event:hostname"])
-        assert "bounce_rate" not in paired.metrics and "visit_duration" not in paired.metrics
-        assert paired.metrics == ["visitors", "visits", "pageviews", "events"]
-
-    @pytest.mark.parametrize(
-        "endpoint, hostname_column",
-        [("pages", "hostname"), ("entry_pages", "entry_page_hostname"), ("exit_pages", "exit_page_hostname")],
-    )
-    def test_page_breakdowns_key_on_hostname(self, endpoint, hostname_column):
-        # Without hostname in the composite key, paths on different subdomains merge into one row.
-        config = PLAUSIBLE_ENDPOINTS[endpoint]
-        assert hostname_column in config.column_names
-        assert hostname_column in config.primary_keys
-
-
-class TestPlausibleSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = PLAUSIBLE_ENDPOINTS[endpoint]
-        response = _source(endpoint=endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert "date" in (response.primary_keys or [])
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]

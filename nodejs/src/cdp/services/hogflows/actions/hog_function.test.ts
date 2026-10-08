@@ -481,7 +481,6 @@ describe('HogFunctionHandler', () => {
     it.each([
         ['fetch', 'workflow_billable_invocations'],
         ['email', 'workflow_emails_sent'],
-        ['push', 'workflow_push_sent'],
         ['sms', 'workflow_sms_sent'],
     ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
@@ -523,6 +522,49 @@ describe('HogFunctionHandler', () => {
             )
         }
     )
+
+    // A push with no device token finishes unskipped, so only the send knows nobody was reached.
+    it.each([
+        ['reached a device', true, true],
+        ['found no device token', false, false],
+    ] as const)('bills a push step only when the send %s', async (_label, delivered, shouldBill) => {
+        const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+            reportBillableInvocation: jest.fn(),
+        }
+        const handler = new HogFunctionHandler(
+            mockHogFlowFunctionsService,
+            mockRecipientPreferencesService,
+            mockEmailValidationService,
+            'push',
+            usageReporter
+        )
+
+        const executeWithAsyncFunctions =
+            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            async (hogFunctionInvocation, options) => {
+                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                functionResult.deliveredToRecipient = delivered
+                return functionResult
+            }
+        )
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await handler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
+        if (shouldBill) {
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
+            )
+        } else {
+            expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+        }
+    })
 
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person

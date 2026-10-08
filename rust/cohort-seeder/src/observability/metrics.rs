@@ -15,6 +15,9 @@ pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";
 pub const BOUNDARY_ESTABLISHED: &str = "seeder_boundary_established_total";
 pub const BOUNDARY_CAS_LOST: &str = "seeder_boundary_cas_lost_total";
 pub const RUNS_WAITING_BOUNDARY: &str = "seeder_runs_waiting_boundary";
+/// Runs terminally failed during pinned-payload validation, labelled by `reason` (counter). For
+/// `uncovered_participation` the run's `error` column names the cohorts, why each cannot be seeded,
+/// and their dropped hashes.
 pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total";
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
@@ -86,6 +89,13 @@ pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_sk
 /// sentinel would be indistinguishable from a real reading. Those show up as decoded bytes that do
 /// not fall — read this against `seeder_scan_decoded_bytes_total{kind="behavioral"}`.
 pub const PROJECTION_KEYS: &str = "seeder_projection_keys";
+/// Behavioral chunks by row filter `outcome` (`none`/`materialized`/`properties_blob`/`too_long`)
+/// and `team_id` (counter). Only `materialized` saves ClickHouse reads; `properties_blob` saves the
+/// transfer and evaluation of rows no condition matches.
+pub const SCAN_ROW_FILTER: &str = "seeder_scan_row_filter_total";
+/// Behavioral chunks by where the scan reads `properties` from, labelled by `source`
+/// (`whole`/`empty`/`columns`/`rebuilt_*`) and `team_id` (counter).
+pub const SCAN_PROPERTIES_SOURCE: &str = "seeder_scan_properties_source_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";
 pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";
@@ -98,6 +108,15 @@ pub const CHUNKS_POISONED: &str = "seeder_chunks_poisoned_total";
 /// blocking every future run for that cohort. The paired `warn!` carries the chunk and its error,
 /// which is what an operator reads once this counter points them at a run.
 pub const RUNS_FAILED_EXHAUSTED_CHUNKS: &str = "seeder_runs_failed_exhausted_chunks_total";
+/// Failed chunks ClickHouse refused for lack of resources, by `kind` and `code` (counter). A
+/// response ClickHouse cut mid-stream carries no code and counts as `code="response_cut"`.
+pub const CLICKHOUSE_RESOURCE_ERRORS: &str = "seeder_clickhouse_resource_errors_total";
+/// Run breaker openings, by `kind` (counter).
+pub const RUN_BREAKER_TRIPS: &str = "seeder_run_breaker_trips_total";
+/// Runs failed at the breaker trip limit, by `kind` (counter).
+pub const RUNS_FAILED_BREAKER: &str = "seeder_runs_failed_breaker_total";
+/// Eligible runs whose breaker is not closed, by `kind` (gauge).
+pub const RUN_BREAKERS_OPEN: &str = "seeder_run_breakers_open";
 pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_seconds";
 /// Compressed bytes a scan cursor read off the wire, labelled by `kind` (counter). Paired with
 /// [`SCAN_DECODED_BYTES`], it tells a slow scan that moved a lot of data apart from one that moved
@@ -105,6 +124,7 @@ pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_second
 pub const SCAN_RECEIVED_BYTES: &str = "seeder_scan_received_bytes_total";
 /// Decompressed bytes a scan cursor produced, labelled by `kind` (counter).
 pub const SCAN_DECODED_BYTES: &str = "seeder_scan_decoded_bytes_total";
+pub const CLICKHOUSE_PASSWORD_FALLBACK: &str = "seeder_clickhouse_password_fallback_total";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";
 pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
@@ -121,7 +141,6 @@ pub const RUN_CHUNKS_REMAINING: &str = "seeder_run_chunks_remaining";
 pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
 pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
-pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
 /// Reconcile dispatch attempts, labelled by bounded `outcome` and the run's `kind` (counter).
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
 /// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).

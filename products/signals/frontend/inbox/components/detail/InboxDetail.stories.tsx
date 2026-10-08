@@ -90,9 +90,48 @@ const successfulPrChecks = {
 
 const detailMocks = mswDecorator({
     get: {
-        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const reportId = req.params.reportId as string
+            return [200, mockArtefacts(reportId)]
+        },
+        '/api/projects/:id/signals/reports/:reportId/checks/': (req) => [
             200,
-            mockArtefacts(req.params.reportId as string),
+            {
+                count: req.params.reportId === reportTabReports[0].id ? 1 : 0,
+                results:
+                    req.params.reportId === reportTabReports[0].id
+                        ? [
+                              {
+                                  id: 'expected-outcome-check',
+                                  title: 'API key validation errors fall to at most 50 in 14 days',
+                                  rationale: 'The form should show users why their key could not be created.',
+                                  kind: 'metric_threshold',
+                                  status: 'pending',
+                                  config: {
+                                      metric_id: reportMetricsFixture[0].metric_id,
+                                      query: reportMetricsFixture[0].query,
+                                      metric_kind: reportMetricsFixture[0].kind,
+                                      value_format: reportMetricsFixture[0].value_format,
+                                      unit: reportMetricsFixture[0].unit,
+                                      comparison: { operator: 'lte', value: 50 },
+                                      baseline_value: 80,
+                                  },
+                                  approved_at: null,
+                                  next_run_at: '2026-09-12T00:00:00Z',
+                                  soak_minutes: 20160,
+                                  run_interval_minutes: null,
+                                  runs_remaining: 1,
+                                  expires_at: '2026-10-12T00:00:00Z',
+                                  last_run_at: null,
+                                  last_outcome: null,
+                                  dispatched_at: null,
+                                  consecutive_errors: 0,
+                                  created_at: '2026-08-29T00:00:00Z',
+                                  updated_at: '2026-08-29T00:00:00Z',
+                              },
+                          ]
+                        : [],
+            },
         ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
@@ -139,7 +178,11 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
     },
     decorators: [detailMocks],
 }
@@ -236,6 +279,69 @@ export const ReportWithMetrics: Story = {
                         'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
                     ].join('\n\n'),
                     metrics: reportMetricsFixture,
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetric: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'People cannot finish setup when the API key form hides validation errors.',
+                        '## Problem',
+                        'The form does not show the error after the Create key button is clicked.',
+                        '## Expected impact',
+                        'After the fix, fewer people should click Create key without getting a response.',
+                        '## Solution',
+                        'Show the validation error in the form.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture.slice(0, 1),
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportWithFollowUpMetricHidden: Story = {
+    ...ReportWithFollowUpMetric,
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+        },
+    },
+}
+
+export const ReportFollowUpPending: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    status: SignalReportStatus.IN_PROGRESS,
+                    summary: null,
+                    metrics: [],
                 })}
             />
         </Frame>

@@ -367,6 +367,24 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             )
         })
 
+        it('refreshes every tool quality data source', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+
+            expect(queryCallsSince(callsBefore).map((call) => call.kind)).toEqual(
+                expect.arrayContaining([
+                    NodeKind.MCPToolQualityRowsQuery,
+                    NodeKind.MCPToolQualityDailyStatsQuery,
+                    NodeKind.MCPToolCategoryCountsQuery,
+                    NodeKind.MCPToolCategoriesQuery,
+                ])
+            )
+        })
+
         it('discards a superseded available-categories response so a slow earlier request cannot overwrite it', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()

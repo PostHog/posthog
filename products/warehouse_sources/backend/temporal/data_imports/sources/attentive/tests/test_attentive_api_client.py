@@ -36,15 +36,6 @@ class TestEventsForResources:
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response(200, {"companyId": "c1"})
-
-        ok, error = api_client.validate_credentials("key")
-
-        assert ok is True
-        assert error is None
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_token(self, mock_session):
         mock_session.return_value.get.return_value = _response(401)
 

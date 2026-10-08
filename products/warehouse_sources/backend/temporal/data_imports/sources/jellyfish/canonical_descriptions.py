@@ -79,4 +79,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "teams": "Teams contributing to the deliverable.",
         },
     },
+    "allocations_by_work_category": {
+        "description": "R&D allocation (FTE effort) per deliverable within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "allocations_by_work_category_person": {
+        "description": "R&D allocation (FTE effort) per deliverable and person within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "allocations_by_work_category_team": {
+        "description": "R&D allocation (FTE effort) per deliverable and top-level team within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "person_metrics": {
+        "description": "Engineering metrics per engineer for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "person_id": "Jellyfish id of the engineer the metrics are for (added by PostHog when absent).",
+        },
+    },
+    "team_metrics": {
+        "description": "Engineering metrics per team, at every level of the team hierarchy, for each calendar-month window. Pull-request figures only include pull requests linked to an issue that resolves to the team.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team the metrics are for (added by PostHog when absent).",
+        },
+    },
+    "deliverable_scope_and_effort_history": {
+        "description": "Weekly scope and allocated effort history for each deliverable.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "deliverable_id": "Jellyfish id of the deliverable this history is for (added by PostHog when absent).",
+        },
+    },
 }

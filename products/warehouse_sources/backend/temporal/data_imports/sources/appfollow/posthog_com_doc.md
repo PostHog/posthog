@@ -49,9 +49,12 @@ through the `X-AppFollow-API-Token` header.
 
 <SyncModes />
 
-The `reviews` table syncs incrementally on each review's last-modified timestamp, and `ratings_history`
-and `reviews_stats` sync incrementally by date, so after the first backfill only new and changed rows
-are fetched. Every other table syncs as full refresh.
+The `reviews` table syncs incrementally, and `ratings_history` and `reviews_stats` sync incrementally by
+date, so after the first backfill only new rows are fetched. Every other table syncs as full refresh.
+
+New sources use AppFollow API v3, where the `reviews` table syncs on each review's date. API v3 has no
+way to ask for recently changed reviews, so an edit to a review older than the last sync is not picked up.
+Sources connected on API v2 keep syncing `reviews` on each review's last-modified timestamp.
 
 The `rankings` and `keywords` tables are the exception worth knowing about. AppFollow returns rank and
 keyword positions for a single day at a time, with no way to ask for a range, so each sync adds that

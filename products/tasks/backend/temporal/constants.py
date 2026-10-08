@@ -121,6 +121,7 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 
 # Upper bound on how many CI rounds the orchestrator will dispatch.
 MAX_CI_REPETITIONS = 3
+MAX_CI_IDLE_SKIPS = 2
 
 # Long-lived SSE relay activity timeout. The relay reconnects internally on
 # transient failures; this is the outer cap.

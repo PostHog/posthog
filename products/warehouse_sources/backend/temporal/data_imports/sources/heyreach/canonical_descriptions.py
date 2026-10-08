@@ -1,0 +1,128 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_API_DOCS_URL = "https://documenter.getpostman.com/view/23808049/2sA2xb5F75"
+
+_LEAD_PROFILE_COLUMNS = {
+    "profileUrl": "URL of the lead's LinkedIn profile.",
+    "firstName": "The lead's first name.",
+    "lastName": "The lead's last name.",
+    "headline": "The lead's LinkedIn headline.",
+    "location": "The lead's location, as shown on LinkedIn.",
+    "companyName": "Name of the company the lead works at.",
+    "companyUrl": "URL of the company's LinkedIn page.",
+    "position": "The lead's job title at their current company.",
+    "connections": "Number of LinkedIn connections the lead has.",
+    "followers": "Number of LinkedIn followers the lead has.",
+    "emailAddress": "The lead's email address, when known.",
+}
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "campaigns": {
+        "description": "An outreach campaign: a sequence of LinkedIn actions sent to a list of leads from one or more sender accounts.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the campaign.",
+            "name": "Name of the campaign.",
+            "creationTime": "When the campaign was created.",
+            "status": "Campaign status (DRAFT, IN_PROGRESS, PAUSED, FINISHED, CANCELED, FAILED, STARTING).",
+            "campaignAccountIds": "Identifiers of the LinkedIn sender accounts attached to the campaign.",
+            "linkedInUserListId": "Identifier of the lead list the campaign targets.",
+            "linkedInUserListName": "Name of the lead list the campaign targets.",
+            "progressStats": "Counts of leads by progress state (total, in progress, pending, finished, failed).",
+        },
+    },
+    "campaign_leads": {
+        "description": "A lead enrolled in a campaign, with their progress through the sequence and connection/message outcomes.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the lead's enrollment in the campaign.",
+            "campaignId": "Identifier of the campaign the lead is enrolled in.",
+            "linkedInUserProfile": "The lead's LinkedIn profile (name, headline, company, profile URL).",
+            "creationTime": "When the lead was added to the campaign.",
+            "lastActionTime": "When the campaign last executed an action for this lead.",
+            "failedTime": "When the lead failed in the sequence, when applicable.",
+            "leadCampaignStatus": "Progress through the sequence (Pending, InSequence, Finished, Paused, Failed).",
+            "leadConnectionStatus": "Connection outcome (None, ConnectionSent, ConnectionAccepted).",
+            "leadMessageStatus": "Messaging outcome (None, MessageSent, MessageReply).",
+            "linkedInSenderId": "Identifier of the LinkedIn sender account working this lead.",
+            "linkedInSenderFullName": "Full name of the LinkedIn sender account working this lead.",
+        },
+    },
+    "conversations": {
+        "description": "A LinkedIn inbox conversation between one of your sender accounts and a correspondent, including recent messages.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "LinkedIn thread identifier for the conversation.",
+            "linkedInAccountId": "Identifier of the sender account that owns the conversation.",
+            "read": "Whether the conversation has been read.",
+            "groupChat": "Whether the conversation is a group chat.",
+            "lastMessageAt": "When the last message in the conversation was sent.",
+            "lastMessageText": "Text of the last message in the conversation.",
+            "lastMessageSender": "Who sent the last message (ME or the correspondent).",
+            "totalMessages": "Number of messages in the conversation.",
+            "campaignId": "Identifier of the campaign the conversation originated from, when applicable.",
+            "correspondentProfile": "LinkedIn profile of the other participant.",
+            "messages": "Messages in the conversation, each with a timestamp, body, and sender.",
+        },
+    },
+    "linkedin_accounts": {
+        "description": "A LinkedIn sender account connected to HeyReach, with its auth state and daily action limits.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the LinkedIn account.",
+            "emailAddress": "Email address the LinkedIn account signs in with.",
+            "firstName": "First name on the LinkedIn account.",
+            "lastName": "Last name on the LinkedIn account.",
+            "isActive": "Whether the account is active in HeyReach.",
+            "activeCampaigns": "Number of campaigns the account is currently sending for.",
+            "authIsValid": "Whether the account's LinkedIn session is still valid.",
+            "profileUrl": "URL of the account's LinkedIn profile.",
+            "accountLimits": "Daily limits for connection requests, messages, InMails, profile views, and other actions.",
+        },
+    },
+    "lists": {
+        "description": "A lead or company list used to target campaigns.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the list.",
+            "name": "Name of the list.",
+            "listType": "Whether the list holds leads (USER_LIST) or companies (COMPANY_LIST).",
+            "totalItemsCount": "Number of items in the list.",
+            "creationTime": "When the list was created.",
+            "campaignIds": "Identifiers of the campaigns using the list.",
+        },
+    },
+    "list_leads": {
+        "description": "A lead belonging to a lead list, with their LinkedIn profile details.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "listId": "Identifier of the list the lead belongs to.",
+            **_LEAD_PROFILE_COLUMNS,
+            "tags": "Tags applied to the lead.",
+            "customFields": "Custom fields set on the lead.",
+        },
+    },
+    "overall_stats": {
+        "description": "Daily outreach totals across all sender accounts and campaigns.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "date": "Day the stats cover.",
+            "profileViews": "Profile views performed that day.",
+            "postLikes": "Post likes performed that day.",
+            "follows": "Follows performed that day.",
+            "messagesSent": "Messages sent that day.",
+            "totalMessageStarted": "Message threads started that day.",
+            "totalMessageReplies": "Replies received to messages that day.",
+            "inmailMessagesSent": "InMail messages sent that day.",
+            "totalInmailStarted": "InMail threads started that day.",
+            "totalInmailReplies": "Replies received to InMails that day.",
+            "connectionsSent": "Connection requests sent that day.",
+            "connectionsAccepted": "Connection requests accepted that day.",
+            "messageReplyRate": "Replies received divided by message threads started.",
+            "inMailReplyRate": "InMail replies received divided by InMail threads started.",
+            "connectionAcceptanceRate": "Connections accepted divided by connection requests sent.",
+        },
+    },
+}

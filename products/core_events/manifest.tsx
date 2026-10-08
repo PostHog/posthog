@@ -1,7 +1,6 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -10,7 +9,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Core events',
             category: 'Schema',
-            iconType: 'event_definition' as FileSystemIconType,
+            iconType: 'core_event',
+            iconColor: ['var(--color-product-core-events-light)', 'var(--color-product-core-events-dark)'],
             href: urls.coreEvents(),
             flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
         },

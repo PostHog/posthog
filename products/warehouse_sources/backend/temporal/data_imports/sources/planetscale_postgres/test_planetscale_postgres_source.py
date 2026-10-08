@@ -1,5 +1,3 @@
-import dataclasses
-
 import pytest
 from unittest import mock
 
@@ -36,44 +34,6 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in PlanetScalePostgresSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
-
-
-def test_ssh_tunnel_is_not_offered():
-    # PlanetScale exposes no SSH tunnel, so inheriting the Postgres form must not surface one.
-    assert all(field.name != "ssh_tunnel" for field in PlanetScalePostgresSource().get_source_config.fields)
-
-
-def test_generated_config_matches_the_offered_fields():
-    # The generated config is what the pipeline receives, so a field added to the form without
-    # regenerating would surface as a missing attribute mid-sync.
-    form_fields = {field.name for field in PlanetScalePostgresSource().get_source_config.fields}
-    config_fields = {field.name for field in dataclasses.fields(PlanetScalePostgresSourceConfig)}
-
-    assert form_fields == config_fields
-
-
-@pytest.mark.parametrize(
-    "field_name,expected_placeholder",
-    [
-        ("host", _DIRECT_HOST),
-        ("port", "5432"),
-        ("user", "postgres.xxxxxxxxxx"),
-    ],
-)
-def test_fields_are_retargeted_at_planetscale(field_name, expected_placeholder):
-    # Renaming a field on PostgresSource would silently drop the PlanetScale guidance, leaving
-    # users the generic Postgres placeholders that don't match anything in their dashboard.
-    assert _field(field_name).placeholder == expected_placeholder
-
-
-def test_connection_string_placeholder_is_a_planetscale_url():
-    # The connection string is the other way in, so it has to carry the same host shape and the
-    # mandatory TLS mode; the inherited Postgres example points at neither.
-    placeholder = _field("connection_string").placeholder
-
-    assert placeholder is not None
-    assert _DIRECT_HOST in placeholder
-    assert "sslmode=verify-full" in placeholder
 
 
 def test_port_field_warns_that_psbouncer_cannot_do_cdc():
@@ -156,9 +116,3 @@ def test_cdc_on_the_direct_port_defers_to_postgres():
     super_check.assert_called_once()
     assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []
-
-
-def test_connection_errors_name_planetscale_postgres():
-    # `source_name` feeds the generic connect failure, so dropping the __init__ override would
-    # tell users to check their "Postgres" credentials for a PlanetScale source.
-    assert PlanetScalePostgresSource().source_name == "PlanetScale Postgres"

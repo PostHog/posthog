@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 
@@ -193,6 +193,21 @@ class WebflowSource(
     # webhook re-created here would deliver events we could never verify. There is nothing to
     # drift anyway: `create_webhook` registers every trigger the one eligible table needs, and
     # anything missing afterwards is surfaced to the user by `get_desired_webhook_events`.
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        # Webflow issues one secret per trigger, at creation only, and keeps them in the hidden
+        # `signing_secrets`. A partial capture still needs a manual secret for the triggers whose
+        # secret we never saw, so completeness decides rather than the presence of the list.
+        # `create_webhook` records completeness separately, because a set secret serializes to a
+        # masked marker that cannot be counted here.
+        complete = inputs.get("signing_secrets_complete", {}).get("value")
+        if complete:
+            return []
+        # Registered before PostHog recorded completeness. Keep the earlier reading, so a webhook
+        # the provider fully provisioned is not now reported as needing setup.
+        if complete is None and inputs.get("signing_secrets", {}).get("secret"):
+            return []
+        return super().missing_webhook_inputs(inputs)
 
     def get_external_webhook_info(
         self, config: WebflowSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None

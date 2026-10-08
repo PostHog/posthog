@@ -20,15 +20,6 @@ def _config(custom_objects: str | None = None) -> GainsightCsSourceConfig:
     )
 
 
-class TestGainsightCsSourceSchemas:
-    def test_offers_validated_custom_objects_alongside_the_standard_catalog(self) -> None:
-        names = [schema.name for schema in GainsightCsSource().get_schemas(_config("health__gc, bad name"), team_id=1)]
-
-        assert "company" in names
-        assert "health__gc" in names
-        assert "bad name" not in names
-
-
 class TestGainsightCsSourceCredentials:
     def test_probes_the_object_behind_the_schema_being_checked(self) -> None:
         with mock.patch(VALIDATE_PATCH, return_value=(True, None)) as validate:

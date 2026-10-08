@@ -197,7 +197,11 @@ class TestSuggestionPersistence(BaseTest):
         )
         first_id, custom_id = (record["id"] for record in row.items)
         self.assertIsNotNone(dismiss_suggestion(self.team.id, first_id, user_id=self.user.id))
-        self.assertIsNotNone(mark_suggestion_created(self.team.id, custom_id, config_id="cfg-1"))
+        self.assertIsNotNone(
+            mark_suggestion_created(
+                self.team.id, custom_id, kind="custom", config_id="cfg-1", skill_name="signals-scout-checkout-drop"
+            )
+        )
         row.refresh_from_db()
         self.assertEqual(visible_items(row), [])
 
@@ -312,6 +316,13 @@ class TestPlanSuggestionRuns(BaseTest):
         unapproved = self._team("unapproved", approved=False)
         self._enable_scout(unapproved, engaged=True)
         self._team("no-signals-setup")
+        background_only = self._team("background-only")
+        SignalScoutConfig.objects.create(
+            team=background_only,
+            skill_name="signals-scout-general",
+            enabled=True,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        )
 
         SignalScoutSuggestionSet.all_teams.create(team=engaged_fresh, last_requested_at=self.now - timedelta(days=1))
         SignalScoutSuggestionSet.all_teams.create(team=engaged_overdue, last_requested_at=self.now - timedelta(days=30))
@@ -968,12 +979,37 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-checkout-drop")
         self.assertEqual(created["created_config_id"], str(config.id))
 
-    def test_a_suggestion_id_only_marks_the_draft_it_names(self):
-        # A client can send any id it holds; only the draft the new scout was made from is retired.
+    def test_a_renamed_draft_is_still_marked_with_its_final_name(self):
         row = persist_suggestion_batch(
             self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
         )
         suggestion_id = next(item["id"] for item in row.items if item["kind"] == "custom")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/",
+            {
+                "name": "signals-scout-checkout-renamed",
+                "description": "Watches the checkout funnel.",
+                "body": "# Checkout drop\n\nCheck the checkout funnel daily.",
+                "suggestion_id": suggestion_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        row.refresh_from_db()
+        created = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertEqual(created["created_config_id"], response.json()["config"]["id"])
+        self.assertEqual(created["created_skill_name"], "signals-scout-checkout-renamed")
+        body = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/").json()
+        self.assertNotIn(suggestion_id, [item["id"] for item in body["items"]])
+
+    def test_a_create_does_not_mark_a_canonical_suggestion(self):
+        # A canonical pick becomes a scout by turning its config on, so a create naming one is not it.
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "canonical")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/signals/scout/",
@@ -990,6 +1026,32 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         row.refresh_from_db()
         untouched = next(item for item in row.items if item["id"] == suggestion_id)
         self.assertIsNone(untouched["created_config_id"])
+
+    @parameterized.expand(
+        [
+            ("turned_on", "signals-scout-error-tracking", True, True),
+            ("left_off", "signals-scout-error-tracking", False, False),
+            ("another_scout", "signals-scout-web-vitals", True, False),
+        ]
+    )
+    def test_turning_on_a_canonical_suggestion_marks_it(self, _name, skill_name, enabled, marked):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        suggestion_id = next(item["id"] for item in row.items if item["kind"] == "canonical")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=False)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/",
+            {"enabled": enabled, "suggestion_id": suggestion_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("suggestion_id", response.json())
+        row.refresh_from_db()
+        item = next(item for item in row.items if item["id"] == suggestion_id)
+        self.assertEqual(item["created_config_id"], str(config.id) if marked else None)
 
     def test_an_unknown_suggestion_id_still_creates_the_scout(self):
         # The batch can compact a record away between the strip reading it and the create landing;

@@ -1,3 +1,4 @@
+import re
 import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
@@ -16,6 +17,11 @@ from posthog.temporal.common.errors import NonReportableError
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
 # - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
 #   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
+# - "The difference between the request time and the current time is too large." is S3's fixed message
+#   for RequestTimeTooSkewed, raised when the worker's clock has drifted from S3's. s3fs maps every 403
+#   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
+#   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
+#   identical request succeeds moments later.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -24,7 +30,22 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Generic S3 error",
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
+    "The difference between the request time and the current time is too large.",
 )
+
+# pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
+# "UNKNOWN" error code, which happens whenever AWS replies with no parseable XML error body. A
+# bodyless 5xx is always a transient server-side blip - the same class the named 5xx messages above
+# cover - and clears on retry. But AWS also omits the body for a HeadObject 403 or 404 (it never
+# includes one for HEAD requests, regardless of status), so the bare "AWS Error UNKNOWN" string alone
+# can't tell a blip apart from a permanent permission or missing-object error. The HTTP status pyarrow
+# puts in the message is the only thing that distinguishes them.
+_BODYLESS_UNKNOWN_STATUS_RE = re.compile(r"AWS Error UNKNOWN \(HTTP status (\d{3})\)")
+
+
+def _is_bodyless_5xx_unknown_error(error: BaseException) -> bool:
+    match = _BODYLESS_UNKNOWN_STATUS_RE.search(str(error))
+    return match is not None and match.group(1).startswith("5")
 
 
 class TransientObjectStoreError(NonReportableError):
@@ -63,6 +84,21 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     made. Same transient-capacity class already recognized on the postgres connect path
     (`_is_too_many_open_files_error`): a descriptor frees the moment another connection/client in
     this worker closes, so it's fd pressure on our side, never an object-store or customer problem.
+
+    A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
+    `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
+    5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
+    HeadObject 403 or 404 too.
+
+    Deliberately does not cover `ensure_bucket_exists`'s own exhausted `HeadBucket` 403 retry (see
+    `_is_exhausted_head_bucket_forbidden` below) — that check only runs under `USE_LOCAL_SETUP`,
+    where the bucket credentials are operator-configured rather than our own IAM instance role, so an
+    exhausted retry can genuinely mean a broken local setup, not just a boot race. Callers that must
+    eventually give up and report a persistent failure (e.g. `repartition_table.py`'s
+    `_is_transient_infra_error`, which bounds retries via `MAX_REPARTITION_ATTEMPTS`) call this
+    function directly and so never see that shape as transient. Only the best-effort pre-extraction
+    probe (`is_transient_maintenance_error`, which has no such give-up budget to bypass and whose
+    failure is a silent no-op either way) folds it in.
     """
     if isinstance(
         error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
@@ -74,8 +110,27 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         return True
     if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
         return True
+    if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
+        return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
+
+
+def _is_exhausted_head_bucket_forbidden(error: BaseException) -> bool:
+    """True for the `ClientError` `ensure_bucket_exists` raises once its own `HeadBucket` 403 retries
+    are exhausted (see its `_HEAD_BUCKET_MAX_ATTEMPTS` loop).
+
+    The response carries no error body to tell a credential-bootstrap race (a local/self-hosted
+    object store still starting up) apart from a genuine, persistent denial — same ambiguity as the
+    sibling `HeadObject` case `_is_retryable_purge_error` documents. Unlike that case, an exhausted
+    retry here isn't folded into `is_transient_object_store_error`: see that function's docstring for
+    why only a caller with no give-up budget to bypass should treat this shape as transient.
+    """
+    return (
+        isinstance(error, botocore.exceptions.ClientError)
+        and error.operation_name == "HeadBucket"
+        and error.response.get("Error", {}).get("Code") == "403"
     )
 
 
@@ -187,11 +242,18 @@ def is_transient_maintenance_error(error: BaseException) -> bool:
     (SQLSTATE 25006) for that, which psycopg classifies under `InternalError` rather than
     `OperationalError`, so it needs its own check — a bare `InternalError` isinstance check would be
     too broad and swallow real corruption errors (e.g. `DataCorrupted`) that share the same base class.
+
+    Also folds in an exhausted `ensure_bucket_exists` `HeadBucket` 403 (see
+    `_is_exhausted_head_bucket_forbidden`) — safe here specifically because this function only backs
+    the best-effort pre-extraction probe, which has no retry budget to bypass and already no-ops
+    silently on any failure, transient or not.
     """
     if isinstance(error, OperationalError | InterfaceError):
         return True
     if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
         return True
     if _is_too_many_open_files_error(error):
+        return True
+    if _is_exhausted_head_bucket_forbidden(error):
         return True
     return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)

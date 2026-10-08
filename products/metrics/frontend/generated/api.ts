@@ -23,8 +23,6 @@ import type {
     _MetricAttributeValuesResponseApi,
     _MetricCatalogValuesParamsApi,
     _MetricErrorSpikesResponseApi,
-    _MetricExplainRequestApi,
-    _MetricExplainResponseApi,
     _MetricNamesResponseApi,
     _MetricPickerNamesResponseApi,
     _MetricQueryRequestApi,
@@ -191,28 +189,6 @@ export const metricsErrorSpikesRetrieve = async (
     return apiMutator<_MetricErrorSpikesResponseApi>(getMetricsErrorSpikesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getMetricsExplainCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/metrics/explain/`
-}
-
-/**
- * Take one chart point apart into the series and samples behind it,
- * and recompute it independently so the plotted number can be checked
- * rather than trusted.
- */
-export const metricsExplainCreate = async (
-    projectId: string,
-    _metricExplainRequestApi: _MetricExplainRequestApi,
-    options?: RequestInit
-): Promise<_MetricExplainResponseApi> => {
-    return apiMutator<_MetricExplainResponseApi>(getMetricsExplainCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_metricExplainRequestApi),
     })
 }
 

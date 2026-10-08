@@ -12,6 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     OffsetPaginator,
@@ -35,11 +38,11 @@ class HexHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HexResumeConfig:
     # Opaque paginator resume state: `{"cursor": ...}` for cursor-paginated endpoints, or the
     # framework's fan-out checkpoint (`{"completed": [...], "current": ..., "child_state": ...}`)
-    # for project_runs.
+    # for per-project endpoints.
     paginator_state: dict[str, Any]
 
 
@@ -162,6 +165,9 @@ def _endpoint_resource(config: HexEndpointConfig) -> EndpointResource:
         },
         "table_format": "delta",
     }
+    if config.parent is not None and config.include_from_parent:
+        resource["include_from_parent"] = list(config.include_from_parent)
+        resource["data_map"] = rename_parent_fields(config.parent, config.include_from_parent)
     return resource
 
 

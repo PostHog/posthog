@@ -210,7 +210,34 @@ export const Default: Story = {
         )
     },
     parameters: {
-        docs: { description: { story: 'Shows 5 recent items and tools when no search query is entered.' } },
+        docs: { description: { story: 'Shows 5 recent items and products when no search query is entered.' } },
+    },
+}
+
+export const NoRecents: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': () => [200, EMPTY_PAGINATED_RESPONSE],
+                '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
+                ...SHARED_MOCKS,
+            },
+        })
+
+        return (
+            <SearchContainer>
+                <Search.Root logicKey="storybook-no-recents" isActive showAskAiLink={false}>
+                    <Search.Input autoFocus />
+                    <Search.Status />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
+    },
+    parameters: {
+        docs: { description: { story: 'A user with no recent items sees products without an empty Recents group.' } },
     },
 }
 
@@ -281,7 +308,7 @@ export const Searching: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Searching for "user": recents and tools are filtered client-side instantly, server results appear below without shifting existing items.',
+                story: 'Searching for "user": recents and products are filtered client-side instantly, server results appear below without shifting existing items.',
             },
         },
     },

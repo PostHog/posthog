@@ -1,0 +1,101 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_version": {
+            "description": "Exact application revision.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "cursor": {
+            "description": "Continuation cursor returned by the previous page.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+        },
+        "dataset_identifier": {
+            "description": "Exact durable dataset identifier.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "dataset_revision_identifier": {
+            "description": "Exact durable dataset revision identifier.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "dataset_source": {
+            "description": "Exact dataset source.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Inclusive execution start time, in ISO 8601 format.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Exclusive execution end time, in ISO 8601 format.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Page size, from 1 to 100. Defaults to 20.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "model_version": {
+            "description": "Exact model revision.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "prompt_version": {
+            "description": "Exact prompt revision.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "run_source": {
+            "description": "Filter ci, local, scheduled, or not_specified for omitted run source.",
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+        },
+        "scorer_definition_id": {
+            "description": "Restrict results to this scorer definition.",
+            "type": "string"
+        },
+        "scorer_version_ids": {
+            "description": "Comma-separated list of at most 20 distinct scorer-version UUIDs.",
+            "maxLength": 739,
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Search experiment names.",
+            "maxLength": 400,
+            "minLength": 1,
+            "type": "string"
+        },
+        "statuses": {
+            "description": "Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+        },
+        "suite_key": {
+            "description": "Exact evaluation suite identifier.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

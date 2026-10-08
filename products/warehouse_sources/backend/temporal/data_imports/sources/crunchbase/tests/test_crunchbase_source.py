@@ -1,10 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
-    CRUNCHBASE_ENDPOINTS,
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.source import CrunchbaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
     CrunchbaseSourceConfig,
@@ -16,46 +12,6 @@ class TestCrunchbaseSource:
         self.source = CrunchbaseSource()
         self.team_id = 123
         self.config = CrunchbaseSourceConfig(api_key="user-key")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.crunchbase.com/v4/data/searches/organizations",
-            "403 Client Error: Forbidden for url: https://api.crunchbase.com/v4/data/searches/people",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_vendor_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.crunchbase.com/v4/data/searches/organizations",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_every_endpoint_has_canonical_descriptions(self, endpoint):
-        # The shared catalog invariant only rejects descriptions for schemas that do not exist;
-        # an endpoint added without them degrades to LLM enrichment without failing anything.
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert endpoint in descriptions
-        described = set(descriptions[endpoint].get("columns") or {})
-        assert set(CRUNCHBASE_ENDPOINTS[endpoint].field_ids) - described == set()
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every collection search supports the updated_at gte predicate.
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid",

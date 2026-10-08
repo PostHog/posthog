@@ -126,7 +126,13 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "403 Client Error": "Sentry token is missing required scopes. Make sure it includes the scopes required for your schemas — the full set is: "
             + ", ".join(REQUIRED_SENTRY_SCOPES)
             + ".",
-            "404 Client Error": "Sentry organization not found. Verify your organization slug.",
+            # The org itself is checked when the source is set up, so a 404 here is most often an
+            # org-level table behind a Sentry plan feature the org doesn't have. A slug renamed
+            # since setup 404s the same way.
+            "404 Client Error": (
+                "Sentry couldn't find this table for your organization. Check that your plan includes it "
+                "and the organization slug is correct, or turn off syncing for this table."
+            ),
             # Raised as `SentryStatsSummaryRejectedError` for any stats-summary 400 other than the
             # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
             # stop retrying; the message is defined at the raise site so it stays credential-safe.

@@ -108,6 +108,26 @@ export function upsertProp(tagSource: string, name: string, value: unknown): str
     return `${tagSource.slice(0, closing)}${needsSpace ? ' ' : ''}${serialized} ${tagSource.slice(closing)}`
 }
 
+/** Drop a prop from a self-closing tag, leaving every other prop untouched. */
+export function removeProp(tagSource: string, name: string): string {
+    const stringMatch = stringPropRegex(name).exec(tagSource)
+    if (stringMatch) {
+        // The match starts at the whitespace the prop sits behind, so dropping the whole
+        // match keeps the remaining props single-spaced.
+        return tagSource.slice(0, stringMatch.index) + tagSource.slice(stringMatch.index + stringMatch[0].length)
+    }
+    const expression = findExpressionProp(tagSource, name)
+    if (!expression) {
+        return tagSource
+    }
+    // `start` points at the name, so walk back over the space in front of it.
+    let start = expression.start
+    while (start > 0 && /\s/.test(tagSource[start - 1]!)) {
+        start -= 1
+    }
+    return tagSource.slice(0, start) + tagSource.slice(expression.end)
+}
+
 export function buildCellTag(tagName: string, props: Record<string, unknown>): string {
     const serialized = Object.entries(props)
         .filter(([, value]) => value !== undefined)

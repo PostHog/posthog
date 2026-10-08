@@ -1,28 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInputSelect,
-    LemonLabel,
-    LemonModal,
-    LemonSelect,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 
 import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 
-import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+import { AIEventPropertyEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import { AccessPropertyRule, accessDetailLogic } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
+import { AddPropertyRuleModal } from './AddPropertyRuleModal'
 import type { ScopeType } from './types'
-
-function propertyLevelLabel(level: AccessLevelEnumApi): string | JSX.Element {
-    return PROPERTY_ACCESS_LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? level
-}
 
 export interface PropertyAccessRulesProps {
     projectId: string
@@ -72,14 +61,25 @@ export function PropertyAccessRules({
                     {
                         title: 'Property',
                         key: 'property',
-                        render: (_, p: AccessPropertyRule) => <span className="font-medium">{p.property}</span>,
+                        render: (_, p: AccessPropertyRule) => (
+                            <span className="font-medium">
+                                {p.property_type === 'event' &&
+                                Object.values(AIEventPropertyEnumApi).some((name) => name === p.property)
+                                    ? `${p.property.slice(4)} (${p.property})`
+                                    : p.property}
+                            </span>
+                        ),
                     },
                     {
                         title: 'Type',
                         key: 'type',
                         render: (_, p: AccessPropertyRule) => (
                             <span className="text-secondary">
-                                {p.property_type === 'person' ? 'Person property' : 'Event property'}
+                                {p.property_type === 'person'
+                                    ? 'Person property'
+                                    : Object.values(AIEventPropertyEnumApi).some((name) => name === p.property)
+                                      ? 'ai_events property'
+                                      : 'Event property'}
                             </span>
                         ),
                     },
@@ -136,97 +136,5 @@ export function PropertyAccessRules({
                 </LemonButton>
             </div>
         </AccessDetailSection>
-    )
-}
-
-function AddPropertyRuleModal({
-    projectId,
-    scopeType,
-    subjectId,
-}: {
-    projectId: string
-    scopeType: ScopeType
-    subjectId: string
-}): JSX.Element {
-    const logic = addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, propertyType, propertyId, level, displayPropertyOptions, propertyOptionsLoading, existingRule } =
-        useValues(logic)
-    const { closeModal, setPropertyType, setSearch, setPropertyId, setLevel, submitRule } = useActions(logic)
-
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={closeModal}
-            title="Add property rule"
-            description={
-                scopeType === 'default'
-                    ? "Set everyone's access to a specific property."
-                    : `Set this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`
-            }
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        disabledReason={
-                            !propertyId
-                                ? 'Select a property'
-                                : existingRule?.access_level === level
-                                  ? 'The rule already has this level'
-                                  : undefined
-                        }
-                        onClick={submitRule}
-                    >
-                        {existingRule ? 'Update rule' : 'Add rule'}
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="space-y-3 min-w-[24rem]">
-                <div>
-                    <LemonLabel>Type</LemonLabel>
-                    <LemonSelect
-                        value={propertyType}
-                        onChange={setPropertyType}
-                        options={[
-                            { value: 'person', label: 'Person property' },
-                            { value: 'event', label: 'Event property' },
-                        ]}
-                        fullWidth
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Property</LemonLabel>
-                    <LemonInputSelect
-                        mode="single"
-                        value={propertyId ? [propertyId] : []}
-                        onChange={(values) => setPropertyId(values[0] ?? null)}
-                        onInputChange={setSearch}
-                        loading={propertyOptionsLoading}
-                        options={displayPropertyOptions.map((o) => ({ key: o.id, label: o.name }))}
-                        placeholder="Search by name…"
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Access</LemonLabel>
-                    <LemonSelect value={level} onChange={setLevel} options={PROPERTY_ACCESS_LEVEL_OPTIONS} fullWidth />
-                </div>
-                {existingRule ? (
-                    <LemonBanner type="warning">
-                        "{existingRule.property}" already has a rule.{' '}
-                        {existingRule.access_level === level ? (
-                            <>It's already set to {propertyLevelLabel(level)}.</>
-                        ) : (
-                            <>
-                                Saving updates it from {propertyLevelLabel(existingRule.access_level)} to{' '}
-                                {propertyLevelLabel(level)}.
-                            </>
-                        )}
-                    </LemonBanner>
-                ) : null}
-            </div>
-        </LemonModal>
     )
 }

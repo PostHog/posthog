@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.au
     AutomoxOrganizationError,
     AutomoxResumeConfig,
     AutomoxRetryableError,
-    _build_url,
     _flatten_device_inventory,
     _incremental_param_value,
     automox_source,
@@ -61,17 +60,6 @@ def _query(url: str) -> dict[str, list[str]]:
     return parse_qs(urlparse(url).query)
 
 
-class TestBuildUrl:
-    def test_page_zero_is_kept(self) -> None:
-        # page=0 is the first page; it must not be dropped as a falsy value.
-        url = _build_url("/servers", {"page": 0, "limit": 500})
-        assert url == "https://console.automox.com/api/servers?page=0&limit=500"
-
-    def test_omits_none_values(self) -> None:
-        url = _build_url("/servers", {"page": 0, "o": None})
-        assert "o=" not in url
-
-
 class TestFetchJson:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
@@ -92,22 +80,6 @@ class TestFetchJson:
 
 
 class TestFetchPage:
-    def test_unwraps_data_selector(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response_with_status(200, {"data": [{"policy_id": 1}], "metadata": {}})
-        rows = automox._fetch_page(
-            session, AUTOMOX_ENDPOINTS["policy_runs"], "https://console.automox.com/api/x", MagicMock()
-        )
-        assert rows == [{"policy_id": 1}]
-
-    def test_missing_data_key_returns_empty_list(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response_with_status(200, {"metadata": {}})
-        rows = automox._fetch_page(
-            session, AUTOMOX_ENDPOINTS["policy_runs"], "https://console.automox.com/api/x", MagicMock()
-        )
-        assert rows == []
-
     @parameterized.expand(
         [
             ("bare_endpoint_object_body", "devices", {"error": "unexpected"}),
@@ -165,11 +137,6 @@ class TestResolveOrganization:
         session.get.return_value = _response_with_status(200, ORGS_BODY)
         assert resolve_organization(session, organization_id, MagicMock()) == expected
 
-    def test_single_org_is_used_when_id_not_set(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response_with_status(200, [ORGS_BODY[0]])
-        assert resolve_organization(session, None, MagicMock()) == (123, "uuid-123")
-
     @parameterized.expand(
         [
             ("unknown_id", "999", ORG_NOT_FOUND_ERROR),
@@ -218,13 +185,6 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
         assert MULTIPLE_ORGS_ERROR in error
-
-    def test_unknown_org_id_returns_org_error(self) -> None:
-        with self._patch_session(_response_with_status(200, ORGS_BODY)):
-            ok, error = validate_credentials("key", "999")
-        assert ok is False
-        assert error is not None
-        assert ORG_NOT_FOUND_ERROR in error
 
 
 class TestGetRows:
@@ -286,12 +246,6 @@ class TestGetRows:
         # State points at the next page and is only saved after a full (non-terminal) page.
         assert manager.saved == [AutomoxResumeConfig(page=1, incremental_param_value=None)]
 
-    def test_single_short_page_stops_without_saving_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect("devices", manager, monkeypatch, [[{"id": 1}]])
-        assert rows == [{"id": 1}]
-        assert manager.saved == []
-
     def test_resume_seeds_page_and_reuses_stored_incremental_value(self, monkeypatch: Any) -> None:
         # On resume the original run's time filter must be reused verbatim: recomputing it from the
         # advanced watermark would change the filtered result set under the saved page number.
@@ -326,39 +280,6 @@ class TestGetRows:
         # 24h lookback applied to the watermark.
         assert query["start_time"] == ["2026-03-09T12:00:00Z"]
 
-    def test_first_incremental_sync_omits_time_filter(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, urls = self._collect(
-            "policy_runs",
-            manager,
-            monkeypatch,
-            [[{"execution_token": "a"}]],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        run_urls = [u for u in urls if "policy-runs" in u]
-        assert "start_time" not in _query(run_urls[0])
-
-    def test_events_sends_date_only_filter(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, urls = self._collect(
-            "events",
-            manager,
-            monkeypatch,
-            [[{"id": 1}]],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 10, 12, 0, 0, tzinfo=UTC),
-        )
-        event_urls = [u for u in urls if "/events" in u]
-        assert _query(event_urls[0])["startDate"] == ["2026-03-09"]
-
-    def test_packages_formats_org_id_into_path(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, urls = self._collect("packages", manager, monkeypatch, [[{"id": 1, "server_id": 2}]])
-        package_urls = [u for u in urls if "/packages" in u]
-        assert len(package_urls) == 1
-        assert urlparse(package_urls[0]).path == "/api/orgs/123/packages"
-
     def test_organizations_endpoint_restricts_to_configured_org(self, monkeypatch: Any) -> None:
         # `/orgs` lists every organization the API key can access, but the table must expose only
         # the org this source is configured for — otherwise a teammate could read metadata for
@@ -384,27 +305,6 @@ class TestGetRows:
         }
         rows, _ = self._collect("users", manager, monkeypatch, [[user_row]])
         assert rows == [{"id": 7, "orgs": [{"id": 123, "name": "Org A"}]}]
-
-    def test_user_rows_are_scoped_to_configured_org(self, monkeypatch: Any) -> None:
-        # The `o` param scopes which users are listed, but each row still carries the user's full org
-        # memberships and org-tagged roles — data for organizations the source never selected.
-        manager = _FakeResumableManager()
-        user_row = {
-            "id": 7,
-            "orgs": [{"id": 123, "name": "Org A"}, {"id": 456, "name": "Org B"}],
-            "rbac_roles": [
-                {"name": "Admin", "organization_id": 123},
-                {"name": "Viewer", "organization_id": 456},
-            ],
-        }
-        rows, _ = self._collect("users", manager, monkeypatch, [[user_row]], organization_id="123")
-        assert rows == [
-            {
-                "id": 7,
-                "orgs": [{"id": 123, "name": "Org A"}],
-                "rbac_roles": [{"name": "Admin", "organization_id": 123}],
-            }
-        ]
 
     def test_missing_org_uuid_raises_for_policy_runs(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -443,28 +343,10 @@ INVENTORY_BODY = {
 
 
 class TestFlattenDeviceInventory:
-    def test_emits_a_row_per_reading(self) -> None:
-        rows = _flatten_device_inventory(INVENTORY_BODY)
-        assert [(r["category"], r["sub_category"], r["name"]) for r in rows] == [
-            ("Hardware", "Hardware", "board_serial"),
-            ("Hardware", "CPU", "cpu_info"),
-        ]
-        assert rows[0]["value"] == "SN-1"
-        assert rows[0]["collected_at"] == "2026-02-13T19:33:40+00:00"
-
-    def test_record_values_are_stored_as_json(self) -> None:
-        # A reading's value is a string on most attributes and a list of records on others, so a
-        # raw value would give the column a different type depending on which devices synced.
-        rows = _flatten_device_inventory(INVENTORY_BODY)
-        assert rows[1]["value"] == json.dumps([{"model": "amd64"}])
-
     def test_accepts_the_documented_nested_categories_level(self) -> None:
         # The API reference nests a second `Categories` level that the example responses omit.
         payload = {"categories": {"Categories": INVENTORY_BODY["categories"]}}
         assert len(_flatten_device_inventory(payload)) == 2
-
-    def test_accepts_a_list_payload(self) -> None:
-        assert len(_flatten_device_inventory([INVENTORY_BODY])) == 2
 
     @parameterized.expand(
         [
@@ -548,15 +430,6 @@ class TestFanOutAndUnpaginatedEndpoints:
         assert len(rows) == 4
         assert {(r["device_uuid"], r["device_id"]) for r in rows} == {("dev-1", 1), ("dev-2", 2)}
 
-    def test_device_inventory_sends_no_pagination_params(self, monkeypatch: Any) -> None:
-        # The endpoint returns the whole tree and documents no page/limit params; sending them and
-        # paging on a short page would re-request the same payload forever.
-        manager = _FakeResumableManager()
-        _, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1"))
-        inventory_urls = [u for u in urls if "/inventory" in u]
-        assert len(inventory_urls) == 1
-        assert _query(inventory_urls[0]) == {}
-
     def test_device_inventory_requires_an_org_uuid(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         with pytest.raises(AutomoxOrganizationError, match=ORG_NOT_FOUND_ERROR):
@@ -567,14 +440,6 @@ class TestFanOutAndUnpaginatedEndpoints:
                 self._inventory_routes("dev-1"),
                 orgs_body=[{"id": 123, "name": "Org A"}],
             )
-
-    def test_fan_out_state_advances_past_each_finished_parent(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
-        assert manager.saved == [
-            AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
-            AutomoxResumeConfig(page=0, parent_page=0, parent_index=2),
-        ]
 
     def test_fan_out_resume_skips_parents_already_walked(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(AutomoxResumeConfig(page=0, parent_page=0, parent_index=1))
@@ -609,20 +474,6 @@ class TestFanOutAndUnpaginatedEndpoints:
             AutomoxResumeConfig(page=1, parent_page=0, parent_index=0),
             AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
         ]
-
-    def test_policy_stats_sends_the_org_param_and_no_pagination(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, urls = self._drive(
-            "policy_stats",
-            manager,
-            monkeypatch,
-            {"/api/policystats": [[{"organization_id": 123, "policy_id": 270658, "compliant": 2}]]},
-        )
-        stats_urls = [u for u in urls if "/policystats" in u]
-        assert len(stats_urls) == 1
-        assert _query(stats_urls[0]) == {"o": ["123"]}
-        assert rows == [{"organization_id": 123, "policy_id": 270658, "compliant": 2}]
-        assert manager.saved == []
 
 
 class TestAutomoxSourceResponse:

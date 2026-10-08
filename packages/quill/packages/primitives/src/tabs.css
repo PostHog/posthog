@@ -51,8 +51,9 @@
         border-radius: var(--radius-sm);
     }
 
+    /* Above the triggers: the active trigger paints an opaque fill down to 1px above the list's edge. */
     .quill-tabs__indicator--variant-line {
-        z-index: 0;
+        z-index: 2;
         background-color: var(--primary);
     }
 

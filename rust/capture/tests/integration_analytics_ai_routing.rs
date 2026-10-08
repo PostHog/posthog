@@ -18,7 +18,7 @@ use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::time::TimeSource;
-use capture::v0_request::{AiLanePredicate, DataType, OverflowReason, ProcessedEvent};
+use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
@@ -75,7 +75,6 @@ fn setup_analytics_router(
 ) -> (Router, CapturingSink) {
     setup_router_for_mode(
         CaptureMode::Events,
-        AiLanePredicate::Allowlist,
         ai_events_overflow_enabled,
         overflow_limiter,
         ai_events_overflow_limiter,
@@ -84,7 +83,6 @@ fn setup_analytics_router(
 
 fn setup_router_for_mode(
     capture_mode: CaptureMode,
-    ai_lane_predicate: AiLanePredicate,
     ai_events_overflow_enabled: bool,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
@@ -126,7 +124,6 @@ fn setup_router_for_mode(
         0.0_f32,
         26_214_400,
         983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        ai_lane_predicate,
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -164,7 +161,7 @@ fn mixed_batch_payload() -> String {
     .to_string()
 }
 
-// Two allowlisted AI event names. capture-ai rejects a batch carrying anything
+// Two AI event names. capture-ai rejects a batch carrying anything
 // else, so its lane-assignment coverage has to use an all-AI batch.
 fn ai_only_batch_payload() -> String {
     json!({
@@ -307,13 +304,7 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
 /// half of the old version of this test now lives below.
 #[tokio::test]
 async fn ai_mode_diverts_ai_events_like_every_other_mode() {
-    let (router, sink) = setup_router_for_mode(
-        CaptureMode::Ai,
-        AiLanePredicate::Allowlist,
-        false,
-        None,
-        None,
-    );
+    let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
     let client = TestClient::new(router);
 
     let response = client
@@ -331,22 +322,14 @@ async fn ai_mode_diverts_ai_events_like_every_other_mode() {
         events
             .iter()
             .all(|e| e.metadata.data_type == DataType::AiEvents),
-        "every allowlisted AI event must land on the AI lane under Ai mode"
+        "every AI event must land on the AI lane under Ai mode"
     );
 }
 
-/// `CAPTURE_AI_LANE_PREDICATE` decides where an `$ai_`-prefixed name off the
-/// allowlist lands, end to end through `/batch`: analytics lane under
-/// `allowlist`, AI lane under `prefix`. The listed name diverts either way.
-#[rstest]
-#[case::allowlist(AiLanePredicate::Allowlist, DataType::AnalyticsMain)]
-#[case::prefix(AiLanePredicate::Prefix, DataType::AiEvents)]
+/// Any `$ai_`-prefixed name lands on the AI lane, end to end through `/batch`.
 #[tokio::test]
-async fn unlisted_ai_prefixed_name_follows_the_configured_predicate(
-    #[case] predicate: AiLanePredicate,
-    #[case] expected_unlisted_lane: DataType,
-) {
-    let (router, sink) = setup_router_for_mode(CaptureMode::Events, predicate, false, None, None);
+async fn any_ai_prefixed_name_diverts_to_the_ai_lane() {
+    let (router, sink) = setup_router_for_mode(CaptureMode::Events, false, None, None);
     let client = TestClient::new(router);
 
     let payload = json!({
@@ -371,7 +354,7 @@ async fn unlisted_ai_prefixed_name_follows_the_configured_predicate(
             .data_type
     };
     assert_eq!(lane_of("$ai_generation"), DataType::AiEvents);
-    assert_eq!(lane_of("$ai_custom_step"), expected_unlisted_lane);
+    assert_eq!(lane_of("$ai_custom_step"), DataType::AiEvents);
     assert_eq!(lane_of("$pageview"), DataType::AnalyticsMain);
 }
 
@@ -380,13 +363,7 @@ async fn unlisted_ai_prefixed_name_follows_the_configured_predicate(
 /// rejection is reachable through the router and surfaces as a 400.
 #[tokio::test]
 async fn ai_mode_rejects_a_mixed_batch_through_the_endpoint() {
-    let (router, sink) = setup_router_for_mode(
-        CaptureMode::Ai,
-        AiLanePredicate::Allowlist,
-        false,
-        None,
-        None,
-    );
+    let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
     let client = TestClient::new(router);
 
     let response = client
@@ -516,7 +493,6 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
 async fn import_mode_historical_batch_never_overflows() {
     let (router, sink) = setup_router_for_mode(
         CaptureMode::Import,
-        AiLanePredicate::Allowlist,
         false,
         Some(force_keyed_limiter()),
         None,

@@ -8,7 +8,14 @@ import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
 import { type ActivityArtefact, selectActivityArtefacts } from "../activityLog";
 import { ArtefactCommit } from "./ArtefactCommit";
+import { ArtefactRankingScore } from "./ArtefactRankingScore";
 import { ArtefactTaskRun } from "./ArtefactTaskRun";
+
+const ARTEFACT_LABELS: Record<ActivityArtefact["type"], string> = {
+  commit: "Commit pushed",
+  task_run: "Task run",
+  ranking_score: "Ranking scored",
+};
 
 function ArtefactRow({
   reportId,
@@ -24,7 +31,7 @@ function ArtefactRow({
     <View className="rounded-xl border border-gray-6 bg-gray-1 p-3">
       <View className="mb-1.5 flex-row items-center gap-2">
         <Text className="font-medium text-[12px] text-gray-12">
-          {artefact.type === "commit" ? "Commit pushed" : "Task run"}
+          {ARTEFACT_LABELS[artefact.type]}
         </Text>
         <View className="flex-1" />
         {attribution ? (
@@ -42,6 +49,8 @@ function ArtefactRow({
           artefactId={artefact.id}
           content={artefact.content}
         />
+      ) : artefact.type === "ranking_score" ? (
+        <ArtefactRankingScore content={artefact.content} />
       ) : (
         <ArtefactTaskRun content={artefact.content} />
       )}

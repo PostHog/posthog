@@ -40,7 +40,7 @@ class VisionQuotaSerializer(serializers.Serializer):
     credits_reserved = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Credits held by in-flight observations and running prompt tests across every project in the organization. "
+            "Credits held by in-flight observations across every project in the organization. "
             "Released without charge when the work fails, settled into `credits_settled` when it succeeds."
         ),
     )

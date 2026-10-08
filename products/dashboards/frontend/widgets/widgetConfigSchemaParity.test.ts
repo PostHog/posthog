@@ -7,6 +7,7 @@ import {
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
     widgetFilterEntrySchema,
@@ -20,6 +21,7 @@ const WIDGET_CONFIG_SCHEMAS = {
     experiments_list: experimentsWidgetConfigSchema,
     experiment_results: experimentResultsWidgetConfigSchema,
     logs_list: logsWidgetConfigSchema,
+    notebook_widget: notebookWidgetConfigSchema,
     survey_results: surveyResultsWidgetConfigSchema,
 } as const
 

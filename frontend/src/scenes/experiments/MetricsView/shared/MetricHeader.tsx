@@ -9,7 +9,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import {
@@ -237,8 +237,9 @@ export const MetricHeader = ({
     const metricUuid = metric.uuid
     const sectionUuids =
         (isPrimaryMetric ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ?? []
-    // An experiment still has to measure something, so the last primary metric can't leave.
-    const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
+    // An experiment still has to measure something, so the last primary metric can't leave. Counted
+    // from the metrics themselves, because the ordering array is a display hint that can hold stale uuids.
+    const isLastPrimaryMetric = isPrimaryMetric && getSectionMetricUuids(experiment, false).length <= 1
 
     const handleMoveSection = (): void => {
         // The menu item only renders when the metric has a uuid.

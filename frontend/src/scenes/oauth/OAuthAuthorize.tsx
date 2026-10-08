@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 
 import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
+import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -25,7 +26,7 @@ import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
-import { ScopeAccessLevel, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
@@ -131,6 +132,8 @@ export const OAuthAuthorize = (): JSX.Element => {
     const {
         requiredScopeRows,
         adjustableScopeRows,
+        scopeGroups,
+        scopeRowsGrouped,
         allScopesRequired,
         identityScopeDescriptions,
         showReadOnlyBulkAction,
@@ -163,6 +166,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setSelectedOrganization,
         setOauthAuthorizationValue,
         setScopeAccess,
+        setScopeGroupAccess,
         setAllScopeAccess,
     } = useActions(oauthAuthorizeLogic)
 
@@ -285,7 +289,12 @@ export const OAuthAuthorize = (): JSX.Element => {
                     {/* Everything the person reads and adjusts scrolls in here. The action row
                         below sits outside, so Authorize stays reachable however many
                         permissions the application asks for. */}
-                    <div className="flex flex-col min-h-0 overflow-y-auto" data-attr="oauth-permissions-scroll">
+                    {/* The scrollbar gutter is always reserved. When a group opens and the scrollbar
+                        appears, the column does not move. */}
+                    <div
+                        className="flex flex-col min-h-0 overflow-y-auto [scrollbar-gutter:stable]"
+                        data-attr="oauth-permissions-scroll"
+                    >
                         <div className="flex flex-col gap-4 sm:gap-6 p-4 sm:p-6">
                             {isImpersonated && (
                                 <div className="flex items-center gap-2 p-3 bg-danger-highlight border border-danger rounded text-sm">
@@ -454,28 +463,26 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ))}
                                     </ul>
                                 )}
-                                {adjustableScopeRows.length > 0 && (
+                                {scopeRowsGrouped ? (
                                     <div className="flex flex-col">
-                                        {adjustableScopeRows.map((row) => (
-                                            <ScopeAccessRow
-                                                key={row.key}
-                                                label={row.label}
-                                                info={row.info}
-                                                muted={row.value === 'none'}
-                                                value={row.value}
-                                                onChange={(value) => setScopeAccess(row.key, value as ScopeAccessLevel)}
-                                                noneDisabledReason={
-                                                    row.minLevel !== 'none'
-                                                        ? `${appName} requires at least ${row.minLevel} access`
-                                                        : undefined
-                                                }
-                                                writeDisabledReason={
-                                                    row.maxLevel !== 'write' ? `Not requested by ${appName}` : undefined
-                                                }
-                                                warning={row.warning}
+                                        {scopeGroups.map((group) => (
+                                            <ScopeAccessGroup
+                                                key={group.label}
+                                                group={group}
+                                                onChangeRow={setScopeAccess}
+                                                onChangeGroup={setScopeGroupAccess}
+                                                dataAttrPrefix="oauth-scope-group"
                                             />
                                         ))}
                                     </div>
+                                ) : (
+                                    adjustableScopeRows.length > 0 && (
+                                        <div className="flex flex-col">
+                                            {adjustableScopeRows.map((row) => (
+                                                <ScopeAccessRow key={row.key} row={row} onChange={setScopeAccess} />
+                                            ))}
+                                        </div>
+                                    )
                                 )}
                                 {accessControlsApply && (
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>

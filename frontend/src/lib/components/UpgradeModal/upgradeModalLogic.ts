@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -178,7 +178,7 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
     })),
     listeners(() => ({
         showUpgradeModal: ({ featureKey }) => {
-            eventUsageLogic.actions.reportUpgradeModalShown(featureKey)
+            posthog.capture('upgrade modal shown', { featureName: featureKey })
         },
     })),
 ])

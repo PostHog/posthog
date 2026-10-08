@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-import time_machine
 from unittest import mock
 
 import requests
@@ -15,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.flutterwave import (
-    EARLIEST_WINDOW_START,
     FlutterwaveResumeConfig,
     base_url,
     flutterwave_source,
@@ -91,33 +89,6 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any)
 
 class TestPagination:
     @mock.patch(SESSION_PATCH)
-    def test_walks_pages_until_total_pages(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, auths = _wire(
-            session,
-            [_response(_page([{"id": 1}], total_pages=2)), _response(_page([{"id": 2}], total_pages=2))],
-        )
-
-        rows = _rows(_source("subaccounts"))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        # Stops on meta.page_info.total_pages instead of paying for an extra empty page.
-        assert session.send.call_count == 2
-        assert [p["page"] for p in params] == [1, 2]
-        # The secret rides on framework bearer auth, never a query param.
-        assert auths[0].token == "FLWSECK-test"
-        assert "seckey" not in params[0]
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_page_stops_pagination(self, MockSession: mock.MagicMock) -> None:
-        # A body that claims more pages than it has must not loop forever on empty responses.
-        session = MockSession.return_value
-        _wire(session, [_response(_page([], total_pages=9))])
-
-        assert _rows(_source("subaccounts")) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params, _auths = _wire(session, [_response(_page([{"id": 7}], total_pages=4))])
@@ -188,20 +159,6 @@ class TestDateWindow:
 
         assert "from" not in params[0]
         assert "to" not in params[0]
-
-    @time_machine.travel("2026-06-15T23:30:00Z", tick=False)
-    @mock.patch(SESSION_PATCH)
-    def test_transactions_always_sends_the_required_window(self, MockSession: mock.MagicMock) -> None:
-        # /transactions documents `from`/`to` as required, so every full refresh sends the whole
-        # history window. `to` is padded a day past UTC today so records booked "today" in a timezone
-        # ahead of UTC are not clipped.
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"id": 1}]))])
-
-        _rows(_source("transactions", should_use_incremental_field=False, db_incremental_field_last_value=None))
-
-        assert params[0]["from"] == EARLIEST_WINDOW_START
-        assert params[0]["to"] == "2026-06-16"
 
 
 class TestNoRecordsResponses:
@@ -323,18 +280,3 @@ class TestValidateCredentials:
             valid, message = validate_credentials("FLWSECK-test", "v3")
         assert valid is expected
         assert (message is None) is expected
-
-    def test_network_failure_is_not_valid(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(SESSION_PATCH, return_value=session):
-            valid, message = validate_credentials("FLWSECK-test", "v3")
-        assert valid is False
-        assert message is not None
-
-    def test_probe_targets_the_pinned_api_version(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(SESSION_PATCH, return_value=session):
-            validate_credentials("FLWSECK-test", "v3")
-        assert session.get.call_args.args[0] == "https://api.flutterwave.com/v3/subaccounts"

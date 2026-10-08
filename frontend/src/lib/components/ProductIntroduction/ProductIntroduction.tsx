@@ -1,12 +1,12 @@
-import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as construction from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
-const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogConstruction2 = pngHoggie(construction)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**

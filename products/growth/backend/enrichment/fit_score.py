@@ -1,99 +1,130 @@
-"""The ICP fit score — encodes the Aug 2026 "who we build for" definition.
+import json
+import hashlib
+from copy import deepcopy
+from dataclasses import field
+from datetime import timedelta
+from typing import Annotated, Any, Literal, Optional, Self
 
-Definitional score, not an MRR predictor: components are Traction (35), Capital (30),
-AIPilled (15), HeadcountGrowth (10), SoftwareRelevance (10), summing to 100. AIPilled
-awards its 15 points on the Harmonic AI signal OR a detected wizard AI SDK stamp. Spec:
-https://posthog.com/handbook/growth/revops/icp-scoring. Weights and rules are owned by
-RevOps and validated against a 382-company exemplar/customer set plus a 9.7k-signup
-cohort. The curated tag and investor lists ride in versioned DB rows (see icp_lists.py);
-a list update bumps the stamped `lists_version`, never SCORE_VERSION — only a formula
-change bumps SCORE_VERSION.
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Written to its own `icp_fit_*` key family, deliberately NOT the legacy `icp_score` keys:
-the live consumers of `icp_score` are threshold-tuned to the clay formula's -5..21 scale,
-and the clay scorer (score.py) keeps writing them until each consumer migrates. The pair
-of scores is by design — this one answers "does this company match who we build for?",
-the planned expected-revenue score answers "what is this signup likely to be worth?".
+from posthog.dataclasses import frozen
 
-Deterministic and I/O-free: consumes a Harmonic company payload in the provider's REST
-shape (snake_case, precomputed horizon blocks). Archived GraphQL payloads are normalized
-into that shape by harmonic_adapter.py. One deliberate divergence from the offline
-reference implementation, ruled by the score owner (Mine, 2026-08-19): the
-insufficient-data gate counts `investors` as a funding signal — matching the handbook
-spec and the coverage counter — so an EXISTS_BUT_UNDISCLOSED raise with a named quality
-investor scores capital 18 instead of falling out as insufficient_data.
-"""
+from products.growth.backend.enrichment.icp_lists import CuratedLists
+from products.growth.backend.enrichment.scoring_rules import DISALLOWED_FUNCTIONS, compile_scoring_formula
 
-import re
-import dataclasses
-from typing import Any, Optional
+from common.hogvm.python.execute import execute_bytecode
 
-from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
-
-SCORE_VERSION = "v0.6"
-AI_PILLED_POINTS = 15
+SCORE_VERSION = "v0.7"
 
 STATUS_SCORED = "scored"
 STATUS_INSUFFICIENT_DATA = "insufficient_data"
 STATUS_NOT_FOUND = "not_found"
 STATUS_DISQUALIFIED = "disqualified"
 
-# Description regexes are formula, not curation: they change with SCORE_VERSION, so they
-# live here rather than in the DB-backed lists.
-SW_DESC = re.compile(
-    r"\b(software|platform|api|saas|application|developer|sdk|automat\w+|dashboard|analytics|infrastructure|integrat\w+)\b",
-    re.I,
-)
-AI_DESC = re.compile(
-    r"\b(ai|artificial intelligence|machine learning|ml|llms?|genai|generative|copilot|neural network)\b", re.I
-)
-
-# Metadata flags only — deliberately not score inputs: consulting/agencies qualify on their
-# merits (team + traffic), and .org non-profits include paying customers. Downstream teams
-# route on the flags instead.
-AGENCY_TAGS = frozenset({"consulting", "technology & digital consulting", "management & strategy consulting"})
-NONPROFIT_TAGS = frozenset({"non-profit & community organizations"})
-
-# Names at least this long may substring-match an observed investor name ("Sequoia Capital
-# India" contains "sequoia capital"); shorter names/acronyms (GV, NEA, CRV) never
-# substring-match, to avoid false hits inside unrelated words.
-QUALITY_INVESTOR_SUBSTRING_MIN_CHARS = 8
+SCORING_TIMEOUT = timedelta(milliseconds=100)
+FlagValue = bool | int | Annotated[float, Field(allow_inf_nan=False)] | Annotated[str, Field(max_length=1_000)] | None
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class IcpFitResult:
-    """One org's fit evaluation. score is None unless status is scored/disqualified."""
-
     status: str
     score: Optional[int] = None
     dq_reason: Optional[str] = None
     components: Optional[dict[str, int]] = None
-    quality_investor: Optional[bool] = None
-    data_coverage: Optional[int] = None
-    low_confidence: Optional[bool] = None
-    agency_flag: Optional[bool] = None
-    nonprofit_flag: Optional[bool] = None
-    wizard_ai_sdk: Optional[bool] = None
-    ai_pilled_source: Optional[str] = None
+    flags: dict[str, FlagValue] = field(default_factory=dict)
     version: str = SCORE_VERSION
     lists_version: Optional[str] = None
+    input_versions: dict[str, str] = field(default_factory=dict)
+    input_hash: str = ""
+    input_values: dict[str, Any] = field(default_factory=dict)
 
 
-def is_quality_investor(observed_name: str, quality_names: frozenset[str]) -> bool:
-    observed = norm(observed_name)
-    if observed in quality_names:
-        return True
-    return any(name in observed for name in quality_names if len(name) >= QUALITY_INVESTOR_SUBSTRING_MIN_CHARS)
+class FormulaResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    status: Literal["scored", "insufficient_data", "not_found", "disqualified"]
+    score: Annotated[int, Field(ge=0, le=100)] | None = None
+    components: Annotated[dict[str, Annotated[int, Field(ge=0, le=100)]], Field(max_length=30)] | None = None
+    dq_reason: Annotated[str, Field(max_length=500)] | None = None
+    flags: Annotated[dict[Annotated[str, Field(min_length=1, max_length=128)], FlagValue], Field(max_length=32)] = (
+        Field(default_factory=dict)
+    )
+
+    @model_validator(mode="after")
+    def coherent_score(self) -> Self:
+        if self.status == STATUS_SCORED:
+            if self.score is None or self.components is None or self.score != sum(self.components.values()):
+                raise ValueError("A scored result needs components whose points sum to its score")
+        elif self.status == STATUS_DISQUALIFIED:
+            if self.score != 0 or not self.dq_reason:
+                raise ValueError("A disqualified result needs score 0 and a reason")
+        elif self.score is not None or self.components is not None:
+            raise ValueError("Missing company data must not produce a score or components")
+        return self
 
 
-def _metric(payload: dict[str, Any], name: str, horizon: Optional[str] = None, field: str = "percent_change") -> Any:
-    metric = (payload.get("traction_metrics") or {}).get(name)
-    if not isinstance(metric, dict):
-        return None
-    if horizon is None:
-        return metric.get("latest_metric_value")
-    block = metric.get(horizon)
-    return block.get(field) if isinstance(block, dict) else None
+def build_scoring_inputs(
+    payload: Optional[dict[str, Any]],
+    *,
+    lists: CuratedLists,
+    role: Optional[str] = None,
+    domain: Optional[str] = None,
+    wizard_ai_sdk: bool = False,
+    enrichments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "company": payload if isinstance(payload, dict) else None,
+        "signup": {"role": role or "", "domain": domain or "", "wizard_ai_sdk": wizard_ai_sdk},
+        "enrichments": enrichments if enrichments is not None else {},
+        "lists": {
+            name: sorted(getattr(lists, name))
+            for name in (
+                "capital_quality",
+                "ai_positive",
+                "software_positive",
+                "software_negative",
+                "dq",
+                "quality_investors",
+            )
+        },
+    }
+
+
+def evaluate_score(source: str, inputs: dict[str, Any]) -> FormulaResult:
+    response = execute_bytecode(
+        compile_scoring_formula(source),
+        globals=inputs,
+        timeout=SCORING_TIMEOUT,
+        disallowed_functions=DISALLOWED_FUNCTIONS,
+    )
+    return FormulaResult.model_validate(response.result)
+
+
+def scoring_input_hash(inputs: dict[str, Any], input_versions: dict[str, str]) -> str:
+    encoded = json.dumps(
+        {"inputs": inputs, "input_versions": input_versions}, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def score_context(
+    inputs: dict[str, Any],
+    *,
+    source: str,
+    lists_version: str,
+    input_versions: dict[str, str] | None = None,
+) -> IcpFitResult:
+    values = deepcopy(inputs)
+    versions = dict(input_versions or {})
+    input_hash = scoring_input_hash(values, versions)
+    result = evaluate_score(source, values)
+    return IcpFitResult(
+        **result.model_dump(),
+        lists_version=lists_version,
+        input_versions=versions,
+        input_hash=input_hash,
+        input_values=values,
+    )
 
 
 def score_company(
@@ -103,155 +134,10 @@ def score_company(
     role: Optional[str] = None,
     domain: Optional[str] = None,
     wizard_ai_sdk: bool = False,
+    enrichments: dict[str, Any] | None = None,
+    input_versions: dict[str, str] | None = None,
 ) -> IcpFitResult:
-    """Score one company payload (REST shape — see module docstring) against the fit rules.
-
-    `role` is the signup's own role_at_organization answer (production-side, not in
-    Harmonic) and `domain` is the signup email domain (for the .ai TLD signal) — never the
-    payload's own website domain, which can be a different registrant.
-
-    Statuses: a student signup is disqualified before the payload is even consulted (we
-    know the answer regardless of enrichment); a missing/unmatched payload is not_found; a
-    matched but empty-shell profile is insufficient_data (no numeric score — "no data yet"
-    must never read as "evaluated and low"); everything else is scored 0–100.
-
-    `wizard_ai_sdk` earns AIPilled's 15 points on its own, same as the Harmonic signal:
-    either one fires the full award, and `ai_pilled_source` records "harmonic" / "wizard" /
-    "both" so which source fired stays visible.
-    """
-    if (role or "").strip().lower() == "student":
-        return IcpFitResult(status=STATUS_DISQUALIFIED, score=0, dq_reason="role=student", lists_version=lists.version)
-
-    if not payload or not isinstance(payload, dict):
-        return IcpFitResult(status=STATUS_NOT_FOUND, lists_version=lists.version)
-
-    tags = {norm(tag.get("display_value")) for tag in (payload.get("tags_v2") or []) if isinstance(tag, dict)}
-    tag_types = {tag.get("type") for tag in (payload.get("tags_v2") or []) if isinstance(tag, dict)}
-
-    # Hard DQ on company_type, not market tags: tags describe who a company SELLS TO
-    # (education-market startups carry "Schools" tags), while company_type=SCHOOL marks
-    # actual institutions.
-    if payload.get("company_type") == "SCHOOL":
-        return IcpFitResult(
-            status=STATUS_DISQUALIFIED, score=0, dq_reason="company_type=SCHOOL", lists_version=lists.version
-        )
-
-    funding = payload.get("funding") or {}
-    web_traffic = _metric(payload, "web_traffic", None)
-    headcount = payload.get("headcount") or _metric(payload, "headcount", None)
-    # Investors count as a funding signal here (matching the handbook and the coverage
-    # counter below): a raise Harmonic knows only through its investor list is still a
-    # profile worth scoring, not an empty shell.
-    if not any(
-        [headcount, funding.get("funding_total"), funding.get("investors"), payload.get("tags_v2"), web_traffic]
-    ):
-        return IcpFitResult(status=STATUS_INSUFFICIENT_DATA, lists_version=lists.version)
-
-    # Momentum horizons (validated 2026-08-13): traffic 90d (best discriminator; 365d is
-    # ~random), headcount 180d (90d is ±1-hire noise on small teams; 365d misses
-    # inflections). Thresholds are rescaled per horizon.
-    traffic_growth_90d = _metric(payload, "web_traffic", "90d_ago")
-    headcount_growth_180d = _metric(payload, "headcount", "180d_ago")
-    headcount_adds_180d = _metric(payload, "headcount", "180d_ago", "change")
-    engineering_headcount = _metric(payload, "headcount_engineering", None)
-    investors = [
-        investor.get("name") or "" for investor in (funding.get("investors") or []) if isinstance(investor, dict)
-    ]
-    funding_total = funding.get("funding_total") or 0
-
-    traffic_level = (
-        15
-        if (web_traffic or 0) >= 100_000
-        else 10
-        if (web_traffic or 0) >= 10_000
-        else 5
-        if (web_traffic or 0) >= 1_000
-        else 0
+    inputs = build_scoring_inputs(
+        payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk, enrichments=enrichments
     )
-    traffic_growth = 0
-    if (web_traffic or 0) >= 5_000:  # growth only counted above a minimum base: small-base %s invert the signal
-        traffic_growth = (
-            20
-            if (traffic_growth_90d or 0) >= 40
-            else 12
-            if (traffic_growth_90d or 0) >= 15
-            else 5
-            if (traffic_growth_90d or 0) > 0
-            else 0
-        )
-    traction = traffic_level + traffic_growth
-
-    quality = (
-        "YC_BATCH" in tag_types  # matched on tag type so future batches qualify without a list update
-        or bool(tags & lists.capital_quality)
-        or any(is_quality_investor(investor, lists.quality_investors) for investor in investors)
-    )
-    # EXISTS_BUT_UNDISCLOSED implies some funding exists -> base capital tier.
-    undisclosed = payload.get("funding_attribute_null_status") == "EXISTS_BUT_UNDISCLOSED"
-    capital = (
-        20
-        if funding_total >= 10_000_000
-        else 14
-        if funding_total >= 2_000_000
-        else 8
-        if (funding_total > 0 or undisclosed)
-        else 0
-    )
-    capital = min(30, capital + (10 if quality else 0))
-
-    description = payload.get("description") or payload.get("short_description") or ""
-    has_ai_tag = bool(tags & lists.ai_positive)
-    has_ai_description = bool(description and AI_DESC.search(description))
-    has_ai_domain = (domain or "").endswith(".ai")
-    harmonic_ai = has_ai_tag or has_ai_description or has_ai_domain
-    ai_pilled = AI_PILLED_POINTS if (harmonic_ai or wizard_ai_sdk) else 0
-    ai_pilled_source = (
-        "both" if harmonic_ai and wizard_ai_sdk else "harmonic" if harmonic_ai else "wizard" if wizard_ai_sdk else None
-    )
-
-    headcount_growth = (
-        10
-        if (headcount_growth_180d or 0) >= 15
-        else 6
-        if ((headcount_growth_180d or 0) >= 5 or (headcount_adds_180d or 0) >= 3)
-        else 3
-        if (headcount_growth_180d or 0) > 0
-        else 0
-    )
-
-    software_relevance = (
-        10
-        if (engineering_headcount or 0) > 0
-        else 7
-        if (tags & lists.software_positive or SW_DESC.search(description))
-        else 0
-    )
-
-    coverage = sum(
-        [
-            bool(headcount and headcount >= 1),
-            bool((web_traffic or 0) >= 100),
-            bool(funding_total > 0 or investors),
-            bool(payload.get("tags_v2")),
-        ]
-    )
-
-    return IcpFitResult(
-        status=STATUS_SCORED,
-        score=traction + capital + ai_pilled + headcount_growth + software_relevance,
-        components={
-            "traction": traction,
-            "capital": capital,
-            "ai_pilled": ai_pilled,
-            "headcount_growth": headcount_growth,
-            "software_relevance": software_relevance,
-        },
-        quality_investor=quality,
-        data_coverage=coverage,
-        low_confidence=coverage <= 1,
-        agency_flag=bool(tags & AGENCY_TAGS),
-        nonprofit_flag=bool(tags & NONPROFIT_TAGS),
-        wizard_ai_sdk=wizard_ai_sdk,
-        ai_pilled_source=ai_pilled_source,
-        lists_version=lists.version,
-    )
+    return score_context(inputs, source=lists.rules.source, lists_version=lists.version, input_versions=input_versions)

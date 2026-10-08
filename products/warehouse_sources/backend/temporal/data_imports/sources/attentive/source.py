@@ -101,7 +101,7 @@ class AttentiveSource(
             ),
             iconPath="/static/services/attentive.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/attentive",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

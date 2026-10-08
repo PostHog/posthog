@@ -70,6 +70,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
                 AND attribute_type = {attributeType}
                 AND attribute_key ILIKE {search}
+                AND {key_filter}
                 AND {where}
                 GROUP BY team_id, attribute_key
                 ORDER BY lower(attribute_key) = lower({exact}) DESC, has(splitByNonAlpha(lower(attribute_key)), lower({exact})) DESC, sum(attribute_count) desc, attribute_key asc
@@ -82,6 +83,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),
+                "key_filter": self._key_filter(),
                 "where": self.where(),
                 **self.query_date_range.to_placeholders(),
             },
@@ -114,6 +116,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
                 AND attribute_type = {attributeType}
                 AND attribute_key ILIKE {search}
+                AND {key_filter}
                 AND {where}
                 GROUP BY team_id, attribute_key
 
@@ -130,6 +133,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 AND attribute_type = {attributeType}
                 AND attribute_value ILIKE {search}
                 AND attribute_key NOT ILIKE {search}
+                AND {key_filter}
                 AND {where}
                 GROUP BY team_id, attribute_key
             )
@@ -148,6 +152,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),
+                "key_filter": self._key_filter(),
                 "where": self.where(),
                 **self.query_date_range.to_placeholders(),
             },
@@ -155,6 +160,16 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
 
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _key_filter(self) -> ast.Expr:
+        # Keep this filter out of where(). That method also filters the resource fingerprint subquery.
+        # The subquery has no attribute_key.
+        if not self.query.attributeKeys:
+            return ast.Constant(value=True)
+        return parse_expr(
+            "attribute_key IN {keys}",
+            placeholders={"keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in self.query.attributeKeys])},
+        )
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []

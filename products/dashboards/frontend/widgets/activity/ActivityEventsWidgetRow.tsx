@@ -35,7 +35,7 @@ export function ActivityEventsWidgetRowSkeleton(): JSX.Element {
 export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidgetEvent }): JSX.Element {
     return (
         <Link
-            to={urls.event(event.uuid, event.timestamp)}
+            to={urls.event(event.uuid, event.timestamp, event.event)}
             target="_blank"
             subtle
             className="@container flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-secondary focus-visible:outline-offset-[-2px]"

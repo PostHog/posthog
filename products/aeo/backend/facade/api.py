@@ -6,9 +6,12 @@ capabilities. Celery wiring is re-exported from facade/tasks.py.
 
 from __future__ import annotations
 
+import datetime as dt
+
 from posthog.models.team import Team
 
-from products.aeo.backend.facade.contracts import CitationRunSummary
+from products.aeo.backend import gaps
+from products.aeo.backend.facade.contracts import CitationGap, CitationRunSummary
 from products.aeo.backend.runner import run_citation_checks
 
 
@@ -18,3 +21,7 @@ def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
     team = Team.objects.get(id=team_id)
     summary, _ = run_citation_checks(team)
     return summary
+
+
+def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]:
+    return gaps.list_citation_gaps(team_id, since=since)

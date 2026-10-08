@@ -848,16 +848,13 @@ def _parse_report(payload: bytes, report_date: date, failures: _ParseFailureCoun
     return rows
 
 
-# A subscription-family report day with no data comes back as a 400 whose body carries one of these
-# markers. A 400 matching none of them, and not the vendor-number marker below, is a genuinely
-# malformed request rather than a quiet day.
+# Apple can return 400 instead of 404 when a report day has no data.
 _EMPTY_REPORT_400_MARKERS = (
     "there were no results",
     "no results for the request",
 )
 
-# Apple's long-standing misleading wording for an empty subscription day, which it also returns for a
-# vendor number it doesn't know. Ambiguous on its own, so `_VendorNumberCheck` settles it.
+# This wording is ambiguous: Apple also uses it for an unknown vendor number.
 _VENDOR_NUMBER_400_MARKER = "invalid vendor number"
 
 
@@ -869,11 +866,8 @@ def _apple_error_text(error: _AppleApiError) -> str:
 class _ToleratedReportDays:
     """Counts report days Apple answered with a tolerated "no data" status, keeping one sample error.
 
-    A 404 is Apple's "no activity for this date" for the SALES report; the subscription report
-    families return a 400 for the same condition instead, and Apple words that 400 the same way it
-    words a genuinely bad request. A whole run of tolerated days that never produced a row is logged
-    when the walk ends, so an operator can tell an account with no data for this report from a
-    request Apple keeps rejecting, rather than reading both as a quiet account.
+    A whole run of tolerated days that never produced a row is logged when the walk ends, so an
+    operator can distinguish an account with no data from a request Apple keeps rejecting.
     """
 
     def __init__(self, logger: FilteringBoundLogger, config: AppStoreConnectEndpointConfig) -> None:
@@ -906,12 +900,9 @@ class _ToleratedReportDays:
 class _VendorNumberCheck:
     """Resolves once per run whether Apple knows the configured vendor number.
 
-    Apple answers a subscription-family day with no data and a vendor number it doesn't know with the
-    same "Invalid vendor number specified" 400, so that response alone cannot tell a quiet account
-    from a typo. The SALES report separates them: it answers 404 for a known vendor with no data on
-    the date, and keeps the vendor-number 400 for one it doesn't know. An inconclusive check — a key
-    without a Sales role, a network failure — reads as known, so a sync never fails on the check
-    itself and the all-empty run warning stays the backstop.
+    Apple uses the same 400 for an empty day and an unknown vendor number. The SALES report usually
+    distinguishes them with a 404, but cannot independently verify a SALES request. An inconclusive
+    probe is treated as known so the check itself never fails a sync.
     """
 
     def __init__(
@@ -996,11 +987,7 @@ def _fetch_report(
         tolerate=config.missing_report_status_codes,
     )
     if response.status_code in config.missing_report_status_codes:
-        # A 404 is always Apple's "no activity for this date" — normal for quiet days and for dates
-        # before the app shipped. A tolerated 400 is the subscription-family equivalent, but Apple
-        # reuses 400 for a genuinely malformed request and for a vendor number it doesn't know too,
-        # so read the body: only a day Apple really has no data for is tolerated and counted, and
-        # anything else fails loudly instead of masquerading as a quiet account across the lookback.
+        # Unlike 404, a tolerated 400 must be classified from its body.
         if response.status_code == 400:
             apple_error = _parse_apple_error(response)
             text = _apple_error_text(apple_error)
@@ -1691,11 +1678,12 @@ def _get_analytics_report(
     has_snapshot_instances = any(
         walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
     )
-    probed_segments: dict[str, list[dict[str, Any]]] = {}
     if should_use_incremental_field and snapshot_ceiling is not None:
         # Probe every instance at or below the snapshot for downloadable files before emitting
         # anything: a not-ready instance below the snapshot would stop the walk mid-emission,
-        # ratchet the watermark, and strand the history until a manual resync.
+        # ratchet the watermark, and strand the history until a manual resync. The segment list
+        # itself is discarded: its presigned URLs are only valid for a few minutes, and probing
+        # every date up front before any downloads start can take longer than that.
         for processing_date in sorted(candidate for candidate in instances_by_date if candidate <= snapshot_ceiling):
             for walk_instance in instances_by_date[processing_date]:
                 segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
@@ -1707,7 +1695,6 @@ def _get_analytics_report(
                         f"processing_date={processing_date.isoformat()}"
                     )
                     return
-                probed_segments[walk_instance.instance_id] = segments
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):
@@ -1731,12 +1718,10 @@ def _get_analytics_report(
                 )
                 return
 
-            cached_segments = probed_segments.get(walk_instance.instance_id)
-            segments = (
-                cached_segments
-                if cached_segments is not None
-                else _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
-            )
+            # Always re-list right before downloading, even for an instance the probe above
+            # already found non-empty: its segment URLs are presigned and short-lived, and the
+            # probe for a large backlog can finish well before this instance's turn to download.
+            segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then

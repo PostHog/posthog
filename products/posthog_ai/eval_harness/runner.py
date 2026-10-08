@@ -27,8 +27,6 @@ from .harness.providers import SandboxProviderStrategy
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 
-    from products.tasks.backend.models import Task
-
 logger = logging.getLogger(__name__)
 
 __all__ = ["run_eval_case"]
@@ -147,11 +145,11 @@ async def run_eval_case(
             full_log, turn_logs = await _run_multi_turn_case(case, context, state)
         else:
             full_log, turn_logs = await _run_single_turn_case(case, context, state)
-        # Both helpers set task and handle before their first poll, so a clean
+        # Both helpers set task_id and handle before their first poll, so a clean
         # return guarantees they are populated.
-        assert state.task is not None and state.handle is not None
+        assert state.task_id is not None and state.handle is not None
         # Register the task so the end-of-run sweep stays scoped to this run's sandboxes.
-        provider.register_task(str(state.task.id))
+        provider.register_task(str(state.task_id))
 
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
@@ -182,11 +180,11 @@ async def run_eval_case(
             logger.warning("Eval workflow cleanup could not be confirmed for case '%s'", case.name)
         raise
     finally:
-        if state.task is not None:
+        if state.task_id is not None:
             try:
-                await asyncio.to_thread(provider.cleanup_case, str(state.task.id))
+                await asyncio.to_thread(provider.cleanup_case, str(state.task_id))
             except Exception:
-                logger.warning("Provider cleanup failed for eval task %s", state.task.id, exc_info=True)
+                logger.warning("Provider cleanup failed for eval task %s", state.task_id, exc_info=True)
 
 
 @frozen(frozen=False)
@@ -198,7 +196,7 @@ class _CaseRunState:
     the failure signal and provider sweep.
     """
 
-    task: Task | None = None
+    task_id: uuid.UUID | None = None
     handle: WorkflowHandle | None = None
 
 
@@ -206,12 +204,11 @@ async def _run_single_turn_case(
     case: SandboxedEvalCase, context: CustomPromptSandboxContext, state: _CaseRunState
 ) -> tuple[str, list[str] | None]:
     """The historical one-prompt path: create, poll once, return the full log."""
-    task, task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
-    state.task = task
+    task_run = await create_task_and_trigger(case.prompt, context, step_name=case.name)
+    state.task_id = task_run.task_id
     # Handle to the case's workflow so a timeout/error can shut the agent down.
-    workflow_id = task_run.get_workflow_id(task.id, task_run.id)
     client = await async_connect()
-    state.handle = client.get_workflow_handle(workflow_id)
+    state.handle = client.get_workflow_handle(task_run.workflow_id)
     turn = await poll_for_turn(task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg))
     logger.info("Eval case '%s' turn 1/1: last_message=%.200s", case.name, turn.last_message or "(none)")
     return turn.full_log or "", None
@@ -232,7 +229,7 @@ async def _run_multi_turn_case(
         verbose=True,
         output_fn=lambda msg: logger.info("agent: %s", msg),
     )
-    state.task = session.task
+    state.task_id = session.task.id
     state.handle = session.workflow_handle
     # One entry per completed turn: the line count of the cumulative log at that
     # turn's end. Turn 1 starts at line 0; turn i's lines sit between marks[i-1]

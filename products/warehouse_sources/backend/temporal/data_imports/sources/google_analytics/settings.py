@@ -235,7 +235,8 @@ def parse_custom_reports(custom_reports_json: str | None) -> dict[str, GoogleAna
 
         if name in GOOGLE_ANALYTICS_REPORT_SCHEMAS:
             raise CustomReportError(
-                f"'{name}' is a built-in report name. Choose a different name for your custom report."
+                f"'{name}' is already a built-in report you can select on the next step. "
+                "Give your custom report a different name."
             )
         if name in reports:
             raise CustomReportError(f"Duplicate custom report name '{name}'. Each report needs a unique name.")

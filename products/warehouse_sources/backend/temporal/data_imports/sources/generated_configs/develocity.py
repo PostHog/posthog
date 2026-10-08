@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class DevelocitySourceConfig(config.Config):
-    pass
+    instance_url: str
+    access_key: str

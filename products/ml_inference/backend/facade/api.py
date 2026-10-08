@@ -10,6 +10,12 @@ from ..logic import decisions
 from . import contracts
 
 
+def decisions_available_here() -> bool:
+    """Whether this region serves decisions at all. A batch caller checks this once before it
+    enumerates work, so a region without the service spends nothing per team."""
+    return decisions.decisions_available_here()
+
+
 def decisions_enabled(team_id: int) -> bool:
     return decisions.decisions_enabled(team_id)
 
@@ -21,6 +27,21 @@ def decide(request: contracts.DecisionRequest) -> contracts.DecisionResult:
     return decisions.decide(request)
 
 
-def decide_unchecked(request: contracts.DecisionRequest) -> contracts.DecisionResult:
-    """Ask the model regardless of enrollment. Operator tooling only; product callers use decide."""
-    return decisions.decide(request)
+def decide_when_available(
+    request: contracts.DecisionRequest, *, timeout_seconds: float | None = None
+) -> contracts.DecisionResult:
+    """Ask the model where the decision service is available; the caller owns its rollout gate."""
+    if not decisions.decisions_available_here():
+        raise contracts.DecisionsDisabledError(request.team_id)
+    if timeout_seconds is None:
+        return decisions.decide(request)
+    return decisions.decide(request, timeout_seconds=timeout_seconds)
+
+
+def decide_unchecked(
+    request: contracts.DecisionRequest, *, timeout_seconds: float | None = None
+) -> contracts.DecisionResult:
+    """Ask the model when the caller owns its rollout gate."""
+    if timeout_seconds is None:
+        return decisions.decide(request)
+    return decisions.decide(request, timeout_seconds=timeout_seconds)

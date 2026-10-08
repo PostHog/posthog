@@ -17,7 +17,7 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
-import { InsightIcon } from './SavedInsights'
+import { InsightIcon } from './InsightIcon'
 
 interface SavedInsightsTableProps {
     isSelected?: (insight: InsightModel) => boolean

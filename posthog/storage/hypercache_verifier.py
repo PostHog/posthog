@@ -6,21 +6,28 @@ and automatically fix issues.
 """
 
 import gc
+import json
 import time
+import pickle
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 from django.db.models import QuerySet
 
 import structlog
+import redis.exceptions
 from celery.exceptions import SoftTimeLimitExceeded
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter
 from tenacity import RetryCallState, Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.models.team.team import Team
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch_check_expiry_tracking
+from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +46,48 @@ HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
     "posthog_hypercache_verify_fixes_total",
     "Cache entries fixed during scheduled verification",
     labelnames=["cache_type", "issue_type", "writer"],
+)
+
+# Closed sets, so posthog/tasks/hypercache_verification.py can pre-create every series:
+# increase() never reports a series' first increment, and the first occurrence is what
+# these counters exist to catch. The exception class name goes to the log line instead.
+VerifyFailureReason = Literal["dependency_unavailable", "data_error", "unknown"]
+FixFailureReason = Literal["update_fn_returned_false", "dependency_unavailable", "data_error", "unknown"]
+
+
+# Outages of the stores the sweep reads and writes. django-redis wraps redis connection and
+# timeout errors in ConnectionInterrupted, but a raw redis client raises them unwrapped.
+# OperationalError and InterfaceError are the connection drops that _fetch_team_batch retries.
+_DEPENDENCY_ERRORS = (
+    HyperCacheDependencyUnavailable,
+    ConnectionInterrupted,
+    redis.exceptions.ConnectionError,
+    redis.exceptions.TimeoutError,
+    ObjectStorageError,
+    OperationalError,
+    InterfaceError,
+)
+
+
+def classify_failure(error: Exception) -> VerifyFailureReason:
+    if isinstance(error, _DEPENDENCY_ERRORS):
+        return "dependency_unavailable"
+    # A plain ValueError can come from a dependency before it wraps the failure.
+    if isinstance(error, json.JSONDecodeError | UnicodeDecodeError | pickle.UnpicklingError | EOFError):
+        return "data_error"
+    return "unknown"
+
+
+HYPERCACHE_VERIFY_ERROR_COUNTER = Counter(
+    "posthog_hypercache_verify_errors_total",
+    "Teams whose verification raised during scheduled verification",
+    labelnames=["cache_type", "reason"],
+)
+
+HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER = Counter(
+    "posthog_hypercache_verify_fix_failures_total",
+    "Repairs that failed to write during scheduled verification",
+    labelnames=["cache_type", "issue_type", "reason"],
 )
 
 # Maximum number of team IDs to store for logging
@@ -328,7 +377,8 @@ def _verify_and_fix_batch(
             raise
         except Exception as e:
             result.errors += 1
-            logger.exception("Error verifying team", team_id=team.id, error=str(e))
+            HYPERCACHE_VERIFY_ERROR_COUNTER.labels(cache_type=cache_type, reason=classify_failure(e)).inc()
+            logger.exception("Error verifying team", team_id=team.id, error_type=type(e).__name__, error=str(e))
             continue
 
         # Ensure db_data is available for cache fixes even if the verify
@@ -429,6 +479,7 @@ def _fix_and_record(
         logger.info("Fixing cache entry", **log_kwargs)
         result.fix_detail_info_logs_emitted += 1
 
+    failure_reason: FixFailureReason = "update_fn_returned_false"
     try:
         # Use preloaded db_data if available to avoid redundant DB query
         if "db_data" in verification:
@@ -448,7 +499,10 @@ def _fix_and_record(
         raise
     except Exception as e:
         success = False
-        logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))
+        failure_reason = classify_failure(e)
+        logger.exception(
+            "Error fixing cache", team_id=team.id, issue_type=issue_type, error_type=type(e).__name__, error=str(e)
+        )
 
     if success:
         # Increment appropriate counter
@@ -465,6 +519,9 @@ def _fix_and_record(
         HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=cache_type, issue_type=issue_type, writer=writer).inc()
     else:
         result.fix_failed += 1
+        HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER.labels(
+            cache_type=cache_type, issue_type=issue_type, reason=failure_reason
+        ).inc()
 
 
 def _run_verification_for_cache(

@@ -15,6 +15,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from .learning.constants import LEARNING_COORDINATOR_INTERVAL_MINUTES
@@ -34,7 +35,10 @@ async def create_business_knowledge_refresh_coordinator_schedule(client: Client)
             id=SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         # SKIP plus the per-team advisory lock prevents concurrent double-refresh.
         policy=SchedulePolicy(
             overlap=ScheduleOverlapPolicy.SKIP,
@@ -56,7 +60,11 @@ async def create_business_knowledge_learning_coordinator_schedule(client: Client
             id=LEARNING_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=interval, offset=deterministic_offset(LEARNING_SCHEDULE_ID, interval))
+            ]
+        ),
         policy=SchedulePolicy(
             overlap=ScheduleOverlapPolicy.SKIP,
             catchup_window=interval,

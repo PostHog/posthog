@@ -1,6 +1,7 @@
 import { UserRole } from '~/types'
 
-import { FALLBACK_PROMPTS, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
+import { MCP_INSTALL_COMMAND } from './constants'
+import { buildMCPAgentPrompt, FALLBACK_PROMPTS, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
 
 describe('prompts', () => {
     describe('getSurfacePrompts', () => {
@@ -50,5 +51,20 @@ describe('prompts', () => {
         it('trims surrounding whitespace before quoting', () => {
             expect(formatDerivedToastPrompt('  foo  ')).toBe('"foo"')
         })
+    })
+
+    describe('buildMCPAgentPrompt', () => {
+        it.each([
+            [42, 'Use the PostHog MCP server in PostHog project 42.'],
+            [null, 'Use the PostHog MCP server.'],
+        ])(
+            'sends the task without display quotes and tells the agent how to connect (project %s)',
+            (projectId, mcpLine) => {
+                const prompt = buildMCPAgentPrompt('"Disable beta-banner flag"', projectId)
+                expect(prompt.startsWith('Disable beta-banner flag\n')).toBe(true)
+                expect(prompt).toContain(mcpLine)
+                expect(prompt).toContain(MCP_INSTALL_COMMAND)
+            }
+        )
     })
 })

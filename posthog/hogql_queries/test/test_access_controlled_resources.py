@@ -1,7 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -24,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.access_controlled_resources import (
     _TRANSITIVE_SYSTEM_TABLE_SCOPES,
@@ -239,10 +242,20 @@ class TestQueriedAccessControlledResources(BaseTest):
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
-    def test_external_warehouse_table_matched_by_raw_name(self):
+    @parameterized.expand(
+        [
+            ("raw_name", "stripe_customers", "stripe_customers"),
+            ("prefixed_name", "stripe_customers", "stripe.myprefix.customers"),
+            # Python lowercases "İ" to "i" plus a combining dot, which Postgres UPPER does not map back.
+            ("prefixed_non_ascii_name", "stripe_İnvoices", "`stripe.myprefix.i̇nvoices`"),
+            # Python lowercases the Kelvin sign to ASCII "k", which Postgres UPPER does not match.
+            ("prefixed_kelvin_sign_name", "stripe_\u212austomers", "stripe.myprefix.kustomers"),
+        ]
+    )
+    def test_external_warehouse_table_matched_by_either_name(self, _name, table_name, queried_name):
         # External tables are queryable under BOTH their raw name and the prefixed
-        # source_type.prefix.table key. A user denied the table could otherwise query the raw
-        # name and be served an allowed user's cached rows, since only the prefixed form was matched.
+        # source_type.prefix.table key. A user denied the table could otherwise query the unmatched
+        # form and be served an allowed user's cached rows.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="s",
@@ -251,14 +264,14 @@ class TestQueriedAccessControlledResources(BaseTest):
             source_type=ExternalDataSourceType.STRIPE,
             prefix="myprefix",
         )
-        table = self._create_warehouse_table("stripe_customers")
+        table = self._create_warehouse_table(table_name)
         table.external_data_source = source
         table.save()
 
         # The two queryable names genuinely diverge, so matching only the prefixed form left a gap.
         assert get_data_warehouse_table_name(source, table.name) != table.name
 
-        result = queried_access_controlled_resources(HogQLQuery(query="select * from stripe_customers"), self.team)
+        result = queried_access_controlled_resources(HogQLQuery(query=f"select * from {queried_name}"), self.team)
         assert result == {"external_data_source", "warehouse_table"}
 
     def test_warehouse_view_scope(self):
@@ -292,6 +305,39 @@ class TestQueriedAccessControlledResources(BaseTest):
                 team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
             )
         assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
+    def test_view_fan_out_does_not_scale_queries(self) -> None:
+        # Views that share a base view must each be walked once, so six of them cost the same queries as two.
+        def _cost(fan_out: int) -> tuple[int, int]:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"base_view_{fan_out}",
+                query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+            )
+            view_names = [f"view_{fan_out}_{i}" for i in range(fan_out)]
+            for name in view_names:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=name,
+                    query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
+                )
+            query = HogQLQuery(query=f"select * from {', '.join(view_names)}")
+            with (
+                CaptureQueriesContext(connection) as ctx,
+                patch("posthog.hogql.parser.parse_select", wraps=parse_select) as parse_spy,
+            ):
+                assert queried_access_controlled_resources(query, self.team) == {
+                    "warehouse_view",
+                    "warehouse_table",
+                    "external_data_source",
+                    "notebook",
+                }
+            return len(ctx.captured_queries), parse_spy.call_count
+
+        (queries_6, parses_6), (queries_2, parses_2) = _cost(6), _cost(2)
+        assert queries_6 == queries_2
+        # Each added view costs one parse. A base view walked again for each parent would cost two.
+        assert parses_6 - parses_2 == 4
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")

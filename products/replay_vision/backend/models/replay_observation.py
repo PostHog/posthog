@@ -29,6 +29,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
 
 
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
@@ -64,6 +70,14 @@ class ReplayObservation(UUIDModel):
         help_text=(
             "Group keys the recorded session's events carry, keyed by group type index (e.g. {'0': 'acme-inc'}). "
             "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
+        ),
+    )
+    session_geoip = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "`$geoip_*` properties the recorded session's events carry (country, region, city, time zone). "
+            "Resolved at scan time and stamped on the emitted event, which is otherwise geolocated to the worker."
         ),
     )
 
@@ -118,11 +132,6 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Unused since the media backfill sweep was removed: nothing writes them and nothing reads them. Dropped
-    # in a follow-up migration, so do not build on them.
-    media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
-    media_render_attempted_at = models.DateTimeField(null=True, blank=True)
-
     class Meta:
         constraints = [
             # Succeeded rows are sticky; admin deletes to re-trigger. A backfill may retake a failed row.
@@ -149,12 +158,6 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            # Served the media backfill's cross-team walk, which is gone. Dropped in a follow-up migration.
-            models.Index(
-                fields=["-created_at"],
-                name="rlo_succeeded_created_idx",
-                condition=models.Q(status="succeeded"),
-            ),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
@@ -225,7 +228,13 @@ def hydrate_for_serialization(
                 queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
             )
         )
-        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+        .annotate(
+            scanner_origin=F("scanner__origin"),
+            scanner_prompt_question=F("scanner__prompt_question"),
+            scanner_prompt_question_source=F("scanner__prompt_question_source"),
+            scanner_prompt_valence=F("scanner__prompt_valence"),
+            viewed=viewed,
+        )
     )
 
 

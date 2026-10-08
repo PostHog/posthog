@@ -137,7 +137,7 @@ function targetForRow(row: ArtifactRow): CommentTarget | null {
     return { scope: "task_artifact", itemId: row.artifactId };
   }
   if (row.kind === "canvas" && row.dashboardId) {
-    return { scope: "desktop_canvas", itemId: row.dashboardId };
+    return { scope: "canvas", itemId: row.dashboardId };
   }
   return null;
 }

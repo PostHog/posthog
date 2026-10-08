@@ -25,7 +25,9 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -95,6 +97,21 @@ class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class BillingManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner.name.strip() or "your partner"
+        super().__init__(
+            f"Billing for this organization is managed by {partner_name}. "
+            f"Contact {partner_name} to change your plan or payment details."
+        )
+
+
+def raise_if_billing_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingManagedByPartnerError(partner)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -247,6 +264,17 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
     The body is read defensively for the same reason. A non-JSON error, from billing or from a
     proxy in front of it, must not turn a mapped refusal into a 500.
     """
+    from ee.api.billing import (  # noqa: PLC0415 - circular import
+        BILLING_GUIDANCE_ERRORS,
+        BillingQueryRejected,
+        BillingServiceError,
+    )
+
+    if res.status_code >= 500:
+        # A billing failure, including a response billing could not build. It is not the caller's
+        # to fix, so it never maps to a refusal that tells them to change the request.
+        logger.warning("billing_organization_error", upstream_status=res.status_code)
+        raise BillingServiceError()
     if res.status_code not in (400, 403, 404):
         return
     try:
@@ -262,21 +290,34 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
         if not map_not_found:
             return
         raise NotFound("Not found.")
-    from ee.api.billing import BILLING_GUIDANCE_ERRORS, BillingQueryRejected  # noqa: PLC0415 - circular import
-
     if code in BILLING_GUIDANCE_ERRORS:
         raise BILLING_GUIDANCE_ERRORS[code]()
     raise BillingQueryRejected()
+
+
+class BillingServiceResponseError(Exception):
+    """Billing answered with a status code the caller does not accept."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        # The message and the body keep the positions callers already read: see
+        # `_raise_billing_error` in ee/api/billing.py, which parses the status out of the message.
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", body)
+        self.status_code = status_code
+        self.body = body
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+            body: Any = res.json()
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            # A body that is not JSON, such as the empty body of a proxy timeout, is still the
+            # answer the caller has to report. Read it as text, so the decode failure does not
+            # become the reported cause of the error.
+            body = res.text
+
+        raise BillingServiceResponseError(res.status_code, body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -827,6 +868,12 @@ class BillingManager:
         path = f"products/{product_key}/" if product_key else "products/"
         return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
 
+    def get_organization_products_summary(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        # Billing serves this as products/catalog/, the name it shipped with.
+        return self._organization_get(organization, grants, "products/catalog/")
+
     def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "usage/")
 
@@ -840,6 +887,23 @@ class BillingManager:
 
     def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "forecast/")
+
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
 
     def get_organization_invoices(
         self,
@@ -981,7 +1045,10 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
+            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
         """
+        raise_if_billing_managed_by_partner(organization)
+
         # Validate that organization has the integration if billing_provider is specified
         if billing_provider:
             from posthog.models import OrganizationIntegration
@@ -1005,6 +1072,18 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def authorize_with_shared_payment_token(self, organization: Organization, shared_payment_token: str) -> None:
+        raise_if_billing_managed_by_partner(organization)
+
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+            json={"shared_payment_token": shared_payment_token},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200, 201))
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

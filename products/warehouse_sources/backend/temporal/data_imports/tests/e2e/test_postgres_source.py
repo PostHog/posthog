@@ -508,7 +508,7 @@ class TestSSLRequirement:
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
         ) as mock_postgres_source:
             assert isinstance(postgres_source, SimpleSource)
-            postgres_source.source_for_pipeline(config, mock_inputs)
+            postgres_source.source_for_pipeline(config, mock.MagicMock(), mock_inputs)
             mock_postgres_source.assert_called_once()
             call_kwargs = mock_postgres_source.call_args.kwargs
             assert call_kwargs["require_ssl"] is expected_require_ssl

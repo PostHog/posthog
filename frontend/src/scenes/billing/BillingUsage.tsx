@@ -48,8 +48,8 @@ export function BillingUsage(): JSX.Element {
         headingTooltip,
         showSeries,
         showEmptyState,
+        reportedProjectIdsLoading,
         teamOptions,
-        teamIdOptionsLoading,
         billingPeriodMarkers,
         usageExportUrl,
         usageChartExportUrl,
@@ -104,7 +104,7 @@ export function BillingUsage(): JSX.Element {
                     {/* Teams */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Projects</LemonLabel>
-                        {teamIdOptionsLoading ? (
+                        {reportedProjectIdsLoading ? (
                             <LemonInput className="w-50 h-10" placeholder="Loading projects…" disabled />
                         ) : (
                             <LemonInputSelect

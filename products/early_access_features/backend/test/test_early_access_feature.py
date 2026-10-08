@@ -307,6 +307,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
         assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
+        # The response carries the version a rollout action checks, so it has to match the row.
+        stored_flag = FeatureFlag.objects.get(pk=response_data["feature_flag"]["id"])
+        assert response_data["feature_flag"]["version"] == stored_flag.version
 
     def test_archive(self):
         response = self.client.post(
@@ -671,6 +674,25 @@ class TestEarlyAccessFeature(APIBaseTest):
             response_data["detail"],
             "Group-based feature flags are not supported for Early Access Features.",
         )
+
+    def test_cant_create_early_access_feature_with_flag_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            key="other-format",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Other format", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format that an early access feature cannot use yet" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.filters == {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
 
     def test_cant_create_early_access_feature_with_multivariate_flag(self):
         flag = FeatureFlag.objects.create(

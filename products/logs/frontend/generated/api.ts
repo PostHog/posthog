@@ -74,8 +74,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -252,7 +252,7 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
@@ -732,6 +732,13 @@ export const getLogsRetentionRulesListUrl = (projectId: string, params?: LogsRet
         : `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesList = async (
     projectId: string,
     params?: LogsRetentionRulesListParams,
@@ -747,6 +754,13 @@ export const getLogsRetentionRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/retention_rules/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreate = async (
     projectId: string,
     logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
@@ -764,6 +778,13 @@ export const getLogsRetentionRulesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesRetrieve = async (
     projectId: string,
     id: string,
@@ -779,6 +800,13 @@ export const getLogsRetentionRulesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdate = async (
     projectId: string,
     id: string,
@@ -797,6 +825,13 @@ export const getLogsRetentionRulesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -815,6 +850,13 @@ export const getLogsRetentionRulesDestroyUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/logs/retention_rules/${id}/`
 }
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesDestroy = async (
     projectId: string,
     id: string,
@@ -1067,8 +1109,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
