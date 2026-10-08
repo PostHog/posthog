@@ -123,6 +123,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -186,6 +188,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
@@ -522,6 +526,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
