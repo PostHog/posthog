@@ -1452,6 +1452,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
             ("skills_not_list", "task_skills", "error-triage", False),
             ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
+            ("vision_scanner_uuid", "replay_vision_scanner", "0192b2a3-5c7d-7e8f-9a0b-1c2d3e4f5a6b", True),
+            ("vision_scanner_not_uuid", "replay_vision_scanner", "checkout-scanner", False),
+            ("vision_scanner_not_string", "replay_vision_scanner", 123, False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):

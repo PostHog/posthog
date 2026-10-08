@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import logging
 from typing import Any, Optional
 
@@ -36,6 +37,14 @@ from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 logger = logging.getLogger(__name__)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
@@ -626,6 +635,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_mcp_installations",
             "signals_scout",
             "task_skills",
+            "replay_vision_scanner",
         ]
     )
     key = serializers.CharField()
@@ -804,6 +814,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "replay_vision_scanner":
+            if not isinstance(value, str) or not _is_uuid(value):
+                raise serializers.ValidationError({"input": "Value must be a Replay vision scanner ID."})
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})

@@ -64,11 +64,11 @@ return scan
         },
         {
             key: 'scanner_id',
-            type: 'string',
-            label: 'Scanner ID',
+            type: 'replay_vision_scanner',
+            label: 'Scanner',
             secret: false,
             required: false,
-            description: 'A saved scanner to analyze the recording with, instead of a question.',
+            description: 'A saved scanner to analyze the recording with. Leave empty to ask the question instead.',
         },
     ],
 }
