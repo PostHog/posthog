@@ -134,6 +134,28 @@ The snapshot is one-way: editing the library template later does not change step
 
 Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
+## Keep workflows small
+
+Aim for about 30 steps per workflow. The visual editor loads the whole graph into the browser, so a very large workflow is slow to open and hard for the user to change. When `workflows-create`, `workflows-patch-graph`, or `workflows-get` returns a workflow with more than 50 steps, the response carries an `_agentNote`. When you see it:
+
+- Do not add more steps to that workflow.
+- Tell the user how many steps it has and why that is a problem.
+- Propose a split and offer to build it. Follow "Split a large workflow" below.
+
+When a request would need more than about 30 steps from the start, propose several workflows before you build one large one.
+
+## Split a large workflow
+
+Build the parts beside the original. Never change, disable, or delete the original until the user approves the cutover.
+
+1. **Read it.** Call `workflows-get` and map the graph: the trigger, each stage, and where paths merge.
+2. **Propose cut points and wait for approval.** Good cuts are stage boundaries (onboarding, activation, win-back), a long wait, or the separate paths of a large `conditional_branch`. Each part should stay well under 30 steps. List the parts, what each one does, and the event that connects them.
+3. **Chain the parts with an event.** End a part with a "Capture event" step: a `function` action with `config.template_id: 'template-posthog-capture'` and inputs `event` (a new custom event name, for example `onboarding_stage_1_completed`), `distinct_id` (`{event.distinct_id}`), and `properties`. The next part uses an `event` trigger on that event name.
+4. **Pass data through event properties.** Workflow variables do not cross workflows. Put each value the next part needs in the capture step's `properties`, and read it there as `event.properties.<key>`.
+5. **Keep chains short.** A capture stops after the same event has run the function 10 times in a row (loop protection), so do not build long or circular chains.
+6. **Build each part as a draft** with `workflows-create`, and test it with `workflows-test-run`. Test the hand-off too: run the next part's trigger with the captured event as `globals`.
+7. **Cut over only with approval.** People may still be inside the original, so agree the cutover with the user before you act. Then enable the new parts with `workflows-enable` and disable the original with `workflows-disable`.
+
 ## Hard rules to surface to the user, not work around
 
 - **Behavioral targeting is unsupported.** "Did event X at least N times over the last M days" can't be expressed as a trigger or a batch/schedule audience. If asked, reject it and explain; don't approximate it with a broken filter. (The backend rejects behavioral cohorts in batch audiences outright.)

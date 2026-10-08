@@ -344,7 +344,36 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
 }
 export default meta
 
+const LARGE_WORKFLOW_ID = 'storybook-large-workflow'
+const LARGE_WORKFLOW_STEPS = 55
+
+const LARGE_WORKFLOW: HogFlow = {
+    ...COMPLEX_WORKFLOW,
+    id: LARGE_WORKFLOW_ID,
+    name: 'Daily reminders',
+    description: 'A long chain of reminders that crosses the split suggestion threshold.',
+    actions: [
+        COMPLEX_WORKFLOW.actions[0],
+        ...Array.from(
+            { length: LARGE_WORKFLOW_STEPS },
+            (_, index): HogFlowAction => ({
+                id: `reminder-${index}`,
+                type: 'delay',
+                name: `Day ${index + 1}: wait`,
+                description: '',
+                config: { delay_duration: '1d' },
+            })
+        ),
+    ],
+    edges: Array.from({ length: LARGE_WORKFLOW_STEPS }, (_, index) => ({
+        from: index === 0 ? COMPLEX_WORKFLOW.actions[0].id : `reminder-${index - 1}`,
+        to: `reminder-${index}`,
+        type: 'continue' as const,
+    })),
+}
+
 const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
+    [LARGE_WORKFLOW_ID]: LARGE_WORKFLOW,
     new: NEW_WORKFLOW,
     [COMPLEX_WORKFLOW_ID]: COMPLEX_WORKFLOW,
     ...EXAMPLE_WORKFLOWS,
@@ -368,3 +397,4 @@ export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example
 export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
 export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
 export const AddOnPromotionEmails: StoryFn = () => <InteractiveWorkflow id="example-add-on-promotion-emails" />
+export const LargeWorkflowSplitSuggestion: StoryFn = () => <InteractiveWorkflow id={LARGE_WORKFLOW_ID} />

@@ -7,6 +7,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowSplitSuggestion } from './WorkflowSplitSuggestion'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
@@ -47,6 +48,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
+            <WorkflowSplitSuggestion {...props} />
             {!originalWorkflow && workflowLoading ? (
                 <SpinnerOverlay />
             ) : (
