@@ -356,6 +356,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     return 'You need to be an organization admin or above to create new projects.'
                 }
 
+                if (!preflight) {
+                    return 'Project creation is unavailable while installation settings load.'
+                }
+
                 return getSelfHostedProjectLimitReason(currentOrganization, isHobby, preflight)
             },
         ],

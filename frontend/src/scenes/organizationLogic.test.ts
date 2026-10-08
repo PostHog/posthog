@@ -38,6 +38,25 @@ describe('organizationLogic', () => {
         }
     })
 
+    test('project creation waits for preflight settings', () => {
+        const organization: OrganizationType = {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            has_non_demo_project: false,
+        }
+        window.POSTHOG_APP_CONTEXT = { current_user: { organization } } as unknown as AppContext
+        initKeaTests()
+        logic = organizationLogic()
+
+        expect(logic.values.projectCreationForbiddenReason).toContain('settings load')
+
+        preflightLogic.actions.loadPreflightSuccess({
+            cloud: false,
+            is_debug: false,
+            is_test: false,
+        } as PreflightStatus)
+        expect(logic.values.projectCreationForbiddenReason).toBeNull()
+    })
+
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
             window.POSTHOG_APP_CONTEXT = { current_user: { organization: { id: 'WXYZ' } } } as unknown as AppContext
