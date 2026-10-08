@@ -310,20 +310,16 @@ jobs:
 
                   existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
                   if [ -n "$existing_pr" ]; then
-                      existing_pr_data=$(gh pr view "$existing_pr" --json headRefOid,isDraft)
-                      existing_head_sha=$(printf '%s' "$existing_pr_data" | jq -r '.headRefOid')
+                      existing_head_sha=$(gh pr view "$existing_pr" --json headRefOid --jq '.headRefOid')
                       if [ "$existing_head_sha" != "$RELEASE_COMMIT" ]; then
                           echo "::error::The existing release pull request does not contain the generated release commit"
                           exit 1
                       fi
                       gh pr edit "$existing_pr" --title "chore(symbol-data): release v$NEW_VERSION" --body-file "$body_file"
-                      if [ "$(printf '%s' "$existing_pr_data" | jq -r '.isDraft')" != 'true' ]; then
-                          gh pr ready "$existing_pr" --undo
-                      fi
+                      gh pr ready "$existing_pr"
                       pr_url=$(gh pr view "$existing_pr" --json url --jq '.url')
                   else
                       pr_url=$(gh pr create \
-                          --draft \
                           --title "chore(symbol-data): release v$NEW_VERSION" \
                           --body-file "$body_file" \
                           --base master \
@@ -341,6 +337,38 @@ jobs:
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
                   message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
                   emoji_reaction: eyes
+
+            - name: Get release approval token
+              id: release-approval-token
+              if: steps.release-pr.outputs.url != ''
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-pull-requests: write
+
+            - name: Approve and request Trunk merge
+              if: steps.release-approval-token.outputs.token != ''
+              env:
+                  GH_TOKEN: ${{ steps.release-approval-token.outputs.token }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
+                  RELEASE_PR: ${{ steps.release-pr.outputs.url }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  pr_data=$(gh pr view "$RELEASE_PR" --json number,headRefOid)
+                  pr_number=$(printf '%s' "$pr_data" | jq -r '.number')
+                  pr_head=$(printf '%s' "$pr_data" | jq -r '.headRefOid')
+                  if [ "$pr_head" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request head $pr_head is not the generated release commit $RELEASE_COMMIT"
+                      exit 1
+                  fi
+
+                  gh api "repos/$REPOSITORY/pulls/$pr_number/reviews" \
+                      -f event=APPROVE \
+                      -f commit_id="$RELEASE_COMMIT" \
+                      -f body='Automated approval for the generated posthog-symbol-data release version bump.' >/dev/null
+
+                  gh pr comment "$RELEASE_PR" --body '/trunk merge'
 
             - name: Notify Slack - Failed
               if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
