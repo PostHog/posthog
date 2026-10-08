@@ -69,7 +69,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         self.addCleanup(caches[INGRESS_DEDUP_CACHE_ALIAS].clear)
         self.addCleanup(caches["default"].clear)
         self.enterContext(override_settings(REVIEWHOG_TEAM_IDS=[_REVIEWHOG_TEAM_ID]))
-        caches["default"].set(AddedRepositoryNames.cache_key(_REVIEWHOG_TEAM_ID), frozenset({"posthog/posthog"}))
+        caches["default"].set(AddedRepositoryNames.cache_key(_REVIEWHOG_TEAM_ID), ["posthog/posthog"])
         self.factory = RequestFactory()
         self.view = build_webhook_view(build_github_provider("posthog"))
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))

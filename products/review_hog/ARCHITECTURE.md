@@ -795,7 +795,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 [--user-ids <id> ...] [--dry-run]` sets `review_inbox_prs` on every active org member's `ReviewUserSettings`
   (or only the listed users, each of whom must be an org member). `{enable,disable}_stamphog_inbox_reviews` is
   the same pair for `stamphog_review_inbox_prs`, and `{enable,disable}_comment_resolution` for `resolve_comments`.
-  `{enable,disable}_authored_pr_reviews` sets `default_review_mode` to `flash` or `follow` (and the deprecated `review_authored_prs` switch with it).
+  `{enable,disable}_authored_pr_reviews` sets `default_review_mode` to `flash` or `off` (and the deprecated `review_authored_prs` switch with it).
   `enable_authored_pr_reviews` also accepts `--effort medium` or `--effort xhigh` to set the user's effort for all Flash requests; omitting it preserves the saved choice.
   Disabling automatic reviews preserves the effort preference and lets running reviews finish while stopping future and pending automatic starts.
   Each command changes only its named toggle and any explicit effort choice. A run creates rows only when the requested value differs from the
