@@ -206,8 +206,6 @@ export const destinationsLogic = kea<destinationsLogicType>([
             (attached: string[], saved: string[]): boolean =>
                 attached.length !== saved.length || attached.some((id: string) => !saved.includes(id)),
         ],
-        // The API rejects an empty set, so the toggles stay free and this button is what holds the
-        // rule. That way the warehouse can go off before another destination goes on.
         saveDisabledReason: [
             (s) => [s.attachedDestinationIds, s.hasUnsavedChanges],
             (attached: string[], hasUnsavedChanges: boolean): string | null => {

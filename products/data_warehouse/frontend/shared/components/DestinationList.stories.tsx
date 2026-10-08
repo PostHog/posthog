@@ -46,8 +46,6 @@ BothSelected.args = {
     onEdit: () => {},
 }
 
-// The last one on can be turned off too. The caller's save button rejects the empty set, so the
-// warehouse can go off before another destination goes on.
 export const OnlyOneLeft = Template.bind({})
 OnlyOneLeft.args = {
     ...BothSelected.args,
