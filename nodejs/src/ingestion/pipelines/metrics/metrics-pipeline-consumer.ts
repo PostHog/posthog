@@ -54,10 +54,6 @@ export class MetricsPipelineConsumer {
             teamManager: deps.teamManager,
             quotaLimiting: deps.quotaLimiting,
             rateLimiter: new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config)),
-            repack: {
-                maxRecordsPerPacket: config.METRICS_REPACK_MAX_RECORDS,
-                maxBytesUncompressedPerPacket: config.METRICS_REPACK_MAX_BYTES_UNCOMPRESSED,
-            },
         })
     }
 

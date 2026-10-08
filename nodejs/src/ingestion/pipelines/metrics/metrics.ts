@@ -43,15 +43,3 @@ export const metricsRecordsDroppedCounter = new Counter({
     help: 'Total metric records dropped due to quota or rate limiting',
     labelNames: ['team_id'],
 })
-
-export const metricsPacketsRepackedCounter = new Counter({
-    name: 'metrics_ingestion_packets_repacked_total',
-    help: 'Input metric packets merged into per-team output packets',
-    labelNames: ['team_id'],
-})
-
-export const metricsPacketsProducedCounter = new Counter({
-    name: 'metrics_ingestion_packets_produced_total',
-    help: 'Per-team output metric packets produced to ClickHouse',
-    labelNames: ['team_id'],
-})

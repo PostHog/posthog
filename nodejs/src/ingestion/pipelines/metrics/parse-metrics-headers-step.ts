@@ -33,8 +33,8 @@ function parseSizeHeader(value: string | undefined): number | null {
 }
 
 /**
- * Reads the capture-side headers a metrics message carries. The Avro value is
- * not touched here; every decision until the repack stage is header-driven.
+ * Reads the capture-side headers a metrics message carries. The pipeline never
+ * decodes the Avro value; every decision is header-driven.
  */
 export function createParseMetricsHeadersStep<T extends { message: Message }>(): ProcessingStep<T, T & MetricsHeaders> {
     return function parseMetricsHeadersStep(input) {
