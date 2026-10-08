@@ -62,7 +62,7 @@ ALREADY_CERTIFIED = {
     WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
-ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write"]
+ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"]
 
 
 class SuggestionPagination(LimitOffsetPagination):

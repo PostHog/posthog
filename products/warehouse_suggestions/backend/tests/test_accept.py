@@ -9,6 +9,8 @@ from rest_framework import status
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -186,6 +188,32 @@ class TestAcceptSuggestion(APIBaseTest):
         suggestion.refresh_from_db()
         assert (refused["http_status"], refused["attr"]) == (status.HTTP_400_BAD_REQUEST, "refresh_interval_seconds")
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+
+    @parameterized.expand(
+        [
+            (
+                "every_accept_scope",
+                ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "no_view_write_scope",
+                ["warehouse_objects:write", "data_catalog_approval:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_a_token_needs_view_write_to_accept_a_materialize_suggestion(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/accept/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == expected_status, response.json()
 
     def test_a_dismiss_that_arrives_while_the_acceptor_runs_loses(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.CERTIFY)
