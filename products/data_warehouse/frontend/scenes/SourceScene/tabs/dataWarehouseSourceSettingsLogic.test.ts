@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -284,6 +285,32 @@ describe('sourceSettingsLogic', () => {
         expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
             { id: 'schema-1', should_sync: true, sync_frequency: '24hour' },
         ])
+    })
+
+    it.each([
+        { outcome: 'accepted', rejected: false, successToasts: 1 },
+        { outcome: 'rejected', rejected: true, successToasts: 0 },
+    ])('shows the success toast only when the save is $outcome', async ({ rejected, successToasts }) => {
+        silenceKeaLoadersErrors()
+        const source = makeSource([makeSchema()])
+        const updateSpy = jest.spyOn(api.externalDataSources, 'update')
+        if (rejected) {
+            updateSpy.mockRejectedValue(Object.assign(new Error('Connection timed out'), { status: 400 }))
+        } else {
+            updateSpy.mockResolvedValue(source)
+        }
+        const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceConfig()
+        }).toDispatchActions(['submitSourceConfigSuccess'])
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(successToastSpy).toHaveBeenCalledTimes(successToasts)
     })
 
     it('keys the logic by source id', () => {
