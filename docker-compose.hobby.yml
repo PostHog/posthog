@@ -505,6 +505,8 @@ services:
             # recording-api rejects them with a 401.
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -529,6 +531,7 @@ services:
             - seaweedfs
             - temporal
             - browserless
+            - personhog-router
 
     capture:
         build:
@@ -561,6 +564,22 @@ services:
             file: docker-compose.base.yml
             service: property-defs-rs
         logging: *default-logging
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            db:
+                condition: service_healthy
+
+    property-defs-ai:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        logging: *default-logging
+        environment:
+            KAFKA_CONSUMER_TOPIC: clickhouse_ai_events_json
+            KAFKA_CONSUMER_GROUP: property-defs-ai
         depends_on:
             kafka-init:
                 condition: service_completed_successfully

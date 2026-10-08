@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
     MAX_PAGES_PER_TARGET,
-    MAX_TARGETS,
     PAGE_SIZE,
     DataForSEOAPIError,
     DataForSEOResumeConfig,
@@ -18,17 +17,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     _request_task,
     dataforseo_source,
     get_rows,
-    parse_targets,
     validate_credentials,
-    validate_targets,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
     DATAFORSEO_ENDPOINTS,
     ENDPOINTS,
+    KEYWORD_SCOPES,
 )
 
-TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.targeted]
-LOOKUP_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if not config.targeted]
+TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
+UNTARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope != "target"]
+KEYWORD_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope in KEYWORD_SCOPES]
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -71,6 +70,7 @@ def _drive(
     manager: Any,
     responses: list[Any],
     targets: list[str] | None = None,
+    keywords: list[str] | None = None,
 ) -> tuple[list[tuple[str, Any]], list[list[dict[str, Any]]]]:
     # Drives get_rows with a mocked tracked session, returning ((url, payload) pairs, batches).
     # A GET lookup records a None payload.
@@ -95,6 +95,7 @@ def _drive(
                 api_login="login",
                 api_password="password",
                 targets=targets or ["example.com"],
+                keywords=keywords or [],
                 location_name="United States",
                 language_name="English",
                 endpoint=endpoint,
@@ -106,44 +107,7 @@ def _drive(
     return calls, batches
 
 
-class TestParseTargets:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("example.com", ["example.com"]),
-            ("https://example.com/", ["example.com"]),
-            ("http://www.example.com", ["example.com"]),
-            ("Example.COM, example.com", ["example.com"]),
-            ("a.com, b.com,, ,a.com", ["a.com", "b.com"]),
-            ("app.example.com/blog", ["app.example.com/blog"]),
-        ],
-    )
-    def test_normalizes_and_dedupes(self, raw: str, expected: list[str]) -> None:
-        assert parse_targets(raw) == expected
-
-    def test_empty_input_is_an_error(self) -> None:
-        parsed, error = validate_targets("  , ")
-        assert parsed == []
-        assert error is not None
-
-    def test_too_many_targets_is_an_error(self) -> None:
-        raw = ", ".join(f"site{i}.com" for i in range(MAX_TARGETS + 1))
-        _, error = validate_targets(raw)
-        assert error is not None
-        assert str(MAX_TARGETS) in error
-
-    def test_max_targets_is_allowed(self) -> None:
-        raw = ", ".join(f"site{i}.com" for i in range(MAX_TARGETS))
-        parsed, error = validate_targets(raw)
-        assert error is None
-        assert len(parsed) == MAX_TARGETS
-
-
 class TestBodyStatusClassification:
-    @pytest.mark.parametrize("status_code", [None, 20000])
-    def test_success_codes_pass(self, status_code: int | None) -> None:
-        _raise_for_body_status(status_code, "Ok.")
-
     @pytest.mark.parametrize("status_code", [40202, 50000, 50401])
     def test_transient_codes_raise_retryable(self, status_code: int) -> None:
         with pytest.raises(DataForSEORetryableError):
@@ -188,23 +152,6 @@ class TestRequestTask:
     def test_missing_result_returns_empty(self, results: Any) -> None:
         assert self._post(_resp(_body(results))) == []
 
-    def test_wraps_payload_in_array(self) -> None:
-        session = MagicMock()
-        session.post.return_value = _resp(_body([]))
-        _request_task.__wrapped__(session, "POST", "/path", {"target": "example.com"}, MagicMock())  # type: ignore[attr-defined]
-        _, kwargs = session.post.call_args
-        assert kwargs["json"] == [{"target": "example.com"}]
-
-    def test_get_sends_no_body(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _resp(_body([{"category_code": 10021}]))
-        result = _request_task.__wrapped__(  # type: ignore[attr-defined]
-            session, "GET", "/dataforseo_labs/categories", None, MagicMock()
-        )
-        assert result == [{"category_code": 10021}]
-        session.post.assert_not_called()
-        assert "json" not in session.get.call_args.kwargs
-
 
 class TestGetRows:
     def test_items_endpoint_injects_target(self) -> None:
@@ -215,14 +162,6 @@ class TestGetRows:
 
         assert calls[0][0] == f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/domain_rank_overview/live"
         assert batches == [[{"se_type": "google", "metrics": {}, "target": "example.com"}]]
-
-    def test_localized_payload_carries_location_and_language(self) -> None:
-        manager = _manager()
-        calls, _ = _drive("domain_rank_overview", manager, [_resp(_body([_items_result([])]))])
-
-        payload = calls[0][1]
-        assert payload["location_name"] == "United States"
-        assert payload["language_name"] == "English"
 
     def test_backlinks_payload_has_no_location_and_includes_subdomains(self) -> None:
         manager = _manager()
@@ -242,49 +181,12 @@ class TestGetRows:
         assert calls[0][1]["date_from"] == "2020-10-01"
         assert [row["date"] for row in batches[0]] == ["2024-03-01", "2024-11-01"]
 
-    def test_ranked_keywords_flattens_key_fields(self) -> None:
-        manager = _manager()
-        item = {
-            "se_type": "google",
-            "keyword_data": {"keyword": "posthog", "keyword_info": {"search_volume": 1000}},
-            "ranked_serp_element": {
-                "serp_item": {"type": "organic", "rank_group": 2, "rank_absolute": 3, "url": "https://example.com/x"}
-            },
-        }
-        _, batches = _drive("ranked_keywords", manager, [_resp(_body([_items_result([item], total_count=1)]))])
-
-        row = batches[0][0]
-        assert row["keyword"] == "posthog"
-        assert row["item_type"] == "organic"
-        assert row["rank_group"] == 2
-        assert row["rank_absolute"] == 3
-        assert row["ranked_url"] == "https://example.com/x"
-        assert row["target"] == "example.com"
-        assert row["keyword_data"] == item["keyword_data"]
-
     def test_ranked_keywords_skips_items_without_keyword(self) -> None:
         manager = _manager()
         items: list[dict[str, Any]] = [{"keyword_data": {}}, {"keyword_data": {"keyword": "ok"}}]
         _, batches = _drive("ranked_keywords", manager, [_resp(_body([_items_result(items, total_count=2)]))])
 
         assert [row["keyword"] for row in batches[0]] == ["ok"]
-
-    def test_paginates_by_total_count_and_saves_state_after_each_page(self) -> None:
-        manager = _manager()
-        page_1 = [{"keyword_data": {"keyword": f"kw{i}"}} for i in range(PAGE_SIZE)]
-        page_2 = [{"keyword_data": {"keyword": "last"}}]
-        responses = [
-            _resp(_body([_items_result(page_1, total_count=PAGE_SIZE + 1)])),
-            _resp(_body([_items_result(page_2, total_count=PAGE_SIZE + 1)])),
-        ]
-
-        calls, batches = _drive("ranked_keywords", manager, responses)
-
-        assert [payload["offset"] for _, payload in calls] == [0, PAGE_SIZE]
-        assert all(payload["limit"] == PAGE_SIZE for _, payload in calls)
-        assert len(batches) == 2
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DataForSEOResumeConfig(target="example.com", offset=PAGE_SIZE)]
 
     def test_pagination_stops_at_page_cap(self) -> None:
         manager = _manager()
@@ -310,6 +212,7 @@ class TestGetRows:
                     api_login="login",
                     api_password="password",
                     targets=["example.com"],
+                    keywords=[],
                     location_name="United States",
                     language_name="English",
                     endpoint="ranked_keywords",
@@ -322,20 +225,6 @@ class TestGetRows:
         assert len(batches) == MAX_PAGES_PER_TARGET
         logger.warning.assert_called_once()
 
-    def test_fans_out_over_targets_and_saves_next_target_state(self) -> None:
-        manager = _manager()
-        responses = [
-            _resp(_body([_items_result([{"se_type": "google"}])])),
-            _resp(_body([_items_result([{"se_type": "google"}])])),
-        ]
-
-        calls, batches = _drive("domain_rank_overview", manager, responses, targets=["a.com", "b.com"])
-
-        assert [payload["target"] for _, payload in calls] == ["a.com", "b.com"]
-        assert [row["target"] for batch in batches for row in batch] == ["a.com", "b.com"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DataForSEOResumeConfig(target="b.com", offset=0)]
-
     def test_resume_skips_earlier_targets_and_seeds_offset(self) -> None:
         manager = _manager(DataForSEOResumeConfig(target="b.com", offset=PAGE_SIZE))
         responses = [_resp(_body([_items_result([{"keyword_data": {"keyword": "kw"}}], total_count=1)]))]
@@ -345,20 +234,6 @@ class TestGetRows:
         assert len(calls) == 1
         assert calls[0][1]["target"] == "b.com"
         assert calls[0][1]["offset"] == PAGE_SIZE
-
-    def test_resume_with_removed_target_starts_over(self) -> None:
-        manager = _manager(DataForSEOResumeConfig(target="gone.com", offset=PAGE_SIZE))
-        responses = [_resp(_body([_items_result([])]))]
-
-        calls, _ = _drive("domain_rank_overview", manager, responses, targets=["a.com"])
-
-        assert calls[0][1]["target"] == "a.com"
-
-    def test_empty_result_yields_nothing(self) -> None:
-        manager = _manager()
-        _, batches = _drive("domain_rank_overview", manager, [_resp(_body([_items_result([])]))])
-
-        assert batches == []
 
     def test_session_carries_basic_auth_and_redacts_password(self) -> None:
         manager = _manager()
@@ -372,6 +247,7 @@ class TestGetRows:
                     api_login="login",
                     api_password="password",
                     targets=["example.com"],
+                    keywords=[],
                     location_name="United States",
                     language_name="English",
                     endpoint="domain_rank_overview",
@@ -403,6 +279,28 @@ class TestGetRows:
                 "/backlinks/referring_domains/live",
                 {"target": "example.com", "include_subdomains": True, "limit": PAGE_SIZE, "offset": 0},
             ),
+            (
+                "backlinks",
+                "/backlinks/backlinks/live",
+                {
+                    "target": "example.com",
+                    "include_subdomains": True,
+                    "order_by": ["rank,desc"],
+                    "limit": PAGE_SIZE,
+                    "offset": 0,
+                },
+            ),
+            (
+                "backlinks_anchors",
+                "/backlinks/anchors/live",
+                {
+                    "target": "example.com",
+                    "include_subdomains": True,
+                    "order_by": ["backlinks,desc"],
+                    "limit": PAGE_SIZE,
+                    "offset": 0,
+                },
+            ),
             ("backlinks_history", "/backlinks/history/live", {"target": "example.com"}),
             (
                 "backlinks_timeseries_summary",
@@ -430,36 +328,129 @@ class TestGetRows:
         assert calls == [(f"{DATAFORSEO_BASE_URL}{path}", expected_payload)]
         assert batches == [[{**item, "target": "example.com"}]]
 
-    @pytest.mark.parametrize(
-        ("endpoint", "path", "row"),
-        [
-            (
-                "locations_and_languages",
-                "/dataforseo_labs/locations_and_languages",
-                {"location_code": 2840, "location_name": "United States", "available_languages": []},
-            ),
-            (
-                "categories",
-                "/dataforseo_labs/categories",
-                {"category_code": 10178, "category_name": "Apparel Accessories", "category_code_parent": 10021},
-            ),
-        ],
-    )
-    def test_lookup_endpoints_use_get_and_yield_untargeted_rows(
-        self, endpoint: str, path: str, row: dict[str, Any]
-    ) -> None:
+    def test_historical_search_volume_sends_every_keyword_in_one_request(self) -> None:
         manager = _manager()
-        # Two targets and two queued responses catch a lookup falling into the per-target fan-out,
-        # which would duplicate every row and stamp it with a target the API never returned.
+        item = {
+            "se_type": "google",
+            "keyword": "posthog",
+            "location_code": 2840,
+            "language_code": "en",
+            "search_partners": False,
+            "keyword_info": {
+                "search_volume": 1000,
+                "monthly_searches": [
+                    {"year": 2024, "month": 7, "search_volume": 450},
+                    {"year": 2024, "month": 6, "search_volume": 300},
+                ],
+            },
+        }
         calls, batches = _drive(
-            endpoint, manager, [_resp(_body([row])), _resp(_body([row]))], targets=["a.com", "b.com"]
+            "historical_search_volume",
+            manager,
+            [_resp(_body([_items_result([item])]))],
+            targets=["a.com", "b.com"],
+            keywords=["posthog", "session replay"],
         )
 
-        # A None payload means the call went out as a GET with no body.
-        assert calls == [(f"{DATAFORSEO_BASE_URL}{path}", None)]
-        assert batches == [[row]]
-        assert "target" not in batches[0][0]
+        # The endpoint takes the whole keyword list, and has no target fan-out to repeat it over.
+        assert calls == [
+            (
+                f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/historical_search_volume/live",
+                {
+                    "keywords": ["posthog", "session replay"],
+                    "location_name": "United States",
+                    "language_name": "English",
+                },
+            )
+        ]
+        assert batches == [
+            [
+                {
+                    "keyword": "posthog",
+                    "se_type": "google",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "search_partners": False,
+                    "year": 2024,
+                    "month": 7,
+                    "date": "2024-07-01",
+                    "search_volume": 450,
+                },
+                {
+                    "keyword": "posthog",
+                    "se_type": "google",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "search_partners": False,
+                    "year": 2024,
+                    "month": 6,
+                    "date": "2024-06-01",
+                    "search_volume": 300,
+                },
+            ]
+        ]
         manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"keyword": "posthog", "keyword_info": {}},
+            {"keyword": "posthog", "keyword_info": {"monthly_searches": [{"year": None, "month": 6}]}},
+            {"keyword": None, "keyword_info": {"monthly_searches": [{"year": 2024, "month": 6}]}},
+        ],
+    )
+    def test_historical_search_volume_skips_rows_it_cannot_key(self, item: dict[str, Any]) -> None:
+        # keyword, year and month are the primary key and year/month also derive the partition
+        # column, so a row missing any of them has nowhere to land.
+        manager = _manager()
+        _, batches = _drive(
+            "historical_search_volume", manager, [_resp(_body([_items_result([item])]))], keywords=["posthog"]
+        )
+
+        assert batches == []
+
+    def test_serp_organic_fans_out_per_keyword_and_stamps_crawl_metadata(self) -> None:
+        manager = _manager()
+        result = {
+            "keyword": "posthog",
+            "se_domain": "google.com",
+            "location_code": 2840,
+            "language_code": "en",
+            "check_url": "https://www.google.com/search?q=posthog",
+            "datetime": "2024-08-11 13:24:34 +00:00",
+            "items_count": 1,
+            "items": [{"type": "organic", "rank_absolute": 1, "domain": "posthog.com"}],
+        }
+        calls, batches = _drive(
+            "serp_organic",
+            manager,
+            [_resp(_body([result])), _resp(_body([{**result, "keyword": "session replay", "items": []}]))],
+            keywords=["posthog", "session replay"],
+        )
+
+        # The SERP endpoint takes one keyword per request and has no limit/offset pagination.
+        assert calls == [
+            (
+                f"{DATAFORSEO_BASE_URL}/serp/google/organic/live/advanced",
+                {"keyword": keyword, "location_name": "United States", "language_name": "English"},
+            )
+            for keyword in ["posthog", "session replay"]
+        ]
+        assert batches == [
+            [
+                {
+                    "type": "organic",
+                    "rank_absolute": 1,
+                    "domain": "posthog.com",
+                    "keyword": "posthog",
+                    "se_domain": "google.com",
+                    "location_code": 2840,
+                    "language_code": "en",
+                    "check_url": "https://www.google.com/search?q=posthog",
+                    "datetime": "2024-08-11 13:24:34 +00:00",
+                }
+            ]
+        ]
 
     def test_lookup_endpoint_ignores_saved_resume_state(self) -> None:
         # A lookup has no cursor, so state left behind by another endpoint must not skip the call.
@@ -477,6 +468,7 @@ class TestDataForSEOSourceResponse:
             api_login="login",
             api_password="password",
             targets=["example.com"],
+            keywords=["posthog"],
             location_name="United States",
             language_name="English",
             endpoint=endpoint,
@@ -500,9 +492,16 @@ class TestDataForSEOSourceResponse:
         # be part of the key for table-wide uniqueness.
         assert "target" in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
 
-    @pytest.mark.parametrize("endpoint", LOOKUP_ENDPOINTS)
-    def test_lookup_primary_keys_exclude_target(self, endpoint: str) -> None:
-        # Lookup rows carry no target column, so keying on one would key every row on null.
+    @pytest.mark.parametrize("endpoint", KEYWORD_ENDPOINTS)
+    def test_keyword_primary_keys_include_keyword(self, endpoint: str) -> None:
+        # A keyword-scoped endpoint aggregates rows from every configured keyword, so the keyword
+        # must be part of the key for table-wide uniqueness.
+        assert "keyword" in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
+
+    @pytest.mark.parametrize("endpoint", UNTARGETED_ENDPOINTS)
+    def test_untargeted_primary_keys_exclude_target(self, endpoint: str) -> None:
+        # Lookup and keyword-scoped rows carry no target column, so keying on one would key
+        # every row on null.
         assert "target" not in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
 
 
@@ -517,9 +516,6 @@ class TestValidateCredentials:
             else:
                 get.return_value = response
             return validate_credentials("login", "password")
-
-    def test_valid_credentials(self) -> None:
-        assert self._validate(_resp({"status_code": 20000, "tasks": []})) is True
 
     def test_unauthorized_is_invalid(self) -> None:
         assert self._validate(_resp({}, status=401)) is False

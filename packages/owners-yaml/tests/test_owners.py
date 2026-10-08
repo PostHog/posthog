@@ -21,11 +21,12 @@ from owners_yaml import (
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
-from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.resolver import DiskSource, OwnersResolver, PathKind, first_new_path, team_channel
 from owners_yaml.schema import (
     _RULE_KEYS,
     DEFAULT_ALIAS_FILES,
     TOP_LEVEL_KEYS,
+    UNSET,
     CodeownersSettings,
     TeamEntry,
     is_simple_owners_file,
@@ -124,16 +125,18 @@ def registry_repo(tmp_path: Path) -> Path:
     _write(
         tmp_path,
         "owners.yaml",
-        "version: 1\nowners: []\nteams:\n"
+        "version: 1\nowners: []\nproducers: [review-bot]\nteams:\n"
         "  team-registry:\n    slack: '#registry-chan'\n"
         "  team-silent:\n    slack: false\n"
-        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n",
+        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n"
+        "  team-mapped:\n    slack: '#mapped-people'\n    notifications:\n      review-bot: '#mapped-reviews'\n",
     )
     _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
     _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
     _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
     _write(tmp_path, "split/owners.yaml", "version: 1\nowners: [team-split]\n")
+    _write(tmp_path, "mapped/owners.yaml", "version: 1\nowners: [team-mapped]\n")
     return tmp_path
 
 
@@ -171,6 +174,22 @@ def test_json_schema_accepts_the_same_keys_as_the_parser() -> None:
 @pytest.mark.parametrize(
     "fragment",
     [
+        "sensitive: 'true'\n",
+        "sensitive: 1\n",
+        "rules:\n  - match: '/*'\n    sensitive: [true]\n",
+    ],
+)
+def test_malformed_sensitive_is_a_schema_error_and_sets_nothing(tmp_path: Path, fragment: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: [team-a]\n" + fragment, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any("'sensitive' must be a boolean" in e for e in errors), errors
+    assert file is not None and file.sensitive is UNSET and all(r.sensitive is UNSET for r in file.rules)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
         "additions: 5\n",
         "additions: [team-a, '']\n",
         "additions: {}\n",
@@ -198,7 +217,6 @@ def test_malformed_additions_is_a_schema_error_and_adds_nobody(tmp_path: Path, f
         ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("alias_files: [a.yaml, b.yaml, a.yaml]\n", "is listed twice"),
         ("alias_files: [a, b, c, d, e, f, g, h, a]\n", "at most 8 names"),
-        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )
 def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: str, needle: str) -> None:
@@ -218,7 +236,6 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
         ("teams: [team-a]\n", "'teams' must be a mapping"),
         ("teams:\n  team-a:\n    slack: 'no-hash'\n", "must be a string starting with '#' or false"),
         ("teams:\n  team-a:\n    notifications: 'no-hash'\n", "must be a string starting with '#' or false"),
-        ("teams:\n  team-a:\n    channel: '#a'\n", "unknown field 'channel'"),
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
         ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
@@ -312,8 +329,19 @@ def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) ->
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications={"reviewbot": "#a-bots"})}
 
 
-def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
-    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        "teams:\n  team-a:\n    slack: '#a'\n",
+        "sensitive: true\n",
+        "rules:\n  - match: '/a/'\n    sensitive: false\n",
+        "reviewers: [team-c]\n",
+        "rules:\n  - match: '/a/'\n    reviewers: [team-c]\n",
+    ],
+    ids=["teams-registry", "file-sensitive", "rule-sensitive", "file-unknown-field", "rule-unknown-field"],
+)
+def test_content_beyond_owners_pins_file_as_non_simple(tmp_path: Path, fragment: str) -> None:
+    text = "version: 1\nowners: [team-a]\n" + fragment
     file, _ = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert file is not None
     assert is_simple_owners_file(file) is False
@@ -847,6 +875,8 @@ def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: P
             "slack": "#registry-chan",
             "source": "reg/owners.yaml",
             "additions": [],
+            "added": {"path": "reg/x.py", "additions": []},
+            "sensitive": False,
         }
     }
     jsonschema = pytest.importorskip("jsonschema")
@@ -868,6 +898,108 @@ def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry
     wire = json.loads(result.stdout)
     assert wire["split/x.py"]["slack"] == "#split-bots"
     assert wire["derive/x.py"]["slack"] == "#team-nonreg"
+
+
+def _resolve_json(front_door: str, repo: Path, args: list[str]) -> tuple[int, str]:
+    """`resolve --json` and `python -m owners_yaml` on one path, as (exit code, output)."""
+    if front_door == "cli":
+        result = CliRunner().invoke(main, ["resolve", "--json", "--repo-root", str(repo), *args])
+        return result.exit_code, result.output
+    completed = _run_entrypoint(repo, "--repo-root", str(repo), *args)
+    return completed.returncode, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+@pytest.mark.parametrize(
+    "producer,channel",
+    [
+        (None, "#mapped-people"),
+        ("review-bot", "#mapped-reviews"),
+        ("typo-bot", None),
+    ],
+    ids=["no-producer", "mapped-producer", "undeclared-producer"],
+)
+def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
+    registry_repo: Path, front_door: str, producer: str | None, channel: str | None
+) -> None:
+    # Without the flag a per-producer mapping is never selected, so every bot lands on the people
+    # channel; with an undeclared name it would land there too, which is why that is an error.
+    args = ["--purpose", "notifications", *(["--producer", producer] if producer else []), "mapped/x.py"]
+
+    exit_code, output = _resolve_json(front_door, registry_repo, args)
+
+    if channel is None:
+        assert exit_code != 0
+        assert "unknown producer 'typo-bot'" in output
+        assert "review-bot" in output
+        return
+    assert exit_code == 0, output
+    assert json.loads(output)["mapped/x.py"]["slack"] == channel
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("products/new/sub/a.py", "products/new"),
+        ("products/old/c.py", "products/old/c.py"),
+        ("products/old/existing.py", None),
+        ("products/old", None),
+        ("products/was-a-file/a.py", "products/was-a-file"),
+        ("products/linked/a.py", "products/linked"),
+    ],
+    ids=[
+        "new-directory",
+        "new-file-in-existing-directory",
+        "existing-file",
+        "existing-directory",
+        "file-to-directory",
+        "symlink-to-directory",
+    ],
+)
+def test_first_new_path_names_the_part_nearest_the_root_that_the_tree_lacks(path: str, expected: str | None) -> None:
+    tree: dict[str, PathKind] = {
+        "products": "dir",
+        "products/old": "dir",
+        "products/old/existing.py": "file",
+        "products/was-a-file": "file",
+        "products/linked": "file",
+        "products/linked/a.py": "file",
+    }
+
+    assert first_new_path(path, tree.get) == expected
+
+
+def test_disk_source_reports_a_symlink_to_a_directory_as_a_file(tmp_path: Path) -> None:
+    _write(tmp_path, "real/a.py", "")
+    (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+
+    source = DiskSource(tmp_path)
+
+    assert source.path_kind("linked") == "file"
+    assert source.path_kind("real") == "dir"
+    assert first_new_path("linked/a.py", source.path_kind) == "linked"
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+def test_both_front_doors_report_the_new_part_of_a_path_the_tree_lacks(tmp_path: Path, front_door: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: team-root\nrules:\n  - match: '/products/*'\n    additions: team-arch\n",
+    )
+    _write(tmp_path, "products/old/owners.yaml", "version: 1\nowners: team-old\n")
+    _write(tmp_path, "products/old/x.py", "")
+
+    exit_code, output = _resolve_json(
+        front_door, tmp_path, ["products/new/a.py", "products/old/x.py", "products/old/y.py"]
+    )
+
+    assert exit_code == 0, output
+    wire = json.loads(output)
+    assert wire["products/new/a.py"]["added"] == {"path": "products/new", "additions": ["team-arch"]}
+    assert wire["products/new/a.py"]["additions"] == []
+    assert wire["products/old/x.py"]["added"] is None
+    assert wire["products/old/y.py"]["added"] == {"path": "products/old/y.py", "additions": []}
 
 
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
@@ -1004,6 +1136,43 @@ def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: 
 
 
 @pytest.mark.parametrize(
+    "root_yaml,warning",
+    [
+        ("reviewers: [team-c]\n", "unknown top-level field 'reviewers'"),
+        ("rules:\n  - match: '/web/'\n    reviewers: [team-c]\n", "rules[0]: unknown field 'reviewers'"),
+        ("teams:\n  team-a:\n    email: a@example.com\n", "teams['team-a']: unknown field 'email'"),
+        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
+    ],
+)
+def test_cli_lint_warns_on_an_unknown_field_without_failing(tmp_path: Path, root_yaml: str, warning: str) -> None:
+    # A newer version of the format can add a field, and an older linter must still pass that file.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\n" + root_yaml)
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert f"⚠ owners.yaml: {warning}" in result.output
+
+
+@pytest.mark.parametrize("guard_owners", ["[]", "null"], ids=["unowned", "unowned-by-design"])
+def test_cli_lint_warns_on_a_sensitive_path_without_owners(tmp_path: Path, guard_owners: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        f"version: 1\nowners: []\nrules:\n  - match: '/guard/'\n    owners: {guard_owners}\n    sensitive: true\n",
+    )
+    _write(tmp_path, "guard/baseline.txt", "")
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ guard/baseline.txt: sensitive but has no owners" in result.output
+    assert "web/app.ts: sensitive" not in result.output
+
+
+@pytest.mark.parametrize(
     "match,error",
     [
         ("docs", True),
@@ -1047,8 +1216,9 @@ def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> Non
     result = CliRunner().invoke(main, ["lint", "--repo-root", str(registry_repo)])
 
     assert result.exit_code == 0, result.output
-    # The walk finds the six ownership files plus the two code files, and only loose/code.py is unowned.
-    assert "coverage: 2 of 8 tracked file(s) resolve to unowned" in result.output
+    # The walk finds the seven ownership files plus the two code files. The root file declares no
+    # owners, so it and loose/code.py are the unowned two.
+    assert "coverage: 2 of 9 tracked file(s) resolve to unowned" in result.output
 
 
 def test_cli_live_lint_validates_names_used_only_in_additions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

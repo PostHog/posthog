@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product alerts
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product alerts
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Alerts
 feature: alerts
 url_prefix: /alerts
@@ -143,7 +141,8 @@ tools:
         operation: alerts_simulate_create
         enabled: true
         scopes:
-            - alert:write
+            - alert:read
+            - insight:read
         annotations:
             readOnly: false
             destructive: false
@@ -156,13 +155,13 @@ tools:
             (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
             ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
-            any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per
-            simulation, which is why this tool needs the alert:write scope; it is rate limited per project, and takes
-            the same instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores are the
-            model's confidence, not a statistical probability. Optionally specify date_from (e.g. '-48h', '-30d') to
-            control how far back to simulate, and series_index to pick which series to analyze. Returns data values,
-            anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector score
-            breakdowns.
+            any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so
+            alert:read and insight:read are enough for it. The llm type makes a real model call per simulation, so that
+            type also needs the alert:write scope; it is rate limited per project, and takes the same instructions,
+            threshold (default 0.7), and window (default 90) as an llm alert; its scores are the model's confidence, not
+            a statistical probability. Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to
+            simulate, and series_index to pick which series to analyze. Returns data values, anomaly scores per point,
+            triggered indices and dates, and for ensemble detectors, per-sub-detector score breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true
@@ -218,18 +217,3 @@ tools:
             (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either
             threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via
             detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
-    alerts-simulate-create:
-        operation: alerts_simulate_create
-        enabled: false
-    alerts-test-delivery-create:
-        operation: alerts_test_delivery_create
-        enabled: false
-    alerts-update:
-        operation: alerts_update
-        enabled: false
-    insights-thresholds-list:
-        operation: insights_thresholds_list
-        enabled: false
-    insights-thresholds-retrieve:
-        operation: insights_thresholds_retrieve
-        enabled: false

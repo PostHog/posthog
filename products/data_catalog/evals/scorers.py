@@ -13,12 +13,14 @@ import json
 from typing import Any
 
 from products.data_catalog.evals.constants import (
+    APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
     EVAL_DESCRIPTION_CHAR_LIMIT,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
     METRICS_CATALOG_MARKER,
+    PROPOSED_BADGE_ICON,
 )
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
@@ -42,8 +44,9 @@ __all__ = [
     "MetricsCatalogNotQueried",
     "GovernedBehaviorCorrectness",
     "ClarificationAsked",
-    "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
+    "ProposedBadgeShown",
+    "TrustBadgeShown",
 ]
 
 SQL_TOOL = "execute-sql"
@@ -242,6 +245,10 @@ class MetricsCatalogBeforeDataDiscovery(Scorer):
                 },
             )
         return Score(name=self._name(), score=1.0, metadata={"failed_catalog_lookups": failed_catalog_lookups})
+
+
+def _first_line(answer: str) -> str:
+    return next((line for line in answer.splitlines() if line.strip()), "")
 
 
 def _expected_metric_names(metric_name: object) -> list[str]:
@@ -569,35 +576,6 @@ class ClarificationAsked(Scorer):
         return Score(name=self._name(), score=1.0, metadata={"question_position": first_question})
 
 
-class ProposedMetricNotRun(Scorer):
-    """Binary: the named non-approved metric must not have been run for the answer."""
-
-    def _name(self) -> str:
-        return "proposed_metric_not_run"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        spec = expected.get(self._name()) if isinstance(expected, dict) else None
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
-        if not isinstance(metric_name, str) or not metric_name:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-
-        runs = [
-            call
-            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
-            if not call.is_error and call.input.get("name") == metric_name
-        ]
-        return Score(
-            name=self._name(),
-            score=0.0 if runs else 1.0,
-            metadata={"metric_name": metric_name, "runs": len(runs)},
-        )
-
-
 class MetricDescribeBeforeAdaptedSql(Scorer):
     """Soft: SQL adapted from a catalog definition should follow a `metric-describe`."""
 
@@ -637,7 +615,9 @@ with the requested measure, dimensions, grain, and time semantics, and must be r
 data-catalog-metric-run.
 - Multiple materially different approved matches require a clarification question and no metric run.
 - The runner response is the current trust result: recheck status and is_drifted after execution. \
-If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical.
+If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical. \
+The word itself belongs in the query context. In the final answer, a plain statement that the number \
+is a one-off calculation rather than a saved definition counts as that label.
 - A 'proposed' or drifted metric must never be presented as canonical or official; the agent \
 must derive the number itself (it may note the unapproved definition exists).
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
@@ -884,3 +864,75 @@ CANARY_ROUTING_SCORERS: list[Scorer] = [
     ClarificationAsked(),
     MetricDescribeBeforeAdaptedSql(),
 ]
+
+
+class TrustBadgeShown(Scorer):
+    """Binary: does the final answer show the approved-metric badge exactly when it should?
+
+    ``expected["trust_badge"]["shown"]`` is true when the answer comes from an approved, non-drifted
+    metric run, and false when no badge may appear (a proposed or drifted metric, or a derived number).
+    """
+
+    def _name(self) -> str:
+        return "trust_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        should_show = spec.get("shown") if isinstance(spec, dict) else None
+        if not isinstance(should_show, bool):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected value"})
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        opens_with_badge = APPROVED_BADGE_CODE_POINT in _first_line(answer)
+        has_badge = APPROVED_BADGE_CODE_POINT in answer
+        passed = opens_with_badge if should_show else not has_badge
+        return Score(
+            name=self._name(),
+            score=1.0 if passed else 0.0,
+            metadata={"expected_shown": should_show, "opens_with_badge": opens_with_badge, "has_badge": has_badge},
+        )
+
+
+class ProposedBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+
+    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
+    (``score=None``) and left to the behavior judge.
+    """
+
+    def _name(self) -> str:
+        return "proposed_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
+        if not isinstance(metric_name, str) or not metric_name:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+        ran = any(
+            not call.is_error and call.input.get("name") == metric_name
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+        )
+        if not ran:
+            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+
+        answer = (output or {}).get("last_message") or ""
+        opening = _first_line(answer)
+        # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
+        # name only starts the same way does not count.
+        link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
+        has_badge = PROPOSED_BADGE_ICON in opening
+        has_link = bool(link.search(opening))
+        return Score(
+            name=self._name(),
+            score=1.0 if has_badge and has_link else 0.0,
+            metadata={"has_badge": has_badge, "has_link": has_link},
+        )

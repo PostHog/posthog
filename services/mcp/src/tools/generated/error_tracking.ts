@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, withTextProjection, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAssignmentRulesCreateSchema = () => {
@@ -771,6 +771,9 @@ const queryErrorTrackingIssue = (): ToolBase<
             if (params.includeSparkline !== undefined) {
                 body['includeSparkline'] = params.includeSparkline
             }
+            if (params.includeBreakdown !== undefined) {
+                body['includeBreakdown'] = params.includeBreakdown
+            }
             const result = await context.api.request<Schemas.ErrorTrackingIssueDetail>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,
@@ -926,17 +929,31 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                     ])
                 ),
             } as typeof result
-            return await withPostHogUrl(
-                context,
-                {
-                    ...filtered,
-                    results: await Promise.all(
-                        (filtered.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/error_tracking/${item.id}`)
-                        )
-                    ),
-                },
-                '/error_tracking'
+            return withTextProjection(
+                await withPostHogUrl(
+                    context,
+                    {
+                        ...filtered,
+                        results: await Promise.all(
+                            (filtered.results ?? []).map((item) =>
+                                withPostHogUrl(context, item, `/error_tracking/${item.id}`)
+                            )
+                        ),
+                    },
+                    '/error_tracking'
+                ),
+                [
+                    'id',
+                    'name',
+                    'status',
+                    'severity',
+                    'first_seen',
+                    'last_seen',
+                    'aggregations.occurrences',
+                    'aggregations.users',
+                    'aggregations.sessions',
+                    '_posthogUrl',
+                ]
             )
         },
     })

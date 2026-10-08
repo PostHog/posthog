@@ -35,6 +35,7 @@ from .ast_helpers import (
     view_facade_usage,
 )
 from .isolation import (
+    IsolationRung,
     IsolationStatus,
     compute_isolation_status,
     has_legacy_interface_leaks,
@@ -954,11 +955,9 @@ def _dim_line(dim: DimensionScore, connector: str = "\u251c\u2500") -> str:
 
 def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
-    if status.isolated_tests_enabled:
+    if status.test_skip_configured:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
-    # Eligibility deliberately excludes the tach interface (see IsolationStatus), but the skip
-    # is unsound without the external boundary, so READY also requires it.
-    if status.eligible_for_isolated_tests and status.externally_sealed:
+    if status.is_sealed:
         missing = []
         if not status.has_contract_check_script:
             missing.append("add backend:contract-check")
@@ -966,7 +965,7 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
             missing.append("narrow turbo.json inputs")
         return "READY", f"{' + '.join(missing)} to turn the skip on"
     blockers: list[str] = []
-    if not status.is_isolated:
+    if not status.has_facade_contracts:
         blockers.append("add a facade (contracts.py + api.py)")
     elif not status.has_real_facade:
         blockers.append("make facade/api.py real (define functions, not re-exports)")
@@ -977,6 +976,14 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     if not status.has_tach_interface:
         blockers.append("add the tach [[interfaces]] block")
     return "OFF", "; ".join(blockers) if blockers else "prerequisites incomplete"
+
+
+_RUNG_DETAIL: dict[IsolationRung, str] = {
+    IsolationRung.LENIENT: "no facade/contracts.py, lenient lint",
+    IsolationRung.STRICT: "facade/contracts.py present, strict lint",
+    IsolationRung.SEALED: "both seals and a real facade, isolated tests not on",
+    IsolationRung.ISOLATED: "sealed, isolated tests on",
+}
 
 
 def _isolation_capstone(status: IsolationStatus) -> list[str]:
@@ -993,8 +1000,10 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     else:
         ext_state, ext_detail = "open", "legacy interface leak block present \u2014 core still imports internals"
 
-    if not status.is_isolated:
-        int_state, int_detail = "n/a", "no facade yet \u2014 product not isolated"
+    if not status.has_facade_contracts:
+        int_state, int_detail = "n/a", "no facade yet, so the product is Lenient"
+    elif not status.has_real_facade:
+        int_state, int_detail = "n/a", "facade/api.py defines no functions, so there is nothing to seal yet"
     elif status.internally_sealed:
         int_state, int_detail = "sealed", "presentation reaches internals only through the facade"
     else:
@@ -1006,6 +1015,7 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     tests_state, tests_detail = _isolated_tests_state(status)
 
     rows = [
+        ("rung", status.rung, _RUNG_DETAIL[status.rung]),
         ("external boundary", ext_state, ext_detail),
         ("internal seal", int_state, int_detail),
         ("isolated tests", tests_state, tests_detail),
@@ -1016,21 +1026,21 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     return lines
 
 
-SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=not isolated"
+SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
 
 
 def _seal_token(status: IsolationStatus | None) -> str:
     """Compact seal state for the --all grid. Each token names the remaining blocker."""
-    if status is None or not status.is_isolated:
+    if status is None or not status.has_facade_contracts:
         return "\u2014"
-    if status.isolated_tests_enabled:
+    if status.test_skip_configured:
         return "on"
     if not status.externally_sealed:
         return "ext\u2717"
     if status.deferred_count > 0:
         # externally sealed but internally unsealed \u2014 looks done, isn't
         return f"int:{status.deferred_count}"
-    if status.eligible_for_isolated_tests:
+    if status.is_sealed:
         return "ready"
     return "partial"
 

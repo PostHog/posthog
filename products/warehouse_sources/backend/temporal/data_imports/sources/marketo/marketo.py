@@ -373,24 +373,27 @@ def _download_bulk_export(
     int_columns: tuple[str, ...],
 ) -> Iterator[list[dict[str, Any]]]:
     response = client.request("GET", f"/bulk/v1/{obj}/export/{export_id}/file.json", stream=True)
+    try:
+        if "application/json" in (response.headers.get("Content-Type") or ""):
+            # A failed download comes back as a Marketo error envelope instead of CSV.
+            raise_for_marketo_errors(response.json())
+            return
 
-    if "application/json" in (response.headers.get("Content-Type") or ""):
-        # A failed download comes back as a Marketo error envelope instead of CSV.
-        raise_for_marketo_errors(response.json())
-        return
-
-    response.raw.decode_content = True
-    # Wrap the raw stream rather than iterating lines: exported text columns can contain
-    # newlines inside quoted fields, which line-splitting would tear apart.
-    stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")
-    batch: list[dict[str, Any]] = []
-    for row in csv.DictReader(stream):
-        batch.append(_normalize_row(row, int_columns))
-        if len(batch) >= BULK_CHUNK_ROWS:
+        response.raw.decode_content = True
+        response.raw.auto_close = False
+        # Wrap the raw stream rather than iterating lines: exported text columns can contain
+        # newlines inside quoted fields, which line-splitting would tear apart.
+        stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")
+        batch: list[dict[str, Any]] = []
+        for row in csv.DictReader(stream):
+            batch.append(_normalize_row(row, int_columns))
+            if len(batch) >= BULK_CHUNK_ROWS:
+                yield batch
+                batch = []
+        if batch:
             yield batch
-            batch = []
-    if batch:
-        yield batch
+    finally:
+        response.close()
 
 
 def _bulk_rows(
@@ -413,6 +416,8 @@ def _bulk_rows(
         # Checkpoint on the window boundary only once the whole window has been yielded, so a
         # resumed attempt re-exports the window it died in rather than skipping its tail.
         resumable_source_manager.save_state(MarketoResumeConfig(window_start=format_datetime(window_end)))
+        # The window is yielded in full. The safe point keeps this cursor if the next export fails.
+        resumable_source_manager.safe_point()
 
 
 def _rest_token_rows(

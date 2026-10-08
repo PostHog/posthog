@@ -27,6 +27,14 @@ class DeletePersonsMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DELETE_PERSONS_MODE_HARD: _ClassVar[DeletePersonsMode]
     DELETE_PERSONS_MODE_TOMBSTONE: _ClassVar[DeletePersonsMode]
 
+class VersionFloorOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    VERSION_FLOOR_OUTCOME_UNSPECIFIED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_LIVE: _ClassVar[VersionFloorOutcome]
+
 class LifecycleOpType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     LIFECYCLE_OP_TYPE_UNSPECIFIED: _ClassVar[LifecycleOpType]
@@ -42,6 +50,11 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
+VERSION_FLOOR_OUTCOME_UNSPECIFIED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_LIVE: VersionFloorOutcome
 LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
 LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
 LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
@@ -445,6 +458,88 @@ class DeletePersonsResponse(_message.Message):
         tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...,
     ) -> None: ...
 
+class GetPersonTombstonesRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GetPersonTombstonesResponse(_message.Message):
+    __slots__ = ("tombstones",)
+    TOMBSTONES_FIELD_NUMBER: _ClassVar[int]
+    tombstones: _containers.RepeatedCompositeFieldContainer[TombstonedPerson]
+    def __init__(self, tombstones: _Optional[_Iterable[_Union[TombstonedPerson, _Mapping]]] = ...) -> None: ...
+
+class AckedPersonTombstone(_message.Message):
+    __slots__ = ("person_uuid", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+
+class AckPersonTombstonesRequest(_message.Message):
+    __slots__ = ("team_id", "tombstones")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONES_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    tombstones: _containers.RepeatedCompositeFieldContainer[AckedPersonTombstone]
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        tombstones: _Optional[_Iterable[_Union[AckedPersonTombstone, _Mapping]]] = ...,
+    ) -> None: ...
+
+class AckPersonTombstonesResponse(_message.Message):
+    __slots__ = ("cleared_count",)
+    CLEARED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    cleared_count: int
+    def __init__(self, cleared_count: _Optional[int] = ...) -> None: ...
+
+class ListPersonTombstoneQueueRequest(_message.Message):
+    __slots__ = ("after_team_id", "after_person_uuid", "limit", "team_id")
+    AFTER_TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    AFTER_PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    after_team_id: int
+    after_person_uuid: str
+    limit: int
+    team_id: int
+    def __init__(
+        self,
+        after_team_id: _Optional[int] = ...,
+        after_person_uuid: _Optional[str] = ...,
+        limit: _Optional[int] = ...,
+        team_id: _Optional[int] = ...,
+    ) -> None: ...
+
+class PersonTombstoneQueueEntry(_message.Message):
+    __slots__ = ("team_id", "person_uuid", "person_version", "tombstoned_at")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_VERSION_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONED_AT_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuid: str
+    person_version: int
+    tombstoned_at: int
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        person_version: _Optional[int] = ...,
+        tombstoned_at: _Optional[int] = ...,
+    ) -> None: ...
+
+class ListPersonTombstoneQueueResponse(_message.Message):
+    __slots__ = ("entries",)
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    entries: _containers.RepeatedCompositeFieldContainer[PersonTombstoneQueueEntry]
+    def __init__(self, entries: _Optional[_Iterable[_Union[PersonTombstoneQueueEntry, _Mapping]]] = ...) -> None: ...
+
 class DeletePersonsBatchForTeamRequest(_message.Message):
     __slots__ = ("team_id", "batch_size")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -460,32 +555,55 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class DeleteTombstonedPersonsRequest(_message.Message):
-    __slots__ = ("team_id", "person_uuids", "max_rows")
+    __slots__ = ("team_id", "person_uuids", "max_rows", "bounded_persons")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     MAX_ROWS_FIELD_NUMBER: _ClassVar[int]
+    BOUNDED_PERSONS_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_uuids: _containers.RepeatedScalarFieldContainer[str]
     max_rows: int
+    bounded_persons: _containers.RepeatedCompositeFieldContainer[VersionBoundedPerson]
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         person_uuids: _Optional[_Iterable[str]] = ...,
         max_rows: _Optional[int] = ...,
+        bounded_persons: _Optional[_Iterable[_Union[VersionBoundedPerson, _Mapping]]] = ...,
     ) -> None: ...
 
+class VersionBoundedPerson(_message.Message):
+    __slots__ = ("person_uuid", "max_version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    MAX_VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    max_version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., max_version: _Optional[int] = ...) -> None: ...
+
 class DeleteTombstonedPersonsResponse(_message.Message):
-    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
+    __slots__ = (
+        "deleted_count",
+        "skipped_live_count",
+        "blocked_person_uuids",
+        "pending_person_uuids",
+        "rows_deleted",
+        "version_guard_applied",
+        "skipped_version_count",
+    )
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
     BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     PENDING_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     ROWS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    VERSION_GUARD_APPLIED_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_VERSION_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
     skipped_live_count: int
     blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     rows_deleted: int
+    version_guard_applied: bool
+    skipped_version_count: int
     def __init__(
         self,
         deleted_count: _Optional[int] = ...,
@@ -493,6 +611,8 @@ class DeleteTombstonedPersonsResponse(_message.Message):
         blocked_person_uuids: _Optional[_Iterable[str]] = ...,
         pending_person_uuids: _Optional[_Iterable[str]] = ...,
         rows_deleted: _Optional[int] = ...,
+        version_guard_applied: bool = ...,
+        skipped_version_count: _Optional[int] = ...,
     ) -> None: ...
 
 class SplitPersonRequest(_message.Message):
@@ -572,6 +692,45 @@ class SetPersonVersionFloorResponse(_message.Message):
     UPDATED_FIELD_NUMBER: _ClassVar[int]
     updated: bool
     def __init__(self, updated: bool = ...) -> None: ...
+
+class PersonVersionFloor(_message.Message):
+    __slots__ = ("person_uuid", "min_version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    min_version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., min_version: _Optional[int] = ...) -> None: ...
+
+class EnsurePersonVersionFloorsRequest(_message.Message):
+    __slots__ = ("team_id", "floors")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOORS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    floors: _containers.RepeatedCompositeFieldContainer[PersonVersionFloor]
+    def __init__(
+        self, team_id: _Optional[int] = ..., floors: _Optional[_Iterable[_Union[PersonVersionFloor, _Mapping]]] = ...
+    ) -> None: ...
+
+class PersonVersionFloorResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: VersionFloorOutcome
+    version: int
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[VersionFloorOutcome, str]] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
+
+class EnsurePersonVersionFloorsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[PersonVersionFloorResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[PersonVersionFloorResult, _Mapping]]] = ...) -> None: ...
 
 class FencePersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "op_id", "op_type")

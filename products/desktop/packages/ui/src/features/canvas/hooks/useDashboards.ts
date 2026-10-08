@@ -1,5 +1,6 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasAvailability,
   CanvasDraft,
   CanvasSource,
   CanvasVersion,
@@ -53,13 +54,14 @@ export function useDashboards(
 }
 
 /** Every canvas across every visible space. */
-export function useAllCanvases(): {
+export function useAllCanvases(options?: { enabled?: boolean }): {
   dashboards: DashboardRecord[];
   isLoading: boolean;
 } {
   const trpc = useHostTRPC();
   const { data, isLoading } = useQuery(
     trpc.dashboards.listAll.queryOptions(undefined, {
+      enabled: options?.enabled ?? true,
       gcTime: SPACE_QUERY_GC_TIME_MS,
       meta: AUTH_SCOPED_QUERY_META,
       refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
@@ -155,6 +157,24 @@ export function useDashboard(id: string | undefined): {
     ),
   );
   return { dashboard: data, isLoading, isFetching };
+}
+
+/**
+ * Why a canvas would not open. Asked only once `useDashboard` has answered
+ * `null`, so a canvas that opens normally never pays for it.
+ */
+export function useCanvasAvailability(id: string | undefined): {
+  availability: CanvasAvailability | undefined;
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.availability.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, meta: AUTH_SCOPED_QUERY_META, staleTime: 5_000 },
+    ),
+  );
+  return { availability: data, isLoading };
 }
 
 /** A canvas's source project — the head, or a historical version. */

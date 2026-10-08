@@ -96,18 +96,18 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["assigned_user_id"], self.user.pk)
 
     def test_backfill_includes_role_assignment(self):
-        from products.access_control.backend.models.role import Role
+        from products.access_control.backend.facade.testing import create_role
 
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_assigned")
-        role = Role.objects.create(name="oncall", organization=self.organization)
-        ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role, team=self.team)
+        role_id = create_role(organization_id=self.organization.id, name="oncall")
+        ErrorTrackingIssueAssignment.objects.create(issue=issue, role_id=role_id, team=self.team)
 
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
         self.assertEqual(len(rows), 1)
-        self.assertEqual(str(rows[0]["assigned_role_id"]), str(role.id))
+        self.assertEqual(str(rows[0]["assigned_role_id"]), str(role_id))
 
     def test_dry_run_does_not_produce(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="DryRunError", status="active")

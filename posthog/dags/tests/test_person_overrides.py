@@ -270,11 +270,11 @@ def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
 
 @pytest.mark.django_db
 def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(cluster: ClickhouseCluster):
-    # sharded_events_json and sharded_flag_evaluations may each sit on a cluster whose shards only
-    # its own handle enumerates. Running one of those rewrites over the job's handle would skip its
-    # rows, and the overrides that record the correct person_id are deleted in the very next op, so
-    # the divergence would be permanent. The assertion is keyed by table because a weaker one --
-    # that some mutation reached the sibling -- still passes when a target is dropped entirely.
+    # A squash target may sit on a cluster whose shards only its own handle enumerates. Running its
+    # rewrite over the job's handle would skip those rows, and the overrides that record the correct
+    # person_id are deleted in the very next op, so the divergence would be permanent. The assertion
+    # is keyed by table because a weaker one -- that some mutation reached the sibling -- still
+    # passes when a target is dropped entirely.
     dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
     placements = [
@@ -303,13 +303,18 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    # This assertion names the targets literally instead of reusing SQUASH_TARGETS or EVENTS_TARGETS.
-    # Either constant would still match after someone drops a target from its definition.
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
+    # would still match after someone drops a target from it.
     resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
     assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
         EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
+    }
+    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueue_on_shards.call_args_list} == {
+        EVENTS_DATA_TABLE(): False,
+        EVENTS_JSON_DATA_TABLE: True,
+        FLAG_EVALUATIONS_DATA_TABLE: False,
     }
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
     # returns at once, and the next op deletes the overrides that record the mapping.

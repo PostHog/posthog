@@ -39,11 +39,15 @@ org_option = click.option(
 )
 
 
-def _resolver(repo_root: Path | None, purpose: Purpose = "slack") -> OwnersResolver:
+def _resolver(repo_root: Path | None, purpose: Purpose = "slack", producer: str | None = None) -> OwnersResolver:
     try:
-        return OwnersResolver(repo_root=repo_root, purpose=purpose)
+        resolver = OwnersResolver(repo_root=repo_root, purpose=purpose, producer=producer)
     except RepoRootNotFound as exc:
         raise click.ClickException(str(exc)) from exc
+    error = resolver.producer_error()
+    if error is not None:
+        raise click.ClickException(error)
+    return resolver
 
 
 def _github_org(org: str | None, settings: RepoSettings) -> str:
@@ -70,10 +74,17 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
     default="slack",
     help="Which team channel `slack` resolves to: where people are, or where automation posts",
 )
+@click.option(
+    "--producer",
+    default=None,
+    help="The automation asking, for a team that maps `notifications` per producer",
+)
 @repo_root_option
 @click.argument("paths", nargs=-1)
-def cmd_resolve(as_json: bool, purpose: str, repo_root: Path | None, paths: tuple[str, ...]) -> None:
-    resolver = _resolver(repo_root, cast(Purpose, purpose))
+def cmd_resolve(
+    as_json: bool, purpose: str, producer: str | None, repo_root: Path | None, paths: tuple[str, ...]
+) -> None:
+    resolver = _resolver(repo_root, cast(Purpose, purpose), producer)
     targets = _read_paths(paths)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:
@@ -97,6 +108,8 @@ def cmd_who(repo_root: Path | None, path: str) -> None:
     else:
         click.echo("owners:  (unowned)")
     click.echo(f"status:  {r.status}")
+    if r.sensitive:
+        click.echo("sensitive: yes")
     click.echo(f"slack:   {r.slack or '(none)'}")
     click.echo(f"source:  {r.source or '(none)'}")
 
@@ -322,6 +335,8 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
         for err in entry.errors:
             errors.append(f"{rel}: {err}")
+        for warning in entry.warnings:
+            warnings.append(f"{rel}: {warning}")
         owners_dirs[directory] = is_simple_owners_file(parsed)
         if parsed is None:
             continue
@@ -353,8 +368,16 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
         github = GitHubOrg(_github_org(org, settings))
         errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths), github))
 
-    unowned = resolver.unowned(tracked)
-    warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
+    unowned_count = 0
+    sensitive_without_owners: list[str] = []
+    for path in tracked:
+        resolution = resolver.resolve(path)
+        unowned_count += resolution.is_unowned
+        # A consumer acts on `sensitive` through the owners of the path, so without owners the flag does nothing.
+        if resolution.sensitive and not resolution.owners:
+            sensitive_without_owners.append(f"{path}: sensitive but has no owners")
+    warnings.append(f"coverage: {unowned_count} of {len(tracked)} tracked file(s) resolve to unowned")
+    warnings.extend(sensitive_without_owners)
 
     for warning in warnings:
         click.echo(f"⚠ {warning}")

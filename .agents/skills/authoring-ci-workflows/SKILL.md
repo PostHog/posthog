@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -282,6 +282,28 @@ Measured checkout-step durations, from the GitHub API on real runs:
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
+## Never splice a caller's input into a command an inner shell re-parses
+
+A composite action that builds `sh -c "... $INPUT"` hands the container's shell a **script**, not a flag list. That inner shell re-parses it, and `exec` replaces the shell on the first command — so a token that ends a command there truncates every flag after it. With `#`, a newline or `;` the truncation is silent: `exec` never returns, nothing else runs, and the job exits 0. `&` and `|` truncate the command too, but the leftover flag then runs as a command of its own and the step fails with 127.
+
+The input reaches it looking innocent. Inside a YAML block scalar (`args: >-`) a `#` is **data**, not a YAML comment, and a more-indented line is not folded, so it keeps its newlines. Neither needs unusual input — a note or an indented flag is enough.
+
+Measured on [#101671](https://github.com/PostHog/posthog/pull/101671) before this was fixed: `semgrep-go` loaded 5 of the 7 configs it listed, `semgrep-rust` 5 of 7, `semgrep-general` 4 of 6, and the `--exclude-rule` / `--include` scopes below the comment went with them. CI was green throughout.
+
+Quoting harder is not the fix — the value already sits inside double quotes, and another pair collapses every flag into one argument. **Split it yourself and pass positional parameters**, the way `.github/actions/semgrep-ci` now does:
+
+```bash
+set -f                          # split on whitespace WITHOUT expanding globs
+semgrep_args=($SEMGREP_ARGS)
+set +f
+... sh -c 'exec tool ... "$@"' sh "${semgrep_args[@]}"
+```
+
+Nothing re-parses the value: each word reaches the tool verbatim, a glob arrives unexpanded for the tool to match itself, and a stray `#` becomes an argument the tool rejects loudly instead of a comment that eats the rest.
+
+`WF012` watches for the pattern coming back. It flags any action that splices an input into an inner shell, and checks that action's callers until it stops. An empty `SHELL_SPLIT_INPUTS` is the healthy state.
+`#` stays fine in every other input — `dorny/paths-filter` `filters:`, `actions/github-script` `script:`, a webhook `payload:` — so the rule is per-input, never blanket.
+
 ## Network fetches
 
 Downloads from outside the runner need retries, or a transient reset becomes a red check with no findings ([actionlint died on `curl: (35)`](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
@@ -316,7 +338,8 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
 ```
 
 - **Right-size, don't over-isolate.** One heavy consumer (change detection on a hot matrix) deserves its own app; a long tail of light workflows can share `GITHUB_TOKEN`.
-  Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
+  Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
+- **Use variables for non-sensitive configuration** (IDs, dates, limits, switches), because each workflow can access at most 100 organization secrets. Keep credentials and other sensitive values in secrets. Do not log confidential values, even when GitHub masks secrets.
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 
@@ -395,6 +418,14 @@ Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_r
 `turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
+### Never push to a merge queue branch
+
+A step that commits to `github.event.pull_request.head.ref` also runs on the queue's PR, where that ref is Trunk's `trunk-merge/` branch.
+A push there moves the head off the commit Trunk tests, cancels every in-flight run, and ends the attempt.
+The commit stays on an ephemeral branch and never reaches the pull request, so the next attempt repeats it.
+On a queue branch such a step must fail and say what to fix on the pull request. It must not commit, and it must not pass with the fix unapplied.
+`Check and update OpenAPI types` in `ci-backend.yml` is the reference. The snapshot committers skip the queue through their bot-actor check.
+
 ### Forcing the full matrix on a draft
 
 The `run-ci-backend` and `run-ci-frontend` labels force the full matrix, but a label alone starts nothing.
@@ -437,7 +468,7 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | ----------------------------------- | ------ |
 | `ci-frontend.yml`                   | 7      |
 | `ci-nodejs.yml`                     | 13     |
-| `ci-backend.yml`                    | 23     |
+| `.depot/workflows/ci-backend.yml`   | 23     |
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
@@ -457,7 +488,6 @@ group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled'
 ```
 
 That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
-`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
 Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
 
 **The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
@@ -470,6 +500,10 @@ Any _step_ that reads a filter output needs the same `schedule` arm.
 
 A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
+
+Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
+The master run trace reporter reads the same Depot lane. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
 
 ## Backwards-compat with unrebased PRs
 
@@ -488,6 +522,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
+- [ ] No step pushes to a `trunk-merge/` branch: a step that commits to the PR head fails there instead.
 - [ ] Caching through the shared composites; writes gated to master.
 - [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.

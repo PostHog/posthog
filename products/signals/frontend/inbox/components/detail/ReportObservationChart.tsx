@@ -42,11 +42,13 @@ export function ReportObservationChart({
     points,
     type,
     interval,
+    goalValue,
 }: {
     metric: ReportMetricApi
     points: ReportMetricSeriesPoints
     type: ReportMetricChartType
     interval: IntervalType | null | undefined
+    goalValue?: number
 }): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
@@ -73,17 +75,19 @@ export function ReportObservationChart({
     const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             xAxis,
+            goalLines: goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }],
             // Rates and durations emphasize change, so the value axis floats to the observed range.
             yAxis: { startAtZero: false, tickFormatter: yAxisValueFormatter },
             ...AXIS_CHROME,
             showCrosshair: true,
             tooltip: { pinnable: false, valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue]
     )
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             xAxis,
+            goalLines: goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }],
             yAxis: { tickFormatter: yAxisValueFormatter },
             ...AXIS_CHROME,
             showCrosshair: false,
@@ -93,7 +97,7 @@ export function ReportObservationChart({
             margins: BAR_MARGINS,
             tooltip: { pinnable: false, hitArea: 'band', valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue]
     )
 
     return (

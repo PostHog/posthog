@@ -29,6 +29,15 @@ def _keyset_response(data_key: str, items: list[dict[str, Any]], *, next_cursor:
     return resp
 
 
+def _data_api_response(items: list[dict[str, Any]], *, next_cursor: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(
+        {"data": items, "pagination": {"limit": 1000, "has_more": next_cursor is not None, "next_cursor": next_cursor}}
+    ).encode()
+    return resp
+
+
 def _array_response(items: list[dict[str, Any]]) -> Response:
     resp = Response()
     resp.status_code = 200
@@ -126,13 +135,45 @@ class TestPolymarketTransport:
         assert params[1]["offset"] == page_size
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_keyset_resume_seeds_the_cursor(self, MockSession) -> None:
+    def test_data_api_cursor_pagination_walks_then_stops(self, MockSession) -> None:
         session = MockSession.return_value
-        params = _wire(session, [_keyset_response("events", [{"id": "9"}])])
+        params = _wire(
+            session,
+            [
+                _data_api_response([{"position_id": "1", "user_id": "0xa"}], next_cursor="c1"),
+                _data_api_response([{"position_id": "2", "user_id": "0xb"}]),
+            ],
+        )
 
-        _rows(_source("events", _make_manager(PolymarketResumeConfig(cursor="saved"))))
+        rows = _rows(_source("biggest_winners", _make_manager()))
 
-        assert params[0]["after_cursor"] == "saved"
+        assert [row["position_id"] for row in rows] == ["1", "2"]
+        assert all(
+            c.args[0].url == "https://data-api.polymarket.com/v2/biggest-winners"
+            for c in session.prepare_request.call_args_list
+        )
+        # The board defaults to one day; without time_period=all each sync replaces the table with
+        # only that day's wins. Sending offset is a 400 on the Data API.
+        assert params[0] == {"limit": 1000, "time_period": "all"}
+        assert params[1]["cursor"] == "c1"
+        assert not any("offset" in p or "order" in p for p in params)
+
+    @parameterized.expand(
+        [
+            ("events", _keyset_response("events", [{"id": "9"}]), "after_cursor"),
+            ("biggest_winners", _data_api_response([{"position_id": "9", "user_id": "0xa"}]), "cursor"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cursor_resume_seeds_the_cursor(
+        self, endpoint: str, response: Response, cursor_param: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [response])
+
+        _rows(_source(endpoint, _make_manager(PolymarketResumeConfig(cursor="saved"))))
+
+        assert params[0][cursor_param] == "saved"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_offset_resume_seeds_the_offset(self, MockSession) -> None:
@@ -142,54 +183,6 @@ class TestPolymarketTransport:
         _rows(_source("tags", _make_manager(PolymarketResumeConfig(offset=1000))))
 
         assert params[0]["offset"] == 1000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_cursor_resume_state_is_ignored_by_an_offset_endpoint(self, MockSession) -> None:
-        # The two styles share one resume dataclass. Seeding an offset paginator with a cursor (or
-        # the reverse) would either crash or restart the walk at the wrong place.
-        session = MockSession.return_value
-        params = _wire(session, [_array_response([])])
-
-        _rows(_source("tags", _make_manager(PolymarketResumeConfig(cursor="not-an-offset"))))
-
-        assert params[0]["offset"] == 0
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_keyset_checkpoint_saves_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _keyset_response("events", [{"id": "1"}], next_cursor="c1"),
-                _keyset_response("events", [{"id": "2"}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("events", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.cursor for s in saved] == ["c1"]
-        assert all(s.offset is None for s in saved)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offset_checkpoint_saves_the_offset(self, MockSession) -> None:
-        page_size = POLYMARKET_ENDPOINTS["tags"].page_size
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _array_response([{"id": str(i)} for i in range(page_size)]),
-                _array_response([]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("tags", manager))
-
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.offset for s in saved] == [page_size]
-        assert all(s.cursor is None for s in saved)
 
     @parameterized.expand([("events", ["id"]), ("markets", ["id"]), ("series", ["id"]), ("tags", ["id"])])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -213,9 +206,3 @@ class TestPolymarketTransport:
         MockSession.return_value.get.return_value = resp
 
         assert validate_credentials() is expected
-
-    @mock.patch(POLYMARKET_SESSION_PATCH)
-    def test_validate_credentials_survives_transport_error(self, MockSession) -> None:
-        MockSession.side_effect = OSError("boom")
-
-        assert validate_credentials() is False

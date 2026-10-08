@@ -18,6 +18,7 @@ import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -319,11 +320,6 @@ async def test_insert_into_stage_activity_for_events_model(
     exclude_events,
     truncate_clickhouse_tables,
 ):
-    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
-
-    For now we just check that the number of records exported is correct, not the content of the records.
-    """
-
     records_exported = await _run_activity(
         activity_environment=activity_environment,
         object_storage_client=object_storage_client,
@@ -337,6 +333,9 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+    assert {record["uuid"]: record["person_id"] for record in records_exported} == {
+        event["uuid"]: event["person_id"] for event in events_to_export_created
+    }
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
@@ -916,7 +915,7 @@ async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
 async def _acreate_batch_export_for_test(team_id: int, interval: str = "hour") -> BatchExport:
     """Create a minimal BatchExport via the ORM (no Temporal schedule) for FK-backed run rows."""
     destination = await BatchExportDestination.objects.acreate(
-        type="S3",
+        type="AwsS3",
         config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"},
     )
     return await BatchExport.objects.acreate(
@@ -1304,6 +1303,29 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
 class TestHogQLModel:
     """Tests for the 'hogql' model, which exports the results of a user-defined HogQL query."""
 
+    async def test_missing_actor_fails_without_executing_query(
+        self,
+        ateam: Team,
+        activity_environment: ActivityEnvironment,
+        mock_clickhouse_client: MockClickHouseClient,
+    ) -> None:
+        inputs = BatchExportInsertIntoInternalStageInputs(
+            team_id=ateam.pk,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+            data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+            batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1", user_id=None),
+        )
+
+        with patch("products.batch_exports.backend.temporal.pipeline.internal_stage._execute_query") as execute_query:
+            result = await activity_environment.run(insert_into_internal_stage_activity, inputs)
+
+        assert result.error is not None
+        assert result.error.type == "UnsupportedHogQLQueryError"
+        assert "needs an active user" in result.error.message
+        execute_query.assert_not_called()
+        mock_clickhouse_client.expect_query_count(0)
+
     @pytest_asyncio.fixture
     async def hogql_model_test_data(
         self, clickhouse_client, ateam, data_interval_start, data_interval_end, truncate_clickhouse_tables
@@ -1441,6 +1463,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         data_interval_start,
         data_interval_end,
         hogql_query,
@@ -1464,7 +1487,7 @@ class TestHogQLModel:
                 team_id=ateam.pk,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
-                model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
+                model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query, user_id=auser.pk),
             )
 
         assert all(list(row.keys()) == expected_columns for row in exported_rows)
@@ -1479,6 +1502,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         data_interval_start,
         data_interval_end,
     ):
@@ -1511,6 +1535,7 @@ class TestHogQLModel:
                         "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
                         "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
                     ),
+                    user_id=auser.pk,
                 ),
             )
 
@@ -1528,6 +1553,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         data_interval_start,
         data_interval_end,
     ):
@@ -1554,7 +1580,10 @@ class TestHogQLModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event_id, event, distinct_id FROM events_view"
+                name="hogql",
+                schema=None,
+                hogql_query="SELECT event_id, event, distinct_id FROM events_view",
+                user_id=auser.pk,
             ),
         )
 
@@ -1570,7 +1599,9 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT * FROM events_view"),
+            model=BatchExportModel(
+                name="hogql", schema=None, hogql_query="SELECT * FROM events_view", user_id=auser.pk
+            ),
         )
         assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows_2) == sorted(
             (e["uuid"], e["event"], e["distinct_id"]) for e in events
@@ -1587,6 +1618,7 @@ class TestHogQLModel:
         activity_environment,
         object_storage_client,
         ateam,
+        auser,
         clickhouse_client,
         data_interval_start,
         data_interval_end,
@@ -1606,7 +1638,9 @@ class TestHogQLModel:
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
-            model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"),
+            model=BatchExportModel(
+                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
+            ),
             batch_export_id=batch_export_id,
         )
 

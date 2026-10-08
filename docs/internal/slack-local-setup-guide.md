@@ -116,6 +116,7 @@ oauth_config:
       - openid
       - email
       - profile
+      - canvases:read
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -144,6 +145,8 @@ Django must be up at that moment.
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
+
+> The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
 > them a 👍/👎 reaction on a reply records nothing, again with no error.
@@ -282,8 +285,10 @@ It does not move bot events to production or change the production Slack app's c
    The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
    It activates only after the shared-client probe passes.
    Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
-6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results and an accessible canvas can be read.
    Confirm that another project cannot list or authorize this entry.
+
+Reconnect an installation that was authorized before a new reviewed scope was synced. Existing OAuth tokens do not gain the new scope automatically.
 
 The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
 The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
@@ -307,7 +312,22 @@ Tokens from the development app cannot be transferred to the production app.
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in
   our run, but they're there if you get stuck.
 
+### Channel search cache
+
+Channel name search uses the cached channel list.
+If name search does not find a channel, paste its ID to look it up directly in Slack.
+A successful ID lookup also adds the channel to an existing search cache with the same access scope.
+Concurrent ID lookups keep both channels in the cache.
+The update keeps the cache refresh time and expiry.
+It does not load other missing channels or create a channel list from a single lookup.
+
 ## Troubleshooting
+
+### Channel selection
+
+Paste a Slack channel ID into the channel picker to select that channel.
+The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
+Click the selected channel in the list to clear the search text.
 
 The walls we actually hit and fixed:
 

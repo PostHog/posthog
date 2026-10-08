@@ -205,15 +205,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return remapped
         return self.query.breakdownBy
 
-    def get_cache_key(self) -> str:
+    def get_cache_key_variant(self) -> str:
         # The remap changes results for the same query, so remapped and
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
-        original = super().get_cache_key()
+        variant = super().get_cache_key_variant()
         effective_breakdown = self._effective_breakdown()
         if effective_breakdown != self.query.breakdownBy:
-            return f"{original}_{effective_breakdown.value}"
-        return original
+            return f"{variant}_{effective_breakdown.value}"
+        return variant
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         breakdown = self._effective_breakdown()
@@ -817,6 +817,7 @@ WHERE and(
             query=query,
             team=self.team,
             user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             timings=self.timings,
             modifiers=modifiers,
         )

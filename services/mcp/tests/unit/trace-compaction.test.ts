@@ -138,9 +138,19 @@ describe('compactTrace summary detail', () => {
                 createdAt: '2026-09-02T11:30:23Z',
                 properties: {
                     $ai_model: 'gpt-4',
+                    $ai_temperature: 0.7,
+                    $ai_stream: false,
+                    $ai_effort: 'high',
                     $ai_latency: 1.5,
+                    $ai_time_to_first_token: 0.3,
+                    $ai_request_cost_usd: 0.02,
+                    $ai_total_tokens: 1_200,
+                    $ai_stop_reason: 'end_turn',
                     $ai_tools_called: ['search'],
-                    $ai_is_error: false,
+                    $ai_is_error: true,
+                    $ai_http_status: 429,
+                    $ai_error: 'rate limited while sending: Why did the checkout funnel drop?',
+                    $ai_feedback_text: 'It never answered why the checkout funnel dropped.',
                     $ai_input: 'i'.repeat(5_000),
                     $ai_output_choices: 'o'.repeat(5_000),
                     custom_payload: 'c'.repeat(5_000),
@@ -149,27 +159,52 @@ describe('compactTrace summary detail', () => {
         ],
     }
 
-    it('keeps navigation metadata verbatim and previews everything else', () => {
+    it('keeps navigation metadata verbatim and leaves out everything else', () => {
         const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
         const properties = result.events[0].properties
         expect(properties.$ai_model).toBe('gpt-4')
+        // How the model was called is a scalar setting, not conversation
+        // content, so a survey of it does not have to fall back to full detail.
+        expect(properties.$ai_temperature).toBe(0.7)
+        expect(properties.$ai_stream).toBe(false)
+        expect(properties.$ai_effort).toBe('high')
         expect(properties.$ai_latency).toBe(1.5)
+        // Cost and latency are what a summary survey is for, so the scalars it
+        // reads stay whole rather than being omitted as content.
+        expect(properties.$ai_time_to_first_token).toBe(0.3)
+        expect(properties.$ai_request_cost_usd).toBe(0.02)
+        expect(properties.$ai_total_tokens).toBe(1_200)
+        expect(properties.$ai_stop_reason).toBe('end_turn')
         expect(properties.$ai_tools_called).toEqual(['search'])
-        expect(properties.$ai_is_error).toBe(false)
-        expect(properties.$ai_input).toContain('truncated')
-        expect(properties.$ai_output_choices).toContain('truncated')
-        expect(properties.custom_payload).toContain('truncated')
+        expect(properties.$ai_is_error).toBe(true)
+        expect(properties.$ai_http_status).toBe(429)
+        expect(properties.$ai_input).toBeUndefined()
+        expect(properties.$ai_output_choices).toBeUndefined()
+        expect(properties.custom_payload).toBeUndefined()
+        // A provider error and a feedback note are free text, and an error
+        // routinely quotes the prompt back, so a summary keeps the flags that
+        // locate a failed event and drops the words.
+        expect(properties.$ai_error).toBeUndefined()
+        expect(properties.$ai_feedback_text).toBeUndefined()
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0]._summaryOmittedKeys).toEqual([
+            '$ai_error',
+            '$ai_feedback_text',
+            '$ai_input',
+            '$ai_output_choices',
+            'custom_payload',
+        ])
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.totalCost).toBe(0.42)
         expect(result._detail.mode).toBe('summary')
     })
 
-    it('previews a structured prompt with readable content, not an empty shell', () => {
-        // `$ai_input` is an array of message objects, so a preview only helps if the
-        // walk's per-item allowances leave room to descend into it.
+    it('carries no fragment of a prompt, however it is structured', () => {
+        // A summary is for a cost or latency survey. Neither a plain string nor a
+        // message array may leak a readable piece of the conversation into one.
         const messages = [
-            { role: 'system', content: 's'.repeat(2_000) },
+            { role: 'system', content: 'You are a helpful assistant.' },
             { role: 'user', content: 'Why did the checkout funnel drop?' },
         ]
 
@@ -179,21 +214,15 @@ describe('compactTrace summary detail', () => {
             'summary'
         ) as any
 
-        const preview = result.events[0].properties.$ai_input
-        expect(preview[0].role).toBe('system')
-        expect(preview[0].content).toContain('sss')
-        expect(preview[0].content).toContain('truncated')
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0]._summaryOmittedKeys).toEqual(['$ai_input'])
     })
 
-    it.each(['a', '界'])('preserves a 400-character %s preview', (character) => {
-        const content = character.repeat(400)
-        const result = compactTrace(
-            { id: 'trace-1', events: [{ id: 'e1', properties: { $ai_input: content } }] },
-            MAX_SUMMARY_CHARS,
-            'summary'
-        ) as any
+    it('leaves out trace-level input and output state', () => {
+        const result = compactTrace(trace, MAX_SUMMARY_CHARS, 'summary') as any
 
-        expect(result.events[0].properties.$ai_input).toBe(content)
+        expect(result.inputState).toBeUndefined()
+        expect(result._summaryOmittedKeys).toEqual(['inputState'])
     })
 
     it('returns far less than the same trace at full detail', () => {

@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 
 describe('replayScannerSceneLogic', () => {
     beforeEach(() => {
@@ -32,4 +32,33 @@ describe('replayScannerSceneLogic', () => {
             logic.unmount()
         }
     )
+
+    it.each([
+        ['on-demand', ReplayScannerTab.Run],
+        ['backfills', ReplayScannerTab.Run],
+        ['configuration', ReplayScannerTab.Overview],
+    ])('an old %s tab link opens the tab it was merged into', (oldTab, expected) => {
+        const logic = replayScannerSceneLogic()
+        logic.mount()
+        router.actions.push(urls.replayVision('scanner-9'), { tab: oldTab })
+
+        expect(logic.values.activeTab).toBe(expected)
+        logic.unmount()
+    })
+
+    it.each([
+        ['no tab in the URL lands on the new default', {}, ReplayScannerTab.Variants, undefined],
+        ['an explicit tab stays', { tab: 'alerts' }, ReplayScannerTab.Alerts, 'alerts'],
+    ])('an experiment scanner with %s', (_name, params, expectedTab, expectedParam) => {
+        const logic = replayScannerSceneLogic()
+        logic.mount()
+        router.actions.push(urls.replayVision('scanner-9'), params)
+
+        logic.actions.setDefaultTab(ReplayScannerTab.Variants)
+
+        expect(logic.values.activeTab).toBe(expectedTab)
+        // The default tab keeps a clean URL, so a shared link follows the scanner's own default.
+        expect(router.values.searchParams.tab).toBe(expectedParam)
+        logic.unmount()
+    })
 })

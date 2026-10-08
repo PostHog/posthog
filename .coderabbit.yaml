@@ -35,8 +35,21 @@ reviews:
     suggested_reviewers: false
     in_progress_fortune: false
 
+    # Agents read the raw comment body, and that body includes the folded
+    # sections. The AI agent prompt block in each inline comment repeats the
+    # finding, so it only adds tokens to the agent context.
+    enable_prompt_for_ai_agents: false
+
+    # Keep the lists of ignored files, extra context, and suppressed comments
+    # out of the review body for the same reason. This is the default value,
+    # and it is set here so that nobody turns it on by accident.
+    review_details: false
+
     auto_review:
-        enabled: true
+        # CodeRabbit is retired on this repository in favor of PostHog Review
+        # (.github/review-hog.yml). The rest of this file is kept so a deliberate
+        # re-enable restores the tuned setup rather than the vendor defaults.
+        enabled: false
 
         # Review the commits pushed after the first review too, so work added
         # while a pull request is open is not merged unreviewed. An incremental
@@ -47,6 +60,10 @@ reviews:
         # Most agent-authored pull requests open as drafts, which is where the
         # findings are cheapest to act on.
         drafts: true
+
+        ignore_usernames:
+            - trunk-io
+            - 'trunk-io[bot]'
 
         # Without this, only pull requests into the default branch are reviewed,
         # so every layer of a stack above the first would be skipped.
@@ -62,6 +79,12 @@ reviews:
               to express, says everything once and only once, and has no superfluous parts.
               Prefer parameterised tests over near-duplicate test functions.
               In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
+
+        - path: 'products/*/skills/**'
+          instructions: >-
+              These skills ship to every MCP client. Flag any instruction that uses a command, flag, tool, or
+              capability not available to every MCP user: flag-gated, client-specific, or mode-specific.
+              Example: the `learn` cli forms (`learn -s`, `learn posthog:`, `learn project:`), `--no-skills`.
 
     pre_merge_checks:
         # PostHog documents selectively and does not enforce docstring coverage.
@@ -79,6 +102,10 @@ reviews:
         # PostHog does not consistently link issues to PRs.
         issue_assessment:
             mode: 'off'
+
+chat:
+    # No replies in PR conversations unless someone @mentions the bot.
+    auto_reply: false
 
 knowledge_base:
     code_guidelines:
@@ -180,7 +207,7 @@ knowledge_base:
 
             # Eval suites, cases, scorers, and harness code.
             - files: '.agents/skills/writing-evals/SKILL.md'
-              applyTo: 'products/posthog_ai/evals/**,products/**/evals/**,ee/hogai/eval/**'
+              applyTo: 'products/posthog_ai/evals/**,products/**/evals/**'
 
             # Skill authoring.
             - files: '.agents/skills/writing-skills/SKILL.md'
