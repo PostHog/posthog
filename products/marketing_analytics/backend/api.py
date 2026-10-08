@@ -90,7 +90,7 @@ from products.marketing_analytics.backend.services.setup_types import (
     SetCampaignFieldPreference,
     UpdateConversionGoal,
 )
-from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
+from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UtmIssueKind
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -166,7 +166,7 @@ class UtmIssueSerializer(serializers.Serializer):
     # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
     # consumers get the five values as a union instead of having to restate them.
     kind = serializers.ChoiceField(
-        choices=UTM_ISSUE_KIND_CHOICES,
+        choices=UtmIssueKind.choices,
         help_text="Which kind of UTM problem this campaign has",
     )
     message = serializers.CharField(
