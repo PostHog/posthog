@@ -170,6 +170,7 @@ def promotion_event(
             "model_version": partition_key,
             "run_id": run_id,
             "would_promote": decision.promote,
+            "gates_passed": decision.gates_passed,
             "promoted": promoted,
             "reason": decision.reason,
             "override": outcome.override,

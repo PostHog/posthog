@@ -1533,7 +1533,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             partition_key="2026-08-25",
             run_id="run-1",
             model_name=STATE_MODEL_NAME,
-            decision=PromotionDecision(promote=True, reason="no champion yet", skipped_heads=("discuss",)),
+            decision=PromotionDecision(
+                promote=True, reason="no champion yet", gates_passed=True, skipped_heads=("discuss",)
+            ),
             outcome=PromotionOutcome(promote=True, override=None),
             promoted=False,
             champion_version="none",
@@ -1613,6 +1615,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
     assert {
         "would_promote": True,
+        "gates_passed": True,
         "promoted": False,
         "incumbent_champion_version": "none",
         "skipped_heads": ["discuss"],
@@ -1719,12 +1722,6 @@ def _metadata(version: str, **aucs: float | None) -> dict:
         ),
         (
             _metadata("d2", open=0.70),
-            {**_metadata("d1", open=0.65), "promoted_at": "2026-08-19T00:00:00+00:00"},
-            False,
-            "less than 3d ago",
-        ),
-        (
-            _metadata("d2", open=0.70),
             {**_metadata("d1", open=0.65, action=0.6), "promoted_at": "2026-08-10T00:00:00+00:00"},
             False,
             "action readable on champion but not on candidate",
@@ -1748,6 +1745,25 @@ def _metadata(version: str, **aucs: float | None) -> dict:
 def test_decide_promotion(candidate, champion, expected_promote, reason_fragment):
     decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3)
     assert decision.promote is expected_promote
+    assert reason_fragment in decision.reason
+
+
+@pytest.mark.parametrize(
+    "candidate_auc,expected_gates_passed,reason_fragment",
+    [
+        (0.70, True, "candidate passed every gate but champion d1 promoted less than 3d ago"),
+        # The wait must not hide a regression: the reason names the failed gate.
+        (0.65 - AUC_TOLERANCE - 0.01, False, "open regressed"),
+    ],
+)
+def test_decide_promotion_runs_the_quality_gates_before_the_wait(candidate_auc, expected_gates_passed, reason_fragment):
+    candidate = _metadata("d2", open=candidate_auc)
+    champion = {**_metadata("d1", open=0.65), "promoted_at": "2026-08-19T00:00:00+00:00"}
+
+    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3)
+
+    assert not decision.promote
+    assert decision.gates_passed is expected_gates_passed
     assert reason_fragment in decision.reason
 
 
@@ -1900,8 +1916,10 @@ def test_a_waived_holdout_floor_still_blocks_a_head_the_candidate_lost():
     assert not decision.promote
 
 
-_REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700")
-_PROMOTED = PromotionDecision(promote=True, reason="candidate at or above champion on every readable head")
+_REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700", gates_passed=False)
+_PROMOTED = PromotionDecision(
+    promote=True, reason="candidate at or above champion on every readable head", gates_passed=True
+)
 _OLDER_CHAMPION = {**_metadata("2026-08-10", open=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
 
