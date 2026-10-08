@@ -312,18 +312,28 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            ("approved", True),
-            ("proposed", False),
+            ("approved", [], True),
+            ("proposed", [], False),
+            ("approved", ["restricted_source"], False),
         ]
     )
-    async def test_prompt_builder_lists_approved_catalog_metrics(self, status, should_contain):
-        await Metric.objects.unscoped().acreate(team=self.team, name="pro_users", description="d", status=status)
+    async def test_prompt_builder_lists_approved_catalog_metrics(self, status, referenced_table_names, should_contain):
+        await Metric.objects.unscoped().acreate(
+            team=self.team,
+            name="pro_users",
+            description="d",
+            status=status,
+            referenced_table_names=referenced_table_names,
+        )
+        database = MagicMock()
+        database._denied_tables = {"restricted_source"}
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={})
         )
         prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
 
         with (
+            patch("posthog.hogql.database.database.Database.create_for", return_value=database),
             patch.object(prompt_builder, "_get_billing_prompt", new=AsyncMock(return_value="")),
             patch.object(prompt_builder, "_aget_core_memory_text", new=AsyncMock(return_value="")),
             patch.object(context_manager, "get_group_names", new=AsyncMock(return_value=[])),
