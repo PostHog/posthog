@@ -5,7 +5,6 @@ import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
@@ -22,7 +21,6 @@ import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectName } from './ProjectMenu'
 
 export function ProjectCombobox(): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -171,35 +169,33 @@ export function ProjectCombobox(): JSX.Element | null {
                 )}
 
                 <MenuSeparator />
-                {preflight?.can_create_org && (
-                    <Combobox.Item
-                        asChild
-                        onClick={() => {
-                            // The button below is rendered disabled when creation is forbidden, but the
-                            // Combobox still fires onClick/Enter — enforce the disabled state here too.
-                            if (projectCreationForbiddenReason) {
-                                return
-                            }
-                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                                currentUsage: currentOrganization?.teams?.length,
-                            })
-                        }}
+                <Combobox.Item
+                    asChild
+                    onClick={() => {
+                        // The button below is rendered disabled when creation is forbidden, but the
+                        // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                        if (projectCreationForbiddenReason) {
+                            return
+                        }
+                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                            currentUsage: currentOrganization?.teams?.length,
+                        })
+                    }}
+                >
+                    <ButtonPrimitive
+                        menuItem
+                        data-attr="new-project-button"
+                        tooltip="Create a new project"
+                        tooltipPlacement="right"
+                        className="shrink-0"
+                        disabledReasons={
+                            projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
+                        }
                     >
-                        <ButtonPrimitive
-                            menuItem
-                            data-attr="new-project-button"
-                            tooltip="Create a new project"
-                            tooltipPlacement="right"
-                            className="shrink-0"
-                            disabledReasons={
-                                projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
-                            }
-                        >
-                            <IconPlusSmall className="text-tertiary" />
-                            New project
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                )}
+                        <IconPlusSmall className="text-tertiary" />
+                        New project
+                    </ButtonPrimitive>
+                </Combobox.Item>
             </Combobox.Content>
         </Combobox>
     )

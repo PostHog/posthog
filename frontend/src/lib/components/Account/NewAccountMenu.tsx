@@ -73,7 +73,7 @@ export function NewAccountMenu({
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -155,7 +155,7 @@ export function NewAccountMenu({
                             >
                                 <Label intent="menu" className="pl-2 relative">
                                     Project
-                                    {preflight?.can_create_org && (
+                                    {!projectCreationForbiddenReason && (
                                         <ButtonPrimitive
                                             iconOnly
                                             tooltip="Create a new project"

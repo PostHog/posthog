@@ -7,7 +7,6 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
@@ -39,7 +38,6 @@ interface CreateProjectItem {
 type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -91,7 +89,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         .sort((a, b) => a.team.name.localeCompare(b.team.name))
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
-    const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
+    const canCreateProject = !projectCreationForbiddenReason
 
     const handleItemClick = useCallback(
         (item: ListItem) => {
@@ -279,12 +277,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     menuItem
                                                     fullWidth
                                                     disabled={!canCreateProject}
-                                                    tooltip={
-                                                        !canCreateProject
-                                                            ? projectCreationForbiddenReason ||
-                                                              'You do not have permission to create a project'
-                                                            : undefined
-                                                    }
+                                                    tooltip={projectCreationForbiddenReason || undefined}
                                                     tooltipPlacement="right"
                                                 >
                                                     <IconPlusSmall className="text-tertiary" />
