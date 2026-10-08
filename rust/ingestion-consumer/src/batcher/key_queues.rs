@@ -119,28 +119,51 @@ impl KeyState {
     }
 }
 
-fn update_ready_sizes(
-    sizes: &mut Vec<(RequestClass, ReadySize)>,
-    before: Option<(RequestClass, ReadySize)>,
-    after: Option<(RequestClass, ReadySize)>,
-) {
-    if let Some((class, size)) = before {
-        if let Some(index) = sizes.iter().position(|(c, _)| *c == class) {
-            let total = &mut sizes[index].1;
-            total.messages = total.messages.saturating_sub(size.messages);
-            total.bytes = total.bytes.saturating_sub(size.bytes);
-            if total.messages == 0 {
-                sizes.remove(index);
+/// Per class, the sum of every ready key's `ready_size`.
+#[derive(Default)]
+struct ReadySizes(Vec<(RequestClass, ReadySize)>);
+
+impl ReadySizes {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn as_slice(&self) -> &[(RequestClass, ReadySize)] {
+        &self.0
+    }
+
+    /// Replaces one key's share: `before` is its `ready_size` before a
+    /// change, `after` the one after.
+    fn replace(
+        &mut self,
+        before: Option<(RequestClass, ReadySize)>,
+        after: Option<(RequestClass, ReadySize)>,
+    ) {
+        if let Some((class, size)) = before {
+            let index = self.0.iter().position(|(c, _)| *c == class);
+            debug_assert!(index.is_some(), "no ready size for {class:?}");
+            if let Some(index) = index {
+                let total = &mut self.0[index].1;
+                debug_assert!(
+                    total.messages >= size.messages && total.bytes >= size.bytes,
+                    "ready size for {class:?} underflows"
+                );
+                total.messages = total.messages.saturating_sub(size.messages);
+                total.bytes = total.bytes.saturating_sub(size.bytes);
+                if total.messages == 0 {
+                    debug_assert_eq!(total.bytes, 0, "bytes left for {class:?}");
+                    self.0.remove(index);
+                }
             }
         }
-    }
-    if let Some((class, size)) = after {
-        match sizes.iter_mut().find(|(c, _)| *c == class) {
-            Some((_, total)) => {
-                total.messages += size.messages;
-                total.bytes += size.bytes;
+        if let Some((class, size)) = after {
+            match self.0.iter_mut().find(|(c, _)| *c == class) {
+                Some((_, total)) => {
+                    total.messages += size.messages;
+                    total.bytes += size.bytes;
+                }
+                None => self.0.push((class, size)),
             }
-            None => sizes.push((class, size)),
         }
     }
 }
@@ -152,7 +175,7 @@ pub struct KeyQueues {
     /// Can hold stale keys; `take_runs` skips them.
     ready: VecDeque<Arc<str>>,
     waiting: BTreeSet<(Instant, Arc<str>)>,
-    ready_sizes: Vec<(RequestClass, ReadySize)>,
+    ready_sizes: ReadySizes,
     queued_messages: usize,
     queued_bytes: usize,
     claimed_keys: usize,
@@ -192,7 +215,7 @@ impl KeyQueues {
     }
 
     pub fn ready_sizes(&self) -> &[(RequestClass, ReadySize)] {
-        &self.ready_sizes
+        self.ready_sizes.as_slice()
     }
 
     pub fn oldest_ready_class(&self) -> Option<RequestClass> {
@@ -240,7 +263,7 @@ impl KeyQueues {
                 messages,
             }),
         }
-        update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
+        self.ready_sizes.replace(before, state.ready_size());
         if !was_ready && state.is_ready() {
             self.ready.push_back(routing_key);
         }
@@ -255,7 +278,7 @@ impl KeyQueues {
             if let Some(state) = self.keys.get_mut(&key) {
                 let before = state.ready_size();
                 state.retry_at = None;
-                update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
+                self.ready_sizes.replace(before, state.ready_size());
                 if state.is_ready() {
                     self.ready.push_back(key);
                 }
@@ -305,7 +328,7 @@ impl KeyQueues {
             {
                 messages.extend(state.queue.pop_front().expect("checked").messages);
             }
-            update_ready_sizes(&mut self.ready_sizes, Some((class, size)), None);
+            self.ready_sizes.replace(Some((class, size)), None);
             debug_assert!(self.queued_messages >= size.messages);
             self.queued_messages = self.queued_messages.saturating_sub(size.messages);
             self.queued_bytes = self.queued_bytes.saturating_sub(size.bytes);
@@ -378,7 +401,7 @@ impl KeyQueues {
             }
         }
 
-        update_ready_sizes(&mut self.ready_sizes, None, state.ready_size());
+        self.ready_sizes.replace(None, state.ready_size());
         if state.is_idle() {
             self.keys.remove(&**routing_key);
             return Ok(true);
@@ -427,7 +450,7 @@ impl KeyQueues {
                     }
                 }
             }
-            update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
+            self.ready_sizes.replace(before, state.ready_size());
         }
         self.queued_messages = self.queued_messages.saturating_sub(purged);
         self.queued_bytes = self.queued_bytes.saturating_sub(purged_bytes);
