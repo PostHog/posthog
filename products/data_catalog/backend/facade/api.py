@@ -18,7 +18,7 @@ from ..logic.certifications import (
     revoke_certification,
 )
 from ..logic.drift import compute_drift
-from ..logic.execution import run_metric
+from ..logic.execution import prepare_execution_query, run_metric
 from ..logic.metric_reads import (
     get_metric_summary,
     live_metric_ids,
@@ -77,6 +77,7 @@ __all__ = [
     "metric_names_for_ids",
     "metrics_for_team",
     "metrics_visible_to_user",
+    "prepare_execution_query",
     "propose_certification",
     "propose_relationship",
     "refresh_metric_from_insight",

@@ -20,8 +20,10 @@ from posthog.schema import (
     DatabaseSchemaField,
     IntervalType,
     LLMTrace,
+    NodeKind,
     NotebookArtifactContent,
     TraceQuery,
+    TrendsQuery,
     VisualizationArtifactContent,
 )
 
@@ -53,9 +55,10 @@ from products.data_catalog.backend.facade.api import (
     compute_drift,
     metrics_for_team,
     metrics_visible_to_user,
+    prepare_execution_query,
     run_metric,
 )
-from products.data_catalog.backend.facade.enums import MetricStatus
+from products.data_catalog.backend.facade.enums import NODE_DEFINITION_KINDS, MetricStatus
 from products.data_catalog.backend.facade.models import Metric
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
@@ -70,7 +73,11 @@ from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.experiment import ExperimentContext
 from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
+from ee.hogai.context.insight.format import (
+    format_access_control_warnings,
+    format_query_results_for_llm,
+    format_warehouse_sync_warnings,
+)
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
@@ -1130,7 +1137,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         envelope = await database_sync_to_async(self._run_metric, thread_sensitive=settings.TEST)(
             metric, date_from, date_to, interval
         )
-        return _format_metric_run(name, envelope)
+        return _format_metric_run(
+            name, envelope, self._team, _executed_trends_query(metric, date_from, date_to, interval)
+        )
 
     def _get_runnable_metric(self, name: str) -> Metric:
         metric = metrics_visible_to_user(self._team, self._user, self.user_access_control).filter(name=name).first()
@@ -1183,7 +1192,18 @@ def _has_readable_catalog_metrics(team: Team, user: User) -> bool:
         return False
 
 
-def _format_metric_run(name: str, envelope: dict) -> str:
+def _executed_trends_query(
+    metric: Metric, date_from: str | None, date_to: str | None, interval: IntervalType | None
+) -> TrendsQuery | None:
+    if not metric.definition or metric.definition_kind not in (NodeKind.TRENDS_QUERY, *NODE_DEFINITION_KINDS):
+        return None
+    query = prepare_execution_query(
+        metric.definition, date_from=date_from, date_to=date_to, interval=interval.value if interval else None
+    )
+    return TrendsQuery.model_validate(query)
+
+
+def _format_metric_run(name: str, envelope: dict, team: Team, trends_query: TrendsQuery | None = None) -> str:
     is_canonical = envelope["status"] == MetricStatus.APPROVED and not envelope["is_drifted"]
     lines = [
         f"Metric `{name}`: status {envelope['status']}, drifted {'yes' if envelope['is_drifted'] else 'no'}.",
@@ -1208,9 +1228,14 @@ def _format_metric_run(name: str, envelope: dict) -> str:
         warnings = format_warehouse_sync_warnings(envelope) + format_access_control_warnings(envelope)
         if warnings:
             lines.append(sanitize_for_system_reminder(warnings).rstrip())
-        payload = json.dumps({"columns": envelope.get("columns"), "results": envelope["results"]}, default=str)
-        if len(payload) > SQLResultsFormatter.MAX_RESULT_CHARS:
-            payload = payload[: SQLResultsFormatter.MAX_RESULT_CHARS] + "… (truncated)"
+        payload = None
+        if trends_query is not None:
+            # The trends formatter marks buckets that are still in progress, so a partial period is not read as a drop.
+            payload = format_query_results_for_llm(trends_query, {"results": envelope["results"]}, team)
+        if payload is None:
+            payload = json.dumps({"columns": envelope.get("columns"), "results": envelope["results"]}, default=str)
+            if len(payload) > SQLResultsFormatter.MAX_RESULT_CHARS:
+                payload = payload[: SQLResultsFormatter.MAX_RESULT_CHARS] + "… (truncated)"
         lines.append(f"Results:\n{sanitize_for_system_reminder(payload)}")
         if envelope.get("has_more"):
             lines.append("The results have more rows than shown.")

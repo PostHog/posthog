@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -2301,6 +2302,51 @@ class TestReadDataTool(BaseTest):
 
         assert '"results": [[10]]' in result
         assert ("This result is not canonical" in result) is labeled_not_canonical
+
+    @parameterized.expand(
+        [
+            ("trends_query", {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "signed_up"}]}),
+            ("events_node", {"kind": "EventsNode", "event": "signed_up"}),
+        ]
+    )
+    async def test_run_trends_metric_marks_the_period_in_progress(self, _name, definition):
+        await Metric.objects.unscoped().acreate(
+            team=self.team, name="signups", description="d", status="approved", definition=definition
+        )
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            context_manager=self._context_manager_without_extras(),
+        )
+        envelope = {
+            "status": "approved",
+            "is_drifted": False,
+            "unit": None,
+            "results": [
+                {
+                    "label": "signed_up",
+                    "action": {"id": "signed_up", "name": "signed_up"},
+                    "days": ["2026-03-10", "2026-03-11"],
+                    "data": [100, 5],
+                }
+            ],
+            "columns": None,
+            "has_more": False,
+            "posthog_url": None,
+            "instructions": None,
+            "warnings": [],
+        }
+
+        with (
+            time_machine.travel("2026-03-11T12:00:00Z", tick=False),
+            patch("ee.hogai.tools.read_data.tool.run_metric", return_value=envelope),
+        ):
+            result, _ = await tool._arun_impl({"kind": "data_catalog_metric", "name": "signups"})
+
+        assert "2026-03-11 (partial)|5" in result
+        assert "2026-03-10|100" in result
+        assert "still in progress" in result
 
     async def test_run_markdown_metric_fences_its_steps_as_untrusted(self):
         await Metric.objects.unscoped().acreate(
