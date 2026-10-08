@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
 import {
     personProfileBatchIgnoredPropertiesCounter,
     personProfileBatchUpdateOutcomeCounter,
@@ -3877,42 +3877,6 @@ describe('BatchWritingPersonStore', () => {
 
             expect(emitSpy).toHaveBeenCalledTimes(1)
 
-            cache.delete(`${teamId}:${person.id}`)
-        })
-
-        it('flushAndProduceMessages drains dirty entries and produces Kafka messages', async () => {
-            const cache = (personStore as any).personUpdateCache as Map<string, any>
-            cache.set(`${teamId}:${person.id}`, {
-                id: person.id,
-                uuid: person.uuid,
-                team_id: teamId,
-                distinct_id: 'test',
-                needs_write: true,
-                properties: person.properties,
-                properties_to_set: { new_prop: 'value' },
-                properties_to_unset: [],
-                version: person.version,
-                created_at: person.created_at,
-                is_identified: false,
-                is_user_id: null,
-            })
-
-            const message = { output: PERSONS_OUTPUT, value: Buffer.from('{}') }
-            const flushSpy = jest
-                .spyOn(personStore, 'flush')
-                .mockResolvedValue([{ messages: [message], teamId, distinctId: 'test', uuid: person.uuid }])
-
-            await personStore.flushAndProduceMessages()
-
-            expect(flushSpy).toHaveBeenCalledTimes(1)
-            expect(mockIngestionWarningsOutputs.produce).toHaveBeenCalledTimes(1)
-            expect(mockIngestionWarningsOutputs.produce).toHaveBeenCalledWith(PERSONS_OUTPUT, {
-                key: null,
-                value: message.value,
-                teamId,
-            })
-
-            // Remove injected entry so afterEach shutdown does not re-trigger a flush
             cache.delete(`${teamId}:${person.id}`)
         })
     })

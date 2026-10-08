@@ -1640,28 +1640,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * Flush all dirty entries and produce the resulting Kafka messages inline.
-     *
-     * Convenience wrapper for callers that don't run inside the pipeline's
-     * side-effect scheduler (e.g. server shutdown paths) and just need to drain
-     * buffered writes synchronously. Throws on the first produce failure.
-     */
-    async flushAndProduceMessages(): Promise<void> {
-        const flushResults = await this.flush()
-        await Promise.all(
-            flushResults.flatMap((record) =>
-                record.messages.map((message) =>
-                    this.ingestionWarningsOutputs.produce(message.output, {
-                        key: null,
-                        value: message.value,
-                        teamId: record.teamId,
-                    })
-                )
-            )
-        )
-    }
-
-    /**
      * Stop the metric-emission timer and emit accumulated metrics. Idempotent.
      *
      * Callers MUST call `flush()` before `shutdown()`. Reaching shutdown with a
