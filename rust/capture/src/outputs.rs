@@ -47,9 +47,8 @@ pub struct PreparedEvent {
     pub headers: CapturedEventHeaders,
 }
 
-/// The leaf contract for prepared events: one [`SinkResult`] per input
-/// event, in input order. Failures travel inside the results, so one event's
-/// failure never decides another's.
+/// Returns one [`SinkResult`] per input event, in input order. A failure is
+/// reported in that event's result and does not affect the other events.
 #[async_trait]
 pub trait PublishPrepared: Send + Sync {
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult>;

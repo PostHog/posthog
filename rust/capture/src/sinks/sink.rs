@@ -7,9 +7,10 @@
 //! metadata and makes no routing decision; anything that picks between
 //! backends is an output policy, not a sink.
 //!
-//! [`Sink::publish`] is infallible at the call level: every input payload gets
-//! a [`SinkResult`], and failures travel inside them. Callers that need the
-//! v0 whole-request response collapse the results with [`fold_results`].
+//! [`Sink::publish`] does not return an error: every input payload gets a
+//! [`SinkResult`], and a failure is reported in that payload's result. Callers
+//! that need the v0 whole-request response collapse the results with
+//! [`fold_results`].
 
 use async_trait::async_trait;
 use common_types::CapturedEventHeaders;
