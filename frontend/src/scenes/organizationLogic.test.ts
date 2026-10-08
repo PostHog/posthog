@@ -2,14 +2,30 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AppContext, OrganizationType } from '../types'
+import { AppContext, OrganizationType, PreflightStatus } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
+
+    test.each([
+        ['Hobby', false, true],
+        ['Cloud', true, false],
+    ])('%s project creation follows the server type', (_name, cloud, blocked) => {
+        window.POSTHOG_APP_CONTEXT = {
+            current_user: { organization: MOCK_DEFAULT_ORGANIZATION },
+        } as unknown as AppContext
+        initKeaTests()
+        preflightLogic.actions.loadPreflightSuccess({ cloud, is_debug: false, is_test: false } as PreflightStatus)
+        logic = organizationLogic()
+
+        expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
+    })
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {

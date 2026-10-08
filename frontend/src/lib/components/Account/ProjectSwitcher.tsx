@@ -39,7 +39,7 @@ interface CreateProjectItem {
 type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
-    const { preflight, isHobby } = useValues(preflightLogic)
+    const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -73,10 +73,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             ? allProjectItems.filter((item) => item.team.name.toLowerCase().includes(searchLower))
             : allProjectItems
 
-        if (!preflight || isHobby) {
-            return filteredProjects
-        }
-
         // Create the "create" item - show different label based on search
         const createItem: CreateProjectItem = {
             type: 'create',
@@ -87,7 +83,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         }
 
         return [...filteredProjects, createItem] as ListItem[]
-    }, [allProjectItems, searchValue, preflight, isHobby])
+    }, [allProjectItems, searchValue])
 
     const currentProject = filteredItems.find((p): p is ProjectListItem => p.type === 'project' && p.isCurrent)
     const otherProjects = filteredItems
