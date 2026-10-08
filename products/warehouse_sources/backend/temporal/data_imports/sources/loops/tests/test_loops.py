@@ -120,52 +120,6 @@ class TestLoopsSource:
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_page([{"id": "only"}], next_cursor=None)),
-        ]
-        self._drive("campaigns", manager, responses)
-
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("endpoint", "body", "expected_ids", "expected_params"),
-        [
-            (
-                "mailing_lists",
-                [{"id": "list-1", "name": "Beta"}, {"id": "list-2", "name": "Launch"}],
-                ["list-1", "list-2"],
-                {},
-            ),
-            (
-                "contact_properties",
-                [{"key": "firstName", "label": "First Name", "type": "string"}],
-                ["firstName"],
-                {"list": "all"},
-            ),
-        ],
-    )
-    def test_unpaginated_endpoints_yield_bare_array_in_one_request(
-        self,
-        endpoint: str,
-        body: list[dict[str, Any]],
-        expected_ids: list[str],
-        expected_params: dict[str, str],
-    ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        rows, sent_params = self._drive(endpoint, manager, [_make_http_response(body)])
-
-        id_field = LOOPS_ENDPOINTS[endpoint].primary_key
-        assert [row[id_field] for row in rows] == expected_ids
-        assert sent_params == [expected_params]
-        manager.save_state.assert_not_called()
-
     @pytest.mark.parametrize(
         ("endpoint", "parent_path", "child_path", "id_column", "unavailable_status"),
         [

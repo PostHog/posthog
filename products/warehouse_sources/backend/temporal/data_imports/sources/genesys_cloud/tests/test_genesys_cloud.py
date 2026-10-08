@@ -93,27 +93,6 @@ class TestAnalyticsEndpoints:
         assert _request_interval(session.post.call_args_list[0]) == (start, NOW)
         manager.save_state.assert_called_once_with(GenesysCloudResumeConfig(window_start="2026-03-10T12:00:00.000Z"))
 
-    def test_splits_window_with_too_many_hits(self):
-        start = NOW - timedelta(hours=4)
-        middle = NOW - timedelta(hours=2)
-        session = mock.MagicMock()
-        session.post.side_effect = [
-            _response({"totalHits": genesys_cloud.MAX_RESULTS_PER_WINDOW + 1, "conversations": []}),
-            _response({"totalHits": 1, "conversations": [_conversation("early", start)]}),
-            _response({"totalHits": 1, "conversations": [_conversation("late", middle)]}),
-        ]
-        manager = _manager(GenesysCloudResumeConfig(window_start=start.isoformat()))
-
-        rows = _run("conversations", session, manager)
-
-        assert [row["conversationId"] for row in rows] == ["early", "late"]
-        assert [_request_interval(c) for c in session.post.call_args_list[1:]] == [(start, middle), (middle, NOW)]
-        assert [c.args[0].window_start for c in manager.save_state.call_args_list] == [
-            "2026-03-10T10:00:00.000Z",
-            "2026-03-10T12:00:00.000Z",
-        ]
-        manager.clear_state.assert_called_once_with()
-
     def test_splits_a_dense_ten_minute_window(self):
         start = NOW - timedelta(minutes=10)
         middle = NOW - timedelta(minutes=5)

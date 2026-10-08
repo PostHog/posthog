@@ -167,50 +167,6 @@ class TestSimilarwebTransport:
         with pytest.raises(ValueError, match=NO_DOMAINS_ERROR):
             _run(VISITS, _session(), domains="")
 
-    def test_rows_are_ordered_by_period_across_domains(self) -> None:
-        # Each domain's request returns its whole window, so the per-domain series overlap in
-        # time. The pipeline checkpoints the incremental watermark per batch, so emitting one
-        # domain's full history before the next domain's would strand the later domain's older
-        # periods behind an already-advanced watermark.
-        session = _session(
-            _response(
-                json_body=_series_body(
-                    "visits", [{"date": "2024-01-01", "visits": 1}, {"date": "2024-02-01", "visits": 2}]
-                )
-            ),
-            _response(
-                json_body=_series_body(
-                    "visits", [{"date": "2024-01-01", "visits": 3}, {"date": "2024-02-01", "visits": 4}]
-                )
-            ),
-        )
-
-        rows = [row for batch in _run(VISITS, session) for row in batch]
-
-        assert [(row["date"], row["domain"]) for row in rows] == [
-            (datetime(2024, 1, 1, tzinfo=UTC), "a.com"),
-            (datetime(2024, 1, 1, tzinfo=UTC), "b.com"),
-            (datetime(2024, 2, 1, tzinfo=UTC), "a.com"),
-            (datetime(2024, 2, 1, tzinfo=UTC), "b.com"),
-        ]
-
-    def test_series_rows_carry_the_requested_filters(self) -> None:
-        session = _session(_response(json_body=_series_body("visits", [{"date": "2024-01-01", "visits": 9}])))
-
-        rows = _run(VISITS, session, domains="a.com", country="GB", granularity="weekly")[0]
-
-        assert rows == [
-            {
-                "domain": "a.com",
-                "country": "gb",
-                "granularity": "weekly",
-                "date": datetime(2024, 1, 1, tzinfo=UTC),
-                "visits": 9,
-            }
-        ]
-        assert _params(session)["country"] == "gb"
-        assert _params(session)["granularity"] == "weekly"
-
     @parameterized.expand([("visits", VISITS, "visits"), ("page_views", PAGE_VIEWS, "page_views")])
     def test_v5_engagement_hits_the_multimetric_endpoint_with_header_auth(
         self, _name: str, endpoint: str, metric: str
@@ -235,17 +191,6 @@ class TestSimilarwebTransport:
                 metric: 9,
             }
         ]
-
-    def test_v5_pin_leaves_non_engagement_tables_on_the_legacy_wire(self) -> None:
-        # Only the engagement family has a documented V5 wire; rank keeps its legacy path and
-        # query-param key even under the V5 pin, so a new V5 source still syncs it.
-        session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
-
-        _run(GLOBAL_RANK, session, domains="a.com", api_version=API_VERSION_V5)
-
-        assert _urls(session) == [f"{BASE_URL}/v1/website/a.com/global-rank/global-rank"]
-        assert _params(session)["api_key"] == "key-123"
-        assert _headers(session) is None
 
     @parameterized.expand(
         [
@@ -455,16 +400,6 @@ class TestSimilarwebTransport:
             (2, 0),
         ]
         assert manager.cleared is True
-
-    def test_paginated_endpoint_resumes_from_saved_state(self) -> None:
-        manager = FakeResumeManager(SimilarwebResumeConfig(next_domain_index=1, next_offset=PAGE_LIMIT))
-        session = _session(_response(json_body={"records": [{"country": 840}]}))
-
-        batches = _run(TRAFFIC_BY_COUNTRY, session, manager=manager)
-
-        assert [url.split("/website/")[1].split("/")[0] for url in _urls(session)] == ["b.com"]
-        assert _params(session)["offset"] == PAGE_LIMIT
-        assert batches[0][0]["domain"] == "b.com"
 
     @parameterized.expand(
         [

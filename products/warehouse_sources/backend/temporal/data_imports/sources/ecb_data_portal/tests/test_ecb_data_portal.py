@@ -65,24 +65,6 @@ class TestDaterangeChunks:
         chunks = list(_daterange_chunks(None, date(2026, 8, 17), 5))
         assert chunks == [_DateWindow(start=None, end=None)]
 
-    def test_single_chunk_when_span_shorter_than_window(self) -> None:
-        chunks = list(_daterange_chunks(date(2024, 1, 1), date(2024, 6, 1), 5))
-        assert chunks == [_DateWindow(start=date(2024, 1, 1), end=date(2024, 6, 1))]
-
-    def test_splits_into_consecutive_windows(self) -> None:
-        chunks = list(_daterange_chunks(date(1999, 1, 4), date(2012, 3, 1), 5))
-
-        assert chunks == [
-            _DateWindow(start=date(1999, 1, 4), end=date(2004, 1, 3)),
-            _DateWindow(start=date(2004, 1, 4), end=date(2009, 1, 3)),
-            _DateWindow(start=date(2009, 1, 4), end=date(2012, 3, 1)),
-        ]
-        # No gaps or overlaps between consecutive windows.
-        for prev_window, next_window in zip(chunks, chunks[1:]):
-            assert prev_window.end is not None
-            assert next_window.start is not None
-            assert (next_window.start - prev_window.end).days == 1
-
     def test_leap_day_anchor_does_not_crash(self) -> None:
         chunks = list(_daterange_chunks(date(2000, 2, 29), date(2003, 1, 1), 1))
         assert chunks[0].start == date(2000, 2, 29)

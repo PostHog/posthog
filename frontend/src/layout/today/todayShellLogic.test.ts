@@ -71,7 +71,7 @@ describe('todayShellLogic', () => {
     test.each([
         ['home', '/home'],
         ['spaces', '/ai'],
-        ['views', '/views/new'],
+        ['views', '/views'],
         ['products', '/tools'],
         ['warehouse', '/warehouse'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {

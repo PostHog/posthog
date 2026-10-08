@@ -1229,6 +1229,33 @@ export const TaxonomicSearchIntentMatchEventsCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
+ * Send a WebRTC session description to another terminal in a Doom room.
+ */
+export const terminalNetplaySignalCreateBodyRoomRegExp = new RegExp('^[A-Z0-9]{4,12}$')
+export const terminalNetplaySignalCreateBodySenderRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyRecipientRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyDescriptionSdpMax = 16384
+
+export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
+    room: zod.string().regex(terminalNetplaySignalCreateBodyRoomRegExp).describe('Room code shown by the game host.'),
+    sender: zod.string().regex(terminalNetplaySignalCreateBodySenderRegExp).describe('Peer that sent the description.'),
+    recipient: zod
+        .string()
+        .regex(terminalNetplaySignalCreateBodyRecipientRegExp)
+        .describe('Peer that receives the description.'),
+    description: zod.object({
+        type: zod
+            .enum(['offer', 'answer'])
+            .describe('\* `offer` - offer\n\* `answer` - answer')
+            .describe('WebRTC session description type.\n\n\* `offer` - offer\n\* `answer` - answer'),
+        sdp: zod
+            .string()
+            .max(terminalNetplaySignalCreateBodyDescriptionSdpMax)
+            .describe('WebRTC session description with ICE candidates.'),
+    }),
+})
+
+/**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *

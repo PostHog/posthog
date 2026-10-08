@@ -14,6 +14,7 @@ from products.experiments.backend.temporal import recalculation_metrics
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
     ExperimentsRecalculationMetricsInterceptor,
     _failure_error_type,
     increment_workflow_finished,
@@ -46,8 +47,13 @@ def test_registered_on_recalculation_queue():
     )
 
 
-def test_buckets_sorted_ascending_and_floats():
-    buckets = EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS
+@parameterized.expand(
+    [
+        ("execution_latency", EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+        ("schedule_to_start", EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS),
+    ]
+)
+def test_buckets_sorted_ascending_and_floats(name: str, buckets: list[float]):
     assert buckets == sorted(buckets)
     assert all(isinstance(b, float) for b in buckets)
 

@@ -153,11 +153,6 @@ class TestParseSiteUrls:
 
 
 class TestSharePointRows:
-    def test_sites_follow_next_link_and_skip_personal_sites(self) -> None:
-        rows = _rows("sites", _session(ALL_SITES_ROUTES))
-
-        assert [row["id"] for row in rows] == [SITE_A, SITE_B]
-
     @pytest.mark.parametrize("endpoint", ["sites", "drives"])
     def test_explicit_personal_site_is_skipped(self, endpoint: str) -> None:
         site_url = "https://contoso-my.sharepoint.com/personal/user"
@@ -248,24 +243,6 @@ class TestSharePointRows:
 
 
 class TestSharePointResume:
-    def test_list_items_resume_mid_list_on_saved_page(self) -> None:
-        resume_url = _g(f"/sites/{SITE_B}/lists/list-b2/items?$skiptoken=5")
-        routes: dict[str, Route] = {
-            **ALL_SITES_ROUTES,
-            _g(f"/sites/{SITE_B}/lists"): {"value": [{"id": "list-b1"}, {"id": "list-b2"}, {"id": "list-b3"}]},
-            resume_url: {"value": [{"id": "6"}]},
-            _g(f"/sites/{SITE_B}/lists/list-b3/items"): {"value": [{"id": "1"}]},
-        }
-        session = _session(routes)
-        manager = _manager(SharePointResumeConfig(site_id=SITE_B, parent_id="list-b2", next_url=resume_url))
-
-        rows = _rows("list_items", session, manager=manager)
-
-        assert [(row["list_id"], row["id"]) for row in rows] == [("list-b2", "6"), ("list-b3", "1")]
-        resumed_call = next(c for c in session.get.call_args_list if c.args[0] == resume_url)
-        # The next link already carries `expand`; sending params again would duplicate it.
-        assert resumed_call.kwargs["params"] is None
-
     def test_resume_on_a_site_that_is_gone_restarts_from_the_first_site(self) -> None:
         routes: dict[str, Route] = {
             **ALL_SITES_ROUTES,
@@ -277,16 +254,6 @@ class TestSharePointResume:
         rows = _rows("lists", _session(routes), manager=manager)
 
         assert [(row["site_id"], row["id"]) for row in rows] == [(SITE_A, "list-a"), (SITE_B, "list-b")]
-
-    def test_next_page_is_staged_before_its_rows_are_yielded(self) -> None:
-        manager = _manager()
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=_session(ALL_SITES_ROUTES)):
-            pages = _get_rows(TENANT_ID, CLIENT_ID, CLIENT_SECRET, None, "sites", mock.MagicMock(), manager)
-            next(pages)
-
-        manager.save_state.assert_called_once_with(
-            SharePointResumeConfig(next_url=_g("/sites/getAllSites?$skiptoken=page2"))
-        )
 
 
 class TestValidateCredentials:

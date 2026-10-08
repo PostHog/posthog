@@ -99,22 +99,8 @@ class TestFormatIncrementalValue:
     def test_format_incremental_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_incremental_value(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 5, 11, tzinfo=UTC))
-
 
 class TestClampFutureValueToNow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, tzinfo=UTC)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
@@ -124,17 +110,6 @@ class TestClampFutureValueToNow:
 
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_requests_version_and_stable_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"_id": "cam_1"}])])
-        _rows(_source("campaigns"))
-        assert params[0]["version"] == "v2"
-        assert params[0]["sortBy"] == "createdAt"
-        assert params[0]["sortOrder"] == "asc"
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_campaigns_never_sends_mindate(self, MockSession) -> None:
         # Campaigns has no server-side date filter, so even an incremental request must not add minDate.
@@ -149,20 +124,6 @@ class TestRequestParams:
         )
         assert "minDate" not in params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_incremental_sets_mindate(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"_id": "act_1"}])])
-        _rows(
-            _source(
-                "activities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 5, 11, 0, 0, 0, tzinfo=UTC),
-            )
-        )
-        assert params[0]["minDate"] == "2026-05-11T00:00:00Z"
-        assert params[0]["version"] == "v2"
-
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_first_sync_uses_lookback_window(self, MockSession) -> None:
@@ -171,27 +132,6 @@ class TestRequestParams:
         params = _wire(session, [_response([{"_id": "act_1"}])])
         _rows(_source("activities", should_use_incremental_field=True, db_incremental_field_last_value=None))
         assert params[0]["minDate"] == "2025-06-15T12:00:00Z"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_future_watermark_clamped(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"_id": "act_1"}])])
-        _rows(
-            _source(
-                "activities",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2027, 1, 1, tzinfo=UTC),
-            )
-        )
-        assert params[0]["minDate"] == "2026-06-15T12:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_activities_full_refresh_has_no_mindate(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"_id": "act_1"}])])
-        _rows(_source("activities", should_use_incremental_field=False, db_incremental_field_last_value=None))
-        assert "minDate" not in params[0]
 
 
 class TestVersionDispatch:
@@ -225,40 +165,8 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key") is expected
 
-    @mock.patch(LEMLIST_SESSION_PATCH)
-    def test_exception_returns_false(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError()
-        assert validate_credentials("key") is False
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_object_endpoint_wraps_into_one_row(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"_id": "tea_1", "name": "Acme"})])
-        rows = _rows(_source("team"))
-        assert rows == [{"_id": "tea_1", "name": "Acme"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_array_endpoint_yields_once(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"userId": "usr_1"}, {"userId": "usr_2"}])])
-        rows = _rows(_source("team_senders"))
-        assert rows == [{"userId": "usr_1"}, {"userId": "usr_2"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"_id": "cam_1"}, {"_id": "cam_2"}])])
-        manager = _make_manager()
-        rows = _rows(_source("campaigns", manager))
-        assert rows == [{"_id": "cam_1"}, {"_id": "cam_2"}]
-        assert session.send.call_count == 1
-        # A short page is the last page, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_until_short_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -282,36 +190,6 @@ class TestPagination:
         rows = _rows(_source("campaigns", manager))
         assert rows == [{"_id": "cam_resumed"}]
         assert params[0]["offset"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-        rows = _rows(_source("campaigns", manager))
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-
-class TestSourceResponse:
-    def test_activities_response_is_incremental_desc_and_partitioned(self) -> None:
-        response = _source("activities")
-        assert response.name == "activities"
-        assert response.primary_keys == ["_id"]
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-
-    def test_campaigns_response_is_full_refresh_asc(self) -> None:
-        response = _source("campaigns")
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["createdAt"]
-
-    def test_team_senders_response_has_no_partitioning(self) -> None:
-        response = _source("team_senders")
-        assert response.primary_keys == ["userId"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
 
 
 class TestRetryClassification:

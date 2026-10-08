@@ -13,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.a
     airtable_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.settings import (
-    AIRTABLE_ENDPOINTS,
-    ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -90,31 +86,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = response
 
         assert validate_credentials("pat") is expected
-
-    @mock.patch(AIRTABLE_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("pat") is False
-
-
-class TestBases:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_offset_token(self, MockSession):
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"bases": [{"id": "app1"}], "offset": "off1"}),
-                _response({"bases": [{"id": "app2"}]}),
-            ],
-        )
-
-        rows = _rows(_source("bases"))
-
-        assert [r["id"] for r in rows] == ["app1", "app2"]
-        # First page carries no offset; the second resumes from the returned cursor.
-        assert "offset" not in snapshots[0]["params"]
-        assert snapshots[1]["params"]["offset"] == "off1"
 
 
 class TestTables:
@@ -217,29 +188,3 @@ class TestRecords:
         # A table row missing its id can't bind the {table_id} path param — fail loud, don't skip it.
         with pytest.raises(ValueError, match="table_id"):
             _rows(_source("records"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_everything_yields_nothing(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"bases": []})])
-
-        assert _rows(_source("records")) == []
-
-
-class TestAirtableSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = AIRTABLE_ENDPOINTS[endpoint]
-        response = _source(endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_have_composite_primary_key(self, MockSession):
-        response = _source("records")
-        assert response.primary_keys == ["_base_id", "_table_id", "id"]

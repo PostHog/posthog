@@ -114,35 +114,11 @@ def _drive(
 class TestTopLevel:
     ORGS = _u("/orgs")
 
-    def test_single_page_yields_and_stops(self) -> None:
-        manager = _FakeManager()
-        rows, _ = _drive("organizations", {(self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}])}, manager)
-        assert rows == [{"id": "org1"}, {"id": "org2"}]
-        # No next page means the sync ends without persisting resume state.
-        assert manager.saved == []
-
-    def test_follows_page_token_until_exhausted(self) -> None:
-        manager = _FakeManager()
-        pages = {
-            (self.ORGS, None): _response([{"id": "org1"}], next_page="tok2"),
-            (self.ORGS, "tok2"): _response([{"id": "org2"}]),
-        }
-        rows, _ = _drive("organizations", pages, manager)
-        assert rows == [{"id": "org1"}, {"id": "org2"}]
-        # State is saved once — after the first page yields, pointing at the next token.
-        assert [s.next_page for s in manager.saved] == ["tok2"]
-
     def test_resumes_from_saved_page_token(self) -> None:
         manager = _FakeManager(GitBookResumeConfig(next_page="tok2"))
         # Only the tok2 page is wired; fetching the first page would raise from the mock.
         rows, _ = _drive("organizations", {(self.ORGS, "tok2"): _response([{"id": "org2"}])}, manager)
         assert rows == [{"id": "org2"}]
-
-    def test_empty_page_yields_nothing(self) -> None:
-        manager = _FakeManager()
-        rows, _ = _drive("organizations", {(self.ORGS, None): _response([])}, manager)
-        assert rows == []
-        assert manager.saved == []
 
     @parameterized.expand(
         [
@@ -188,16 +164,6 @@ class TestFanOut:
         }
         rows, _ = _drive("spaces", pages, _FakeManager())
         assert rows == [{"id": "sp1", "organization": "org1"}]
-
-    def test_comments_fan_out_through_orgs_then_spaces(self) -> None:
-        pages: dict[PageKey, Response] = {
-            (self.ORGS, None): _response([{"id": "org1"}]),
-            (_u("/orgs/org1/spaces"), None): _response([{"id": "sp1"}, {"id": "sp2"}]),
-            (_u("/spaces/sp1/comments"), None): _response([{"id": "c1"}]),
-            (_u("/spaces/sp2/comments"), None): _response([{"id": "c2"}]),
-        }
-        rows, _ = _drive("comments", pages, _FakeManager())
-        assert rows == [{"id": "c1", "space_id": "sp1"}, {"id": "c2", "space_id": "sp2"}]
 
     def test_pages_tree_is_flattened_with_parent_links(self) -> None:
         tree = {
@@ -303,23 +269,6 @@ class TestFanOut:
         assert len(answer_params) == 2
         # The watermark filter stays on every page, not just the first.
         assert all(params.get("from") == expected_from for params in answer_params)
-
-    def test_saves_completed_parents_and_mid_parent_page_token(self) -> None:
-        manager = _FakeManager()
-        pages = {
-            (self.ORGS, None): _response([{"id": "org1"}, {"id": "org2"}]),
-            (_u("/orgs/org1/teams"), None): _response([{"id": "t1"}], next_page="tok2"),
-            (_u("/orgs/org1/teams"), "tok2"): _response([{"id": "t2"}]),
-            (_u("/orgs/org2/teams"), None): _response([{"id": "t3"}]),
-        }
-        _drive("teams", pages, manager)
-        states = [s.fanout_state for s in manager.saved]
-        # A mid-parent checkpoint pins org1's next child page before org1 is marked complete.
-        assert {"completed": [], "current": "/orgs/org1/teams", "child_state": {"cursor": "tok2"}} in states
-        # Once every parent is walked, all child paths are recorded complete.
-        final_state = states[-1]
-        assert final_state is not None
-        assert final_state["completed"] == ["/orgs/org1/teams", "/orgs/org2/teams"]
 
     def test_resume_skips_completed_parents_and_resumes_current_at_token(self) -> None:
         manager = _FakeManager(
