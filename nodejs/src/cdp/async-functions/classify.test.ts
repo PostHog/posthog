@@ -47,16 +47,13 @@ describe('postHogClassify', () => {
         expect(parseJSON(options.body)).toEqual(payload)
         // Must exceed Django's 5 second gateway timeout so the worker receives its 503 instead of aborting first.
         expect(options.timeoutMs).toBeGreaterThan(5000)
+        const token = options.headers.Authorization.replace('Bearer ', '')
         // The literal pins the dev default shared with Django's WORKFLOW_CLASSIFY_JWT_SECRETS.
         // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
-        const claims = jwt.verify(
-            options.headers.Authorization.replace('Bearer ', ''),
-            'local-dev-workflow-classify-jwt',
-            {
-                audience: 'posthog:workflows:classify',
-                algorithms: ['HS256'],
-            }
-        ) as jwt.JwtPayload
+        const claims = jwt.verify(token, 'local-dev-workflow-classify-jwt', {
+            audience: 'posthog:workflows:classify',
+            algorithms: ['HS256'],
+        }) as jwt.JwtPayload
         expect(claims).toMatchObject({ team_id: 1, hog_flow_id: 'flow-1' })
     })
 
