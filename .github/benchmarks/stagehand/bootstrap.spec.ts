@@ -5,6 +5,7 @@ import { launchStagehand } from './bootstrap'
 test('the CI Chromium build initializes the Stagehand runtime', async ({ playwright }) => {
     const session = await launchStagehand(playwright.chromium, { width: 1280, height: 720 }, 9222)
     try {
+        await session.page.goto('about:blank', { waitUntil: 'load' })
         expect(await session.page.evaluate(() => navigator.userAgent)).toContain('Chrome/')
         expect(await session.page.url()).toBe('about:blank')
     } finally {
