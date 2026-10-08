@@ -154,7 +154,7 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest and team achievements sweep (`products/web_analytics/backend/weekly_digest.py`, `products/web_analytics/backend/achievements/evaluators.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
 # Background materialization job: no user exists, so bypass explicitly.
@@ -234,14 +234,6 @@ Covering `events`' remaining mirror columns, or a future catalog table's, means 
 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
-
-### Live events stream
-
-The Live tab and the web analytics live dashboard read from the Go livestream service (`livestream/`), which consumes Kafka directly and never runs a HogQL query.
-It enforces the same rules on its own: `/api/livestream/authorize/` (`posthog/api/livestream.py`) returns the caller's restricted event and person property names, and the service re-fetches them on its periodic access re-check, so a rule change reaches an open stream within that interval.
-`convertToResponsePostHogEvent` in `livestream/events/filter.go` drops restricted event properties from every streamed event, and drops restricted person properties from inside `$set` and `$set_once`.
-A stream request whose property filter names a restricted event property is refused with 400, because which events match would reveal the value.
-A `columns` entry that names a restricted property is omitted rather than refused, so the built-in pages keep working for a restricted user.
 
 ### AI previews and summaries
 
