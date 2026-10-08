@@ -5,6 +5,7 @@ from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.core.cache import cache as django_cache
 from django.utils import timezone
 
@@ -1124,7 +1125,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         await self._check_data_catalog_access()
         metric = await database_sync_to_async(self._get_runnable_metric)(name)
         # A stale or uncached metric runs its full query here, so keep it off the shared database thread.
-        envelope = await database_sync_to_async(self._run_metric, thread_sensitive=False)(
+        # Tests stay on the shared thread because a pool thread opens another connection that cannot see the test transaction.
+        envelope = await database_sync_to_async(self._run_metric, thread_sensitive=settings.TEST)(
             metric, date_from, date_to, interval
         )
         return _format_metric_run(name, envelope)
