@@ -177,7 +177,7 @@ export const broadcastAudienceListLogic = kea<broadcastAudienceListLogicType>([
             const projectId = String(values.currentProjectId)
             let rows: Record<string, string>[]
             try {
-                rows = parsePeopleCsv(await csv.text())
+                rows = parsePeopleCsv(await readCsvText(csv))
             } catch (error: any) {
                 actions.createListCohortFinished(error?.message ?? "Couldn't read the file.")
                 return
