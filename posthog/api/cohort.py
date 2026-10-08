@@ -2293,7 +2293,7 @@ BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS = 2.0
 COHORT_FLAG_GENERATION_COMPLETED_COUNTER = Counter(
     "cohort_flag_generation_completed_total",
     "Cohort generations from a feature flag that finished, by outcome",
-    ["outcome"],  # "success" or a CohortErrorCode value ("flag_changed", "unknown")
+    ["outcome"],  # "success" or a CohortErrorCode value
 )
 
 COHORT_FLAG_GENERATION_DURATION_SECONDS = Histogram(
@@ -2312,6 +2312,10 @@ COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER = Counter(
     "cohort_flag_generation_eval_errors_total",
     "Per-person evaluation errors reported by the flags service during cohort generation",
 )
+
+
+class PersonFlagEvaluationError(Exception):
+    pass
 
 
 def _batch_evaluate_flag_page_with_retries(
@@ -2434,62 +2438,60 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER.inc(page_errors_count)
             eval_errors_count += page_errors_count
 
-            if len(uuids_to_add_to_cohort) >= batchsize:
+            next_cursor = page["next_cursor"]
+            # save_state=False keeps the cohort calculating until this function saves the result
+            # of the whole run. A caller that polls the cohort never sees a partial member list as
+            # a finished one. save_state=False also re-raises an insert failure, so the except below
+            # records the run as failed.
+            if len(uuids_to_add_to_cohort) >= batchsize or next_cursor is None:
                 cohort.insert_users_list_by_uuid(
-                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, save_state=False
                 )
                 uuids_to_add_to_cohort = []
 
-            next_cursor = page["next_cursor"]
             if next_cursor is None:
                 break
             if next_cursor <= cursor:
                 raise RuntimeError(f"Batch flag evaluation cursor did not advance (got {next_cursor} after {cursor})")
             cursor = next_cursor
 
-        # Always flush, even when empty: insert_users_list_by_uuid recomputes the cohort
-        # count and clears is_calculating via _safe_save_cohort_state. Re-running after a
-        # partial failure is safe because inserts dedupe on (cohort_id, person_id).
-        # raise_on_error surfaces an insert failure so the except below records it rather
-        # than letting a partial insert be counted as a successful generation.
-        cohort.insert_users_list_by_uuid(
-            uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
-        )
-
+        # The cohort keeps the persons that matched. The run still fails, because a person whose
+        # evaluation failed may match the flag and is missing from the cohort.
         if eval_errors_count:
-            logger.warning(
-                "cohort_from_feature_flag_eval_errors",
-                cohort_id=cohort_id,
-                team_id=team_id,
-                flag_key=feature_flag.key,
-                errors_count=eval_errors_count,
-            )
+            raise PersonFlagEvaluationError(f"Flag evaluation failed for {eval_errors_count} persons")
 
+        cohort._refresh_count(team_id=team_id)
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
-    except Exception as err:
+    # BaseException, so that a run the worker cuts short (shutdown, revoke) also clears is_calculating.
+    except BaseException as err:
         logger.exception(
             "cohort_from_feature_flag_failed",
             cohort_id=cohort_id,
             team_id=team_id,
             flag_key=feature_flag.key,
+            eval_errors_count=eval_errors_count,
             error=str(err),
         )
         capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
-        error_code = (
-            CohortErrorCode.FLAG_CHANGED
-            if isinstance(err, (FlagVersionConflictError, PropertyMatchingVersionConflictError))
-            else CohortErrorCode.UNKNOWN
-        )
+        match err:
+            case FlagVersionConflictError() | PropertyMatchingVersionConflictError():
+                error_code = CohortErrorCode.FLAG_CHANGED
+            case PersonFlagEvaluationError():
+                error_code = CohortErrorCode.FLAG_EVALUATION_FAILED
+            case _:
+                error_code = CohortErrorCode.UNKNOWN
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome=error_code.value).inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(
             time.monotonic() - start_monotonic
         )
-        # Finalize cohort state before writing the history row. _safe_save_cohort_state
-        # swallows its own failures, so if the history insert ran first and raised, the
-        # cohort would stay is_calculating=True with no Celery retry to recover it
+        # Finalize cohort state before writing the history row. _refresh_count and
+        # _safe_save_cohort_state swallow their own failures, so if the history insert ran first
+        # and raised, the cohort would stay is_calculating=True with no Celery retry to recover it
         # (max_retries=0). Worst case in this order is a finalized cohort missing a
         # history row, rather than one stuck calculating forever.
+        cohort._refresh_count(team_id=team_id)
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         # The history `error` field is user-visible via the calculation history API, so
         # store the friendly message; raw exception details (internal URLs, instance
@@ -2506,7 +2508,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         )
         raise
 
-    # The flush above finalized cohort state, including the recomputed count. Recording the run
+    # The save above finalized cohort state, including the recomputed count. Recording the run
     # here as well keeps every static population path writing one history row per attempt, so a
     # flag-backed cohort's calculation history is not just its failures. The write stays outside
     # the block above: the population is already committed, so a failure to record it must not
