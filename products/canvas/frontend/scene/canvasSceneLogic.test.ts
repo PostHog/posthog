@@ -103,9 +103,12 @@ describe('canvasSceneLogic', () => {
         expect(logic.values.makePublicOpen).toBe(false)
     })
 
-    it('Make private moves the chats its creator started there first, and leaves a teammate’s chat alone', async () => {
+    it.each([
+        ['moves the creator’s chats first and leaves a teammate’s chat alone', 200],
+        ['moves the chats back when the canvas cannot move', 403],
+    ])('Make private %s', async (_, canvasStatus) => {
         const order: string[] = []
-        const tasksPatched: Record<string, unknown> = {}
+        const tasksPatched: Record<string, unknown[]> = {}
         const me = { id: 1, uuid: MOCK_USER_UUID }
         useMocks({
             get: {
@@ -125,9 +128,17 @@ describe('canvasSceneLogic', () => {
                     layout: null,
                     sandbox_document_url: null,
                 },
+                // An earlier run that failed before it made a version is found by the canvas id in its prompt.
+                '/api/projects/:team_id/tasks/': { next: null, results: [{ id: 'task-failed-run' }] },
                 '/api/projects/:team_id/tasks/:id/': ({ params }) => [
                     200,
-                    { id: params.id, title: 'Weekly active users', latest_run: null, created_by: me },
+                    {
+                        id: params.id,
+                        title: 'Weekly active users',
+                        latest_run: null,
+                        created_by: me,
+                        channel: 'space-team',
+                    },
                 ],
                 '/api/projects/:team_id/canvases/:id/versions/': {
                     next: null,
@@ -140,22 +151,27 @@ describe('canvasSceneLogic', () => {
             patch: {
                 '/api/projects/:team_id/tasks/:id/': async ({ params, request }) => {
                     order.push(`task:${params.id}`)
-                    tasksPatched[params.id as string] = await request.json()
+                    tasksPatched[params.id as string] = [
+                        ...(tasksPatched[params.id as string] ?? []),
+                        await request.json(),
+                    ]
                     return [200, { id: params.id }]
                 },
                 '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
                     order.push('canvas')
                     patchedBody = (await request.json()) as Record<string, unknown>
-                    return [
-                        200,
-                        {
-                            id: CANVAS_ID,
-                            name: 'Weekly active users',
-                            kind: 'freeform',
-                            channel: patchedBody.channel_id,
-                            created_by: me,
-                        },
-                    ]
+                    return canvasStatus === 200
+                        ? [
+                              200,
+                              {
+                                  id: CANVAS_ID,
+                                  name: 'Weekly active users',
+                                  kind: 'freeform',
+                                  channel: patchedBody.channel_id,
+                                  created_by: me,
+                              },
+                          ]
+                        : [canvasStatus, { detail: 'Only the canvas creator can rename, move, pin, or describe it.' }]
                 },
             },
         })
@@ -169,12 +185,44 @@ describe('canvasSceneLogic', () => {
         logic.actions.setCanvasVisibility('private')
         await expectLogic(logic).toDispatchActions(['canvasVisibilityChanged'])
 
+        const toPersonal = { channel: 'space-1' }
+        const back = { channel: 'space-team' }
+        const expected = canvasStatus === 200 ? [toPersonal] : [toPersonal, back]
         expect(tasksPatched).toEqual({
-            'task-follow-up': { channel: 'space-1' },
-            'task-authoring': { channel: 'space-1' },
+            'task-failed-run': expected,
+            'task-follow-up': expected,
+            'task-authoring': expected,
         })
-        expect(order[order.length - 1]).toEqual('canvas')
-        expect(patchedBody).toEqual({ channel_id: 'space-1' })
+        expect(order.indexOf('canvas')).toBeGreaterThan(order.indexOf('task:task-authoring'))
+        expect(logic.values.canvas?.channel).toEqual(canvasStatus === 200 ? 'space-1' : 'space-team')
+    })
+
+    it('Undo after Make private moves the canvas back first, then its chats', async () => {
+        const order: string[] = []
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/tasks/:id/': async ({ params, request }) => {
+                    order.push(`task:${params.id}:${((await request.json()) as { channel: string }).channel}`)
+                    return [200, { id: params.id }]
+                },
+                '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, unknown>
+                    order.push(`canvas:${patchedBody.channel_id}`)
+                    return [
+                        200,
+                        { id: CANVAS_ID, name: 'Untitled canvas', kind: 'freeform', channel: patchedBody.channel_id },
+                    ]
+                },
+            },
+        })
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+
+        logic.actions.moveCanvasToSpace('space-team', null, false, [{ id: 'task-authoring', from: 'space-team' }])
+        await expectLogic(logic).toDispatchActions(['canvasVisibilityChanged'])
+
+        expect(order).toEqual(['canvas:space-team', 'task:task-authoring:space-team'])
     })
 
     it('keeps the composer on screen while a run starts and after it fails to start', async () => {

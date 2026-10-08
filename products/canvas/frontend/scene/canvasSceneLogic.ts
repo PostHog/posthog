@@ -41,8 +41,10 @@ import {
     loadCanvasGenerationTask,
     loadCanvasSpace,
     loadCanvasSpaces,
-    fileCanvasTasks,
+    CanvasTaskMove,
+    moveCanvasTasks,
     ownCanvasTaskIds,
+    restoreCanvasTasks,
 } from '../canvasTasksApi'
 import { CanvasVisibility, canvasVisibility, visibilitySpace } from '../canvasVisibility'
 import {
@@ -318,8 +320,10 @@ export interface canvasSceneLogicActions {
     moveCanvasToSpace: (
         spaceId: string,
         visibility: 'private' | 'public' | null,
-        restricted: boolean
+        restricted: boolean,
+        restoreTasks?: CanvasTaskMove[]
     ) => {
+        restoreTasks: CanvasTaskMove[]
         restricted: boolean
         spaceId: string
         visibility: 'private' | 'public' | null
@@ -468,10 +472,16 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
          * Moves the canvas to a space. `visibility` is null when the move undoes the one before.
          * `restricted` says the space is not the team's, so the creator's chats on the canvas move there first.
          */
-        moveCanvasToSpace: (spaceId: string, visibility: 'private' | 'public' | null, restricted: boolean) => ({
+        moveCanvasToSpace: (
+            spaceId: string,
+            visibility: 'private' | 'public' | null,
+            restricted: boolean,
+            restoreTasks: CanvasTaskMove[] = []
+        ) => ({
             spaceId,
             visibility,
             restricted,
+            restoreTasks,
         }),
         canvasVisibilityChanged: true,
         setInstruction: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
@@ -1002,7 +1012,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.canvasVisibilityChanged()
             }
         },
-        moveCanvasToSpace: async ({ spaceId, visibility, restricted }) => {
+        moveCanvasToSpace: async ({ spaceId, visibility, restricted, restoreTasks }) => {
             const canvas = values.canvas
             if (!values.currentProjectId || !canvas) {
                 actions.canvasVisibilityChanged()
@@ -1012,18 +1022,25 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             const previousSpaceId = canvas.channel
             const previousRestricted = values.visibility !== 'public'
             const properties = { dashboard_id: canvas.id, ...(visibility ? { visibility } : {}), undo: !visibility }
+            let moved: CanvasTaskMove[] = []
             try {
                 // Chats first: a task's logs are as visible as its own space, whatever the canvas says.
                 if (restricted && values.user) {
-                    await fileCanvasTasks(
+                    moved = await moveCanvasTasks(
                         projectId,
-                        await ownCanvasTaskIds(projectId, canvas, values.user.uuid),
+                        await ownCanvasTaskIds(projectId, canvas, values.user),
                         spaceId
                     )
                 }
-                const updated = await canvasesPartialUpdate(projectId, props.id, {
-                    channel_id: spaceId,
-                })
+                let updated: CanvasApi
+                try {
+                    updated = await canvasesPartialUpdate(projectId, props.id, { channel_id: spaceId })
+                } catch (error) {
+                    // The canvas stayed, so its chats go back to stay in the same space as it.
+                    await restoreCanvasTasks(projectId, moved)
+                    throw error
+                }
+                const unrestored = await restoreCanvasTasks(projectId, restoreTasks)
                 actions.canvasUpdated(updated)
                 actions.loadSpace()
                 todayViewsLogic.findMounted()?.actions.loadRecentViews()
@@ -1035,10 +1052,13 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                                   visibility === 'public' ? 'This canvas is now public' : 'This canvas is now private',
                               action: {
                                   label: 'Undo',
-                                  onClick: () => actions.moveCanvasToSpace(previousSpaceId, null, previousRestricted),
+                                  onClick: () =>
+                                      actions.moveCanvasToSpace(previousSpaceId, null, previousRestricted, moved),
                               },
                           }
-                        : { title: 'Change undone' }
+                        : unrestored
+                          ? { title: 'Change undone. Some of its chats stayed private.' }
+                          : { title: 'Change undone' }
                 )
             } catch (error) {
                 captureCanvasAction('visibility_change', { ...properties, channel_id: previousSpaceId, success: false })

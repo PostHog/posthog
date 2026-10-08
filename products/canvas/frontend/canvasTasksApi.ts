@@ -3,6 +3,7 @@ import {
     taskChannelsProvisionDefaultsCreate,
     taskChannelsRetrieve,
     tasksCreate,
+    tasksList,
     tasksPartialUpdate,
     tasksRetrieve,
     tasksRunCreate,
@@ -98,13 +99,36 @@ export async function loadCanvasGenerationTask(projectId: string, taskId: string
 
 const VERSION_PAGE_SIZE = 100
 
-/** The chat tasks this person started on the canvas: its authoring task and the runs behind the versions they made. */
+/** A task moved to another space, and the space it came from. */
+export interface CanvasTaskMove {
+    id: string
+    from: string | null
+}
+
+/** The chat tasks this person started on the canvas: every run whose prompt names it, and the runs behind its versions. */
 export async function ownCanvasTaskIds(
     projectId: string,
     canvas: Pick<CanvasApi, 'id' | 'generation_task_id'>,
-    userUuid: string
+    user: { id: number; uuid: string }
 ): Promise<string[]> {
+    const userUuid = user.uuid
     const ids = new Set<string>()
+    // Each generation prompt names the canvas, so this also finds earlier runs that made no version.
+    for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
+        const page = await tasksList(projectId, {
+            created_by: user.id,
+            search: canvas.id,
+            basic: true,
+            limit: VERSION_PAGE_SIZE,
+            offset,
+        })
+        for (const task of page.results) {
+            ids.add(task.id)
+        }
+        if (!page.next) {
+            break
+        }
+    }
     for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
         const page = await canvasesVersionsRetrieve(projectId, canvas.id, { limit: VERSION_PAGE_SIZE, offset })
         for (const version of page.results) {
@@ -125,9 +149,33 @@ export async function ownCanvasTaskIds(
     return [...ids]
 }
 
-/** Files tasks in a space, so their chats are only as visible as that space. */
-export async function fileCanvasTasks(projectId: string, taskIds: string[], spaceId: string): Promise<void> {
-    await Promise.all(taskIds.map((id) => tasksPartialUpdate(projectId, id, { channel: spaceId })))
+/** Moves tasks back to the spaces they came from. Returns how many stayed where they were. */
+export async function restoreCanvasTasks(projectId: string, moves: CanvasTaskMove[]): Promise<number> {
+    const results = await Promise.allSettled(
+        moves.map((move) => tasksPartialUpdate(projectId, move.id, { channel: move.from }))
+    )
+    return results.filter((result) => result.status === 'rejected').length
+}
+
+/** Files tasks in a space, so their chats are only as visible as that space. Either every task moves or none does. */
+export async function moveCanvasTasks(
+    projectId: string,
+    taskIds: string[],
+    spaceId: string
+): Promise<CanvasTaskMove[]> {
+    const current = await Promise.all(
+        taskIds.map(async (id) => ({ id, from: (await tasksRetrieve(projectId, id)).channel ?? null }))
+    )
+    const pending = current.filter((task) => task.from !== spaceId)
+    const results = await Promise.allSettled(
+        pending.map((task) => tasksPartialUpdate(projectId, task.id, { channel: spaceId }))
+    )
+    const moved = pending.filter((_, index) => results[index].status === 'fulfilled')
+    if (moved.length < pending.length) {
+        await restoreCanvasTasks(projectId, moved)
+        throw new Error('The canvas’s chats didn’t move, so nothing changed. Try again.')
+    }
+    return moved
 }
 
 export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
