@@ -635,6 +635,11 @@ class Operator1(StrEnum):
     OR_ = "OR"
 
 
+class ComparisonPeriod(Enum):
+    PREVIOUS = "previous"
+    NONE_TYPE_NONE = None
+
+
 class MissingDates(StrEnum):
     GAP = "gap"
     ZERO = "zero"
@@ -1446,7 +1451,6 @@ class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
-    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
@@ -2537,7 +2541,6 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
-    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"

@@ -977,6 +977,7 @@ async def _run_attempt(
     chunk_size: int | None = None,
     shutdown_after_items: int | None = None,
     on_write: Any = None,
+    id_column: str = "id",
 ) -> tuple[list[Any], BaseException | None]:
     pipeline = _runnable_pipeline(manager, items)
     pipeline._batcher = Batcher(MagicMock(), chunk_size=chunk_size, primary_keys=["id"])
@@ -984,7 +985,7 @@ async def _run_attempt(
     written: list[Any] = []
 
     async def record(pa_table: pa.Table, batch_index: int, row_count: int) -> None:
-        ids = pa_table["id"].to_pylist()
+        ids = pa_table[id_column].to_pylist()
         written.extend(ids)
         if on_write is not None:
             await on_write(ids)
@@ -1019,7 +1020,14 @@ async def _run_attempt(
 
 
 async def run_attempts_until_done(
-    redis: Any, build_items: Any, data_class: type, *, max_attempts: int = 4, on_write: Any = None, **first_attempt: Any
+    redis: Any,
+    build_items: Any,
+    data_class: type,
+    *,
+    max_attempts: int = 4,
+    on_write: Any = None,
+    id_column: str = "id",
+    **first_attempt: Any,
 ) -> list[list[Any]]:
     """Run import attempts of one job, each with a new manager, until one ends without an error."""
     attempts: list[list[Any]] = []
@@ -1027,7 +1035,12 @@ async def run_attempts_until_done(
         inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
         manager: ResumableSourceManager[Any] = ResumableSourceManager(inputs, data_class)
         written, error = await _run_attempt(
-            redis, manager, build_items(manager), on_write=on_write, **(first_attempt if attempt == 0 else {})
+            redis,
+            manager,
+            build_items(manager),
+            on_write=on_write,
+            id_column=id_column,
+            **(first_attempt if attempt == 0 else {}),
         )
         attempts.append(written)
         if error is None:
