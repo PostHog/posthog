@@ -8573,7 +8573,7 @@ Diffed against: <https://docs.tavus.io/openapi.yaml>
 - [ ] `GET /v2/voices` — Lookup table resolving the voice ID configured on PALs and videos (medium)
 - [ ] `GET /v2/lipsync` — Lipsync generation jobs with status and duration, a sibling of the synced videos table (low)
 - [ ] `GET /v2/replacements` — Replacement (background swap) jobs with status (low)
-- [x] `GET /v2/memory-stores` — Memory stores, one per PAL and participant, resolving the memory store ID used across conversations (medium)
+- [x] `GET /v2/memory-stores` — Memory stores, one per PAL and participant tag, showing which participants each PAL keeps memory for (medium)
 
 Note: Important: the current spec no longer contains /v2/personas or /v2/replicas - they have been superseded by /v2/pals and /v2/faces. Two of PostHog's four synced tables therefore target endpoints absent from today's API reference and should be re-verified against a live account. Static 4-endpoint config in sources/tavus/settings.py, no dynamic discovery; the spec exposes 20 GET list endpoints.
 
