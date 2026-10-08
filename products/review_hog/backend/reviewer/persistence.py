@@ -472,11 +472,19 @@ def persist_pr_snapshot(
     )
 
 
-def load_pr_snapshot(*, team_id: int, report_id: str, head_sha: str) -> PRSnapshotArtefact | None:
-    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head)."""
+def load_pr_snapshot(
+    *, team_id: int, report_id: str, head_sha: str, review_design: str | None = None
+) -> PRSnapshotArtefact | None:
+    """The PR inputs fetched for this turn, or None if the fetch hasn't run (latest wins per head).
+
+    A full turn and a Flash turn at the same head can overlap, and the two designs fetch different
+    file sets. A stage that passes `review_design` reads only the snapshot fetched for that design.
+    """
     latest: PRSnapshotArtefact | None = None
     for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.PR_SNAPSHOT, head_sha):
         assert isinstance(content, PRSnapshotArtefact)
+        if review_design is not None and content.review_design != review_design:
+            continue
         latest = content
     return latest
 

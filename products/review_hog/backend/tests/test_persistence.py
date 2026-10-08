@@ -22,11 +22,13 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_VALIDATION_ARM,
     FLASH_ARM,
     REVIEW_ARMS_BY_TIER,
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     ReviewTier,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import (
     DroppedIssue,
@@ -59,6 +61,7 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_dropped_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
@@ -1170,6 +1173,46 @@ class TestPRSnapshot(BaseTest):
         assert [c.path for c in loaded.pr_comments] == ["a.py"]
         # A different head returns nothing — resume reuses only the current turn's inputs.
         assert load_pr_snapshot(team_id=self.team.id, report_id=report_id, head_sha="other") is None
+
+    def test_flash_lens_parts_ignore_a_later_pipeline_snapshot_at_the_same_head(self) -> None:
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        source = PRFile(filename="src/a.py", status="modified", additions=500, deletions=0)
+        test = PRFile(filename="src/tests/test_a.py", status="modified", additions=500, deletions=0)
+        for review_design, pr_files in [
+            (REVIEW_DESIGN_SINGLE_AGENT, [source, test]),
+            (REVIEW_DESIGN_PIPELINE, [source]),
+        ]:
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="sha1",
+                pr_metadata=_pr_metadata(head_sha="sha1"),
+                pr_comments=[],
+                pr_files=pr_files,
+                review_design=review_design,
+            )
+        flash_input = SandboxStageInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            report_id=report_id,
+            head_sha="sha1",
+            repository="o/r",
+            branch="feat",
+            run_index=1,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+
+        prompt = _prepare_single_agent_prompt(flash_input, chunk_id=2, for_lens=True)
+
+        assert "src/tests/test_a.py" in prompt
+        pipeline = load_pr_snapshot(
+            team_id=self.team.id, report_id=report_id, head_sha="sha1", review_design=REVIEW_DESIGN_PIPELINE
+        )
+        assert pipeline is not None
+        assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
 
 
 class TestPersistVerdict(BaseTest):

@@ -960,7 +960,10 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         return [chunk.chunk_id for chunk in existing.chunks]
 
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        review_design=REVIEW_DESIGN_PIPELINE,
     )
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for chunking", non_retryable=True)
@@ -1056,7 +1059,10 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
         logger.info("Reusing persisted perspective selection for this turn")
         return PerspectiveSelectionDTO.from_model(existing)
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        review_design=REVIEW_DESIGN_PIPELINE,
     )
     chunks = await database_sync_to_async(load_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
@@ -1121,7 +1127,9 @@ def _prepare_review_prompt(
     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm)
     if (pass_number, chunk_id) in done:
         return None
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    snapshot = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=REVIEW_DESIGN_PIPELINE
+    )
     chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
     if snapshot is None or chunks is None:
         raise ApplicationError("PR snapshot or chunk set missing for review", non_retryable=True)
@@ -1220,7 +1228,9 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 
 def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool) -> str:
     """The task prompt of the main session, or of one lens session on lens part `chunk_id`."""
-    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    snapshot = load_pr_snapshot(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
+    )
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for the single-agent review", non_retryable=True)
     scope_files: list[str] | None = None
@@ -1341,11 +1351,13 @@ def _is_final_attempt() -> bool:
     return retry is not None and 0 < retry.maximum_attempts <= info.attempt
 
 
-def _combine_and_clean(team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm) -> list[Issue]:
+def _combine_and_clean(
+    team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
+) -> list[Issue]:
     perspective_results = load_perspective_results(
         team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm
     )
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=review_design)
     pr_files = snapshot.pr_files if snapshot is not None else []
     raw_issues = combine_issues(perspective_results)
     return clean_issues(raw_issues, pr_files)
@@ -1374,10 +1386,10 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     )
     single_agent = input.review_design == REVIEW_DESIGN_SINGLE_AGENT
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, review_arm
+        input.team_id, input.report_id, input.head_sha, review_arm, input.review_design
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for deduplication", non_retryable=True)
@@ -1482,7 +1494,9 @@ def _load_validation_context(
 ) -> tuple[Chunk, PRMetadata, list[PRFile]] | None:
     """The chunk + PR metadata + files a chunk's issues are validated against, or None if missing."""
     chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    snapshot = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=REVIEW_DESIGN_PIPELINE
+    )
     if chunks is None or snapshot is None:
         return None
     chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
@@ -1780,7 +1794,9 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
 
 def _track_review_started(input: TrackReviewStartedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
-    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    snapshot = load_pr_snapshot(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
+    )
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_started",
@@ -1833,7 +1849,9 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
-    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    snapshot = load_pr_snapshot(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
+    )
     duration_seconds = round(
         (
             datetime.datetime.now(tz=datetime.UTC) - datetime.datetime.fromisoformat(input.workflow_started_at)

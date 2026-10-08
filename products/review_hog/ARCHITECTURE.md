@@ -702,7 +702,9 @@ Per-run state by kind:
 - **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `perspective_result`, and the
   `pr_snapshot` artefacts. A `perspective_result` is stamped with the reviewer model and reasoning effort that wrote it and is only
   reused by a turn running that configuration: a Flash turn and a Full turn can share a commit, and a Full turn must never
-  resume Luna's results in place of running Sol (rows without the required stamps are never reused). The
+  resume Luna's results in place of running Sol (rows without the required stamps are never reused). A `pr_snapshot`
+  carries the design it was fetched for, and the review and dedup stages read only their own design's snapshot,
+  because the single-agent fetch keeps test and text files that the pipeline fetch drops. The
   raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
 - **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
   `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
