@@ -2853,10 +2853,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,

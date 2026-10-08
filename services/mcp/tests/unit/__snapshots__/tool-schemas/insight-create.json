@@ -191,11 +191,11 @@
                                     "description": "Settings for `ActionsPie` and `ActionsDonut`.",
                                     "properties": {
                                         "showTotal": {
-                                            "description": "Whether to show the aggregation total below the chart. Defaults to on.",
+                                            "description": "Whether to show the aggregation total. Defaults to on only when slices show values.",
                                             "type": "boolean"
                                         },
                                         "sliceContent": {
-                                            "description": "What to render on each slice. Defaults to labels.",
+                                            "description": "What to render on each slice. Defaults to values.",
                                             "enum": ["labels", "values", "none"],
                                             "type": "string"
                                         },

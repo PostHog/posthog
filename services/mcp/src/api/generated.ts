@@ -10513,9 +10513,9 @@ export namespace Schemas {
     } as const;
 
     export interface PieChartSettings {
-      /** Whether to show the aggregation total below the chart. Defaults to on. */
+      /** Whether to show the aggregation total. Defaults to on only when slices show values. */
       showTotal?: boolean | null;
-      /** What to render on each slice. Defaults to labels. */
+      /** What to render on each slice. Defaults to values. */
       sliceContent?: SliceContent | null;
       /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
       valueDisplay?: ValueDisplay | null;

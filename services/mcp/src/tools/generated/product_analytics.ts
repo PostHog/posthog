@@ -69,11 +69,11 @@ const AssistantDataVisualizationMetricSettings = z.object({
 const PieChartSettings = z.object({
     showTotal: z.coerce
         .boolean()
-        .describe('Whether to show the aggregation total below the chart. Defaults to on.')
+        .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
         .optional(),
     sliceContent: z
         .enum(['labels', 'values', 'none'])
-        .describe('What to render on each slice. Defaults to labels.')
+        .describe('What to render on each slice. Defaults to values.')
         .optional(),
     valueDisplay: z
         .enum(['absolute', 'percentage'])
