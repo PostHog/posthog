@@ -25,6 +25,7 @@ def build_review_body(
     validations: dict[str, IssueValidation],
     pr_files: list[PRFile],
     published_priorities: set[IssuePriority],
+    capped_lens_parts: int | None = None,
 ) -> str:
     """Render the PR-facing review body from this turn's in-process pipeline objects.
 
@@ -33,11 +34,12 @@ def build_review_body(
     valid findings can't be anchored to an inline comment — those are surfaced in an "Other findings"
     section instead of being silently dropped at publish. `published_priorities` is the acting user's
     urgency-threshold set (`published_priorities_for`), shared with the publisher so the tally and the
-    posted comments agree.
+    posted comments agree. `capped_lens_parts` is set for a single-agent turn on a PR too large for the
+    normal lens parts, and adds one line that says so.
     """
     counts = _published_counts(issues, validations, published_priorities)
     off_diff = _off_diff_publishable_findings(issues, validations, pr_files, published_priorities)
-    return _render_review_body(counts, off_diff)
+    return _render_review_body(counts, off_diff, capped_lens_parts)
 
 
 def _published_counts(
@@ -85,8 +87,9 @@ def _off_diff_publishable_findings(
 def _render_review_body(
     counts: dict[IssuePriority, int],
     off_diff_findings: list[tuple[Issue, IssueValidation]],
+    capped_lens_parts: int | None,
 ) -> str:
-    """Render the review body: the severity tally plus any off-diff findings section."""
+    """Render the review body: the severity tally, the large-PR note, and any off-diff findings section."""
     lines = [
         "# PostHog Review",
         "",
@@ -96,6 +99,13 @@ def _render_review_body(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY if counts[priority]
     )
     lines.extend([f"Found {breakdown}." if breakdown else "No issues to report.", ""])
+    if capped_lens_parts is not None:
+        lines.extend(
+            [
+                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
+                "",
+            ]
+        )
 
     lines.extend(_render_off_diff_section(off_diff_findings))
     return "\n".join(lines)

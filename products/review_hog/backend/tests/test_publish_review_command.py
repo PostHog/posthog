@@ -155,8 +155,8 @@ class TestPublishReviewCommand(BaseTest):
     def test_republishes_under_the_design_the_run_used(
         self, _name: str, stored_design: str | None, expected: str, mock_publish: MagicMock, _stale: MagicMock
     ) -> None:
-        # A single-agent turn lists its P3 findings in the status comment, so republishing it as the
-        # pipeline would post them as inline comments too.
+        # A single-agent review of a large PR says in its body that it ran in parts, so republishing
+        # it as the pipeline would drop that note whenever every finding posts inline.
         report_id = self._report(run_count=1)
         self._finding_mode(report_id, 1, REVIEW_MODE_FLASH, stored_design)
         integration = MagicMock()

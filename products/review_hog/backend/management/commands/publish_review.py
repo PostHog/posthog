@@ -92,7 +92,7 @@ class Command(BaseCommand):
         # run_index = run_count + 1, and finalize bumps run_count after they're persisted.
         run_index = report.run_count
         review_mode = review_mode_for_run(report, run_index)
-        # The single-agent design keeps its P3 findings out of the review, so a republish must too.
+        # A single-agent review of a large PR carries a note in its body, so a republish must post the body too.
         review_design = review_design_for_run(report, run_index)
         if options["review_mode"] is not None and options["review_mode"] != review_mode:
             raise CommandError(

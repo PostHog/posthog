@@ -152,6 +152,7 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
 )
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
+    capped_lens_part_count,
     count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
@@ -1577,6 +1578,9 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         validations=validations,
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
+        capped_lens_parts=(
+            capped_lens_part_count(pr_files) if input.review_design == REVIEW_DESIGN_SINGLE_AGENT else None
+        ),
     )
     finalize_review_report(
         team_id=input.team_id,

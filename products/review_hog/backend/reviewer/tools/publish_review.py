@@ -13,6 +13,7 @@ from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     PRIORITY_LABELS,
     REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
@@ -31,6 +32,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
+from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import capped_lens_part_count
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,9 @@ def publish_persisted_review(
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
         review_mode=review_mode,
+        # The body of a single-agent review on a large PR says it ran in parts, so it posts even when
+        # every finding has an inline comment.
+        always_post_body=review_design == REVIEW_DESIGN_SINGLE_AGENT and capped_lens_part_count(pr_files) is not None,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -200,6 +205,7 @@ def publish_review(
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    always_post_body: bool = False,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -240,7 +246,7 @@ def publish_review(
 
     # When every publishable finding has its own inline comment, the body's tally repeats what the
     # comments already show, so the review posts only the hidden marker with them.
-    inline_body = marker if len(comments) == len(publishable) else None
+    inline_body = marker if len(comments) == len(publishable) and not always_post_body else None
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(
