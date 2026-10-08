@@ -928,6 +928,26 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(json.loads(mock_get.call_args.kwargs["params"]["team_ids"]), [self.team.id])
 
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    async def test_project_export_sends_billing_only_the_project_in_the_path(self, kind, mock_get):
+        upstream = MagicMock()
+        upstream.status_code = 200
+        upstream.headers = {"Content-Type": "text/csv"}
+        upstream.iter_content.return_value = iter([b"Product,Total\n"])
+        mock_get.return_value = upstream
+        await self.async_client.aforce_login(self.user)
+        # A request naming another project still exports only the project in the path.
+        response = await self.async_client.get(
+            self._project_url(
+                f"{kind}/export/?start_date=2026-09-01&end_date=2026-09-14&team_ids=%5B{self.other_team.id}%5D"
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "content", b"")[:200])
+        sent = mock_get.call_args
+        self.assertTrue(sent.args[0].endswith(f"/api/v2/billing/{kind}/export/"), sent.args[0])
+        self.assertEqual(json.loads(sent.kwargs["params"]["team_ids"]), [self.team.id])
+
     @parameterized.expand([("billing_period_read", 0), ("usage_read", 1)])
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_timeout_tells_the_person_to_ask_for_less(self, _name, timed_out_call, mock_get):
