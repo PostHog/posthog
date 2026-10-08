@@ -1,12 +1,16 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 
 
 @dataclass
 class WrikeEndpointConfig:
     name: str
     path: str
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation-time field used for datetime partitioning. Only set where the resource
     # exposes an immutable creation timestamp — never an `updatedDate`-style field, which would
     # rewrite partitions on every sync.
@@ -16,6 +20,11 @@ class WrikeEndpointConfig:
     # workflows, custom fields, spaces) return the full result set in a single response with no
     # pagination token, so we fetch them in one request.
     paginated: bool = False
+    # Set when the path takes a parameter resolved from another endpoint's rows.
+    fanout: Optional[DependentEndpointConfig] = None
+    page_size: int = 1000
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
 
 
 # Wrike's REST API (v4) does not expose a server-side cursor/timestamp filter we can reliably
@@ -50,6 +59,24 @@ WRIKE_ENDPOINTS: dict[str, WrikeEndpointConfig] = {
     "spaces": WrikeEndpointConfig(
         name="spaces",
         path="/spaces",
+    ),
+    "project_dependencies": WrikeEndpointConfig(
+        name="project_dependencies",
+        path="/folders/{folderId}/dependencies",
+        # A project-to-project dependency is listed under both its predecessor and successor
+        # project, so the dependency id alone repeats across parents.
+        primary_keys=["projectId", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="folders",
+            resolve_param="folderId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "projectId"},
+            # The endpoint rejects any folder id that is not a project.
+            parent_params={"project": "true"},
+            # A project deleted between the parent listing and this fetch 404s.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 
