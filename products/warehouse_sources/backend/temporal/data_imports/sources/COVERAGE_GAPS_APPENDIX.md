@@ -9280,7 +9280,7 @@ Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); 
 
 ## Vapi — gaps
 
-Today (9): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `squads`, `tools`
+Today (10): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `simulation_runs`, `squads`, `tools`
 
 Diffed against: <https://api.vapi.ai/api-json>
 
@@ -9290,6 +9290,7 @@ Diffed against: <https://api.vapi.ai/api-json>
 - [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium)
 - [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
 - [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
+- [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
 
 Note: Full OpenAPI fetched live from api.vapi.ai/api-json. Note /reporting/insight is a saved-query definition (its data only comes back via POST /reporting/insight/{id}/run), and /provider/{provider}/{resourceName} is a passthrough to Twilio/Vonage account resources — both excluded as plumbing. /v2/campaign is a newer version of the /campaign the source already uses, not a distinct resource.
 
