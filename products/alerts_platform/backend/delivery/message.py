@@ -1,20 +1,25 @@
 """What a notification says, built from the rows the evaluation recorded.
 
-Source-agnostic. Every fact comes from an `AnnouncedTransition`, which the platform projects from
-a `PlatformAlertEvent`, so a message states what its own check decided however long after the
-check it is rendered. A provider turns this into its own body shape.
+Every fact comes from an `AnnouncedTransition`, which the platform projects from a
+`PlatformAlertEvent`, so a message states what its own check decided however long after the check
+it is rendered. A source can word parts of it in its own vocabulary through a registered describer.
+A provider turns this into its own body shape.
 """
 
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
+from posthog.slack.channels import clip_text
 from posthog.utils import absolute_uri, pluralize
 
+from products.alerts_platform.backend.delivery.describers import describe
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    MessageDetail,
+    MessageLink,
     SourceKind,
 )
 
@@ -24,6 +29,17 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
 }
+
+# The symbols the legacy messages use, so a pilot team sees the same state at a glance on both paths.
+_SYMBOLS: Final[dict[AlertEventKind, str]] = {
+    AlertEventKind.FIRING: "🔴",
+    AlertEventKind.RESOLVED: "🟢",
+    AlertEventKind.ERRORED: "🟡",
+    AlertEventKind.BROKEN: "⚠️",
+}
+
+# A source's context lines name things a user chose, such as services, so their length is unbounded.
+MAX_CONTEXT_LINE_CHARS: Final = 300
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
@@ -38,30 +54,25 @@ _INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
 
 
 @frozen
-class MessageDetail:
-    """One labelled fact in a message. Every provider renders these the same way, as a Slack
-    section, an Adaptive Card body, or lines of markdown."""
-
-    label: str
-    value: str
-
-
-@frozen
 class AlertMessage:
     """One notification, before a provider formats it.
 
-    `headline` and `details` are the copy, and a provider that renders text uses only those. The
-    other fields are the facts the copy was written from, for a provider whose body is data.
-    `incident_action` is set only on a message for an incident manager destination.
+    `headline`, `details`, `context` and the links are the copy, and a provider that renders text
+    uses only those. `symbol` marks the state for a reader, and a provider whose body is data
+    leaves it out. The other fields are the facts the copy was written from. `incident_action` is
+    set only on a message for an incident manager destination.
     """
 
     headline: str
+    symbol: str
     details: tuple[MessageDetail, ...]
     configuration_id: str
     alert_name: str
     source: SourceKind
     alert_url: str
     transition: AnnouncedTransition
+    context: tuple[str, ...] = ()
+    data_link: MessageLink | None = None
     incident_action: IncidentAction | None = None
 
 
@@ -127,20 +138,26 @@ def build_message(
         # here without an incident action means that filter is gone.
         raise ValueError(f"{transition.kind} announces nothing and has no message")
 
+    # Platform rows live on the project's root team, so its id is the project id.
+    project_id = team_id
+    description = describe(announcement.source, project_id=project_id, transition=transition)
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
-    details = (
-        _failure_details(transition, announcement.consecutive_failures)
-        if transition.kind in failure_kinds
-        else _breach_details(transition)
-    )
+    if transition.kind in failure_kinds:
+        details = tuple(_failure_details(transition, announcement.consecutive_failures))
+    elif description is not None and description.details:
+        details = description.details
+    else:
+        details = tuple(_breach_details(transition))
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
-        details=tuple(details),
+        symbol=_SYMBOLS[kind],
+        details=details,
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
         source=announcement.source,
-        # Platform rows live on the project's root team, so its id is the project id.
-        alert_url=alert_url(team_id, announcement.configuration_id),
+        alert_url=alert_url(project_id, announcement.configuration_id),
         transition=transition,
+        context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context) if description else (),
+        data_link=description.data_link if description else None,
         incident_action=incident_action,
     )

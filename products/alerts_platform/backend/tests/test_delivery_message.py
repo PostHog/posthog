@@ -2,14 +2,25 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail, build_message
+from products.alerts_platform.backend.delivery import describers
+from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    MessageDetail,
+    MessageLink,
+    SourceDescription,
     SourceKind,
+)
+
+LOGS_DESCRIPTION = SourceDescription(
+    details=(MessageDetail(label="Threshold breached", value="300 logs in 5m (threshold: above 100)"),),
+    context=("Services: checkout",),
+    data_link=MessageLink(label="View logs", url="https://app.example.com/project/7/logs"),
 )
 
 CONDITION = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
@@ -108,16 +119,48 @@ class TestAlertMessage:
             _build(_announcement(), _transition(AlertEventKind.CHECK))
 
     @pytest.mark.parametrize(
-        "action,expected",
+        "action,expected,symbol",
         [
-            (IncidentAction.TRIGGER, "Log alert 'API errors' is firing"),
-            (IncidentAction.RESOLVE, "Log alert 'API errors' is resolved"),
+            (IncidentAction.TRIGGER, "Log alert 'API errors' is firing", "\U0001f534"),
+            (IncidentAction.RESOLVE, "Log alert 'API errors' is resolved", "\U0001f7e2"),
         ],
     )
-    def test_a_held_check_speaks_for_the_incident_it_moved(self, action: IncidentAction, expected: str) -> None:
+    def test_a_held_check_speaks_for_the_incident_it_moved(
+        self, action: IncidentAction, expected: str, symbol: str
+    ) -> None:
         message = _build(_announcement(), _transition(AlertEventKind.CHECK), incident_action=action)
 
-        assert (message.headline, message.incident_action) == (expected, action)
+        assert (message.headline, message.symbol, message.incident_action) == (expected, symbol, action)
+
+    def test_a_source_words_a_breach_in_its_own_vocabulary(self) -> None:
+        with patch.dict(describers._describers, {SourceKind.LOGS: lambda **_: LOGS_DESCRIPTION}):
+            message = _build(_announcement(), _transition(AlertEventKind.FIRING))
+
+        assert (message.details, message.context, message.data_link) == (
+            LOGS_DESCRIPTION.details,
+            LOGS_DESCRIPTION.context,
+            LOGS_DESCRIPTION.data_link,
+        )
+
+    def test_a_failed_check_keeps_the_platform_failure_details_under_a_source_description(self) -> None:
+        with patch.dict(describers._describers, {SourceKind.LOGS: lambda **_: LOGS_DESCRIPTION}):
+            message = _build(
+                _announcement(consecutive_failures=3),
+                _transition(AlertEventKind.ERRORED, value=None, error_message="Query is too expensive"),
+            )
+
+        assert message.details[0] == MessageDetail(label="Error", value="Query is too expensive")
+        assert message.data_link == LOGS_DESCRIPTION.data_link
+
+    def test_a_describer_that_raises_still_delivers_the_platform_wording(self) -> None:
+        def broken(**_: Any) -> SourceDescription:
+            raise KeyError("serviceNames")
+
+        with patch.dict(describers._describers, {SourceKind.LOGS: broken}):
+            message = _build(_announcement(), _transition(AlertEventKind.FIRING))
+
+        assert MessageDetail(label="Threshold", value="above 100") in message.details
+        assert (message.context, message.data_link) == ((), None)
 
     def test_a_partial_condition_drops_the_line_it_cannot_state(self) -> None:
         message = _build(_announcement(), _transition(AlertEventKind.FIRING, condition={}))

@@ -14,7 +14,6 @@ from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
@@ -22,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     EvaluationAnnouncement,
+    MessageDetail,
     SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread

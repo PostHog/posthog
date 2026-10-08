@@ -593,6 +593,45 @@ class DestinationResolver(Protocol):
     ) -> list[AlertDestinationGroup]: ...
 
 
+@frozen
+class MessageDetail:
+    """One labelled fact in a message. Every provider renders these the same way, as a Slack
+    section, an Adaptive Card body, or lines of markdown."""
+
+    label: str
+    value: str
+
+
+@frozen
+class MessageLink:
+    label: str
+    url: str
+
+
+@frozen
+class SourceDescription:
+    """What a source says about one transition, in the words its own product uses.
+
+    The platform imports no source, so it can say only "Value: 11". A source can say "11 logs in
+    10m". Every part is optional, and a part a source leaves out falls back to the platform's
+    own wording or to nothing.
+    """
+
+    # Replaces the platform's breach details. A failed or turned-off check keeps the platform's
+    # failure details, because the failure is the platform's, not the source's.
+    details: tuple[MessageDetail, ...] = ()
+    # Short lines of small print, such as which services an alert watches.
+    context: tuple[str, ...] = ()
+    # Where the data behind the alert is, such as the matching logs.
+    data_link: MessageLink | None = None
+
+
+class SourceDescriber(Protocol):
+    """How a source describes its transitions. A source registers one for native delivery."""
+
+    def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
 # Comparison against a source's own stack.
 #
 # What a comparison reads, and what a source must supply for one.

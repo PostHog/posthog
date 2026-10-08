@@ -32,12 +32,23 @@ def escape_markdown(text: str) -> str:
 
 
 def content_for(message: AlertMessage) -> str:
-    link = f"\n\n[View alert](<{message.alert_url}>)"
-    return _body(message, MAX_CONTENT_CHARS - len(link)) + link
+    footer = _footer(message)
+    return _body(message, MAX_CONTENT_CHARS - len(footer)) + footer
+
+
+def _footer(message: AlertMessage) -> str:
+    links = [f"[View alert](<{message.alert_url}>)"]
+    if message.data_link is not None:
+        links.insert(0, f"[{escape_markdown(message.data_link.label)}](<{message.data_link.url}>)")
+    footer = "\n\n"
+    if message.context:
+        # `-# ` is Discord's small print. Context names things a user chose, so it is escaped.
+        footer += f"-# {escape_markdown(' | '.join(message.context))}\n"
+    return footer + " · ".join(links)
 
 
 def _body(message: AlertMessage, limit: int) -> str:
-    headline = f"**{escape_markdown(message.headline)}**"
+    headline = f"**{message.symbol} {escape_markdown(message.headline)}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if not lines:
         return headline

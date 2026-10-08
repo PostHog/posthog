@@ -11,10 +11,9 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message
 
 MESSAGE = alert_message(
@@ -51,22 +50,37 @@ class TestSlackBlocks(SimpleTestCase):
         assert len(section["text"]["text"]) <= MAX_SECTION_CHARS
         assert "*Failed checks:* 3" in section["text"]["text"]
 
-    def test_a_query_error_cannot_speak_as_slack_markup(self) -> None:
+    def test_user_text_cannot_speak_as_slack_markup(self) -> None:
         message = alert_message(
             headline="API errors could not be checked",
             details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
+            context=("Services: <!channel>",),
         )
 
-        body = blocks_for(message)[1]["text"]["text"]
+        blocks = blocks_for(message)
+        body = blocks[1]["text"]["text"]
+        context = blocks[2]["elements"][0]["text"]
 
-        assert "<!channel>" not in body
+        assert "<!channel>" not in body + context
         assert "&lt;!channel&gt;" in body
+        assert context == "Services: &lt;!channel&gt;"
 
     def test_a_message_without_details_carries_no_empty_section(self) -> None:
         blocks = blocks_for(alert_message(headline="API errors is resolved", details=()))
 
         assert [block["type"] for block in blocks] == ["header", "actions"]
         assert blocks[1]["elements"][0]["url"] == ALERT_URL
+
+    def test_the_source_data_link_comes_before_the_alert_link(self) -> None:
+        data_url = "https://app.example.com/project/1/logs"
+        message = alert_message(data_link=MessageLink(label="View logs", url=data_url))
+
+        buttons = blocks_for(message)[-1]["elements"]
+
+        assert [(button["text"]["text"], button["url"]) for button in buttons] == [
+            ("View logs", data_url),
+            ("View alert", ALERT_URL),
+        ]
 
 
 class TestSlackTransport(APIBaseTest):

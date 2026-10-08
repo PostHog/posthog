@@ -7,9 +7,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.discord import MAX_CONTENT_CHARS, DiscordTransport, content_for
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.transport import DeliveryError
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
 
@@ -21,14 +20,19 @@ class TestDiscordMessage(SimpleTestCase):
                 MessageDetail(label="Threshold", value="> 300"),
                 MessageDetail(label="Error", value="bad query\n# not a heading"),
             ),
+            context=("Services: [api](https://evil.example)",),
+            data_link=MessageLink(
+                label="View logs", url="https://app.example.com/project/1/logs?serviceNames=%5B%22checkout%22%5D"
+            ),
         )
 
         body = DiscordTransport().body_for(message)
 
         assert body == {
-            "content": "**@everyone \\[Checkout\\](https://evil.example) is firing**\n\n"
-            "**Threshold:** \\> 300\n**Error:** bad query\n\\# not a heading"
-            f"\n\n[View alert](<{ALERT_URL}>)",
+            "content": "**\U0001f534 @everyone \\[Checkout\\](https://evil.example) is firing**\n\n"
+            "**Threshold:** \\> 300\n**Error:** bad query\n\\# not a heading\n\n"
+            "-# Services: \\[api\\](https://evil.example)\n"
+            f"[View logs](<https://app.example.com/project/1/logs?serviceNames=%5B%22checkout%22%5D>) · [View alert](<{ALERT_URL}>)",
             "allowed_mentions": {"parse": []},
             "flags": 4,
         }

@@ -15,15 +15,16 @@ from posthog.slack.channels import (
     SlackButton,
     actions_block,
     clip_text,
+    context_block,
     header_block,
     post_message,
     section_block,
 )
 from posthog.slack.formatting import escape_slack_mrkdwn
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
+from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail
 
 PROVIDER: Final = "slack"
 
@@ -49,10 +50,16 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
 
 
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = [header_block(message.headline)]
+    blocks: list[dict[str, Any]] = [header_block(f"{message.symbol} {message.headline}")]
     if message.details:
         blocks.append(section_block(_body(message.details)))
-    blocks.append(actions_block([SlackButton(text="View alert", url=message.alert_url)]))
+    if message.context:
+        # Context names things a user chose, such as services, so it is escaped like a detail.
+        blocks.append(context_block(" | ".join(escape_slack_mrkdwn(line) for line in message.context)))
+    buttons = [SlackButton(text="View alert", url=message.alert_url)]
+    if message.data_link is not None:
+        buttons.insert(0, SlackButton(text=message.data_link.label, url=message.data_link.url))
+    blocks.append(actions_block(buttons))
     return blocks
 
 
@@ -82,7 +89,7 @@ class SlackTransport:
                 channel,
                 blocks_for(message),
                 # The one place the alert's name reaches mrkdwn: the header renders plain text.
-                escape_slack_mrkdwn(message.headline),
+                escape_slack_mrkdwn(f"{message.symbol} {message.headline}"),
                 thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
             )
         except SlackApiError as error:
