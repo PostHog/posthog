@@ -164,6 +164,7 @@ class TestSavedQueryReads(BaseTest):
             self.team, dag, "revenue", {"origin": "cross_dag_view", "saved_query_id": str(revenue.saved_query_id)}
         )
         persons = table_node(self.team, dag, "persons", {"origin": POSTHOG_TABLE_ORIGIN})
+        legacy = table_node(self.team, dag, "legacy_orders", {})
         middle = saved_query_node(self.team, dag, "middle", NodeType.VIEW)
         target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
         downstream = saved_query_node(self.team, dag, "downstream", NodeType.VIEW)
@@ -171,6 +172,7 @@ class TestSavedQueryReads(BaseTest):
             (charges, middle),
             (events, middle),
             (proxy, middle),
+            (legacy, middle),
             (middle, target),
             (target, downstream),
             (persons, downstream),
@@ -180,7 +182,8 @@ class TestSavedQueryReads(BaseTest):
         assert api.upstream_table_refs(self.team.id, target.saved_query_id) == frozenset(
             {
                 UpstreamTableRef(name="stripe_charges", warehouse_table_id=warehouse_table_id),
-                UpstreamTableRef(name="events"),
-                UpstreamTableRef(name="invoices"),
+                UpstreamTableRef(name="events", is_posthog_table=True),
+                UpstreamTableRef(name="invoices", is_posthog_table=True),
+                UpstreamTableRef(name="legacy_orders"),
             }
         )

@@ -77,6 +77,7 @@ class Dependent:
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
+    is_posthog_table: bool = False
 
 
 @dataclass(frozen=True)

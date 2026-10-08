@@ -322,7 +322,11 @@ def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool
 def upstream_table_refs(team_id: int, saved_query_id: UUID | str) -> frozenset[UpstreamTableRef]:
     """The tables this saved query reads from, directly or through other views in any DAG."""
     return frozenset(
-        UpstreamTableRef(name=name, warehouse_table_id=_warehouse_table_id(properties))
+        UpstreamTableRef(
+            name=name,
+            warehouse_table_id=_warehouse_table_id(properties),
+            is_posthog_table=properties.get("origin") == POSTHOG_TABLE_ORIGIN,
+        )
         for name, properties in _upstream_table_nodes(team_id, str(saved_query_id))
         if _proxied_saved_query_id(properties) is None
     )

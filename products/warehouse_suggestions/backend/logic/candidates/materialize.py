@@ -188,6 +188,8 @@ def _classify_sources(
     unknown = []
     for ref in sorted(upstream_table_refs(context.team_id, saved_query_id), key=lambda ref: ref.name):
         table_id = UUID(ref.warehouse_table_id) if ref.warehouse_table_id else None
+        if table_id is None and not ref.is_posthog_table:
+            continue
         source = SourceRef(name=ref.name, warehouse_table_id=table_id)
         if table_id is None or table_id in context.inventory.direct_table_ids:
             live.append(source)

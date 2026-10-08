@@ -40,7 +40,10 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
 
     def test_proposes_each_kind_from_a_month_of_reads_and_surfaces_them(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
-        busy, _ = self._view("busy_orders", dag)
+        busy, busy_node = self._view("busy_orders", dag)
+        for name, properties in [("events", {"origin": "posthog"}), ("legacy_orders", {})]:
+            table = Node.objects.create(team=self.team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
+            Edge.objects.create(team=self.team, dag=dag, source=table, target=busy_node)
         unread, _ = self._view("old_rollup", dag, materialized=True)
         feeds_another, source_node = self._view("feeds_another", dag, materialized=True)
         _, dependent_node = self._view("reads_feeds_another", dag)
@@ -83,6 +86,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
         assert not WarehouseSuggestion.objects.for_team(self.team.pk).filter(surfaced_at__isnull=True).exists()
         materialize = WarehouseSuggestion.objects.for_team(self.team.pk).get(kind=WarehouseSuggestionKind.MATERIALIZE)
         assert (materialize.payload["refresh_interval_seconds"], materialize.run_id) == (24 * 60 * 60, "run-1")
+        assert [source["name"] for source in materialize.payload["live_sources"]] == ["events"]
 
     def test_a_team_without_view_reads_is_recorded_as_not_eligible_and_its_open_suggestions_still_resolve(
         self,
