@@ -80,7 +80,7 @@ export function BIDataSourcePicker(): JSX.Element {
         >
             <LemonButton
                 type="secondary"
-                size="small"
+                size="xsmall"
                 fullWidth
                 icon={<IconDatabase />}
                 sideIcon={<IconChevronDown />}
