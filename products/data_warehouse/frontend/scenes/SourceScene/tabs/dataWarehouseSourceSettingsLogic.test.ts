@@ -288,9 +288,9 @@ describe('sourceSettingsLogic', () => {
     })
 
     it.each([
-        { outcome: 'accepted', rejected: false, successToasts: 1 },
-        { outcome: 'rejected', rejected: true, successToasts: 0 },
-    ])('shows the success toast only when the save is $outcome', async ({ rejected, successToasts }) => {
+        { outcome: 'accepted', rejected: false, successToasts: 1, formAction: 'submitSourceConfigSuccess' },
+        { outcome: 'rejected', rejected: true, successToasts: 0, formAction: 'submitSourceConfigFailure' },
+    ])('reports a save as $outcome', async ({ rejected, successToasts, formAction }) => {
         silenceKeaLoadersErrors()
         const source = makeSource([makeSchema()])
         const updateSpy = jest.spyOn(api.externalDataSources, 'update')
@@ -307,7 +307,7 @@ describe('sourceSettingsLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.submitSourceConfig()
-        }).toDispatchActions(['submitSourceConfigSuccess'])
+        }).toDispatchActions([formAction])
 
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(successToastSpy).toHaveBeenCalledTimes(successToasts)

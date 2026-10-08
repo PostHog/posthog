@@ -418,9 +418,9 @@ export interface sourceSettingsLogicValues {
     sourceConfigTouches: Record<string, boolean>
     sourceConfigValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
     sourceFieldConfig: SourceConfigResponseApi | null
-    sourceUpdateFailed: boolean
     sourceId: string
     sourceLoading: boolean
+    sourceUpdateFailed: boolean
     statusFilter: string | null
     syncMethodFilter: string | null
     syncingNow: boolean
@@ -702,6 +702,8 @@ export type sourceSettingsLogicType = MakeLogicType<
     SourceSettingsLogicProps,
     sourceSettingsLogicMeta
 >
+
+class SourceSaveRejectedError extends Error {}
 
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
@@ -1159,11 +1161,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                 : values.source?.auto_sync_schema_patterns,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
-                    // The loader catches a rejected save and resolves anyway. The global loader
-                    // failure handler has already shown the error.
+                    // The loader catches a rejected save and resolves anyway. Throw so that the
+                    // form records a failed submit.
                     if (values.sourceUpdateFailed) {
-                        captureSaveOutcome('rejected')
-                        return
+                        throw new SourceSaveRejectedError()
                     }
                     actions.loadSource()
                     captureSaveOutcome('success')
@@ -1188,6 +1189,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                 } catch (e: any) {
                     captureSaveOutcome('rejected')
+                    // The global loader failure handler has already shown the error.
+                    if (e instanceof SourceSaveRejectedError) {
+                        throw e
+                    }
                     if (e.message) {
                         lemonToast.error(e.message)
                     } else {
