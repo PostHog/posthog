@@ -464,6 +464,9 @@ class TestHasRealFacade:
         [
             pytest.param("from ..logic import run as run\n", id="relative_logic_reexport"),
             pytest.param("from products.my_product.backend.logic import run as run\n", id="absolute_logic_reexport"),
+            pytest.param(
+                "from products.my_product.backend.facade_legacy import run as run\n", id="facade_prefix_is_not_facade"
+            ),
         ],
     )
     def test_logic_reexport_api_is_a_shim_despite_sibling_helpers(self, tmp_path: Path, api_source: str) -> None:
@@ -474,6 +477,20 @@ class TestHasRealFacade:
         )
 
         assert has_real_facade(backend_dir) is False
+
+    def test_type_checking_import_does_not_make_a_shim(self, tmp_path: Path) -> None:
+        api_source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from ..logic import Thing\n"
+            "from .reads import get_thing as get_thing\n"
+        )
+        _, backend_dir = _write_facade_product(
+            tmp_path,
+            facade_files={"api.py": api_source, "reads.py": "def get_thing() -> None:\n    pass\n"},
+        )
+
+        assert has_real_facade(backend_dir) is True
 
 
 class TestIsolationRung:

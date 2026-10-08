@@ -740,6 +740,9 @@ def facade_function_names(backend_dir: Path) -> list[str]:
     return names
 
 
+_FACADE_MODULE_PATTERN = re.compile(r"\.backend\.facade(\.|$)")
+
+
 def _api_reexports_internals(api_path: Path) -> bool:
     """`api.py` defines nothing and re-exports from outside the facade package, e.g. `from ..logic import x`."""
     if has_any_function_defs(api_path):
@@ -747,13 +750,14 @@ def _api_reexports_internals(api_path: Path) -> bool:
     tree = ast_parse_safe(api_path)
     if tree is None:
         return False
-    for node in ast.walk(tree):
+    # Only runtime imports at module level count. An `if TYPE_CHECKING:` import is a type hint.
+    for node in tree.body:
         if not isinstance(node, ast.ImportFrom):
             continue
         if node.level >= 2:
             return True
         module = node.module or ""
-        if node.level == 0 and ".backend." in module and ".backend.facade" not in module:
+        if node.level == 0 and ".backend." in module and not _FACADE_MODULE_PATTERN.search(module):
             return True
     return False
 
