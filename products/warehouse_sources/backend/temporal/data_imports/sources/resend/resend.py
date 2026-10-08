@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -35,7 +36,7 @@ RESEND_BASE_URL = "https://api.resend.com"
 _METRICS_LOOKBACK_DAYS = 3650
 
 
-@dataclasses.dataclass
+@frozen
 class ResendResumeConfig:
     # Cursor for the cursor-paginated endpoints (Resend's `after` parameter).
     next_cursor: Optional[str] = None

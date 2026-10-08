@@ -1,8 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
 
-@dataclass
+
+@frozen
 class ResendEndpointConfig:
     name: str
     path: str
