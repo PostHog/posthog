@@ -851,6 +851,14 @@ tools:
             person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the
             numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the
             ID. To apply a change at a future time instead, use `scheduled-changes-create`.
+
+
+            Release conditions combine with OR: a user who matches any condition gets the flag, subject to that
+            condition's rollout percentage. Property filters inside one condition combine with AND. To give more users
+            access, add their values to an existing `exact` property filter, or add a new release condition. A new
+            property filter on an existing condition, such as an `is_not` filter, removes access from some users who
+            match that condition today. Add a property filter to an existing condition only when the user asks to
+            restrict access. When the request can mean either, ask the user which one they mean before you write.
         include_params:
             - key
             - name
