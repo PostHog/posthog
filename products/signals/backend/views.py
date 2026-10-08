@@ -4819,9 +4819,15 @@ def append_suggested_reviewers(
 
 
 def _reviewer_entry_names(entry: dict, *, user_uuid: str, github_login: str | None) -> bool:
-    """Whether a stored reviewer entry routes to this person, by either of the two things it can hold."""
-    if str(entry.get("user_uuid") or "") == user_uuid:
-        return True
+    """Whether a stored reviewer entry routes to this person.
+
+    A login only stands in for an entry that carries no uuid of its own, the same rule the reviewer
+    filter applies. GitHub reassigns logins, so matching one against an entry that names someone else
+    by uuid would let the caller take that person off the report.
+    """
+    stored_uuid = str(entry.get("user_uuid") or "")
+    if stored_uuid:
+        return stored_uuid == user_uuid
     return bool(github_login) and str(entry.get("github_login") or "").strip().lower() == github_login
 
 

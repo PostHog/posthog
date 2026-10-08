@@ -1084,6 +1084,25 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
         assert not self._reviewer_filter_matches(report, self.user)
 
+    def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
+        # GitHub reassigns logins. An entry that names someone by uuid is theirs, whoever holds the
+        # login now, so stepping off must not take them with it.
+        _attach_github_login(self.user, "CallerCase")
+        teammate = self._create_org_member("teammate@example.com", github_login=None)
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[
+                {"user_uuid": str(teammate.uuid), "github_login": "callercase"},
+                {"user_uuid": str(self.user.uuid)},
+            ],
+        )
+
+        response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+
     def test_leave_reviewers_does_not_reevaluate_autostart(self):
         # Auto-start runs the task as the user the row is attributed to, so a removal that
         # re-evaluated it could start a billable run as the person who just stepped off.
