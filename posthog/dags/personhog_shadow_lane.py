@@ -1,9 +1,9 @@
 """Operate the personhog shadow validation lane.
 
-The shadow lane is a second consumer group on the team 2 events topic whose
-worker runs with PERSONS_STORE_MODE=shadow: every person write goes through
-both the legacy direct-to-Postgres path and the personhog path, into a
-dedicated persons-shadow database. Validation runs compare the two paths'
+The shadow lane is a second consumer group on a production ingestion topic,
+set in the lane's deployment, whose worker runs with PERSONS_STORE_MODE=shadow:
+every person write goes through both the legacy direct-to-Postgres path and
+the personhog path, into a dedicated persons-shadow database. Validation runs compare the two paths'
 tables afterwards, so each run must start from identical (empty) state on
 both sides.
 
@@ -15,18 +15,24 @@ The Dagster service account needs get/patch on deployments and
 deployments/scale plus list on pods in the lane namespace, and the lane's
 ArgoCD Applications
 must ignore Deployment spec.replicas, or ArgoCD self-heal reverts every scale
-these jobs apply. Both are charts-side prerequisites.
+these jobs apply. Both are charts-side prerequisites. Resetting the lane's
+offsets also needs the Kafka bootstrap servers of the lane's cluster in
+PERSONHOG_SHADOW_KAFKA_BOOTSTRAP_SERVERS on the Dagster deployment.
 """
 
 import os
 import time
 from collections.abc import Callable, Iterable
+from concurrent.futures import Future
 from contextlib import closing
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 import dagster
 import psycopg2
 import psycopg2.extras
+from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka.admin import AdminClient
 from kubernetes import (
     client as k8s_client,
     config as k8s_config,
@@ -41,6 +47,12 @@ SHADOW_NAMESPACE = "ingestion-analytics-team2-shadow"
 SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
 SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
 SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
+SHADOW_CONSUMER_GROUP = "ingestion-analytics-team2-shadow"
+SHADOW_KAFKA_BOOTSTRAP_ENV_VAR = "PERSONHOG_SHADOW_KAFKA_BOOTSTRAP_SERVERS"
+SHADOW_KAFKA_SECURITY_PROTOCOL_ENV_VAR = "PERSONHOG_SHADOW_KAFKA_SECURITY_PROTOCOL"
+# The client library defines these error codes at runtime, but its type stubs omit them.
+GROUP_ID_NOT_FOUND: int = KafkaError.GROUP_ID_NOT_FOUND  # type: ignore[attr-defined]
+NON_EMPTY_GROUP: int = KafkaError.NON_EMPTY_GROUP  # type: ignore[attr-defined]
 
 START_METRICS_JOB = "personhog_shadow_lane_start"
 
@@ -260,10 +272,11 @@ def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int
 
 class ShadowLaneStartConfig(dagster.Config):
     reset_state: bool = False
-    # Bounded so a typo in run config cannot request enough pods to eat the
-    # nodepool. The team2 lane peaks at 16 of each.
-    consumer_replicas: int = Field(default=4, gt=0, le=32)
-    processor_replicas: int = Field(default=8, gt=0, le=32)
+    # Deletes the lane's consumer group, so the lane starts at the end of its topic instead of its committed offsets.
+    reset_offsets: bool = False
+    consumer_group: str = SHADOW_CONSUMER_GROUP
+    consumer_replicas: int = Field(default=4, gt=0)
+    processor_replicas: int = Field(default=8, gt=0)
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
@@ -275,19 +288,25 @@ class ShadowLaneStartConfig(dagster.Config):
     reset_settle_timeout_seconds: int = 600
 
 
-def _reset_shadow_state(
-    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
-) -> None:
+def _require_lane_stopped(config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api, option: str, reason: str) -> None:
     for deployment in (config.consumer_deployment, config.processor_deployment):
         pods = deployment_pod_count(apps, config.namespace, deployment)
         if pods > 0:
             raise dagster.Failure(
                 description=(
                     f"Deployment {deployment} still wants or has {pods} pod(s). "
-                    "A reset while consumers run would leave the two paths inconsistent. "
-                    "Run the stop-and-compare job first, then start with reset_state."
+                    f"{reason} "
+                    f"Run the stop-and-compare job first, then start with {option}."
                 )
             )
+
+
+def _reset_shadow_state(
+    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
+) -> None:
+    _require_lane_stopped(
+        config, apps, "reset_state", "A reset while consumers run would leave the two paths inconsistent."
+    )
 
     tables = LEGACY_STATE_TABLES + PERSONHOG_STATE_TABLES
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
@@ -328,6 +347,60 @@ def _reset_shadow_state(
     context.log.info("Shadow persons database reset complete")
 
 
+class ConsumerGroupAdmin(Protocol):
+    def delete_consumer_groups(self, group_ids: list[str], **kwargs: Any) -> dict[str, Future]: ...
+
+
+def shadow_kafka_admin() -> AdminClient:
+    bootstrap_servers = os.environ.get(SHADOW_KAFKA_BOOTSTRAP_ENV_VAR)
+    if not bootstrap_servers:
+        raise dagster.Failure(
+            description=(
+                f"Environment variable {SHADOW_KAFKA_BOOTSTRAP_ENV_VAR} is not set on the Dagster deployment. "
+                "It must hold the bootstrap servers of the Kafka cluster the shadow lane consumes from."
+            )
+        )
+    return AdminClient(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "security.protocol": os.environ.get(SHADOW_KAFKA_SECURITY_PROTOCOL_ENV_VAR, "SSL"),
+        }
+    )
+
+
+def _reset_consumer_offsets(
+    context: dagster.OpExecutionContext,
+    config: ShadowLaneStartConfig,
+    apps: k8s_client.AppsV1Api,
+    admin_factory: Callable[[], ConsumerGroupAdmin] = shadow_kafka_admin,
+) -> bool:
+    """Delete the lane's consumer group, so the next start falls back to the consumer's offset reset policy.
+
+    The ingestion consumer resets to the latest offset when its group has no committed offset, so the lane
+    starts at the end of its topic. Returns False when the group did not exist.
+    """
+    _require_lane_stopped(config, apps, "reset_offsets", "Kafka refuses to delete a consumer group with members.")
+    admin = admin_factory()
+    future = admin.delete_consumer_groups([config.consumer_group], request_timeout=30)[config.consumer_group]
+    try:
+        future.result()
+    except KafkaException as exception:
+        error = exception.args[0]
+        if error.code() == GROUP_ID_NOT_FOUND:
+            context.log.info(f"Consumer group {config.consumer_group} does not exist, nothing to reset")
+            return False
+        if error.code() == NON_EMPTY_GROUP:
+            raise dagster.Failure(
+                description=(
+                    f"Consumer group {config.consumer_group} still has members, so Kafka refused to delete it. "
+                    "Wait for the lane's consumers to leave the group, then retry."
+                )
+            ) from exception
+        raise
+    context.log.info(f"Deleted consumer group {config.consumer_group}; the lane starts from the latest offsets")
+    return True
+
+
 def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConfig, completed_at: float) -> None:
     Gauge(
         "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
@@ -341,6 +414,12 @@ def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConf
         ["namespace"],
         registry=registry,
     ).labels(namespace=config.namespace).set(1 if config.reset_state else 0)
+    Gauge(
+        "posthog_personhog_shadow_lane_start_reset_offsets",
+        "1 when the last start deleted the lane's consumer group first, 0 when it resumed from committed offsets",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(1 if config.reset_offsets else 0)
     replicas = Gauge(
         "posthog_personhog_shadow_lane_start_replicas",
         "Replicas the last start requested, by deployment",
@@ -358,6 +437,10 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
         _reset_shadow_state(context, config, apps)
     else:
         context.log.info("reset_state is false, leaving the shadow persons database untouched")
+    if config.reset_offsets:
+        _reset_consumer_offsets(context, config, apps)
+    else:
+        context.log.info("reset_offsets is false, the lane resumes from its committed offsets")
 
     targets = [
         (config.consumer_deployment, config.consumer_replicas),
@@ -391,6 +474,7 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
     context.add_output_metadata(
         {
             "reset_state": dagster.MetadataValue.bool(config.reset_state),
+            "reset_offsets": dagster.MetadataValue.bool(config.reset_offsets),
             "consumer_replicas": dagster.MetadataValue.int(config.consumer_replicas),
             "processor_replicas": dagster.MetadataValue.int(config.processor_replicas),
         }
@@ -404,6 +488,7 @@ def personhog_shadow_lane_start_job():
     Run with default config to resume consuming from the committed offsets.
     Set ops.start_shadow_lane.config.reset_state to true to truncate both
     paths' tables before starting, which every fresh validation run needs.
-    The reset refuses to run while the lane has pods.
+    Set reset_offsets to true to start from the end of the topic instead.
+    Both resets refuse to run while the lane has pods.
     """
     start_shadow_lane()

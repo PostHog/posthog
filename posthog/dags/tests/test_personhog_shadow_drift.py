@@ -9,6 +9,7 @@ from prometheus_client import CollectorRegistry
 from posthog.dags.personhog_shadow_drift import (
     DriftCategoryReport,
     PropertyKeyDrift,
+    _configure_session,
     compute_shadow_drift,
     record_drift_gauges,
     sample_property_drift,
@@ -180,3 +181,17 @@ def test_drift_gauges_keep_each_count_under_its_own_name_and_category() -> None:
     assert sample("field_mismatched_rows", category="persons", field="properties") == 7
     assert sample("ratio", category="distinct_ids") == 0
     assert sample("last_success_timestamp_seconds") == 1_700_000_000.0
+
+
+class _RecordingCursor:
+    def __init__(self) -> None:
+        self.statements: list[tuple[str, tuple | None]] = []
+
+    def execute(self, sql: str, params: tuple | None = None) -> None:
+        self.statements.append((sql, params))
+
+
+def test_session_applies_the_configured_statement_timeout() -> None:
+    cursor = _RecordingCursor()
+    _configure_session(cursor, statement_timeout_minutes=240)
+    assert ("SET statement_timeout = %s", ("240min",)) in cursor.statements
