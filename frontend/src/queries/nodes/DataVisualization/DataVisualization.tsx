@@ -274,6 +274,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [showYearLabels, chartSettings.xAxisLabel]
     )
 
+    const controlSize = query.kind === NodeKind.BIVisualizationNode ? 'xsmall' : 'small'
+
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     let component: JSX.Element | null = null
@@ -482,15 +484,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         <LemonDivider className="my-0" />
                         <div className="flex items-center gap-2 flex-wrap px-2">
                             <div className="flex gap-2 items-center">
-                                <Reload />
+                                <Reload size={controlSize} />
                                 <ElapsedTime />
                             </div>
-                            <AddVariableButton />
+                            <AddVariableButton buttonProps={{ size: controlSize }} />
 
                             {sourceFeatures.has(QueryFeature.dateRangePicker) &&
                                 !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                     <DateRange
                                         key="date-range"
+                                        size={controlSize}
                                         query={query.source}
                                         setQuery={(query) => {
                                             if (query.kind === NodeKind.HogQLQuery) {
@@ -501,10 +504,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 )}
 
                             <div className={props.context?.chartTypeSelectorClassName}>
-                                <TableDisplay />
+                                <TableDisplay size={controlSize} />
                             </div>
 
                             <LemonButton
+                                size={controlSize}
                                 icon={<IconGear />}
                                 type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
                                 onClick={() => toggleChartSettingsPanel()}
@@ -513,6 +517,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
                             {props.exportContext && (
                                 <ExportButton
+                                    size={controlSize}
                                     disabledReason={
                                         effectiveVisualizationType !== ChartDisplayType.ActionsTable &&
                                         'Only table results are exportable'

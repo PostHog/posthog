@@ -1227,9 +1227,9 @@ function buildOrderByExpression(
     }
 
     // Date dimensions follow chronological order; other dimensions keep the largest values first.
-    const firstDimension = dimensions[0]
-    if (isDateTimeBIField(firstDimension.field)) {
-        return `${fieldExpression(firstDimension.field)} ASC`
+    const dateDimension = dimensions.find(({ field }) => isDateTimeBIField(field))
+    if (dateDimension) {
+        return `${fieldExpression(dateDimension.field)} ASC`
     }
 
     const firstValueAlias =

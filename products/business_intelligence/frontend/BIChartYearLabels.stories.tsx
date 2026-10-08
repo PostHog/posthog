@@ -52,7 +52,7 @@ const dates = [
 ]
 const meta: Meta = {
     title: 'Products/Business intelligence/Chart years',
-    parameters: { layout: 'centered' },
+    parameters: { layout: 'centered', mockDate: '2026-10-01' },
 }
 export default meta
 
@@ -60,16 +60,25 @@ export const PartialYears: StoryObj = {
     render: () => (
         <div className="flex h-96 w-[48rem] flex-col">
             <DataTableVisualization
-                query={{ ...buildBIQuery(config)!.node, kind: NodeKind.BIVisualizationNode, config }}
+                query={{
+                    ...buildBIQuery(config)!.node,
+                    kind: NodeKind.BIVisualizationNode,
+                    config,
+                    chartSettings: {
+                        xAxis: { column: 'toStartOfMonth(timestamp)' },
+                        yAxis: [{ column: 'sum_revenue' }],
+                    },
+                }}
                 setQuery={() => {}}
                 cachedResults={{
-                    columns: ['bi_row_timestamp', 'sum_revenue'],
+                    columns: ['toStartOfMonth(timestamp)', 'sum_revenue'],
                     types: [
-                        ['bi_row_timestamp', 'DateTime'],
+                        ['toStartOfMonth(timestamp)', 'DateTime'],
                         ['sum_revenue', 'Float64'],
                     ],
                     results: dates.map((date, index) => [date, 100 + (index % 4) * 50]),
                 }}
+                context={{ insightProps: { dashboardItemId: 'new-SQL-bi-years' } }}
                 readOnly
             />
         </div>

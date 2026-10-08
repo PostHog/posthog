@@ -695,7 +695,7 @@ describe('BI editor query generation', () => {
     it.each(['rows', 'columns'] as const)('auto-sorts date dimensions on %s chronologically', (shelf) => {
         const result = buildBIQuery({
             ...sortableConfig,
-            rows: [],
+            rows: shelf === 'columns' ? [browserField] : [],
             columns: [],
             [shelf]: [{ ...timestampField, dateBucket: 'day' }],
         })

@@ -44,7 +44,7 @@ export function BIToolbar(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
             <LemonButton
-                size="small"
+                size="xsmall"
                 type="primary"
                 onClick={responseLoading ? cancelQuery : runQuery}
                 disabledReason={
@@ -60,7 +60,7 @@ export function BIToolbar(): JSX.Element {
             </LemonButton>
             <LemonButton
                 icon={<IconSwapHoriz />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 tooltip="Swap rows and columns"
                 aria-label="Swap rows and columns"
@@ -72,7 +72,7 @@ export function BIToolbar(): JSX.Element {
             />
             <LemonButton
                 icon={<IconArrowUp />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 active={config.sort?.direction === 'asc'}
                 tooltip="Sort ascending"
@@ -83,7 +83,7 @@ export function BIToolbar(): JSX.Element {
             />
             <LemonButton
                 icon={<IconArrowDown />}
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 active={config.sort?.direction === 'desc'}
                 tooltip="Sort descending"
@@ -106,7 +106,7 @@ export function BIToolbar(): JSX.Element {
                 renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
                 icon={<IconSort />}
                 aria-label="Sort results by"
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
                 disabledReason={sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined}
@@ -118,7 +118,7 @@ export function BIToolbar(): JSX.Element {
                 onChange={setLimit}
                 renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
                 aria-label="Query row limit"
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dropdownMatchSelectWidth={false}
                 data-attr="bi-editor-query-limit"
@@ -130,7 +130,7 @@ export function BIToolbar(): JSX.Element {
             )}
             <LemonDivider vertical />
             <LemonButton
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 onClick={resetConfig}
                 disabledReason={!config.source ? 'Nothing to clear' : undefined}
@@ -150,7 +150,7 @@ export function BIToolbar(): JSX.Element {
                 {/* Narrow sheets have no room to dock the chart picker, so it opens as a dropdown */}
                 <LemonDropdown overlay={<BIChartTypes docked={false} />} placement="bottom-end">
                     <LemonButton
-                        size="small"
+                        size="xsmall"
                         type="secondary"
                         className="@3xl/bi-editor:hidden"
                         data-attr="bi-editor-show-me"
@@ -160,7 +160,7 @@ export function BIToolbar(): JSX.Element {
                 </LemonDropdown>
                 {!chartTypesOpen ? (
                     <LemonButton
-                        size="small"
+                        size="xsmall"
                         type="secondary"
                         className="hidden @3xl/bi-editor:flex"
                         onClick={() => setChartTypesOpen(true)}

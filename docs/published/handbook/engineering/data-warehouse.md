@@ -32,7 +32,7 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
 
-**Chart types** opens the chart picker. While it is docked, the visualization hides its duplicate chart selector. Visualization controls share a toolbar that wraps as the worksheet narrows, and the Series/Display settings panel scrolls independently. Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
+**Chart types** opens the chart picker. While it is docked, the visualization hides its duplicate chart selector. Compact dropdowns keep the data pane and chart controls dense. Visualization controls share a toolbar that wraps as the worksheet narrows, and the Series/Display settings panel scrolls independently. Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
 
 **Auto update** is off by default and remembers your choice. Selecting a table alone can run a count when you click **Run**. In wide worksheets, drag the divider between the data and analysis panels to resize the data panel, or drag the analysis panel's right edge to resize that panel independently.
 

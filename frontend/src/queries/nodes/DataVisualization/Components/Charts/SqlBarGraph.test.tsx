@@ -99,11 +99,19 @@ describe('SqlBarGraph', () => {
             }
             const node = buildBIQuery(config)!.node
             renderDataVisualization({
-                query: { ...node, kind: NodeKind.BIVisualizationNode, config },
+                query: {
+                    ...node,
+                    kind: NodeKind.BIVisualizationNode,
+                    config,
+                    chartSettings: {
+                        xAxis: { column: 'toStartOfMonth(timestamp)' },
+                        yAxis: [{ column: 'sum_a' }, { column: 'sum_b_2' }],
+                    },
+                },
                 response: {
-                    columns: ['bi_row_month', 'sum_a', 'sum_b_2'],
+                    columns: ['toStartOfMonth(timestamp)', 'sum_a', 'sum_b_2'],
                     types: [
-                        ['bi_row_month', 'DateTime'],
+                        ['toStartOfMonth(timestamp)', 'DateTime'],
                         ['sum_a', 'UInt64'],
                         ['sum_b_2', 'UInt64'],
                     ],
@@ -114,6 +122,7 @@ describe('SqlBarGraph', () => {
             await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
             expect(await screen.findByText('Explore this result')).toBeVisible()
             expect(screen.getByText('View underlying rows')).toBeVisible()
+            expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
         }
     )
 
