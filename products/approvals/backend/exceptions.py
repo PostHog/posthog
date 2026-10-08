@@ -91,3 +91,9 @@ class ReasonRequiredError(ChangeRequestError):
     """Raised when a reason is required but not provided."""
 
     pass
+
+
+class StaleChangeRequestError(ChangeRequestError):
+    """Raised when the resource changed after the change request was created."""
+
+    pass

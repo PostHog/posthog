@@ -20,6 +20,7 @@ from products.approvals.backend.exceptions import (
     InvalidStateError,
     PreconditionFailed,
     ReasonRequiredError,
+    StaleChangeRequestError,
 )
 from products.approvals.backend.models import (
     Approval,
@@ -121,6 +122,32 @@ def _assert_requester_still_has_access(change_request: ChangeRequest, context: d
         "The person who requested this change no longer has edit access to the resource, "
         "so it cannot be applied. Ask them to request it again if their access is restored."
     )
+
+
+def mark_stale_if_resource_changed(change_request: ChangeRequest) -> bool:
+    """Mark the request stale and return True if its resource changed after the request was made.
+
+    The apply step refuses a stale request anyway. This check runs before a vote, so an approver
+    does not learn about the conflict only after the vote is cast.
+    """
+    action_class = get_action(change_request.action_key)
+    if not action_class:
+        return False
+
+    base_context = {
+        "team": change_request.team,
+        "team_id": change_request.team_id,
+        "organization": change_request.organization,
+    }
+    context = action_class.prepare_context(change_request, base_context)
+    if not action_class.check_staleness(change_request.intent, context):
+        return False
+
+    change_request.validation_status = ValidationStatus.STALE
+    change_request.validation_errors = {"staleness": "Resource has been modified since this change request was created"}
+    change_request.validated_at = timezone.now()
+    change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
+    return True
 
 
 def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
@@ -308,6 +335,12 @@ class ChangeRequestService:
         """
         if self.change_request.state != ChangeRequestState.PENDING:
             raise InvalidStateError("Only pending change requests can be approved")
+
+        if mark_stale_if_resource_changed(self.change_request):
+            raise StaleChangeRequestError(
+                "This resource changed after the request was made, so the change can no longer be applied. "
+                "Request the change again."
+            )
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
