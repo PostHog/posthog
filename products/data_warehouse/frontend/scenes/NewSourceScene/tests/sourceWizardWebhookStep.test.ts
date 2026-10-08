@@ -11,9 +11,7 @@ import type { SourceConfigResponseApi } from 'products/warehouse_sources/fronten
 
 import { sourceWizardLogic, WIZARD_DESTINATION_STEP } from '../sourceWizardLogic'
 
-// Its own file rather than a case in `sourceWizardLogic.test.ts`: these cases run `createSource`
-// to completion, and doing that in that file's shared module registry corrupts a memoized
-// selector for the tests that follow.
+// Separate from sourceWizardLogic.test.ts: running createSource to completion there corrupts a memoized selector.
 describe('sourceWizardLogic webhook step', () => {
     beforeEach(() => {
         initKeaTests()
@@ -37,10 +35,6 @@ describe('sourceWizardLogic webhook step', () => {
         supports_webhooks: true,
     } as ExternalDataSourceSyncSchema
 
-    // `createSource` runs from step 3 without the destination step and from
-    // WIZARD_DESTINATION_STEP with it, so advancing relatively on success landed the wizard on a
-    // step the scene cannot render. The customer then saw the unknown-step error and "Start over"
-    // instead of the webhook setup, after their source had already been created.
     it.each([
         { name: 'with the destination step', startStep: WIZARD_DESTINATION_STEP },
         { name: 'without the destination step', startStep: 3 },
