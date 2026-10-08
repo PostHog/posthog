@@ -198,9 +198,11 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             return self.client.post("/oauth/token", data=urlencode(data), content_type=content_type)
         return self.client.post("/oauth/token", data=data, content_type=content_type)
 
-    def _exchange(self, *, sub: str, email: str = "user@example.com", tenant: str = "") -> Any:
+    def _exchange(
+        self, *, sub: str, email: str = "user@example.com", tenant: str = "", issuer: str = _IDP_ISSUER
+    ) -> Any:
         extra_claims: dict[str, Any] = {"email": email, **({"tenant": tenant} if tenant else {})}
-        assertion = _make_id_jag(sub=sub, extra_claims=extra_claims)
+        assertion = _make_id_jag(issuer=issuer, sub=sub, extra_claims=extra_claims)
         return self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
 
     def _link_subject(self, sub: str) -> None:
@@ -579,6 +581,30 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(second.json()["error"], "invalid_grant")
         self.assertEqual(IdJagIdentity.objects.filter(user=self.user).count(), 1)
+
+    def test_link_from_a_replaced_issuer_does_not_resolve_the_new_issuers_subject(self) -> None:
+        self._link_subject("idp-user-1")
+        other_user = UserModel.objects.create_and_join(self.organization, "other@example.com", "x")
+        new_issuer = "https://new-idp.example.com"
+        config = (
+            OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+            .identity_provider_configs_for_scope(ConfigScope.ID_JAG)
+            .first()
+        )
+        config.id_jag_issuer_url = new_issuer
+        config.save()
+
+        resp = self._exchange(sub="idp-user-1", email="other@example.com", issuer=new_issuer)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["user_uuid"], str(other_user.uuid))
 
     def test_rejects_linked_subject_whose_user_left_the_organization(self) -> None:
         self._link_subject("idp-user-1")

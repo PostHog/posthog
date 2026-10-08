@@ -16,6 +16,9 @@ class IdJagIdentity(UUIDModel):
     identity_provider_config = models.ForeignKey(
         "posthog.IdentityProviderConfig", on_delete=models.CASCADE, related_name="id_jag_identities", db_index=False
     )
+    # The verified `iss`. Subjects are unique only within one issuer, so a link made under an
+    # issuer the configuration no longer names must not resolve tokens from its replacement.
+    issuer = models.CharField(max_length=512)
     # The draft's `tenant` claim, set by IdPs that issue for several tenants under one `iss`.
     tenant = models.CharField(max_length=IDENTITY_FIELD_MAX_LENGTH, blank=True, default="")
     subject = models.CharField(max_length=IDENTITY_FIELD_MAX_LENGTH)
@@ -28,11 +31,11 @@ class IdJagIdentity(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=("identity_provider_config", "tenant", "subject"),
+                fields=("identity_provider_config", "issuer", "tenant", "subject"),
                 name="unique_id_jag_identity_subject",
             ),
             models.UniqueConstraint(
-                fields=("identity_provider_config", "user"),
+                fields=("identity_provider_config", "issuer", "user"),
                 name="unique_id_jag_identity_user",
             ),
         ]

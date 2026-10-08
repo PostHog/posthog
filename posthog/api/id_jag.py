@@ -124,6 +124,7 @@ class _VerifiedIdJag:
     claims: IdJagClaims
     provider_name: str
     identity_provider_config: IdentityProviderConfig
+    issuer: str
 
 
 @frozen
@@ -423,6 +424,7 @@ def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: st
         claims=claims,
         provider_name=provider_name,
         identity_provider_config=idp_config,
+        issuer=expected_issuer,
     )
 
 
@@ -436,6 +438,7 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
     """
     idp_config = verified_id_jag.identity_provider_config
     claims = verified_id_jag.claims
+    issuer = verified_id_jag.issuer
     tenant = str(claims.get("tenant") or "")
     subject = str(claims["sub"])
     if len(tenant) > IDENTITY_FIELD_MAX_LENGTH or len(subject) > IDENTITY_FIELD_MAX_LENGTH:
@@ -453,7 +456,7 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
         return linked_user
 
     linked_user_id = (
-        IdJagIdentity.objects.filter(identity_provider_config=idp_config, tenant=tenant, subject=subject)
+        IdJagIdentity.objects.filter(identity_provider_config=idp_config, issuer=issuer, tenant=tenant, subject=subject)
         .values_list("user_id", flat=True)
         .first()
     )
@@ -467,7 +470,11 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
 
     try:
         identity, _ = IdJagIdentity.objects.get_or_create(
-            identity_provider_config=idp_config, tenant=tenant, subject=subject, defaults={"user": user}
+            identity_provider_config=idp_config,
+            issuer=issuer,
+            tenant=tenant,
+            subject=subject,
+            defaults={"user": user},
         )
     except IntegrityError:
         # get_or_create recovers from a concurrent link of this subject, so the clash is on the member.

@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
+                ("issuer", models.CharField(max_length=512)),
                 ("tenant", models.CharField(blank=True, default="", max_length=255)),
                 ("subject", models.CharField(max_length=255)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -50,11 +51,11 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("identity_provider_config", "tenant", "subject"),
+                        fields=("identity_provider_config", "issuer", "tenant", "subject"),
                         name="unique_id_jag_identity_subject",
                     ),
                     models.UniqueConstraint(
-                        fields=("identity_provider_config", "user"),
+                        fields=("identity_provider_config", "issuer", "user"),
                         name="unique_id_jag_identity_user",
                     ),
                 ],
