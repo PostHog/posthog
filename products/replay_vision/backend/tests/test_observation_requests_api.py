@@ -31,8 +31,7 @@ class TestObservationRequestAPI(APIBaseTest):
         # Started in setUp, not as class decorators, so @parameterized cases keep their argument order.
         self.start_workflow = self._patch("products.replay_vision.backend.api.trigger.async_to_sync").return_value
         self._patch("products.replay_vision.backend.api.trigger.sync_connect")
-        self.analytics = self._patch("products.replay_vision.backend.api.observation_requests.posthoganalytics")
-        self.analytics.feature_enabled.return_value = True
+        self._patch("products.replay_vision.backend.api.observation_requests.posthoganalytics")
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         self.scanner = ReplayScanner.objects.create(
@@ -128,13 +127,11 @@ class TestObservationRequestAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", {"flag": False}, 404),
             ("no_ai_consent", {"consent": False}, 400),
             ("both_scanner_and_inline", {"inline": True}, 400),
         ]
     )
     def test_create_is_refused(self, _name: str, case: dict[str, Any], expected: int) -> None:
-        self.analytics.feature_enabled.return_value = case.get("flag", True)
         if case.get("consent") is False:
             self.organization.is_ai_data_processing_approved = False
             self.organization.save()

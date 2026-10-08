@@ -13611,8 +13611,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "replay-vision-observation-requests"
+        }
     },
     "vision-requests-get": {
         "description": "Read a scan request made with `vision-requests-create`: its `status` (`running` until every session has settled, then `completed`) and, for each session, its `state`, `observation_id` and `scanner_result` once it succeeded.",
@@ -13626,8 +13625,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "replay-vision-observation-requests"
+        }
     },
     "vision-scanners-affected-cohort-create": {
         "description": "Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment exclusion. Fails when the window has no users or none resolve to a person profile.",

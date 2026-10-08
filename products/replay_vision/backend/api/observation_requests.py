@@ -10,7 +10,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -42,8 +42,6 @@ from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.types import ScannerResult
 
 logger = structlog.get_logger(__name__)
-
-OBSERVATION_REQUESTS_FLAG = "replay-vision-observation-requests"
 
 
 class ObservationRequestStatus(models.TextChoices):
@@ -207,8 +205,6 @@ class ObservationRequestViewSet(
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not self._flag_enabled(request):
-            raise NotFound()
         if self.action == "create":
             refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         if not self._is_service_call and not self.user_access_control.check_access_level_for_resource(
@@ -220,20 +216,6 @@ class ObservationRequestViewSet(
     def _is_service_call(self) -> bool:
         # A project secret API key is project-wide by design, so it skips object-level access checks.
         return is_authenticated_via_project_secret_api_key(self.request)
-
-    def _flag_enabled(self, request: Request) -> bool:
-        return bool(
-            posthoganalytics.feature_enabled(
-                OBSERVATION_REQUESTS_FLAG,
-                _distinct_id(request),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id)},
-                },
-                send_feature_flag_events=False,
-            )
-        )
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservationRequest]) -> QuerySet[ReplayObservationRequest]:
         queryset = queryset.filter(team_id=self.team_id).select_related("scanner").order_by("-created_at")

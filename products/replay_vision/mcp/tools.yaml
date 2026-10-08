@@ -1013,7 +1013,6 @@ tools:
     vision-requests-create:
         operation: vision_requests_create
         enabled: true
-        feature_flag: replay-vision-observation-requests
         annotations:
             readOnly: false
             destructive: false
@@ -1030,7 +1029,6 @@ tools:
     vision-requests-get:
         operation: vision_requests_retrieve
         enabled: true
-        feature_flag: replay-vision-observation-requests
         title: Get a session scan request
         description: >
             Read a scan request made with `vision-requests-create`: its `status` (`running` until every session has
