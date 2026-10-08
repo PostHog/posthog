@@ -67,14 +67,11 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
 
 
 def _with_state_line(blocks: list[dict[str, Any]], state_line: str) -> list[dict[str, Any]]:
-    """The opening blocks unchanged, with the state line above the buttons.
+    """The opening blocks unchanged, with the state line above the buttons `blocks_for` ends with.
 
     The state line is platform text, built from a state and a time, so it is not escaped.
     """
-    state = context_block(state_line)
-    if blocks and blocks[-1].get("type") == "actions":
-        return [*blocks[:-1], state, blocks[-1]]
-    return [*blocks, state]
+    return [*blocks[:-1], context_block(state_line), blocks[-1]]
 
 
 class SlackTransport:
@@ -128,7 +125,9 @@ class SlackTransport:
                 channel,
                 ts,
                 _with_state_line(root.root_content["blocks"], state_line),
-                root.root_content["text"],
+                # Screen readers read the fallback text rather than the blocks, so it carries the
+                # current state too.
+                f"{root.root_content['text']} ({state_line})",
             )
         except SlackApiError as error:
             raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error

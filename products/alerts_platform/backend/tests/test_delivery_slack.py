@@ -138,7 +138,7 @@ class TestSlackTransport(APIBaseTest):
 
         assert update.call_args.kwargs["channel"] == "C-ENG"
         assert update.call_args.kwargs["ts"] == "1700000000.1"
-        assert update.call_args.kwargs["text"] == "API errors is firing"
+        assert update.call_args.kwargs["text"] == "API errors is firing (Resolved as of 14:32 UTC)"
         blocks = update.call_args.kwargs["blocks"]
         assert [*blocks[:-2], blocks[-1]] == opening
         assert blocks[-2] == {"type": "context", "elements": [{"type": "mrkdwn", "text": "Resolved as of 14:32 UTC"}]}

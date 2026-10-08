@@ -5,10 +5,12 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
+from django.utils import timezone
+
 import structlog
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
-from products.alerts_platform.backend.delivery.root_state import current_state_line
+from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle, RootEditor
@@ -18,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
 )
+from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
 
 logger = structlog.get_logger(__name__)
 
@@ -77,10 +80,12 @@ def deliver(
         except Exception:
             thread_store.release(claim)
             raise
-        thread_store.delivered(claim, sent)
         if claim.handle is not None:
-            # A reply landed under an opening message, so the opening message catches up.
+            # A reply landed under an opening message, so the opening message catches up. It runs
+            # before `delivered` releases the claim, so edits to one root happen in send order and
+            # a slow edit cannot land after a newer one.
             _edit_root(transport=transport, team_id=team_id, target=target, root=claim.handle, key=key)
+        thread_store.delivered(claim, sent)
 
     if busy:
         raise ThreadBusy(f"{busy} of {len(announcement.transitions)} threads are held by another send")
@@ -123,14 +128,10 @@ def _edit_root(
     if not isinstance(transport, RootEditor) or not root.root_content:
         return
     try:
-        state_line = current_state_line(
-            team_id=team_id,
-            configuration_id=key.configuration_id,
-            grouping_key=key.grouping_key,
-            episode_started_at=key.episode_started_at,
-        )
-        if state_line is not None:
-            transport.edit_root(team_id=team_id, target=target, root=root, state_line=state_line)
+        snapshot = alert_snapshot(team_id, key.configuration_id, key.grouping_key)
+        line = state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
+        if line is not None:
+            transport.edit_root(team_id=team_id, target=target, root=root, state_line=line)
     except Exception:
         logger.exception("alerts_platform.root_edit_failed", provider=transport.provider)
 

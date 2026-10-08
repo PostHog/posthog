@@ -78,13 +78,23 @@ class FakeTransport:
 class EditingTransport(FakeTransport):
     """A transport that can edit its opening message, like Slack."""
 
-    def __init__(self, handle: MessageHandle | None = None, edit_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        handle: MessageHandle | None = None,
+        edit_error: Exception | None = None,
+        store: "RecordingThreadStore | None" = None,
+    ) -> None:
         super().__init__(handle=handle)
         self.edit_error = edit_error
+        self.store = store
         self.edits: list[tuple[MessageHandle, str]] = []
+        # What the store had recorded as delivered at the moment of each edit.
+        self.delivered_at_edit: list[list[str]] = []
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
         self.edits.append((root, state_line))
+        if self.store is not None:
+            self.delivered_at_edit.append([k for keys in self.store.delivered_keys.values() for k in keys])
         if self.edit_error:
             raise self.edit_error
 
@@ -180,23 +190,29 @@ class TestDeliveryDispatch(SimpleTestCase):
 
     def test_a_reply_brings_the_opening_message_up_to_the_current_state(self) -> None:
         store = RecordingThreadStore()
-        transport = EditingTransport(handle=OPENING)
+        transport = EditingTransport(handle=OPENING, store=store)
 
-        with patch(
-            "products.alerts_platform.backend.delivery.dispatch.current_state_line", return_value="Resolved"
-        ) as state:
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None),
+            patch("products.alerts_platform.backend.delivery.dispatch.state_line", return_value="Resolved") as state,
+        ):
             self._deliver(transport, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING), "eval-1")
             assert transport.edits == []
             self._deliver(transport, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING), "eval-2")
 
         assert transport.edits == [(OPENING, "Resolved")]
         assert state.call_args.kwargs["episode_started_at"] == FIRST_FIRING
+        # The edit runs while the reply's claim is held, so a later send cannot overtake it.
+        assert transport.delivered_at_edit == [["eval-1"]]
 
     def test_a_failed_edit_does_not_fail_the_reply_that_landed(self) -> None:
         store = RecordingThreadStore()
         transport = EditingTransport(handle=OPENING, edit_error=DeliveryError("message_not_found"))
 
-        with patch("products.alerts_platform.backend.delivery.dispatch.current_state_line", return_value="Resolved"):
+        with (
+            patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None),
+            patch("products.alerts_platform.backend.delivery.dispatch.state_line", return_value="Resolved"),
+        ):
             self._deliver(transport, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING), "eval-1")
             self._deliver(transport, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING), "eval-2")
 
