@@ -28,8 +28,6 @@ MAX_PAGE_SIZE = 200
 
 # Daily sales/subscription reports are only retained for about a year, so a first sync walks back this
 # far rather than to the App Store's launch. Each day is one request, so this also bounds the backfill.
-# Apple counts the year in its own time zone, which can trail UTC by a day, so the window stops two days
-# short of 365. A first day on the retention edge 400s and fails the whole cold-start backfill.
 SALES_REPORT_LOOKBACK_DAYS = 363
 
 # Days of reports fetched in a single run. A run that hits the cap resumes from its bookmark next time,
