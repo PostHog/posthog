@@ -149,6 +149,10 @@ class SubjectEditAccessRequiredError(Exception):
         self.subject_kind = subject_kind
 
 
+class CatalogEditAccessRequiredError(Exception):
+    pass
+
+
 class SuggestionAlreadyDecidedError(Exception):
     def __init__(self, current: WarehouseSuggestionStatus, requested: WarehouseSuggestionStatus) -> None:
         super().__init__(f"This suggestion is {current.label.lower()} and cannot become {requested.label.lower()}.")

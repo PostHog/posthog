@@ -13,6 +13,7 @@ from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
+    CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
     Suggestion,
     SuggestionDraft,
@@ -45,6 +46,8 @@ __all__ = [
     "suggestion_status",
     "upsert_suggestions",
 ]
+
+CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
@@ -126,6 +129,7 @@ def accept_suggestion(
     was_impersonated: bool,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
         row.id,
@@ -145,6 +149,13 @@ def _actionable_suggestion(
     if not access.can_act_on(row):
         raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
     return row, access
+
+
+def _require_catalog_edit_access(row: WarehouseSuggestion, user_access_control: "UserAccessControl") -> None:
+    if row.kind not in CATALOG_KINDS:
+        return
+    if not user_access_control.check_access_level_for_resource("data_catalog", required_level="editor"):
+        raise CatalogEditAccessRequiredError()
 
 
 def _single_contract(

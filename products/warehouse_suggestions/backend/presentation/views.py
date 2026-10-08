@@ -27,6 +27,7 @@ from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
     AcceptFailedError,
+    CatalogEditAccessRequiredError,
     RefreshIntervalRefusedError,
     SubjectEditAccessRequiredError,
     Suggestion,
@@ -55,6 +56,7 @@ SUBJECT_GONE = {
     WarehouseSuggestionSubjectKind.SAVED_QUERY: "This view no longer exists.",
     WarehouseSuggestionSubjectKind.TABLE: "This table no longer exists.",
 }
+CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
 ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write"]
 
 
@@ -169,6 +171,8 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise NotFound()
         except SubjectEditAccessRequiredError as error:
             raise PermissionDenied(EDIT_ACCESS_REQUIRED[error.subject_kind])
+        except CatalogEditAccessRequiredError:
+            raise PermissionDenied(CATALOG_EDIT_ACCESS_REQUIRED)
         except SuggestionAlreadyDecidedError as error:
             raise Conflict(str(error))
         except SuggestionSubjectGoneError as error:
