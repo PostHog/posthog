@@ -1,13 +1,13 @@
 rules:
     - id: choices-need-a-class
       message: |
-          These `choices=` come from a list, not from a class.
+          These `choices=` do not come from a class.
 
-          drf-spectacular names an enum after its class. A list has no class, so the
-          enum gets the field name (`code` -> `CodeEnum`). When a second field with that
+          drf-spectacular names an enum after its class. A list, a tuple or a Literal has no
+          class, so the enum gets the field name (`code` -> `CodeEnum`). When a second field with that
           name and other values comes into the API, the first enum gets a new name and
           the frontend imports of its generated type break. The usual patch is an
-          ENUM_NAME_OVERRIDES entry in posthog/settings/web.py. Do not add one.
+          ENUM_NAME_OVERRIDES entry in posthog/settings/web.py.
 
           Define the values as a class and pass its `.choices`:
 
@@ -22,6 +22,10 @@ rules:
           files must not import Django. For a subset of an existing class, define a second
           class. The component name comes from the class (`DatasetConflictCodeEnum`),
           see `/improving-drf-endpoints`.
+
+          Add an ENUM_NAME_OVERRIDES entry only when no class can give the name, for
+          example when two classes have identical (value, label) pairs. The comments in
+          that dict list these cases.
 
           Lists that already exist are not blocked. For a genuine exception, add
           `# nosemgrep: choices-need-a-class -- <reason>` on the line.
@@ -40,22 +44,40 @@ rules:
               - '**/test_*.py'
               - '**/.semgrep/**'
       pattern-either:
-          # A list literal or a list comprehension, as a keyword or as DRF's first positional argument.
-          - pattern: rest_framework.serializers.ChoiceField(..., choices=[...], ...)
-          - pattern: rest_framework.serializers.ChoiceField([...], ...)
-          - pattern: rest_framework.serializers.MultipleChoiceField(..., choices=[...], ...)
-          - pattern: rest_framework.serializers.MultipleChoiceField([...], ...)
-          - pattern: rest_framework.fields.ChoiceField(..., choices=[...], ...)
-          - pattern: rest_framework.fields.ChoiceField([...], ...)
-          - pattern: rest_framework.fields.MultipleChoiceField(..., choices=[...], ...)
-          - pattern: rest_framework.fields.MultipleChoiceField([...], ...)
-          # The values of a typing.Literal.
-          - pattern: rest_framework.serializers.ChoiceField(..., choices=typing.get_args(...), ...)
-          - pattern: rest_framework.serializers.MultipleChoiceField(..., choices=typing.get_args(...), ...)
-          - pattern: rest_framework.fields.ChoiceField(..., choices=typing.get_args(...), ...)
-          - pattern: rest_framework.fields.MultipleChoiceField(..., choices=typing.get_args(...), ...)
-          # A ModelSerializer builds its ChoiceField from the model field.
-          - pattern: django.db.models.$FIELD(..., choices=[...], ...)
+          - patterns:
+                - pattern-either: &field_calls
+                      - pattern: rest_framework.serializers.ChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.serializers.ChoiceField($CHOICES, ...)
+                      - pattern: rest_framework.serializers.MultipleChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.serializers.MultipleChoiceField($CHOICES, ...)
+                      - pattern: rest_framework.fields.ChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.fields.ChoiceField($CHOICES, ...)
+                      - pattern: rest_framework.fields.MultipleChoiceField(..., choices=$CHOICES, ...)
+                      - pattern: rest_framework.fields.MultipleChoiceField($CHOICES, ...)
+                      # A ModelSerializer builds its ChoiceField from the model field.
+                      - pattern: django.db.models.$FIELD(..., choices=$CHOICES, ...)
+                - metavariable-pattern:
+                      metavariable: $CHOICES
+                      patterns: &no_class
+                          - pattern-either:
+                                # List and tuple literals, and list comprehensions.
+                                - pattern: '[...]'
+                                - pattern: '($FIRST, ...)'
+                                - pattern: list(...)
+                                - pattern: tuple(...)
+                                # The values of a typing.Literal.
+                                - pattern: typing.get_args(...)
+                          - pattern-not: list($CLASS.choices)
+                          - pattern-not: tuple($CLASS.choices)
+          # A name that the same file binds to one of the forms above.
+          - patterns:
+                - pattern-inside: |
+                      $CHOICES = $VALUE
+                      ...
+                - pattern-either: *field_calls
+                - metavariable-pattern:
+                      metavariable: $VALUE
+                      patterns: *no_class
       metadata:
           category: best-practice
           subcategory:
