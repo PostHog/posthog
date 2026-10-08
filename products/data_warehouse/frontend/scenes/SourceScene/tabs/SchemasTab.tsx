@@ -12,6 +12,7 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -75,6 +76,40 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
 // Only data columns use this, so the sync toggle and row actions still look clickable on a schema that is not syncing.
 const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
     schema.should_sync ? '' : 'opacity-60'
+
+interface SchemaStatusDisplay {
+    type: LemonTagType
+    label: string
+    tooltip: string | null
+}
+
+const schemaStatusDisplay = (
+    schema: ExternalDataSourceSchema,
+    status: ExternalDataSchemaStatus
+): SchemaStatusDisplay => {
+    // An empty table after a completed sync usually means a row filter that matches nothing, a missing
+    // permission, or an empty source. An incremental sync that finds no new rows still leaves rows in
+    // the table, so it doesn't trigger this.
+    const completedWithNoRows =
+        status === ExternalDataSchemaStatus.Completed &&
+        !!schema.last_synced_at &&
+        (schema.table ? schema.table.row_count === 0 : true)
+    if (completedWithNoRows) {
+        const filterHint = schema.row_filters?.length
+            ? ' Check that the row filters on this table match some rows.'
+            : ''
+        return {
+            type: 'warning',
+            label: 'Completed, no rows',
+            tooltip: `The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it.${filterHint} Open the sync logs for details.`,
+        }
+    }
+    return {
+        type: StatusTagSetting[status] || 'default',
+        label: status,
+        tooltip: status === ExternalDataSchemaStatus.Failed ? (schema.latest_error ?? null) : null,
+    }
+}
 
 export interface SchemasTabProps {
     id: string
@@ -453,31 +488,14 @@ function ManagedSchemaTable({
                                 }).url
                             )
                         }
-                        // An empty table after a completed sync usually means a wrong filter, a missing
-                        // permission, or an empty source. An incremental sync that finds no new rows
-                        // still leaves rows in the table, so it doesn't trigger this.
-                        const completedWithNoRows =
-                            schema.status === ExternalDataSchemaStatus.Completed &&
-                            !!schema.last_synced_at &&
-                            (schema.table ? schema.table.row_count === 0 : true)
+                        const { type, label, tooltip } = schemaStatusDisplay(schema, schema.status)
                         const tagContent = (
-                            <LemonTag
-                                type={completedWithNoRows ? 'warning' : StatusTagSetting[schema.status] || 'default'}
-                                forceClickable
-                                onClick={openSyncsForSchema}
-                            >
-                                {completedWithNoRows ? 'Completed, no rows' : schema.status}
+                            <LemonTag type={type} forceClickable onClick={openSyncsForSchema}>
+                                {label}
                             </LemonTag>
                         )
-                        if (completedWithNoRows) {
-                            return (
-                                <Tooltip title="The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it. Open the sync logs for details.">
-                                    {tagContent}
-                                </Tooltip>
-                            )
-                        }
-                        return schema.latest_error && schema.status === 'Failed' ? (
-                            <Tooltip title={schema.latest_error} interactive>
+                        return tooltip ? (
+                            <Tooltip title={tooltip} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (
