@@ -9,32 +9,43 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import LATTICE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import (
+    LATTICE_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 LATTICE_HOSTS = {
     "us": "https://api.latticehq.com",
     "emea": "https://api.emea.latticehq.com",
 }
-# Lattice's default page size is only 10; always request the max of 100.
-PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
 class LatticeResumeConfig:
     # Lattice cursor pagination: pass the previous page's endingCursor as
     # startingAfter; static params are rebuilt deterministically on resume.
-    starting_after: str
+    starting_after: Optional[str] = None
+    # Per-review-cycle endpoints checkpoint the shape `build_dependent_resource` emits:
+    # which cycles finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class LatticeCursorPaginator(BasePaginator):
     """Lattice cursor pagination: the next page's ``startingAfter`` is the previous
     page's ``endingCursor``. Pagination stops as soon as ``hasMore`` is false, the
     body carries no ``endingCursor``, or the page returned no rows — the last of
-    which guards against a server that keeps advertising more with an empty page."""
+    which guards against a server that keeps advertising more with an empty page.
+
+    ``/v1/goals/updates`` reports the same cursor as ``pageInfo.endCursor`` and
+    ``pageInfo.hasNextPage`` instead."""
 
     def __init__(self, cursor_param: str = "startingAfter") -> None:
         super().__init__()
@@ -56,8 +67,13 @@ class LatticeCursorPaginator(BasePaginator):
             body = response.json()
         except Exception:
             body = None
-        ending_cursor = body.get("endingCursor") if isinstance(body, dict) else None
-        has_more = body.get("hasMore") if isinstance(body, dict) else None
+        if not isinstance(body, dict):
+            body = {}
+        page_info = body.get("pageInfo")
+        if not isinstance(page_info, dict):
+            page_info = {}
+        ending_cursor = body.get("endingCursor") or page_info.get("endCursor")
+        has_more = body["hasMore"] if "hasMore" in body else page_info.get("hasNextPage")
         if data and has_more and ending_cursor:
             self._cursor_value = ending_cursor
             self._has_next_page = True
@@ -119,15 +135,48 @@ def lattice_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LATTICE_ENDPOINTS[endpoint]
-    base_url = _base_url(region)
+    client_config: ClientConfig = {
+        "base_url": _base_url(region),
+        # Auth is supplied via the framework auth config so its value is redacted from logs.
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": LatticeCursorPaginator(),
+    }
+
+    resume: Optional[LatticeResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(LatticeResumeConfig(fanout_state=state))
+
+        child = build_dependent_resource(
+            endpoint_configs=LATTICE_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+            sort_mode="asc",
+        )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url,
-            # Auth is supplied via the framework auth config so its value is redacted from logs.
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": LatticeCursorPaginator(),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -142,10 +191,8 @@ def lattice_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {"cursor": resume.starting_after}
+    if resume is not None and resume.starting_after is not None:
+        initial_paginator_state = {"cursor": resume.starting_after}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
@@ -165,7 +212,7 @@ def lattice_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
