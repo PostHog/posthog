@@ -33,6 +33,8 @@ Every later step reads from one ref, `refs/ship-it-factory/source`. It is local 
 
 ```bash
 git fetch origin master
+# A shallow clone (common in PostHog Desktop) has no merge base until it has more history.
+[ "$(git rev-parse --is-shallow-repository)" = true ] && git fetch --deepen=50 origin master
 # The branch has commits: put them on the current master. Stash dirty work around the rebase.
 git rebase origin/master
 # The tree has uncommitted work: save all of it (new files too) in one stash commit.

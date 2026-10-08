@@ -29,9 +29,10 @@ def changed_files(base: str, source: str) -> tuple[dict[str, int], dict[str, str
 
     A rename counts under its new path only, like the GitHub files API the gate reads.
     """
-    merge_base = subprocess.run(
-        ["git", "merge-base", base, source], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    found = subprocess.run(["git", "merge-base", base, source], capture_output=True, text=True)
+    if found.returncode != 0:
+        sys.exit(f"no merge base for {base} and {source}. In a shallow clone, run: git fetch --deepen=50 origin master")
+    merge_base = found.stdout.strip()
     fields = subprocess.run(
         ["git", "diff", "--numstat", "-z", "-M", merge_base, source], check=True, capture_output=True, text=True
     ).stdout.split("\0")
