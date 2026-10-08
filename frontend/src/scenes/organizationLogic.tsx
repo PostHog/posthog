@@ -52,6 +52,24 @@ function organizationBlockPage(organization: OrganizationType | null): string | 
     return null
 }
 
+function getSelfHostedProjectLimitReason(
+    organization: OrganizationType | null,
+    preflight: PreflightStatus | null
+): string | null {
+    if (preflight?.cloud !== false || !organization) {
+        return null
+    }
+
+    const projectCount = new Set(organization.teams.filter((team) => !team.is_demo).map((team) => team.project_id)).size
+    const projectFeature = organization.available_product_features.find(
+        (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS
+    )
+    const projectLimit = projectFeature ? projectFeature.limit : 1
+    return projectLimit != null && projectCount >= projectLimit
+        ? `Your self-hosted plan allows ${projectLimit} project${projectLimit === 1 ? '' : 's'}. See the self-hosting docs for more options.`
+        : null
+}
+
 export type OrganizationUpdatePayload = Partial<
     Pick<
         OrganizationType,
@@ -339,20 +357,7 @@ export const organizationLogic = kea<organizationLogicType>([
                     return 'You need to be an organization admin or above to create new projects.'
                 }
 
-                if (preflight?.cloud === false && currentOrganization) {
-                    const projectCount = new Set(
-                        currentOrganization.teams.filter((team) => !team.is_demo).map((team) => team.project_id)
-                    ).size
-                    const projectFeature = currentOrganization.available_product_features.find(
-                        (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS
-                    )
-                    const projectLimit = projectFeature ? projectFeature.limit : 1
-                    if (projectLimit != null && projectCount >= projectLimit) {
-                        return `Your self-hosted plan allows ${projectLimit} project${projectLimit === 1 ? '' : 's'}. See the self-hosting docs for more options.`
-                    }
-                }
-
-                return null
+                return getSelfHostedProjectLimitReason(currentOrganization, preflight)
             },
         ],
         isAdminOrOwner: [
