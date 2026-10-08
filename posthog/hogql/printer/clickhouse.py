@@ -542,7 +542,7 @@ class ClickHousePrinter(BasePrinter):
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
         if (
-            type.name == "is_identified"
+            type.name in {"is_identified", "is_deleted"}
             and isinstance(type.table_type, ast.BaseTableType)
             and isinstance(type.table_type.resolve_database_table(self.context), RawPersonsTable)
         ):

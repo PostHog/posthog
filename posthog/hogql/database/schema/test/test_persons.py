@@ -567,24 +567,28 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
             ("v2", "persons", "is_identified", PersonsArgMaxVersion.V2),
             ("raw", "raw_persons", "is_identified", PersonsArgMaxVersion.V1),
             ("joined", "events", "person.is_identified", PersonsArgMaxVersion.V1),
+            ("raw_deleted", "raw_persons", "is_deleted", PersonsArgMaxVersion.V1),
         ]
     )
-    def test_is_identified_as_aggregate_condition(
+    def test_boolean_person_field_as_aggregate_condition(
         self, _name: str, table: str, condition: str, version: PersonsArgMaxVersion
     ) -> None:
-        _create_person(team_id=self.team.pk, distinct_ids=["identified-person"], is_identified=True)
-        _create_event(team=self.team, distinct_id="identified-person", event="$pageview")
+        if condition == "is_deleted":
+            create_person(team_id=self.team.pk, uuid=str(UUIDT()), version=1, is_deleted=True)
+        else:
+            _create_person(team_id=self.team.pk, distinct_ids=["identified-person"], is_identified=True)
+            _create_event(team=self.team, distinct_id="identified-person", event="$pageview")
         flush_persons_and_events()
 
         response = execute_hogql_query(
-            f"SELECT count(), countIf({condition}), sumIf(7, {condition}) FROM {table}",
+            f"SELECT count(), countIf({condition}), sumIf(7, {condition}), uniqIf({condition}, {condition}) FROM {table}",
             self.team,
             modifiers=HogQLQueryModifiers(
                 personsArgMaxVersion=version, personsOnEventsMode=PersonsOnEventsMode.DISABLED
             ),
         )
 
-        self.assertEqual(response.results, [(2, 1, 7)])
+        self.assertEqual(response.results, [(2, 1, 7, 1)])
 
     def test_virtual_person_properties(self):
         response = execute_hogql_query(
@@ -855,8 +859,8 @@ class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.clickhouse is not None
         # is_deleted and created_at are non-nullable -> plain argMax, no tuple()/tupleElement() wrap.
-        assert "argMax(person.is_deleted, person.version)" in response.clickhouse
-        assert "tupleElement(argMax(tuple(person.is_deleted" not in response.clickhouse
+        assert "argMax(toBool(person.is_deleted), person.version)" in response.clickhouse
+        assert "tupleElement(argMax(tuple(toBool(person.is_deleted)" not in response.clickhouse
         assert "tupleElement(argMax(tuple(toTimeZone(person.created_at" not in response.clickhouse
         assert str(person.uuid) == str(response.results[0][0])
 
