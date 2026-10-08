@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from django.conf import settings
 
 import dagster
+import dagster_slack
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
@@ -19,6 +20,7 @@ from posthog.clickhouse.warehouse_object_reads import (
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
 from posthog.dags.common.resources import SatelliteClickhouseClusterResource
+from posthog.dags.slack_alerts import notification_channel_per_team, send_slack_alert
 
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
@@ -38,6 +40,8 @@ MAX_THREADS = 8
 ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
 SCHEDULE_HOUR_UTC = 7
+OVERDUE_AFTER_UTC = time(hour=10)
+OVERDUE_CHECK_INTERVAL_SECONDS = 60 * 60
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
 MAX_RUNTIME_SECONDS = 60 * 60
 STUCK_RUN_AGE = timedelta(hours=3)
@@ -238,17 +242,9 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
             description=f"The archive has {source_rows} reads for {day}, but staging is empty. "
             "The published day was kept. Run the day again."
         )
-    drop_day_partition(cluster, day)
-
-
-def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
-    cluster.any_host_by_roles(
-        lambda client: client.execute(
-            f"ALTER TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE} DROP PARTITION ID %(partition_id)s",
-            {"partition_id": day.strftime(PARTITION_ID_FORMAT)},
-        ),
-        [ROLLUP_NODE_ROLE],
-    ).result()
+    raise dagster.Failure(
+        description=f"The archive has no reads for {day}. Query tagging may be broken. The published day was kept."
+    )
 
 
 @dagster.op
@@ -290,5 +286,49 @@ warehouse_object_reads_daily_schedule = dagster.build_schedule_from_partitioned_
     warehouse_object_reads_daily_job,
     hour_of_day=SCHEDULE_HOUR_UTC,
     minute_of_hour=0,
-    default_status=dagster.DefaultScheduleStatus.STOPPED,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
+
+
+def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
+    return bool(
+        instance.get_run_records(
+            dagster.RunsFilter(
+                job_name=warehouse_object_reads_daily_job.name,
+                statuses=[dagster.DagsterRunStatus.SUCCESS],
+                tags={"dagster/partition": day.isoformat()},
+            ),
+            limit=1,
+        )
+    )
+
+
+@dagster.sensor(
+    minimum_interval_seconds=OVERDUE_CHECK_INTERVAL_SECONDS,
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+)
+def warehouse_object_reads_daily_overdue_sensor(
+    context: dagster.SensorEvaluationContext, slack: dagster_slack.SlackResource
+) -> dagster.SkipReason | None:
+    now = datetime.now(UTC)
+    if now.time() < OVERDUE_AFTER_UTC:
+        return dagster.SkipReason(f"The rollup is not overdue before {OVERDUE_AFTER_UTC} UTC.")
+    day = now.date() - timedelta(days=1)
+    if context.cursor == day.isoformat():
+        return dagster.SkipReason(f"Already alerted that {day} is missing.")
+    if has_published_day(context.instance, day):
+        return dagster.SkipReason(f"{day} is published.")
+    if not settings.CLOUD_DEPLOYMENT:
+        return dagster.SkipReason(f"{day} is missing, but alerts only go out in cloud deployments.")
+
+    job_url = f"https://{settings.DAGSTER_DOMAIN}/locations/clickhouse/jobs/{warehouse_object_reads_daily_job.name}"
+    message = (
+        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {day} "
+        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. Check that its schedule is running and that no run is stuck in the queue: "
+        f"<{job_url}|View in Dagster>\nEnvironment: {settings.CLOUD_DEPLOYMENT}"
+    )
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
+    channel = notification_channel_per_team[JobOwners.TEAM_DATA_MODELING.value]
+    send_slack_alert(context, slack.get_client(), channel, blocks, message)
+    context.update_cursor(day.isoformat())
+    return None

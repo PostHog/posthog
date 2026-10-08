@@ -77,6 +77,7 @@ defs = dagster.Definitions(
         deletes.run_deletes_after_manual_trigger,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,
     ],
     loggers=loggers,
     resources=resources,
