@@ -49,13 +49,18 @@ def describe(source: SourceKind, *, project_id: int, transition: AnnouncedTransi
     if describer is None:
         return SourceDescription()
     try:
-        description = describer(project_id=project_id, transition=transition)
+        # Bounding the answer is inside the try too, so a describer that returns the wrong shape
+        # falls back like one that raises.
+        return _bounded(source, describer(project_id=project_id, transition=transition))
     except Exception:
         # The wording is never worth a lost notification. The platform's own wording goes out
         # instead, and the counter makes a source whose alerts all fell back visible.
         logger.exception("alerts_platform.describer_failed", source=source.value)
         safe_record(increment_describer_failures, source.value)
         return SourceDescription()
+
+
+def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescription:
     data_link = description.data_link
     if data_link is not None and len(data_link.url) > MAX_DATA_LINK_URL_CHARS:
         logger.warning("alerts_platform.data_link_too_long", source=source.value, length=len(data_link.url))

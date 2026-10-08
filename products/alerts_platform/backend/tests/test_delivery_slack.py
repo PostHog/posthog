@@ -65,6 +65,13 @@ class TestSlackBlocks(SimpleTestCase):
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
 
+    def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
+        message = alert_message(context=("&" * 300,) * 3)
+
+        context = blocks_for(message)[-2]["elements"][0]["text"]
+
+        assert len(context) <= 3000
+
     def test_a_message_without_details_carries_no_empty_section(self) -> None:
         blocks = blocks_for(alert_message(headline="API errors is resolved", details=()))
 

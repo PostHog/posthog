@@ -166,9 +166,12 @@ class TestAlertMessage:
 
         assert (message.context, message.data_link) == (("Services: checkout",), None)
 
-    def test_a_describer_that_raises_still_delivers_the_platform_wording(self) -> None:
-        def broken(**_: Any) -> SourceDescription:
-            raise KeyError("serviceNames")
+    @pytest.mark.parametrize("answer", ["raises", "returns_none"])
+    def test_a_broken_describer_still_delivers_the_platform_wording(self, answer: str) -> None:
+        def broken(**_: Any) -> Any:
+            if answer == "raises":
+                raise KeyError("serviceNames")
+            return None
 
         with _described_by(broken):
             message = _build(_announcement(), _transition(AlertEventKind.FIRING))
