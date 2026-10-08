@@ -14,7 +14,7 @@ from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 
 import jwt
 import requests
@@ -446,16 +446,19 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
         "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
     )
 
+    def linked_member(user_id: int) -> User:
+        linked_user = members.filter(pk=user_id).first()
+        if linked_user is None:
+            raise not_a_member
+        return linked_user
+
     linked_user_id = (
         IdJagIdentity.objects.filter(identity_provider_config=idp_config, tenant=tenant, subject=subject)
         .values_list("user_id", flat=True)
         .first()
     )
     if linked_user_id is not None:
-        linked_user = members.filter(pk=linked_user_id).first()
-        if linked_user is None:
-            raise not_a_member
-        return linked_user
+        return linked_member(linked_user_id)
 
     verified_email = claims.get("email") or subject
     user = EmailLookupHandler.users_matching_email(verified_email, members).first()
@@ -463,15 +466,11 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
         raise not_a_member
 
     try:
-        # The savepoint keeps a lost race on either unique constraint from breaking the caller's transaction.
-        with transaction.atomic():
-            IdJagIdentity.objects.create(identity_provider_config=idp_config, tenant=tenant, subject=subject, user=user)
+        identity, _ = IdJagIdentity.objects.get_or_create(
+            identity_provider_config=idp_config, tenant=tenant, subject=subject, defaults={"user": user}
+        )
     except IntegrityError:
-        # A concurrent first exchange for the same subject may have linked this member already.
-        if IdJagIdentity.objects.filter(
-            identity_provider_config=idp_config, tenant=tenant, subject=subject, user=user
-        ).exists():
-            return user
+        # get_or_create recovers from a concurrent link of this subject, so the clash is on the member.
         logger.info(
             "id_jag_token_rejected",
             reason="member is already linked to a different IdP subject",
@@ -479,6 +478,9 @@ def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
             stage="subject_link",
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+    if identity.user_id != user.pk:
+        # A concurrent first exchange linked this subject to another member, and the subject decides.
+        return linked_member(identity.user_id)
     return user
 
 
