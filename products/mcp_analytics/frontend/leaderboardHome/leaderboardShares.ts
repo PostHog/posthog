@@ -1,3 +1,5 @@
+import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
+
 export type ModelLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights' | 'Other'
 
 export interface BucketedFacetRow {
@@ -20,36 +22,41 @@ export interface ShareSeries {
 
 export interface LabShare {
     lab: ModelLab
-    calls: number
     share: number
 }
+
+export interface LabUsersRow {
+    lab: string
+    users: number
+}
+
+export type ScoreboardMetric = 'calls' | 'users'
 
 const UNKNOWN = 'Unknown'
 const OTHER = 'Other'
 
+// The first matching pattern wins. The SQL for the users query is built from the same list, so the
+// two cannot disagree on which lab a model belongs to.
+const LAB_PATTERNS: [Exclude<ModelLab, 'Other'>, RegExp][] = [
+    [
+        'Open weights',
+        /gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi/,
+    ],
+    ['Anthropic', /claude|opus|sonnet|haiku|fable|anthropic/],
+    ['OpenAI', /gpt|^o[1-9]|codex|openai|chatgpt/],
+    ['Google', /gemini|google/],
+    ['xAI', /grok|xai/],
+    ['Cursor', /composer/],
+]
+
 export function modelLab(model: string): ModelLab {
     const m = model.toLowerCase()
-    if (
-        /gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi/.test(m)
-    ) {
-        return 'Open weights'
-    }
-    if (/claude|opus|sonnet|haiku|fable|anthropic/.test(m)) {
-        return 'Anthropic'
-    }
-    if (/gpt|^o[1-9]|codex|openai|chatgpt/.test(m)) {
-        return 'OpenAI'
-    }
-    if (/gemini|google/.test(m)) {
-        return 'Google'
-    }
-    if (/grok|xai/.test(m)) {
-        return 'xAI'
-    }
-    if (/composer/.test(m)) {
-        return 'Cursor'
-    }
-    return 'Other'
+    return LAB_PATTERNS.find(([, pattern]) => pattern.test(m))?.[0] ?? 'Other'
+}
+
+export function labSqlExpression(modelSql: string): string {
+    const branches = LAB_PATTERNS.map(([lab, pattern]) => `match(lower(${modelSql}), '${pattern.source}'), '${lab}'`)
+    return `multiIf(${modelSql} = '${UNKNOWN}', '${UNKNOWN}', ${branches.join(', ')}, 'Other')`
 }
 
 // `groupOf` returns null to drop a row. The top `limit` groups by total calls keep their own series
@@ -102,8 +109,33 @@ export function buildLabShares(rows: BucketedFacetRow[]): LabShare[] {
     const total = [...callsByLab.values()].reduce((sum, calls) => sum + calls, 0)
     return [...callsByLab.entries()]
         .filter(([lab]) => lab !== 'Other')
-        .map(([lab, calls]) => ({ lab, calls, share: total > 0 ? (calls / total) * 100 : 0 }))
-        .sort((a, b) => b.calls - a.calls)
+        .sort(([, a], [, b]) => b - a)
+        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0 }))
+}
+
+// A person can use models from several labs, so these shares do not add up to 100.
+export function buildLabUserShares(rows: LabUsersRow[], namedModelUsers: number): LabShare[] {
+    return rows
+        .filter((row): row is { lab: ModelLab; users: number } => row.lab !== UNKNOWN && row.lab !== 'Other')
+        .sort((a, b) => b.users - a.users)
+        .map(({ lab, users }) => ({ lab, share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0 }))
+}
+
+const HARNESS_ERROR_RATE_LIMIT = 8
+
+// The most used harnesses, so a harness with a handful of calls cannot top the error rate chart.
+export function harnessErrorRateRows(rows: HarnessRow[]): ToolRow[] {
+    return rows
+        .filter((row) => row.category !== OTHER)
+        .sort((a, b) => b.total_calls - a.total_calls)
+        .slice(0, HARNESS_ERROR_RATE_LIMIT)
+        .map((row) => ({
+            tool: row.category,
+            total_calls: row.total_calls,
+            errors: row.errors,
+            error_rate_pct: row.error_rate_pct,
+            p95_duration_ms: 0,
+        }))
 }
 
 export function hasKnownLabels(rows: WindowFacetRow[]): boolean {

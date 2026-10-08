@@ -1,6 +1,10 @@
+import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import {
     type BucketedFacetRow,
     buildLabShares,
+    buildLabUserShares,
+    harnessErrorRateRows,
+    labSqlExpression,
     buildShareSeries,
     hasKnownLabels,
     modelLab,
@@ -51,8 +55,8 @@ describe('leaderboardShares', () => {
             row('d1', 'mystery', 10),
         ])
         expect(shares).toEqual([
-            { lab: 'Anthropic', calls: 8, share: 40 },
-            { lab: 'OpenAI', calls: 2, share: 10 },
+            { lab: 'Anthropic', share: 40 },
+            { lab: 'OpenAI', share: 10 },
         ])
     })
 
@@ -70,6 +74,42 @@ describe('leaderboardShares', () => {
             ['Other', 3],
             ['Unknown', 90],
         ])
+    })
+
+    it('computes lab user shares against users with a named model, so they can pass 100 in total', () => {
+        const shares = buildLabUserShares(
+            [
+                { lab: 'OpenAI', users: 6 },
+                { lab: 'Anthropic', users: 9 },
+                { lab: 'Unknown', users: 40 },
+                { lab: 'Other', users: 3 },
+            ],
+            10
+        )
+        expect(shares).toEqual([
+            { lab: 'Anthropic', share: 90 },
+            { lab: 'OpenAI', share: 60 },
+        ])
+    })
+
+    it('builds the SQL from the same patterns that modelLab matches', () => {
+        const sql = labSqlExpression('m')
+        expect(sql).toContain("match(lower(m), 'claude|opus|sonnet|haiku|fable|anthropic'), 'Anthropic'")
+        expect(sql.startsWith("multiIf(m = 'Unknown', 'Unknown', ")).toBe(true)
+        expect(sql.endsWith(", 'Other')")).toBe(true)
+    })
+
+    it('keeps the most used harnesses for the error rate chart and leaves out Other', () => {
+        const harness = (category: string, total_calls: number): HarnessRow => ({
+            category,
+            total_calls,
+            errors: 1,
+            error_rate_pct: 1,
+            sessions: 1,
+        })
+        const rows = [harness('Other', 1000), ...Array.from({ length: 9 }, (_, i) => harness(`h${i}`, 100 - i))]
+        const kept = harnessErrorRateRows(rows).map((row) => row.tool)
+        expect(kept).toEqual(['h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7'])
     })
 
     test.each([

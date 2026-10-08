@@ -11,9 +11,11 @@ import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { modelColor } from '../dashboard/modelColors'
+import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
+import { harnessErrorRateRows } from './leaderboardShares'
 import { mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
 import { ShareOverTimeChart } from './ShareOverTimeChart'
 import { TrendLineCard } from './TrendLineCard'
@@ -44,12 +46,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         facetsLoading,
         latencyRowsLoading,
         leaderboardLoading,
-        labShares,
+        scoreboardMetric,
+        scoreboardShares,
         modelSeries,
         labSeries,
         protocolVersionSeries,
         latencySeries,
     } = useValues(mcpLeaderboardHomeLogic)
+    const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
 
@@ -60,6 +64,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         [theme]
     )
 
+    const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
         () => [
             {
@@ -113,7 +118,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             </McpSharedFilters>
 
             <Section title="Models">
-                <LabScoreboard shares={labShares} loading={facetsLoading} />
+                <LabScoreboard
+                    shares={scoreboardShares}
+                    loading={facetsLoading}
+                    metric={scoreboardMetric}
+                    onMetricChange={setScoreboardMetric}
+                />
                 <TwoColumns>
                     <ShareOverTimeChart
                         title="Model share of calls over time"
@@ -215,7 +225,21 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         formatTick={formatMsAsSeconds}
                     />
                 </TwoColumns>
-                <FacetShareCard title="Why calls fail" rows={facets.errorType} loading={facetsLoading} theme={theme} />
+                <TwoColumns>
+                    <FacetShareCard
+                        title="Why calls fail"
+                        rows={facets.errorType}
+                        loading={facetsLoading}
+                        theme={theme}
+                    />
+                    <ToolErrorRateChart
+                        rows={harnessErrorRows}
+                        loading={harnessRowsLoading}
+                        theme={theme}
+                        title="Error rate by harness"
+                        emptyMessage="No harness data yet."
+                    />
+                </TwoColumns>
             </Section>
         </div>
     )

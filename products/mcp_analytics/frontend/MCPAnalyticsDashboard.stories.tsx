@@ -892,6 +892,23 @@ const meta: Meta = {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
                     // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
+                    if (query.includes('AS lab,')) {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    ['Anthropic', 190],
+                                    ['OpenAI', 150],
+                                    ['Google', 80],
+                                    ['Open weights', 20],
+                                    ['Unknown', 40],
+                                ],
+                            },
+                        ]
+                    }
+                    if (query.includes('uniqIf(person_id')) {
+                        return [200, { results: [[260]] }]
+                    }
                     if (query.includes('AS label')) {
                         const property = query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
                         if (query.includes('AS bucket')) {
