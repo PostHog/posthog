@@ -29671,6 +29671,7 @@ export namespace Schemas {
       Robohog: 'robohog',
       Hogzilla: 'hogzilla',
       Ghost: 'ghost',
+      Pig: 'pig',
     } as const;
 
     export interface MinimalHedgehogConfig {

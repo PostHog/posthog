@@ -4912,6 +4912,10 @@ snapshots:
         hash: v1.k794b7964.62e3a38915252a5f243b51fa86a3298c538f623d6d56c1f6769f5e89ceb4902e.S_1ANdKJQ-ZnVEdbNDu-WFvJCMeF-snDCnnQ2QyxJ1E
     lemon-ui-lemon-checkbox--disabled-with-reason--light:
         hash: v1.k794b7964.b0a2fccfb07a4f727e3715e9c41f2ebf99a7c073931632d1f4ebb1d1fb51d520.AZRkAIA6PvBi1hVyYg_9CHGjIoojkHgaZO-Qhb5nn3Q
+    lemon-ui-lemon-checkbox--inside-quill--dark:
+        hash: v1.k794b7964.af0fb67405f1beab2c155f88360b8234089eddc44bc490fc33f9c40b03fdf7f1.soHolFJuF5cydtTvlDdsBOMUCeXl6n63wLo2jvtykW8
+    lemon-ui-lemon-checkbox--inside-quill--light:
+        hash: v1.k794b7964.057c6e2b56973991884ede4faa292fce642c4ff0bb8524a895f5c30831b6e22e.LkWNIOrTq6xQ3NAKyVuM9vRJc3u6Er_ay7R4MhSNrHk
     lemon-ui-lemon-checkbox--no-label--dark:
         hash: v1.k794b7964.8fcd40cc0e10a313b751b5883629c3a079aac8bbcf0e35491af7423969d6bf77.byEK2MKk55Xrp2g0YsVZ96xDOgXWYV6MJHsG4C6J238
     lemon-ui-lemon-checkbox--no-label--light:
@@ -10039,7 +10043,7 @@ snapshots:
     scenes-app-errortracking--group-page-breakdown-loading--light:
         hash: v1.k794b7964.08b5e33662e0b5cb3c443afa5cc5e72950b0c5457d3c8f4aa3e3f7ed8481125c.Qdd9x1WK84uVtOPXctI5q6duXEibFcuFpYrFK_hoqrA
     scenes-app-errortracking--group-page-breakdown-modal--dark:
-        hash: v1.k794b7964.ed3b3948ba6dacd684118a2b0435cc256d562832e9c6c48714fb63c6ccc03fb5.hvoGqWd072_Djnsi6KCgl27r_EE07Lc1kXWimIzJ2aM
+        hash: v1.k794b7964.170fa9fd6b187e63c0994f57165ee6a52f3f4dafef69a59795ee253e1f99f32c.MGzJp6H3dNk9edhiTYGZ9XlrRJnth9WFEuPJP0sSuCo
     scenes-app-errortracking--group-page-breakdown-modal--light:
         hash: v1.k794b7964.591008ca5806639db31343147de6fa7b5b9b2e3b76b6801ea0c1ffef2118bf59.HmdNhAcZTI60EqNfqRbd8B70NkmZ8LzSFqpNCzeG7K4
     scenes-app-errortracking--group-page-breakdown-modal-loading--dark:
@@ -13679,9 +13683,9 @@ snapshots:
     scenes-app-settings-user--settings-user-backup-codes-modal-generated--light:
         hash: v1.k794b7964.9c51bd1bd794659c4b6fdf9a5612dbf375e08f30375778c77cd79caff47c5aa7.s_2QKaTg7Wc2fBiUbAXjD4TG43A37T9Bpbrj3XFCN_Q
     scenes-app-settings-user--settings-user-customization--dark:
-        hash: v1.k794b7964.fd61b0334bf9861632a5105f8ef0ddfda32ecc3e39ccfb5173f88dd5a45e9699.v3beJJSCHztpP1pb29IMDl6qHa7hPmr7OTjOduMV6AU
+        hash: v1.k794b7964.3881305558c92b6fb43c0130eec972934330069157aa88730e02ce334d019378.bVrF1N8-VPVFjiFKta4MaUn6NOyFm2Bon8Gh0HpgRfY
     scenes-app-settings-user--settings-user-customization--light:
-        hash: v1.k794b7964.ae4e4328bb6e72fa1cba516b54bf8c53cbe7d20c971686f55b627bf1e9371c5c.v7hOuG9-MssyGUbsum-vAs3IPP9A5TpYLuoTWv-pv0c
+        hash: v1.k794b7964.7dd3a0e1ed8d43adc48d896e39767f217cdde8c6de106730b2a584cae5c8f360.uhLhBiVfiGwjx6-Wj3O0ni5l7jVsSbdYOFeOGeoccJ8
     scenes-app-settings-user--settings-user-danger-zone--dark:
         hash: v1.k794b7964.199bdfbeb1306a1136590674838b1ace855bdf727ed269fb303d6c9c3c8c13d3.ahpMr0R7FDPjv2mclgIztiqNOOUN5LcmTtFceGyAFRw
     scenes-app-settings-user--settings-user-danger-zone--light:
