@@ -3002,6 +3002,49 @@ class TestHogFlowAPI(APIBaseTest):
             assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
             assert payload["mock_async_functions"] is True
 
+    @parameterized.expand(
+        [
+            ("cohort_condition_without_person_read", ["hog_flow:write", "group:read"], True, 403),
+            ("cohort_condition_with_person_read", ["hog_flow:write", "group:read", "person:read"], True, 200),
+            ("no_cohort_condition_without_person_read", ["hog_flow:write", "group:read"], False, 200),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_test_invocation_requires_person_read_only_for_cohort_conditions(
+        self, _name, scopes, with_cohort_condition, expected_status, _mock_flag
+    ):
+        # A cohort condition makes the runtime load the supplied person's memberships, so the test
+        # endpoint would be a membership oracle for a token that cannot read persons.
+        if with_cohort_condition:
+            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+            filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
+        else:
+            filters = {
+                "properties": [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}]
+            }
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._hog_flow_with_condition_filters("conditional_branch", filters),
+        )
+        assert created.status_code == 201, created.json()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/invocations/",
+                {"globals": {"event": {"event": "$pageview", "distinct_id": "d"}}, "mock_async_functions": True},
+                format="json",
+                headers={"authorization": f"Bearer {key}"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "person:read" in response.json()["detail"]
+
     def test_hog_flow_conditional_event_filter_rejected(self):
         conditional_action = {
             "id": "cond_1",

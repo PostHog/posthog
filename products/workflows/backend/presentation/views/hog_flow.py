@@ -359,6 +359,20 @@ def _cohort_condition_already_stored(action: dict, condition: dict, context: dic
     return _authored_condition(condition) in stored[action_id]
 
 
+def _actions_reference_cohorts(actions: Any) -> bool:
+    """True when a conditional_branch condition in these actions can compile to a cohort membership check."""
+    if not isinstance(actions, list):
+        return False
+    for flow_action in actions:
+        if not isinstance(flow_action, dict) or flow_action.get("type") != "conditional_branch":
+            continue
+        for condition in (flow_action.get("config") or {}).get("conditions") or []:
+            filters = condition.get("filters") if isinstance(condition, dict) else None
+            if isinstance(filters, dict) and (filter_cohort_ids(filters) or filter_action_ids(filters)):
+                return True
+    return False
+
+
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
     """
     Refuse a wait whose condition depends on the clock rather than on something happening.
@@ -4331,7 +4345,12 @@ class HogFlowViewSet(
         # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
         # running tests while editing is unaffected.
         if self.action == "invocations":
-            return ["hog_flow:write", "group:read"]
+            scopes = ["hog_flow:write", "group:read"]
+            # A cohort condition makes the runtime load the supplied person's real cohort memberships, so
+            # the branch a test run takes would be a membership oracle. Require person:read for those flows.
+            if self._test_invocation_reads_cohort_membership(request):
+                scopes.append("person:read")
+            return scopes
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) workflow. A `hog_flow:write`-only token could use that to
@@ -4342,6 +4361,22 @@ class HogFlowViewSet(
         if self.action == "rerun":
             return ["hog_flow:write", "person:read", "group:read"]
         return None
+
+    def _test_invocation_reads_cohort_membership(self, request: Request) -> bool:
+        data = request.data if isinstance(request.data, dict) else {}
+        configuration = data.get("configuration")
+        if _actions_reference_cohorts(configuration.get("actions") if isinstance(configuration, dict) else None):
+            return True
+        # No access check here: it would ask the access-control permission for the required level, which
+        # calls this hook again. The view checks access before it dispatches the test run.
+        try:
+            hog_flow = get_workflow_edit_state(
+                team_id=self.team_id, workflow_id=self.kwargs["pk"], user_access_control=None, required_level=None
+            )
+        except WorkflowNotFound:
+            return False
+        draft_actions = hog_flow.draft.get("actions") if isinstance(hog_flow.draft, dict) else None
+        return _actions_reference_cohorts(hog_flow.actions) or _actions_reference_cohorts(draft_actions)
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
