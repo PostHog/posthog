@@ -24,7 +24,7 @@ capture live behind ``facade.api``.
 """
 
 import hashlib
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 from django.db.models import Q
@@ -45,8 +45,13 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
-from posthog.models import Team
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    ProjectSecretAPIKeyUser,
+    TeamSecretTokenAuthentication,
+)
+from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -148,7 +153,7 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
     # it there but refuse PSAKs.
     defer_migrated_team_tokens = True
 
-    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+    def authenticate(self, request: HttpRequest | Request) -> tuple[ProjectSecretAPIKeyUser, None] | None:
         result = super().authenticate(request)
         if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
             return None
@@ -158,7 +163,7 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 class ExternalAccountPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     activity_credential_type = "personal_api_key"
 
-    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+    def authenticate(self, request: HttpRequest | Request) -> tuple[User, None] | None:
         try:
             return super().authenticate(request)
         except AuthenticationFailed:

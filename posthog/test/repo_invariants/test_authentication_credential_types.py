@@ -26,7 +26,10 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.schemas.generators import EndpointEnumerator
 from rest_framework.views import APIView
 
+from posthog.models import User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin, DeclaredCredentialType
+from posthog.test.authentication_principals import is_concrete, principal_types
+from posthog.test.user_credentials import USER_CREDENTIALS
 
 REPO_ROOT = Path(__file__).parents[3]
 SCANNED_ROOTS = ("posthog", "ee", "products", "common")
@@ -146,4 +149,33 @@ def test_every_credential_type_has_a_declaring_class() -> None:
     assert DECLARED_TYPES <= declared, (
         f"No authentication class declares {sorted(DECLARED_TYPES - declared)}. "
         "Remove the value from DeclaredCredentialType, or check that the walk still finds the classes."
+    )
+
+
+def test_every_authentication_class_names_the_principal_it_returns() -> None:
+    violations = []
+    for cls in _owned_classes():
+        principals = principal_types(cls)
+        if not is_concrete(principals):
+            violations.append(f"{_dotted_name(cls)}.authenticate() returns {principals or 'no annotated tuple'}")
+
+    assert not violations, (
+        "Annotate authenticate() with the concrete type of the principal it returns, such as "
+        "`tuple[User, None] | None` or `tuple[InternalAPIUser, None]`, so the tests can tell whether it "
+        "resolves a real User.\n" + "\n".join(violations)
+    )
+
+
+def test_every_user_authentication_class_has_a_credential() -> None:
+    user_classes = {
+        _dotted_name(cls)
+        for cls in _owned_classes()
+        if any(isinstance(principal, type) and issubclass(principal, User) for principal in principal_types(cls))
+    }
+    credentials = set(USER_CREDENTIALS)
+
+    assert user_classes == credentials, (
+        "Every class whose authenticate() returns a User needs a credential in `USER_CREDENTIALS` in "
+        f"posthog/test/user_credentials.py. Missing: {sorted(user_classes - credentials)}. "
+        f"Not a user class: {sorted(credentials - user_classes)}."
     )

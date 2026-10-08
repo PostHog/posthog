@@ -51,7 +51,7 @@ class WorkflowScoutRunsJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = WORKFLOW_SCOUT_RUN_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[InternalAPIUser, Any]:
         user, _ = super()._authenticate_claims(request, claims)
         # The workflow is identified by the verified token, never by the request body, so a
         # token minted for one workflow can't spend another workflow's scout runs.

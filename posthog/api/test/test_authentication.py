@@ -10,16 +10,17 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from django.utils.module_loading import import_string
 
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
@@ -38,9 +39,7 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
-    ExportRendererAuthentication,
     InternalAPIUser,
-    JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -50,7 +49,6 @@ from posthog.auth import (
     TeamSecretTokenUser,
     WidgetAuthentication,
     _extract_phs_token,
-    mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
@@ -58,7 +56,6 @@ from posthog.helpers.user_devices import (
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
@@ -71,8 +68,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.user_credentials import USER_CREDENTIALS
 
-from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -842,39 +839,56 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
-    def _authenticator_and_request(
-        self, kind: str
-    ) -> tuple[ExportRendererAuthentication | JwtAuthentication, HttpRequest]:
-        if kind == "export_renderer":
-            asset = ExportedAsset.objects.create(
-                team=self.team,
-                created_by=self.user,
-                export_format=ExportedAsset.ExportFormat.PNG,
-                export_context={"session_recording_id": "recording-id"},
-            )
-            token = mint_export_renderer_token(
-                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
-            )
-            authenticator: ExportRendererAuthentication | JwtAuthentication = ExportRendererAuthentication()
-        else:
-            token = encode_jwt({"id": self.user.id}, timedelta(minutes=5), PosthogJwtAudience.IMPERSONATED_USER)
-            authenticator = JwtAuthentication()
-        return authenticator, APIRequestFactory().get("/", headers={"authorization": f"Bearer {token}"})
+class TestUserAuthenticationClassesRefuseInactiveAndBlockedUsers(APIBaseTest):
+    # DRF stops at the first authenticator that succeeds, so a check in one class alone leaves the others open.
+    def _authenticate(self, path: str, request: Request) -> tuple[object, Exception | None]:
+        try:
+            result = import_string(path)().authenticate(request)
+        # Partner authenticators refuse with their own error types, and any error keeps the user out.
+        except Exception as error:
+            return None, error
+        return (result[0] if result else None), None
 
-    @parameterized.expand([("export renderer token", "export_renderer"), ("internal JWT", "jwt")])
-    def test_a_refused_account_keeps_the_refusal_code(self, _name: str, kind: str) -> None:
-        # Both authenticators wrap their body in a catch-all that would turn the refusal into "Token invalid."
-        authenticator, request = self._authenticator_and_request(kind)
+    @parameterized.expand(sorted(USER_CREDENTIALS))
+    def test_authenticates_an_active_user(self, path: str) -> None:
+        user, error = self._authenticate(path, USER_CREDENTIALS[path](self))
+
+        assert user == self.user, error
+
+    @parameterized.expand(sorted(USER_CREDENTIALS))
+    def test_refuses_an_inactive_user(self, path: str) -> None:
+        request = USER_CREDENTIALS[path](self)
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        user, _error = self._authenticate(path, request)
+
+        assert user is None
+
+    @parameterized.expand(sorted(USER_CREDENTIALS))
+    def test_refuses_a_blocked_account(self, path: str) -> None:
+        request = USER_CREDENTIALS[path](self)
 
         with patch("posthog.auth.security_access_refused", return_value=True):
-            with pytest.raises(AuthenticationFailed) as raised:
-                authenticator.authenticate(request)
-        assert raised.value.get_codes() == "access_blocked"
+            user, error = self._authenticate(path, request)
 
-        with patch("posthog.auth.security_access_refused", return_value=False):
-            result = authenticator.authenticate(request)
-        assert result is not None and result[0] == self.user
+        assert user is None
+        # A catch-all around the lookup would turn the refusal into a generic "Token invalid."
+        if isinstance(error, AuthenticationFailed):
+            assert error.get_codes() == "access_blocked"
+
+
+class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
+    # Django restores a session through the backend that created it, so every backend must refuse inactive users.
+    @parameterized.expand(
+        [(path,) for path in settings.AUTHENTICATION_BACKENDS if hasattr(import_string(path), "get_user")]
+    )
+    def test_get_user_refuses_inactive_user(self, backend_path: str) -> None:
+        backend = load_backend(backend_path)
+        assert backend.get_user(self.user.pk) == self.user
+
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        assert backend.get_user(self.user.pk) is None
 
 
 class TestLogoutRedirect(APIBaseTest):
