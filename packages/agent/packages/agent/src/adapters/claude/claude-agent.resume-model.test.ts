@@ -605,7 +605,7 @@ describe("ClaudeAcpAgent session creation", () => {
       name: "a new session whose model switch fails",
       kind: "new",
       setModel: () => Promise.reject(new Error("set model boom")),
-      error: "Session model switch failed",
+      error: "Session model switch failed: set model boom",
     },
   ] as const)(
     "rejects and closes the query for $name",
