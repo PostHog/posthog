@@ -66,6 +66,12 @@ class TestAlertMessage:
         assert message.headline == expected_headline
         assert message.alert_url.endswith("/project/7/platform-alerts/cfg-1")
 
+    @pytest.mark.parametrize("source", list(SourceKind))
+    def test_every_source_kind_has_a_headline(self, source: SourceKind) -> None:
+        message = _build(_announcement(source=source), _transition(AlertEventKind.FIRING))
+
+        assert message.headline.endswith("alert 'API errors' is firing")
+
     def test_a_breach_states_what_it_measured_against_what_it_allowed(self) -> None:
         message = _build(_announcement(), _transition(AlertEventKind.FIRING))
 
