@@ -85,7 +85,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -136,10 +136,13 @@ from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
+    Workflow,
+    WorkflowAccessDenied,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
     WorkflowHasNoDraft,
+    WorkflowNotFound,
     WorkflowProposalRecord,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
@@ -198,8 +201,7 @@ from products.workflows.backend.facade.schedules import (
 )
 from products.workflows.backend.facade.secrets import (
     TemplateCache,
-    mask_derived_trigger,
-    mask_secret_action_inputs,
+    mask_workflow_fields,
     merge_secret_maps,
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
@@ -218,6 +220,7 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
 )
+from products.workflows.backend.facade.workflows import get_workflow
 from products.workflows.backend.facade.writes import (
     build_publish_impact,
     create_workflow,
@@ -364,27 +367,6 @@ def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCa
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
-
-
-def mask_trigger_config(
-    instance: "HogFlow", secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
-) -> Any:
-    # Mask the standalone `trigger` field. Both the minimal and (crucially) the summary serializer
-    # return `trigger` while the summary omits `actions`, so it can't be re-derived from masked actions
-    # there - a function-shaped trigger's secret would otherwise leak on the MCP list endpoint. Mask
-    # from the instance's own trigger action (or the stored trigger config as a fallback for legacy
-    # rows whose actions may be empty).
-    trigger_action = next(
-        (a for a in (instance.actions or []) if isinstance(a, dict) and a.get("type") == "trigger"),
-        None,
-    )
-    trigger_action = (
-        deepcopy(trigger_action)
-        if trigger_action is not None
-        else {"type": "trigger", "config": deepcopy(instance.trigger) if instance.trigger else {}}
-    )
-    masked = mask_secret_action_inputs([trigger_action], secrets_by_action, template_cache)
-    return masked[0].get("config")
 
 
 def snapshot_flow_content(flow: HogFlow) -> dict:
@@ -2566,35 +2548,31 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         # A workflow with suggestions on but none waiting is still worth telling apart in the list.
         return getattr(hog_flow, "suggestions_enabled", None)
 
+    def get_user_access_level(self, obj: Any) -> Optional[str]:
+        if isinstance(obj, Workflow):
+            # The service resolved the level when it built the contract.
+            return obj.user_access_level
+        return super().get_user_access_level(obj)
+
     def to_representation(self, instance):
-        # Never return secret function inputs. Replace each set secret with the {"secret": True}
-        # presence marker in the live actions and, when present, the staged draft's actions. Values
-        # come from the encrypted columns (or legacy plaintext); see mask_secret_action_inputs.
-        live_secrets = instance.encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
-        draft_secrets = instance.draft_encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         data = super().to_representation(instance)
-
-        # `actions`/`draft` come back from super() by reference (JSONField doesn't copy), so masking in
-        # place would rewrite the live model instance. Deepcopy first to keep serialization side-effect
-        # free. The template cache lives on the context so a list render dedupes lookups across flows.
-        template_cache: TemplateCache = self.context.setdefault("_hogflow_template_cache", {})
-        if isinstance(data.get("actions"), list):
-            data["actions"] = mask_secret_action_inputs(deepcopy(data["actions"]), live_secrets, template_cache)
-        # `trigger` is a separately-serialized field derived from the trigger action. Mask it from the
-        # instance directly (not from data["actions"]) so it's covered even by the summary serializer,
-        # which returns `trigger` but omits `actions` - otherwise a function-shaped trigger's secret
-        # would leak on the MCP list endpoint.
-        if "trigger" in data and isinstance(instance, HogFlow):
-            data["trigger"] = mask_trigger_config(instance, live_secrets, template_cache)
-        draft = data.get("draft")
-        if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
-            draft = deepcopy(draft)
-            draft["actions"] = mask_secret_action_inputs(
-                draft["actions"], merge_secret_maps(live_secrets, draft_secrets), template_cache
-            )
-            mask_derived_trigger(draft, template_cache)
-            data["draft"] = draft
-
+        if isinstance(instance, Workflow):
+            # The service masked the secret inputs when it built the contract.
+            return data
+        # Never return secret function inputs. Replace each set secret with the {"secret": True}
+        # presence marker in the live actions, the trigger and, when present, the staged draft's
+        # actions. Values come from the encrypted columns (or legacy plaintext).
+        # The template cache lives on the context so a list render dedupes lookups across flows.
+        is_row = isinstance(instance, HogFlow)
+        mask_workflow_fields(
+            data,
+            live_actions=instance.actions if is_row else None,
+            live_trigger=instance.trigger if is_row else None,
+            encrypted_inputs=instance.encrypted_inputs if is_row else None,
+            draft_encrypted_inputs=instance.draft_encrypted_inputs if is_row else None,
+            template_cache=self.context.setdefault("_hogflow_template_cache", {}),
+            mask_trigger=is_row,
+        )
         return data
 
 
@@ -4500,6 +4478,31 @@ class HogFlowViewSet(
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
+
+    def _object_access(self) -> tuple[UserAccessControl | None, str | None]:
+        """The access control and level that `AccessControlPermission.has_object_permission` would check."""
+        # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+        if is_service_auth(self.request):
+            return None, None
+        return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
+
+    def _workflow(self) -> Workflow:
+        """The workflow in the URL, or 404 when the team has none with that id, or 403 below the required level."""
+        user_access_control, required_level = self._object_access()
+        try:
+            return get_workflow(
+                team_id=self.team_id,
+                workflow_id=self.kwargs["pk"],
+                user_access_control=user_access_control,
+                required_level=required_level,
+            )
+        except WorkflowNotFound:
+            raise exceptions.NotFound()
+        except WorkflowAccessDenied as denied:
+            raise exceptions.PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self.get_serializer(self._workflow()).data)
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:

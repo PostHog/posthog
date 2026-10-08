@@ -383,6 +383,63 @@ class WorkflowHasNoDraft(Exception):
 
 
 @frozen
+class Workflow:
+    """A workflow as the API reads it.
+
+    Each set secret input in ``actions``, ``trigger`` and ``draft`` is already replaced by the
+    ``{"secret": True}`` presence marker, so the contract never carries a secret value.
+    ``created_by`` carries the core ``User`` row, so the presentation layer keeps serializing it
+    through core's ``UserBasicSerializer``. ``user_access_level`` is the reader's access level, or
+    None when the reader is a service credential.
+
+    ``edges`` and ``actions`` hold lists, but a row saved without them keeps the model default
+    ``{}``, so both fields can also be a dict.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    description: str
+    version: int
+    status: str
+    origin_product: str | None
+    created_at: datetime
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: str
+    email_sending_rate_limit: dict[str, Any] | None
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+    billable_action_types: list[str] | None
+    schedules: tuple[WorkflowSchedule, ...]
+    draft: dict[str, Any] | None
+    draft_updated_at: datetime | None
+    action_redirects: dict[str, str] | None
+    email_sending_paused_at: datetime | None
+    email_sending_paused_reason: str
+    email_sending_paused_by: str
+    email_sending_resumed_at: datetime | None
+    user_access_level: str | None
+
+
+class WorkflowNotFound(Exception):
+    pass
+
+
+class WorkflowAccessDenied(Exception):
+    """The caller's access level for the workflow is below `required_level`."""
+
+    def __init__(self, required_level: str) -> None:
+        super().__init__(required_level)
+        self.required_level = required_level
+
+
+@frozen
 class WorkflowWriteResult:
     previous: Mapping[str, object]
     current: Mapping[str, object]
