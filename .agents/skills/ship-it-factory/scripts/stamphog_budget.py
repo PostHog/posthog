@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml==6.0.3"]
-# ///
 # ruff: noqa: T201
 """Measure a change, or a proposed split of it, against the stamphog size gate and deny list.
 
