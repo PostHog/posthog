@@ -15,7 +15,9 @@ from products.workflows.backend.facade.contracts import (
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
+    WorkflowAccessDenied,
     WorkflowActivitySummary,
+    WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
 )
@@ -41,6 +43,8 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "WorkflowAccessDenied",
+    "WorkflowNotFound",
     "MIN_EMAIL_SENDING_TIER",
     "compute_next_occurrences",
     "create_batch_job",
@@ -55,14 +59,6 @@ __all__ = [
     "unsuspend_email_sending",
     "validate_rrule",
 ]
-
-
-class WorkflowNotFound(Exception):
-    pass
-
-
-class WorkflowAccessDenied(Exception):
-    pass
 
 
 class WorkflowArchived(Exception):
@@ -192,7 +188,7 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabl
         raise WorkflowArchived()
     user = User.objects.get(id=user_id)
     if not UserAccessControl(user=user, team=hog_flow.team).check_access_level_for_object(hog_flow, "editor"):
-        raise WorkflowAccessDenied()
+        raise WorkflowAccessDenied("editor")
     target = HogFlow.State.ACTIVE if enabled else HogFlow.State.DRAFT
     if hog_flow.status != target:
         if enabled:

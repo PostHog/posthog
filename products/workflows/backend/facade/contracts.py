@@ -432,7 +432,7 @@ class WorkflowNotFound(Exception):
 
 
 class WorkflowAccessDenied(Exception):
-    """The reader's access level for the workflow is below `required_level`."""
+    """The caller's access level for the workflow is below `required_level`."""
 
     def __init__(self, required_level: str) -> None:
         super().__init__(required_level)
