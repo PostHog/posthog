@@ -158,12 +158,15 @@ def build_billing_token(
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
     service_action: str | None = None,
+    escalation_action: str = "update_billing",
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+    `escalation_action` names the call the escalation was for, so the audit event says what the
+    authorizer's role was borrowed to do.
 
     `service_action` marks a token minted by a backend job for one specific service-to-service
     endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
@@ -209,7 +212,7 @@ def build_billing_token(
                     "target_user_id": user.id,
                     "target_distinct_id": str(user.distinct_id),
                     "target_email": user.email,
-                    "action": "update_billing",
+                    "action": escalation_action,
                 },
             )
             payload["original_role"] = _get_user_organization_role(user, organization)
@@ -801,6 +804,7 @@ class BillingManager:
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
         service_action: str | None = None,
+        escalation_action: str = "update_billing",
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
@@ -811,6 +815,7 @@ class BillingManager:
             authorizer_actor=authorizer_actor,
             billing_provider=billing_provider,
             service_action=service_action,
+            escalation_action=escalation_action,
         )
         headers = {"Authorization": f"Bearer {billing_service_token}"}
         if self.ip_address:
@@ -1160,7 +1165,9 @@ class BillingManager:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
-            headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
+            headers=self.get_auth_headers(
+                organization, authorizer_actor=authorizer_actor, escalation_action="claim_coupon"
+            ),
         )
 
         handle_billing_service_error(res, valid_codes=(200, 201))

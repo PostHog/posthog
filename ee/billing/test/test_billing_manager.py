@@ -1149,8 +1149,14 @@ class TestBuildBillingToken(BaseTest):
         assert "original_role" not in decoded
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("default_action", {}, "update_billing"),
+            ("named_action", {"escalation_action": "claim_coupon"}, "claim_coupon"),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_build_billing_token_with_privilege_escalation(self, mock_capture):
+    def test_build_billing_token_with_privilege_escalation(self, _name, token_kwargs, expected_action, mock_capture):
         """When authorizer_actor differs from user, original_role is set and capture is called"""
         member_user = User.objects.create_and_join(
             organization=self.organization,
@@ -1166,7 +1172,7 @@ class TestBuildBillingToken(BaseTest):
         )
 
         token = build_billing_token(
-            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer
+            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer, **token_kwargs
         )
 
         decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
@@ -1184,7 +1190,7 @@ class TestBuildBillingToken(BaseTest):
         assert call_kwargs["properties"]["target_user_id"] == member_user.id
         assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
         assert call_kwargs["properties"]["target_email"] == member_user.email
-        assert call_kwargs["properties"]["action"] == "update_billing"
+        assert call_kwargs["properties"]["action"] == expected_action
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
         """Should raise NotAuthenticated when authorizer_actor is not a member of the organization"""
