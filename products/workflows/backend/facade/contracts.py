@@ -523,6 +523,10 @@ class WorkflowEditState:
     created_by: "User | None"
     updated_at: datetime
     trigger: Any
+    trigger_masking: dict[str, Any] | None
+    conversion: dict[str, Any] | None
+    exit_condition: str
+    email_sending_rate_limit: dict[str, Any] | None
     edges: list[dict[str, Any]] | dict[str, Any]
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
@@ -550,6 +554,31 @@ class WorkflowWriteResult:
     current: Mapping[str, object]
     routed_to_draft: bool = False
     schedules_paused: int = 0
+
+
+class WorkflowProposalNotFound(Exception):
+    pass
+
+
+class WorkflowProposalResolved(Exception):
+    """The suggestion was approved or rejected already."""
+
+
+class WorkflowProposalConflicts(Exception):
+    """Someone changed the steps or fields the suggestion is about since it was written."""
+
+    def __init__(self, conflicts: list[str]) -> None:
+        super().__init__(conflicts)
+        self.conflicts = conflicts
+
+
+@frozen
+class ProposalApproval:
+    """The approved suggestion, and the workflow's fields from before and after its draft was staged."""
+
+    proposal: "WorkflowProposalRecord"
+    previous: Mapping[str, object]
+    current: Mapping[str, object]
 
 
 @frozen
