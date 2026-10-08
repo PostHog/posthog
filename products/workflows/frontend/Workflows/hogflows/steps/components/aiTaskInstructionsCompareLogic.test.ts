@@ -25,6 +25,7 @@ describe('aiTaskInstructionsCompareLogic', () => {
     it.each([
         ['the instructions of the step in that version', [aiTask('triage', 'Old instructions')], 'Old instructions'],
         ['null when the step is not in that version', [aiTask('other', 'Something else')], null],
+        ['null when the stored step has no config', [{ id: 'triage', type: 'function', name: 'Step triage' }], null],
     ])('selecting a past version yields %s', async (_, actions, expected) => {
         useMocks({ get: { [REVISION_URL]: { version: 2, created_at: '', created_by: null, content: { actions } } } })
         initKeaTests()
