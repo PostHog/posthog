@@ -542,6 +542,38 @@ class TestFormatIssueComment:
         assert body == f"**P2 · Off-diff finding**\n\nproblem fix\n\n{REVIEW_HOG_FINDING_MARKER}"
         assert "bug" not in body and "reason" not in body
 
+    @parameterized.expand(
+        [
+            ("plain_prose", "The cache misses.", "Key it by team.", "The cache misses. Key it by team."),
+            (
+                "fix_opens_a_code_block",
+                "The cache misses.",
+                "```py\nkey = team\n```",
+                "The cache misses.\n\n```py\nkey = team\n```",
+            ),
+            (
+                "fix_is_a_list",
+                "The cache misses.",
+                "- key by team\n- add a test",
+                "The cache misses.\n\n- key by team\n- add a test",
+            ),
+            (
+                "issue_ends_with_a_code_block",
+                "Here:\n```\nx = 1\n```",
+                "Remove it.",
+                "Here:\n```\nx = 1\n```\n\nRemove it.",
+            ),
+        ]
+    )
+    def test_fix_joins_the_issue_without_breaking_markdown_blocks(
+        self, _name: str, issue: str, suggestion: str, expected: str
+    ) -> None:
+        finding = _finding().model_copy(update={"body": issue, "suggestion": suggestion})
+
+        body = _format_issue_comment(finding, _verdict())
+
+        assert body == f"**P2 · Off-diff finding**\n\n{expected}\n\n{REVIEW_HOG_FINDING_MARKER}"
+
     def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
         # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker
         # in the opening comment. Drop it here and every ReviewHog thread misfiles under the other-bot

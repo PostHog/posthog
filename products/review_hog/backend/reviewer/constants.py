@@ -1,3 +1,4 @@
+import re
 import logging
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -484,12 +485,22 @@ def finding_heading(title: str, level: ReportedPriority) -> str:
     return f"**{level} · {title}**"
 
 
+_MARKDOWN_BLOCK_START = re.compile(r"^\s*(```|~~~|[-*+] |\d+[.)] |>|#|\|)")
+
+
 def finding_text(body: str, suggestion: str) -> str:
     """The issue and its fix as one paragraph. A single-agent finding has no suggestion text, because its
-    body already ends with the fix."""
-    if not suggestion.strip():
-        return body.strip()
-    return f"{body.strip()} {suggestion.strip()}"
+    body already ends with the fix.
+
+    A pipeline issue or fix can be Markdown with code blocks or lists, which a space would run into the
+    other text, so those keep a paragraph break.
+    """
+    body, suggestion = body.strip(), suggestion.strip()
+    if not suggestion:
+        return body
+    if "\n" in body or "\n" in suggestion or _MARKDOWN_BLOCK_START.match(suggestion):
+        return f"{body}\n\n{suggestion}"
+    return f"{body} {suggestion}"
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
