@@ -99,6 +99,9 @@ def plan_toggle(
         if unknown:
             raise UsersNotInOrganization(team_id, unknown)
 
+    # The authored PR switch also sets `default_review_mode`, which the automatic trigger reads. A row
+    # whose switch already matches can still carry the wrong mode, and a missing row reads as Follow.
+    target_mode = ReviewUserSettings.default_mode_for_authored_prs(enabled) if field == "review_authored_prs" else None
     existing = {
         row.user_id: row
         for row in ReviewUserSettings.objects.for_team(team_id, canonical=True).filter(user_id__in=target_ids)
@@ -109,6 +112,7 @@ def plan_toggle(
         if user_id in existing
         and (
             getattr(existing[user_id], field) is not enabled
+            or (target_mode is not None and existing[user_id].default_review_mode != target_mode)
             or (
                 flash_reasoning_effort is not None
                 and existing[user_id].flash_reasoning_effort != flash_reasoning_effort
@@ -116,7 +120,10 @@ def plan_toggle(
         )
     )
     missing = tuple(user_id for user_id in target_ids if user_id not in existing)
-    to_create = missing if enabled is not toggle_default(field) else ()
+    needs_row = enabled is not toggle_default(field) or (
+        target_mode is not None and target_mode != ReviewUserSettings().default_review_mode
+    )
+    to_create = missing if needs_row else ()
     return TogglePlan(
         team_id=team_id,
         field=field,

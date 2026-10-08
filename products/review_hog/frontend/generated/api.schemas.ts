@@ -210,8 +210,8 @@ export interface ReviewRepositoryApi {
     flash_for?: ReviewRepositoryFlashForEnumApi
     /** Skip automatic reviews of pull requests that bots open. On by default. */
     exclude_bots?: boolean
-    /** Who added the repository. */
-    readonly created_by: UserBasicApi
+    /** Who added the repository. Null for seeded repositories. */
+    readonly created_by: UserBasicApi | null
     /** When the repository was added. */
     readonly created_at: string
     /** The people on the repository's two lists. Only the list that matches flash_for has an effect. */
