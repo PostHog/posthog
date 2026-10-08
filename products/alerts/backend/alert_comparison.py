@@ -52,6 +52,7 @@ MAX_CHECKS_PER_BATCH = 100_000
 # How long after its slot production may still make its check of the same period. A month is the
 # longest calendar unit insight evaluates on.
 _PERIOD: dict[str, timedelta] = {
+    AlertCalculationInterval.EVERY_15_MINUTES: timedelta(minutes=15),
     AlertCalculationInterval.HOURLY: timedelta(hours=1),
     AlertCalculationInterval.DAILY: timedelta(days=1),
     AlertCalculationInterval.WEEKLY: timedelta(days=7),
