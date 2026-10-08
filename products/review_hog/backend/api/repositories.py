@@ -17,6 +17,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -135,9 +136,8 @@ class ReviewRepositorySerializer(serializers.ModelSerializer):
         return value
 
     @extend_schema_field(ReviewRepositoryPersonSerializer(many=True))
-    def get_people(self, instance: ReviewRepository) -> list[dict]:
-        # A many=True serializer returns a list, which the stubs type as the single-object dict.
-        return cast(list[dict], ReviewRepositoryPersonSerializer(self._people(instance), many=True).data)
+    def get_people(self, instance: ReviewRepository) -> list[ReturnDict]:
+        return [ReviewRepositoryPersonSerializer(person).data for person in self._people(instance)]
 
     @extend_schema_field(serializers.ChoiceField(choices=ReviewUserRepositoryChoice.Mode.choices, allow_null=True))
     def get_my_choice(self, instance: ReviewRepository) -> str | None:
