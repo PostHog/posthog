@@ -165,14 +165,6 @@ The handoff removes `ask` from the current browser history entry while preservin
 Changing the panel state or remounting the view therefore does not submit the prompt again.
 Without organization-level AI data-processing consent, the prompt only prefills the composer.
 
-When the new PostHog AI runtime is available, the legacy new-chat form also offers **Attach**.
-Selecting files opens the current composer with the draft, files, and selected context.
-This only prefills the composer; the user must send the message and complete any required consent.
-Canceling file selection keeps the legacy form open.
-Both chat layouts show selected files as compact tiles with an image preview or file type.
-Hover over a tile or focus it with the keyboard to see the full file name and remove control.
-File tiles sit above the text. The Attach, Context, model, and mode controls share a row below it.
-
 ## Task navigation
 
 Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
