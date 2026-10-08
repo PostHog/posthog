@@ -184,15 +184,172 @@ def test_reads_wrapped_dashboards(raw: dict[str, Any], expected_title: str) -> N
     assert GrafanaDashboardParser(raw).parse().title == expected_title
 
 
+def _v2_element(panel: dict[str, Any], *, alpha: bool) -> dict[str, Any]:
+    datasource = panel.get("datasource") or {"type": "prometheus", "uid": "prom"}
+    queries = []
+    for target in panel.get("targets", []):
+        body = {key: value for key, value in target.items() if key != "refId"}
+        if alpha:
+            query: dict[str, Any] = {"kind": datasource["type"], "spec": body}
+            spec = {"refId": target["refId"], "hidden": False, "query": query, "datasource": datasource}
+        else:
+            query = {
+                "kind": "DataQuery",
+                "group": datasource["type"],
+                "version": "v0",
+                "datasource": {"name": datasource["uid"]},
+                "spec": body,
+            }
+            spec = {"refId": target["refId"], "hidden": False, "query": query}
+        queries.append({"kind": "PanelQuery", "spec": spec})
+    viz_spec = {"options": panel.get("options", {}), "fieldConfig": panel.get("fieldConfig", {"defaults": {}})}
+    viz = (
+        {"kind": panel["type"], "spec": viz_spec}
+        if alpha
+        else {"kind": "VizConfig", "group": panel["type"], "version": "12.2.0", "spec": viz_spec}
+    )
+    return {
+        "kind": "Panel",
+        "spec": {
+            "id": panel["id"],
+            "title": panel.get("title", ""),
+            "data": {"kind": "QueryGroup", "spec": {"queries": queries, "transformations": []}},
+            "vizConfig": viz,
+        },
+    }
+
+
+def _v2_item(panel_id: int, x: int, y: int, width: int, height: int) -> dict[str, Any]:
+    reference = {"kind": "ElementReference", "name": f"panel-{panel_id}"}
+    return {"kind": "GridLayoutItem", "spec": {"x": x, "y": y, "width": width, "height": height, "element": reference}}
+
+
+def _v2_dashboard(*, alpha: bool) -> dict[str, Any]:
+    """The classic DASHBOARD fixture as a Grafana v2 resource, with the same panels in the same places."""
+    classic = [panel for panel in DASHBOARD["panels"] if panel["type"] != "row"] + DASHBOARD["panels"][4]["panels"]
+    elements = {f"panel-{panel['id']}": _v2_element(panel, alpha=alpha) for panel in classic}
+    traffic = [_v2_item(2, 0, 0, 12, 8), _v2_item(3, 12, 0, 6, 4), _v2_item(4, 18, 0, 6, 4)]
+    logs = [_v2_item(6, 0, 0, 24, 8), _v2_item(7, 0, 9, 8, 3), _v2_item(8, 8, 9, 8, 6)]
+    if alpha:
+        layout: dict[str, Any] = {
+            "kind": "GridLayout",
+            "spec": {
+                "items": [
+                    {"kind": "GridLayoutRow", "spec": {"y": 0, "title": "Traffic", "elements": traffic}},
+                    {"kind": "GridLayoutRow", "spec": {"y": 9, "title": "Logs", "collapsed": True, "elements": logs}},
+                ]
+            },
+        }
+    else:
+        layout = {
+            "kind": "RowsLayout",
+            "spec": {
+                "rows": [
+                    {
+                        "kind": "RowsLayoutRow",
+                        "spec": {"title": title, "layout": {"kind": "GridLayout", "spec": {"items": items}}},
+                    }
+                    for title, items in (("Traffic", traffic), ("Logs", logs))
+                ]
+            },
+        }
+    variables = [
+        {"kind": "QueryVariable", "spec": {"name": "job", "current": {"text": "checkout", "value": "checkout"}}},
+        {
+            "kind": "QueryVariable",
+            "spec": {
+                "name": "instance",
+                "includeAll": True,
+                "allValue": ".*",
+                "current": {"text": "All", "value": "$__all"},
+                "query": {"kind": "DataQuery", "group": "prometheus", "spec": {"query": "label_values(instance)"}},
+            },
+        },
+        {
+            "kind": "CustomVariable",
+            "spec": {"name": "route", "current": {"text": "/a + /b.c", "value": ["/a", "/b.c"]}},
+        },
+    ]
+    return {
+        "apiVersion": "dashboard.grafana.app/v2alpha1" if alpha else "dashboard.grafana.app/v2beta1",
+        "kind": "Dashboard",
+        "metadata": {"name": "checkout"},
+        "spec": {
+            "title": "Checkout service",
+            "timeSettings": {"from": "now-6h", "to": "now"},
+            "variables": variables,
+            "elements": elements,
+            "layout": layout,
+        },
+    }
+
+
+def _comparable(raw: dict[str, Any]) -> list[tuple[Any, ...]]:
+    # Row panels have no id in v2, so only their title and place are compared.
+    return [
+        (
+            panel.kind if panel.kind == "row" else panel.key,
+            panel.title,
+            panel.kind,
+            panel.layout,
+            [target.expr for target in panel.targets],
+            panel.display,
+            panel.text,
+            panel.notes,
+        )
+        for panel in GrafanaDashboardParser(raw).parse().panels
+    ]
+
+
+@pytest.mark.parametrize("alpha", [False, True])
+def test_reads_a_v2_resource_like_the_same_classic_dashboard(alpha: bool) -> None:
+    v2 = _v2_dashboard(alpha=alpha)
+
+    assert GrafanaDashboardParser(v2).parse().date_from == "-6h"
+    assert _comparable(v2) == _comparable(DASHBOARD)
+
+
+def test_places_v2_auto_grid_panels_in_columns_under_each_tab() -> None:
+    auto_grid = {
+        "kind": "AutoGridLayout",
+        "spec": {
+            "maxColumnCount": 2,
+            "items": [
+                {"kind": "AutoGridLayoutItem", "spec": {"element": {"kind": "ElementReference", "name": name}}}
+                for name in ("panel-2", "panel-3", "panel-8")
+            ],
+        },
+    }
+    spec = GrafanaDashboardParser(
+        {
+            "elements": _v2_dashboard(alpha=False)["spec"]["elements"],
+            "layout": {
+                "kind": "TabsLayout",
+                "spec": {"tabs": [{"kind": "TabsLayoutTab", "spec": {"title": "Overview", "layout": auto_grid}}]},
+            },
+        }
+    ).parse()
+
+    assert [(panel.title, panel.layout.x, panel.layout.w) for panel in spec.panels] == [
+        ("Overview", 0, 12),
+        ("Request rate", 0, 6),
+        ("Error ratio", 6, 6),
+        ("Unknown cluster", 0, 6),
+    ]
+
+
 @pytest.mark.parametrize(
     "raw, message",
     [
         ([], "one JSON object"),
         ({"title": "No panels"}, "has no panels"),
-        ({"apiVersion": "dashboard.grafana.app/v2beta1", "spec": {"elements": {}}}, "v2 dashboard"),
+        (
+            {"apiVersion": "dashboard.grafana.app/v2beta1", "spec": {"elements": {}, "layout": {}}},
+            "no panels to import",
+        ),
     ],
 )
-def test_rejects_input_that_is_not_a_classic_dashboard(raw: Any, message: str) -> None:
+def test_rejects_input_that_is_not_a_dashboard(raw: Any, message: str) -> None:
     with pytest.raises(GrafanaImportError, match=message):
         GrafanaDashboardParser(raw).parse()
 
@@ -236,6 +393,7 @@ def test_finds_the_metric_names_of_an_expression(expr: str, expected: list[str])
     [
         ("rate(a[$__rate_interval]) + increase(b[${__interval}])", "rate(a) + increase(b)", False),
         ("increase(a[$__range])", "increase(a)", True),
+        ("increase(a[${__range_s}s]) / increase(b[${__range_ms}ms])", "increase(a) / increase(b)", True),
         ("rate(a[5m])", "rate(a[5m])", False),
         ('rate(a{path="[$__interval]"}[1m])', 'rate(a{path="[$__interval]"}[1m])', False),
     ],
@@ -269,6 +427,10 @@ def test_joins_several_targets_with_the_clause_label() -> None:
         ('up{env=~"$env"}', 'up{env=~"(prod|dev)"}'),
         ('up{env="${env:csv}"}', 'up{env="prod,dev"}'),
         ('up{env=~"${env:pipe}"}', 'up{env=~"prod|dev"}'),
+        (
+            'label_replace(up{env=~"$env"}, "zone", "$1", "id", "aws:///([^/]+)/.*")',
+            'label_replace(up{env=~"(prod|dev)"}, "zone", "$1", "id", "aws:///([^/]+)/.*")',
+        ),
     ],
 )
 def test_all_without_an_all_value_uses_every_option(expr: str, expected: str) -> None:
