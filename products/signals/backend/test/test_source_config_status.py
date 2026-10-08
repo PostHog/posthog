@@ -16,12 +16,13 @@ FAILED = ExternalDataSchema.Status.FAILED
 
 
 class TestSignalSourceConfigStatus(BaseTest):
-    def _source_with_schemas(self, source_type: str, *schemas: tuple[str, str]) -> None:
+    def _source_with_schemas(self, source_type: str, *schemas: tuple[str, str]) -> ExternalDataSource:
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=source_type, status="Running", prefix=f"{source_type.lower()}_"
         )
         for name, status in schemas:
             ExternalDataSchema.objects.create(team=self.team, source=source, name=name, status=status)
+        return source
 
     def _config(self, source_product: str, source_type: str) -> SignalSourceConfig:
         return SignalSourceConfig.objects.create(
@@ -66,6 +67,38 @@ class TestSignalSourceConfigStatus(BaseTest):
         ExternalDataSchema.objects.create(team=self.team, source=source, name="posthog/posthog.issues", status=RUNNING)
 
         assert self._status() is None
+
+    def test_ignores_deleted_schemas(self) -> None:
+        source = self._source_with_schemas("Github", ("posthog/a.issues", COMPLETED))
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="posthog/b.issues", status=FAILED, deleted=True
+        )
+
+        assert self._status() == "completed"
+
+    def test_status_error_comes_from_the_newest_failed_schema(self) -> None:
+        source = self._source_with_schemas("PgAnalyze")
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="issues", status=FAILED, latest_error="old error"
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="issues", status=FAILED, latest_error="new error"
+        )
+        config = self._config(SignalSourceProduct.PGANALYZE, SignalSourceType.ISSUE)
+
+        data = SignalSourceConfigSerializer(config).data
+
+        assert (data["status"], data["status_error"]) == ("failed", "new error")
+
+    def test_status_error_is_null_unless_the_sync_failed(self) -> None:
+        source = self._source_with_schemas("Github", ("posthog/a.issues", RUNNING))
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="posthog/b.issues", status=FAILED, latest_error="boom"
+        )
+
+        data = SignalSourceConfigSerializer(self._config(SignalSourceProduct.GITHUB, SignalSourceType.ISSUE)).data
+
+        assert (data["status"], data["status_error"]) == ("running", None)
 
     def test_reports_no_status_when_the_warehouse_read_fails(self) -> None:
         self._source_with_schemas("Github", ("posthog/posthog.issues", RUNNING))

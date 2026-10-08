@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -126,7 +127,22 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], _DataImportSchema] = {
 _DATA_IMPORT_EXTERNAL_SOURCE_TYPES = sorted({schema.source_type for schema in _DATA_IMPORT_SOURCE_MAP.values()})
 
 
-def _read_data_import_statuses(team_id: int) -> dict[_DataImportSchema, set[str]]:
+_FAILED_SCHEMA_STATUSES = {
+    ExternalDataSchemaStatus.FAILED,
+    ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+    ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
+}
+
+
+@dataclass(frozen=False)
+class _DataImportState:
+    """Sync statuses of the warehouse schemas behind one signal source, and the newest failure's error."""
+
+    statuses: set[str] = field(default_factory=set)
+    sync_error: str | None = None
+
+
+def _read_data_import_statuses(team_id: int) -> dict[_DataImportSchema, _DataImportState]:
     """Every data-import schema on a team in one query, bucketed by `_DATA_IMPORT_SOURCE_MAP` value."""
     rows = (
         ExternalDataSchema.objects.filter(
@@ -134,17 +150,23 @@ def _read_data_import_statuses(team_id: int) -> dict[_DataImportSchema, set[str]
             source__source_type__in=_DATA_IMPORT_EXTERNAL_SOURCE_TYPES,
         )
         .exclude(source__deleted=True)
-        .values_list("source__source_type", "name", "status")
+        .exclude(deleted=True)
+        # Newest first, so the first failed row gives the error a person most likely wants to fix.
+        .order_by("-updated_at")
+        .values_list("source__source_type", "name", "status", "latest_error")
     )
-    statuses: dict[_DataImportSchema, set[str]] = {}
-    for row_source_type, row_name, row_status in rows:
+    states: dict[_DataImportSchema, _DataImportState] = {}
+    for row_source_type, row_name, row_status, row_error in rows:
         # `status` is nullable. A row without one matches none of the ranked states below.
         if row_status is None:
             continue
         for schema in _DATA_IMPORT_SOURCE_MAP.values():
             if schema.matches(row_source_type, row_name):
-                statuses.setdefault(schema, set()).add(row_status)
-    return statuses
+                state = states.setdefault(schema, _DataImportState())
+                state.statuses.add(row_status)
+                if row_status in _FAILED_SCHEMA_STATUSES and state.sync_error is None and row_error:
+                    state.sync_error = row_error
+    return states
 
 
 _SOURCE_CONFIG_HELP_TEXT = (
@@ -193,6 +215,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "import that has never synced, and when the sync state could not be read."
         ),
     )
+    status_error = serializers.SerializerMethodField(
+        help_text=(
+            "Why the warehouse import behind this source failed, taken from its newest failed sync. "
+            "Null unless `status` is `failed` and the sync recorded an error."
+        ),
+    )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
 
     class Meta:
@@ -206,38 +234,47 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "status",
+            "status_error",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "status_error"]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
-        self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
+        self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, _DataImportState] | None] = {}
 
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
-        schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
-        if schema is None:
+        state = self._data_import_state(obj)
+        if state is None:
             return None
-        statuses_by_schema = self._data_import_statuses(obj.team_id)
-        if statuses_by_schema is None:
-            return None
-        statuses = statuses_by_schema.get(schema, set())
-        if ExternalDataSchemaStatus.RUNNING in statuses:
+        if ExternalDataSchemaStatus.RUNNING in state.statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
-        if statuses & {
-            ExternalDataSchemaStatus.FAILED,
-            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
-            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
-        }:
+        if state.statuses & _FAILED_SCHEMA_STATUSES:
             return "failed"
-        if ExternalDataSchemaStatus.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in state.statuses:
             return "completed"
         return None
 
-    def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
-        """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status_error(self, obj: SignalSourceConfig) -> str | None:
+        if self.get_status(obj) != "failed":
+            return None
+        state = self._data_import_state(obj)
+        return state.sync_error if state else None
+
+    def _data_import_state(self, obj: SignalSourceConfig) -> _DataImportState | None:
+        schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
+        if schema is None:
+            return None
+        states_by_schema = self._data_import_statuses(obj.team_id)
+        if states_by_schema is None:
+            return None
+        return states_by_schema.get(schema)
+
+    def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, _DataImportState] | None:
+        """Sync state of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
 
         The inbox reads this list on load, and DRF reuses one child serializer across a list,
         so the first row that needs a status resolves every row's in one query. A `None` return
