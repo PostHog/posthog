@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class KustomerEndpointConfig:
     path: str
     primary_key: str = "id"
