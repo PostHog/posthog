@@ -2970,7 +2970,7 @@ class TestCanvasOperations(CanvasAPIBaseTest):
         assert unknown.status_code == status.HTTP_404_NOT_FOUND, unknown.json()
 
         entries = self._activity("operation_invoked")
-        assert [entry.detail["trigger"]["job_id"] for entry in entries] == ["mark-incident", "enable-beta"]
+        assert [(entry.detail or {})["trigger"]["job_id"] for entry in entries] == ["mark-incident", "enable-beta"]
 
     def test_scoped_key_needs_the_operations_verb_scope(self):
         canvas_id = self._operations_canvas()
