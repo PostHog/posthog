@@ -112,9 +112,10 @@ class TestParseDatetime:
 
 class TestListParams:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_company_and_page_size_always_sent(self, endpoint):
+    def test_account_and_page_size_always_sent(self, endpoint):
         params = _list_params(endpoint, COMPANY_ID, None)
-        assert params["company_id"] == COMPANY_ID
+        assert params["account_id"] == COMPANY_ID
+        assert "company_id" not in params
         assert params["first"] == PAGE_SIZE
 
     @pytest.mark.parametrize(

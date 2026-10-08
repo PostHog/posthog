@@ -107,7 +107,9 @@ def _list_params(
     watermark: Optional[datetime],
 ) -> dict[str, Any]:
     config = WHOP_ENDPOINTS[endpoint]
-    params: dict[str, Any] = {"first": PAGE_SIZE, "company_id": company_id}
+    # Whop renamed the list filter to `account_id`. `/payments`, `/refunds` and `/checkout_configurations`
+    # now 400 on `company_id`, and `/products` silently ignores it and lists the whole marketplace.
+    params: dict[str, Any] = {"first": PAGE_SIZE, "account_id": company_id}
 
     if config.supports_created_at_order:
         # Forcing the sort column makes the arrival order knowable, which is what lets this endpoint

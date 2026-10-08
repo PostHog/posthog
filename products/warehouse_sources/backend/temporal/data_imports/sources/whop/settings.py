@@ -16,7 +16,7 @@ PAGE_SIZE = 100
 @dataclass
 class WhopEndpointConfig:
     path: str
-    # Whether `company_id` is a required query param. The rest accept it as an optional narrowing
+    # Whether the company filter (sent as `account_id`) is a required query param. The rest accept it as an optional narrowing
     # filter, which we always send so a key reaching several companies stays pinned to the one the
     # user connected.
     company_id_required: bool = False
