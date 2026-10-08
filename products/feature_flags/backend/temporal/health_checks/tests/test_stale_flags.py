@@ -602,9 +602,8 @@ class TestStaleFlagsDetect(BaseTest):
                     "winning_variant": "control",
                 },
             ),
-            # The cold class is not gated by `_serves_more_than_one_result`, so it is the one place
-            # the checker's rule reaches the payload unguarded. A flag that serves two variants is
-            # partially rolled out, and the evidence for it is the missing calls, not the rollout.
+            # A usage-stale row is not filtered on the checker's full-rollout verdict, so a flag the
+            # checker calls partial still reports here, with the missing calls as its evidence.
             (
                 "cold_multivariate_with_disagreeing_paths_is_partial",
                 {

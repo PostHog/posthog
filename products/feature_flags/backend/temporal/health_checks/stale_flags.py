@@ -239,9 +239,11 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
 
     `FeatureFlagStatusChecker.is_flag_fully_rolled_out`, which `detect` checks next to this guard,
     holds the shared rule for which variant a multivariate flag serves. The keys below are the rest
-    of the runtime model, which only this class needs, because each one decides the result ahead of
-    the release conditions the checker reads and none of them changes which variant a reached
-    condition serves.
+    of the runtime model. Each one decides the result ahead of the release conditions the checker
+    reads, and none of them changes which variant a reached condition serves. The checker reads
+    aggregation too, through `first_deciding_condition`, and this guard is the stricter of the two:
+    the checker calls a flag whose conditions all aggregate on one group type fully rolled out,
+    because every request it addresses carries the key, while this guard rejects any set index.
 
     The other candidate source is left alone. A usage-stale row's evidence is that PostHog stopped
     receiving calls, which none of this contradicts. `detect` confirms a never-called row with the
