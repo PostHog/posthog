@@ -2283,7 +2283,18 @@ class TestReadDataTool(BaseTest):
             context_manager=self._context_manager_without_extras(),
         )
 
-        result, _ = await tool._arun_impl({"kind": "data_catalog_metric", "name": "pro_users"})
+        envelope = {
+            "status": status,
+            "is_drifted": False,
+            "unit": None,
+            "results": [[10]],
+            "columns": ["pro_users"],
+            "has_more": False,
+            "posthog_url": None,
+            "instructions": None,
+        }
+        with patch("ee.hogai.tools.read_data.tool.run_metric", return_value=envelope):
+            result, _ = await tool._arun_impl({"kind": "data_catalog_metric", "name": "pro_users"})
 
         assert '"results": [[10]]' in result
         assert ("This result is not canonical" in result) is labeled_not_canonical

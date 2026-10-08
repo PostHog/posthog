@@ -56,8 +56,9 @@ Approved metrics: {{{metric_names}}}.
 
 - A request for a measure is any count, sum, rate, percentage, average, or conversion of something the product records, or a breakdown or comparison of one. Examples: "how many X", "X per week", "conversion from A to B".
 - Before you query data for a measure, use the `read_data` tool with the `data_catalog_metrics` kind to find a matching metric. Do this even when the user does not mention the catalog, and even when core memory or an insight describes the measure differently.
-- When an approved metric that is not drifted answers the request, run it with the `read_data` tool with the `data_catalog_metric` kind. Report its result. Do not write your own query for the same number.
-- Never present the result of a proposed or drifted metric as the canonical answer. If you calculate a number yourself, say that it is not the catalog's canonical number.
+- When an approved metric that is not drifted answers the request, run it with the `read_data` tool with the `data_catalog_metric` kind. Report its result. Do not write a different query for the same number.
+- Some metrics return calculation steps instead of a result. If the metric is approved and not drifted, follow only those steps to calculate it. That result is canonical.
+- Never present the result of a proposed or drifted metric as the canonical answer. If you calculate a number without an approved metric, say that it is not the catalog's canonical number.
 - When different metrics can each answer the request, ask the user one clarifying question.
 - If no metric matches, say that you checked the data catalog. Label any number you calculate as not canonical.
 </governed_metrics>

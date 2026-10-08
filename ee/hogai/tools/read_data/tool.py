@@ -29,6 +29,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
@@ -54,6 +55,7 @@ from products.data_catalog.backend.facade.api import (
     run_metric,
 )
 from products.data_catalog.backend.facade.enums import MetricStatus
+from products.data_catalog.backend.facade.models import Metric
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -71,7 +73,12 @@ from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import (
+    MaxToolAccessDeniedError,
+    MaxToolFatalError,
+    MaxToolRetryableError,
+    MaxToolTransientError,
+)
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
     ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
@@ -1115,11 +1122,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         self, name: str, date_from: str | None, date_to: str | None, interval: IntervalType | None
     ) -> str:
         await self._check_data_catalog_access()
-        return await database_sync_to_async(self._run_data_catalog_metric_sync)(name, date_from, date_to, interval)
+        metric = await database_sync_to_async(self._get_runnable_metric)(name)
+        # A stale or uncached metric runs its full query here, so keep it off the shared database thread.
+        envelope = await database_sync_to_async(self._run_metric, thread_sensitive=False)(
+            metric, date_from, date_to, interval
+        )
+        return _format_metric_run(name, envelope)
 
-    def _run_data_catalog_metric_sync(
-        self, name: str, date_from: str | None, date_to: str | None, interval: IntervalType | None
-    ) -> str:
+    def _get_runnable_metric(self, name: str) -> Metric:
         metric = metrics_visible_to_user(self._team, self._user, self.user_access_control).filter(name=name).first()
         if metric is None:
             raise MaxToolRetryableError(
@@ -1128,8 +1138,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         # The metric-run endpoint enforces query access the same way: a metric run reads project data.
         if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise MaxToolAccessDeniedError("query", "viewer", action="run")
+        return metric
+
+    def _run_metric(
+        self, metric: Metric, date_from: str | None, date_to: str | None, interval: IntervalType | None
+    ) -> dict:
         try:
-            envelope = run_metric(
+            return run_metric(
                 team=self._team,
                 metric=metric,
                 user=self._user,
@@ -1137,9 +1152,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 date_to=date_to,
                 interval=interval.value if interval else None,
             )
+        except CH_TRANSIENT_ERRORS as e:
+            raise MaxToolTransientError(
+                f"The metric '{metric.name}' could not run because of a temporary error."
+            ) from e
         except APIException as e:
-            raise MaxToolRetryableError(f"The metric '{name}' could not run: {e.detail}")
-        return _format_metric_run(name, envelope)
+            if e.status_code == 429:
+                raise MaxToolTransientError(str(e.detail), error_type="rate_limited") from e
+            raise MaxToolRetryableError(f"The metric '{metric.name}' could not run: {e.detail}") from e
 
     async def _check_data_catalog_access(self) -> None:
         has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_resource)(

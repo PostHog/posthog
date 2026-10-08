@@ -44,11 +44,10 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
 
         execution_registry = get_execution_mode_registry(self._team, self._user)
 
-        billing_prompt, core_memory, groups, governed_metrics, default_tools, available_modes = await asyncio.gather(
+        billing_prompt, core_memory, groups, default_tools, available_modes = await asyncio.gather(
             self._get_billing_prompt(),
             self._aget_core_memory_text(),
             self._context_manager.get_group_names(),
-            self._get_governed_metrics_prompt(),
             _get_default_tools_prompt(
                 team=self._team,
                 user=self._user,
@@ -94,13 +93,11 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
             "groups_prompt": f" {format_prompt_string(ROOT_GROUPS_PROMPT, groups=', '.join(groups))}" if groups else "",
             "core_memory": core_memory,
             "billing_context": billing_prompt,
-            "governed_metrics": governed_metrics,
         }
 
         return ChatPromptTemplate.from_messages(
             [
                 ("system", system_prompt),
-                *([("system", "{{{governed_metrics}}}")] if governed_metrics else []),
                 ("system", self._get_core_memory_prompt()),
             ],
             template_format="mustache",
