@@ -109,7 +109,7 @@ class TestSteam:
         assert ADA not in player_key(TEAM_ID, ADA)
         assert player_key(TEAM_ID, ADA) != player_key(TEAM_ID + 1, ADA)
 
-    def test_a_rejected_key_fails_the_sync_with_a_non_retryable_error(self) -> None:
+    def test_a_rejected_key_fails_the_sync_without_the_key_in_the_error(self) -> None:
         response = _response(403)
         response.reason = "Forbidden"
         response.url = "https://api.steampowered.com/?key=secret-key"
@@ -119,8 +119,7 @@ class TestSteam:
         with pytest.raises(HTTPError) as error:
             _rows("players", session, [ADA])
 
-        assert any(pattern in str(error.value) for pattern in SteamSource().get_non_retryable_errors())
-        assert "secret-key" not in str(error.value)
+        assert str(error.value) == "403 Client Error: Forbidden"
 
     def test_a_connection_failure_keeps_the_key_out_of_the_error(self) -> None:
         session = MagicMock()
