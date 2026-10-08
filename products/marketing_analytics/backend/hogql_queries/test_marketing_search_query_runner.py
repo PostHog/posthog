@@ -63,17 +63,20 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "metrics_impressions": "Float64",
                 "metrics_cost_micros": "Float64",
                 "metrics_conversions": "Float64",
+                "metrics_top_impression_percentage": "Float64",
+                "metrics_absolute_top_impression_percentage": "Float64",
                 "segments_date": "Date",
                 "segments_ad_network_type": "String",
             },
-            "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date,segments_ad_network_type\n"
-            "1,10,100,7,USD,10,100,20000000,2,2023-01-10,SEARCH\n"
-            "1,10,100,7,USD,30,900,40000000,0.5,2023-01-11,SEARCH_PARTNERS\n"
-            "1,10,100,7,EUR,5,100,10000000,1,2023-01-10,SEARCH\n"
-            "1,10,100,7,USD,900,9000,90000000,9,2023-01-10,CONTENT\n"
-            "1,10,100,7,USD,20,200,30000000,1.25,2022-12-15,SEARCH\n"
-            "1,10,100,7,USD,8,80,16000000,2,2022-01-10,SEARCH\n"
-            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH\n",
+            "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date,segments_ad_network_type,metrics_top_impression_percentage,metrics_absolute_top_impression_percentage\n"
+            "1,10,100,7,USD,4,40,8000000,0.8,2023-01-10,SEARCH,0.8,0.4\n"
+            "1,10,100,7,USD,6,60,12000000,1.2,2023-01-11,SEARCH,0.3,0.1\n"
+            "1,10,100,7,USD,30,900,40000000,0.5,2023-01-11,SEARCH_PARTNERS,0.99,0.99\n"
+            "1,10,100,7,EUR,5,100,10000000,1,2023-01-10,SEARCH,0.6,0.2\n"
+            "1,10,100,7,USD,900,9000,90000000,9,2023-01-10,CONTENT,0.99,0.99\n"
+            "1,10,100,7,USD,20,200,30000000,1.25,2022-12-15,SEARCH,0.6,0.2\n"
+            "1,10,100,7,USD,8,80,16000000,2,2022-01-10,SEARCH,0.6,0.2\n"
+            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n",
         )
         bing_stats = self._table(
             "search_bing_stats",
@@ -109,6 +112,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "keyword": "hedgehog",
             "page": None,
             "position": None,
+            "topImpressionRate": 0.5,
+            "absoluteTopImpressionRate": pytest.approx(0.22),
             "platform": "GoogleAds",
             "matchType": "exact",
             "currency": "USD",
@@ -122,6 +127,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "previous": None,
         }
         zero = next(row for row in rows if row.keyword == "zero")
+        assert zero.topImpressionRate is None and zero.absoluteTopImpressionRate is None
         assert zero.ctr is None and zero.cpc is None and zero.cpa is None
         assert next(row for row in rows if row.keyword == "other keyword").clicks == 3
         query.search = "HEDGE"
@@ -149,6 +155,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "cpc": 1.5,
             "cpa": 24,
             "position": None,
+            "topImpressionRate": 0.6,
+            "absoluteTopImpressionRate": 0.2,
         }
         previous_only = next(row for row in compared if row.keyword == "previous only")
         assert previous_only.clicks == 0
@@ -171,9 +179,37 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_year.previous is not None and previous_year.previous.clicks == 8
         assert not any(row.keyword == "previous only" for row in year_compared)
 
-    @parameterized.expand([("GoogleAds",), ("BingAds",)])
-    def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(self, platform: str) -> None:
+    @parameterized.expand([("GoogleAds", True), ("GoogleAds", False), ("BingAds", False)])
+    def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(
+        self, platform: str, placement_available: bool
+    ) -> None:
         if platform == "GoogleAds":
+            placement_columns = (
+                {
+                    "metrics_top_impression_percentage": "Float64",
+                    "metrics_absolute_top_impression_percentage": "Float64",
+                }
+                if placement_available
+                else {}
+            )
+            csv = (
+                "segments_date,landing_page_view_unexpanded_final_url,segments_ad_network_type,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions\n"
+                "2023-01-10,https://example.com/a,SEARCH,USD,10,100,20000000,2\n"
+                "2023-01-11,https://example.com/a,SEARCH_PARTNERS,USD,5,50,10000000,0.5\n"
+                "2023-01-10,https://example.com/a,SEARCH,EUR,3,30,6000000,1\n"
+                "2023-01-10,https://example.com/a,CONTENT,USD,900,9000,90000000,90\n"
+            )
+            if placement_available:
+                lines = csv.splitlines()
+                csv = (
+                    "\n".join(
+                        [
+                            lines[0] + ",metrics_top_impression_percentage,metrics_absolute_top_impression_percentage",
+                            *(line + ",0.8,0.4" for line in lines[1:]),
+                        ]
+                    )
+                    + "\n"
+                )
             table = self._table(
                 "paid_landing_pages",
                 {
@@ -185,12 +221,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                     "metrics_impressions": "Float64",
                     "metrics_cost_micros": "Float64",
                     "metrics_conversions": "Float64",
+                    **placement_columns,
                 },
-                "segments_date,landing_page_view_unexpanded_final_url,segments_ad_network_type,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions\n"
-                "2023-01-10,https://example.com/a,SEARCH,USD,10,100,20000000,2\n"
-                "2023-01-11,https://example.com/a,SEARCH_PARTNERS,USD,5,50,10000000,0.5\n"
-                "2023-01-10,https://example.com/a,SEARCH,EUR,3,30,6000000,1\n"
-                "2023-01-10,https://example.com/a,CONTENT,USD,900,9000,90000000,90\n",
+                csv,
             )
         else:
             table = self._table(
@@ -223,6 +256,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert usd.page == "https://example.com/a" and usd.keyword is None
         assert usd.clicks == 15 and usd.impressions == 150
         assert usd.cost == 30 and usd.conversions == 2.5 and usd.position is None
+        assert usd.topImpressionRate == (0.8 if placement_available else None)
+        assert usd.absoluteTopImpressionRate == (0.4 if placement_available else None)
 
     def test_organic_positions_are_weighted_and_details_keep_query_page_filters(self) -> None:
         table = self._table(

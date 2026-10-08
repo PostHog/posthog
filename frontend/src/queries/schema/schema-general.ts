@@ -8193,6 +8193,10 @@ export interface MarketingAnalyticsSearchMetrics {
     cpc: number | null
     cpa: number | null
     position?: number | null
+    /** Fraction of Google Search ad impressions shown among the top ads. */
+    topImpressionRate?: number | null
+    /** Fraction of Google Search ad impressions shown as the first ad. */
+    absoluteTopImpressionRate?: number | null
 }
 
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {

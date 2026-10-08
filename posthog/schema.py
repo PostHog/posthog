@@ -2038,6 +2038,10 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
     clicks: float
     conversions: float | None = None
     cost: float | None = None
@@ -2046,11 +2050,19 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     ctr: float | None = None
     impressions: float
     position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
     )
     clicks: float
     conversions: float | None = None
@@ -2066,6 +2078,10 @@ class MarketingAnalyticsSearchRow(BaseModel):
     platform: Platform
     position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchSource(BaseModel):

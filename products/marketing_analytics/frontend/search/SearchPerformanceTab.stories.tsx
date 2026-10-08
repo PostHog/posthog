@@ -99,6 +99,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 840,
@@ -112,6 +114,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'website analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'phrase',
         currency: 'USD',
         clicks: 520,
@@ -151,6 +155,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'analytics dashboard',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 0,
@@ -211,6 +217,12 @@ const MOCKS: Mocks = {
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
+                                      topImpressionRate:
+                                          row.topImpressionRate == null ? null : row.topImpressionRate - 0.08,
+                                      absoluteTopImpressionRate:
+                                          row.absoluteTopImpressionRate == null
+                                              ? null
+                                              : row.absoluteTopImpressionRate - 0.05,
                                       position: row.position == null ? null : row.position + 1.5,
                                       impressions: row.impressions * 0.9,
                                       cost: row.cost == null ? null : row.cost * 1.1,
@@ -618,4 +630,20 @@ export const NewDashboardFlagOff: Story = {
         ...LegacyScene.parameters,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
     },
+}
+
+export const Visibility: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Visibility' }))
+        await expect(
+            await canvas.findByRole('columnheader', { name: /first-position impressions|first %/i })
+        ).toBeVisible()
+        await expect(await canvas.findAllByText('72.0%')).not.toHaveLength(0)
+    },
+}
+export const NarrowVisibility: Story = {
+    ...Narrow,
+    play: Visibility.play,
 }

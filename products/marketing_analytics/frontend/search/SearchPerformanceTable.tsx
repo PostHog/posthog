@@ -56,7 +56,14 @@ export function SearchPerformanceTable({
                   ...(hasPaidSources ? ['cost' as const] : []),
                   ...(hasOrganicSources ? ['position' as const] : []),
               ]
-            : ['cost', 'conversions', 'cpc', 'cpa']
+            : metrics === 'visibility'
+              ? [
+                    'impressions',
+                    'topImpressionRate',
+                    'absoluteTopImpressionRate',
+                    ...(hasOrganicSources ? ['position' as const] : []),
+                ]
+              : ['cost', 'conversions', 'cpc', 'cpa']
 
     if (responseError && !responseLoading) {
         return (
@@ -151,6 +158,8 @@ export function SearchPerformanceTable({
                                             cpc: 'CPC',
                                             cpa: 'CPA',
                                             position: 'Position',
+                                            topImpressionRate: 'Top impressions',
+                                            absoluteTopImpressionRate: 'First-position impressions',
                                         }[metric]
                                     }
                                 </span>
@@ -165,6 +174,8 @@ export function SearchPerformanceTable({
                                             cpc: 'CPC',
                                             cpa: 'CPA',
                                             position: 'Pos.',
+                                            topImpressionRate: 'Top %',
+                                            absoluteTopImpressionRate: 'First %',
                                         }[metric]
                                     }
                                 </span>
@@ -178,6 +189,10 @@ export function SearchPerformanceTable({
                             conversions: 'Conversions attributed by the ad platform',
                             cpc: 'Spend divided by clicks',
                             cpa: 'Spend divided by conversions',
+                            topImpressionRate:
+                                'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.',
+                            absoluteTopImpressionRate:
+                                'Percentage of Google Search ad impressions shown as the first ad. Excludes Search partners. Requires a sync with ad placement data.',
                             position:
                                 'Average position in organic Google search, weighted by impressions. Lower is better.',
                         }[metric],
@@ -198,7 +213,9 @@ export function SearchPerformanceTable({
                                         value={value === null ? null : [value, row.previous?.[metric] ?? null]}
                                         compare={!!query.compareFilter?.compare}
                                         kind={
-                                            metric === 'ctr'
+                                            metric === 'ctr' ||
+                                            metric === 'topImpressionRate' ||
+                                            metric === 'absoluteTopImpressionRate'
                                                 ? 'percentage'
                                                 : money && currency
                                                   ? 'currency'
