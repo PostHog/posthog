@@ -964,6 +964,17 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     # a was opened on its birth day, so the grade says how much of its signal that day carries.
     assert grade.birth_day_positives == 1
     assert grade.recency_auc == 0.5  # both reports are the same age, so newest-first cannot rank them
+    # The newer report waited longer for its live score, so ranking by that delay would invert newest-first.
+    staggered = _scores(
+        ["a", "e"],
+        score=[0.9, 0.1],
+        report_created_at=[pd.Timestamp("2026-08-10T12:00:00Z"), pd.Timestamp("2026-08-10T09:00:00Z")],
+        age_hours=[0.8, 0.1],
+    )
+    (newest_first,) = head_grades(
+        graded_rows(staggered, labels, head, pool=POOL_NAME), head, pool=POOL_NAME, scoring_partition="2026-08-10"
+    )
+    assert newest_first.recency_auc == 1.0
     assert grade.null_auc is not None
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(

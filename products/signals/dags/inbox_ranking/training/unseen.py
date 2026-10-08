@@ -191,9 +191,16 @@ class HeadGrade:
         return {**self.identity(), **self.metrics()}
 
 
+def _newest_first(rows: pd.DataFrame) -> np.ndarray:
+    """Each row's creation time in epoch seconds, so a newer report ranks higher. `age_hours` is the
+    delay to each report's own live score, so it cannot order two reports by age."""
+    created = pd.to_datetime(rows["report_created_at"], utc=True)
+    return (created - pd.Timestamp(0, tz="UTC")).dt.total_seconds().to_numpy(dtype=float)
+
+
 def _auc(outcomes: np.ndarray, scores: np.ndarray) -> float | None:
     """AUC, or None when it is undefined: a single outcome class, or a ranking column that carries
-    a non-finite value (a missing `age_hours` makes the recency baseline unrankable)."""
+    a non-finite value (a missing `report_created_at` makes the recency baseline unrankable)."""
     if len(outcomes) == 0 or outcomes.sum() == 0 or outcomes.sum() == len(outcomes):
         return None
     if not np.isfinite(scores).all():
@@ -401,7 +408,7 @@ def head_grades(
                 base_rate=float(outcomes.mean()) if len(rows) else None,
                 mean_score=float(scores.mean()) if len(rows) else None,
                 auc=_auc(outcomes, scores),
-                recency_auc=_auc(outcomes, -rows["age_hours"].to_numpy(dtype=float)),
+                recency_auc=_auc(outcomes, _newest_first(rows)),
                 null_auc=band.auc,
                 null_auc_std=band.auc_std,
                 calibration=buckets,
