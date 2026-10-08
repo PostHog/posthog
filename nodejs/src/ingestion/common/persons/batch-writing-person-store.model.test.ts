@@ -1156,6 +1156,41 @@ describe('BatchWritingPersonsStore against a row model', () => {
         expect(cacheRowDisagreements(store, fake)).toEqual([])
     })
 
+    it("a failed batch's fallback does not land its older value over a newer write from a concurrent flush", async () => {
+        fake.addPerson('P', ['d1'], {})
+        const person = await store.fetchForUpdate(1, 'd1', 0)
+        await store.updatePersonWithPropertiesDiffForUpdate(person!, { plan: 'pro' }, [], {}, 'd1')
+        // One flush's batch statement fails, as one oversized row fails it for every row; its rows fall back to
+        // single-row writes once the answer arrives.
+        let fail: () => void = () => {}
+        fake.updatePersonsBatch.mockImplementationOnce(
+            (updates: PersonUpdate[]) =>
+                new Promise((resolve) => {
+                    fail = () =>
+                        resolve(
+                            new Map(
+                                updates.map((update) => [
+                                    update.uuid,
+                                    { success: false, error: new Error('statement failed') },
+                                ])
+                            ) as never
+                        )
+                })
+        )
+        const first = store.flush()
+        await fake.settle(() => fake.updatePersonsBatch.mock.calls.length === 1)
+
+        // Another batch's flush writes a newer value for the same person before that fallback runs.
+        await store.updatePersonWithPropertiesDiffForUpdate(person!, { plan: 'max' }, [], {}, 'd1')
+        const second = store.flush()
+        await tick()
+        fail()
+        await Promise.all([first, second])
+
+        expect(fake.rows.get('P')!.properties).toEqual({ plan: 'max' })
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
+    })
+
     it("a batch released while an entry's write is out defers the eviction until the answer lands", async () => {
         fake.addPerson('P', ['d1'], {})
         const person = await store.fetchForUpdate(1, 'd1', 0)
