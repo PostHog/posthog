@@ -47,23 +47,17 @@ export function WorkflowSplitSuggestion(props: WorkflowLogicProps): JSX.Element 
             }}
         >
             <div className="flex flex-col gap-1">
-                <span className="font-semibold">This workflow has {stepCount} steps</span>
+                <span className="font-semibold">{stepCount} steps is a lot of workflow</span>
                 <span>
-                    Workflows with more than {SPLIT_SUGGESTION_STEP_COUNT} steps are slow to open and hard to change.
-                    Splitting this one into a few smaller workflows makes each part easier to read and test.
-                </span>
-                <span>
-                    An AI assistant connected to the PostHog MCP can do the split for you. It reads this workflow,
-                    suggests where to split it, and builds the new workflows as drafts. Nothing changes until you turn
-                    them on. Copy the prompt and paste it into your assistant. Not connected yet?{' '}
+                    Smaller workflows open faster and are easier to change. Paste the prompt into an AI assistant with
+                    the PostHog MCP and it splits this one into drafts for you.{' '}
                     <Link
                         to={urls.settings('posthog-mcp')}
                         onClick={() => posthog.capture('workflow split mcp setup clicked', { step_count: stepCount })}
                         data-attr="workflow-split-mcp-setup"
                     >
-                        Set up the PostHog MCP
+                        Set up the MCP
                     </Link>
-                    .
                 </span>
             </div>
         </LemonBanner>
