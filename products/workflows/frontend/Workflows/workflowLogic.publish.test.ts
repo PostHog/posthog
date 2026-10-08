@@ -12,6 +12,7 @@ jest.mock('./PublishImpactDialog', () => ({ openPublishConfirmDialog: jest.fn() 
 const WORKFLOW_ID = 'wf-publish-1'
 const DRAFT_AT = '2026-05-01T00:00:00.000000Z'
 const NEWER_DRAFT_AT = '2026-05-01T00:05:00.000000Z'
+const OLDER_DRAFT_AT = '2026-04-30T23:55:00.000000Z'
 
 const functionStep = (id: string, prompt: string, templateId = 'template-posthog-create-task'): HogFlowAction => ({
     id,
@@ -85,6 +86,12 @@ describe('workflowLogic publish', () => {
                 [],
             ],
             [
+                'compares a step the draft turns into another kind of step against empty instructions',
+                [functionStep('a', 'Old')],
+                [functionStep('a', 'Webhook body', 'template-webhook')],
+                [{ actionId: 'a', stepName: 'Step a', livePrompt: 'Old', stagedPrompt: '' }],
+            ],
+            [
                 'skips a function step from another template',
                 [functionStep('a', 'Old', 'template-webhook')],
                 [functionStep('a', 'New', 'template-webhook')],
@@ -149,6 +156,15 @@ describe('workflowLogic publish', () => {
                     ],
                 })
             )
+            expect(getCalls).toBe(1)
+        })
+
+        it('waits instead of reloading when the editor saved after the preview read the draft', async () => {
+            previewDraftAt = OLDER_DRAFT_AT
+
+            await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+            expect(openPublishConfirmDialog).not.toHaveBeenCalled()
             expect(getCalls).toBe(1)
         })
 

@@ -174,8 +174,8 @@ export interface AiTaskPromptChange {
 }
 
 // Both helpers also read version snapshots, which are loose JSON, so every level is optional.
-export function isAiTaskStep(action: HogFlowAction): boolean {
-    return action.type === 'function' && action.config?.template_id === 'template-posthog-create-task'
+export function isAiTaskStep(action: HogFlowAction | null | undefined): boolean {
+    return action?.type === 'function' && action.config?.template_id === 'template-posthog-create-task'
 }
 
 export function getAiTaskPrompt(action: HogFlowAction): string {
@@ -187,18 +187,21 @@ export function getAiTaskPrompt(action: HogFlowAction): string {
 
 /**
  * The AI task steps whose instructions the staged draft changes, for review before publish. A step the
- * draft adds, or turns into an AI task, has no live instructions, so it compares against empty ones.
+ * draft adds, or turns into an AI task, compares against empty instructions. A step the draft keeps but
+ * turns into another kind of step compares its live instructions against empty ones.
  */
 export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
-    const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
+    const liveActions = Array.isArray(workflow.actions) ? workflow.actions : []
+    const stagedActions = Array.isArray(workflow.draft?.actions) ? workflow.draft.actions : []
+    const liveActionsById = new Map(liveActions.filter(Boolean).map((action) => [action.id, action]))
 
-    return (workflow.draft?.actions ?? []).flatMap((stagedAction) => {
-        if (!isAiTaskStep(stagedAction)) {
+    return stagedActions.flatMap((stagedAction) => {
+        const liveAction = stagedAction ? liveActionsById.get(stagedAction.id) : undefined
+        if (!stagedAction || (!isAiTaskStep(stagedAction) && !isAiTaskStep(liveAction))) {
             return []
         }
-        const liveAction = liveActionsById.get(stagedAction.id)
         const livePrompt = liveAction && isAiTaskStep(liveAction) ? getAiTaskPrompt(liveAction) : ''
-        const stagedPrompt = getAiTaskPrompt(stagedAction)
+        const stagedPrompt = isAiTaskStep(stagedAction) ? getAiTaskPrompt(stagedAction) : ''
         return livePrompt === stagedPrompt
             ? []
             : [{ actionId: stagedAction.id, stepName: stagedAction.name, livePrompt, stagedPrompt }]
@@ -4009,7 +4012,19 @@ export const workflowLogic = kea<workflowLogicType>([
             syncWithServerCopy(values, actions)
         },
         publishDraft: async () => {
-            if (!props.id || props.id === 'new' || values.draftActionPending) {
+            if (
+                !props.id ||
+                props.id === 'new' ||
+                values.draftActionPending ||
+                values.originalWorkflowLoading ||
+                values.isSyncingExternalEdit
+            ) {
+                return
+            }
+            // The "Draft saved" toast offers Publish without the header button's checks, and a preview of
+            // a draft that is still changing would not match what the editor shows.
+            if (values.hasUnsavedChanges) {
+                lemonToast.info('Save your changes first, then publish.')
                 return
             }
             actions.setDraftActionPending('publish')
@@ -4033,6 +4048,20 @@ export const workflowLogic = kea<workflowLogicType>([
             // promote, so load the newer draft for review first.
             const stagedWorkflow = values.originalWorkflow
             if (!stagedWorkflow || !isSameTimestamp(preview.draft_updated_at, stagedWorkflow.draft_updated_at)) {
+                // This editor's own auto-save can land while the preview loads. A reload then would drop
+                // edits typed since that save, so wait for the save instead of treating it as an outside edit.
+                const ownSaveInFlight =
+                    values.hasUnsavedChanges ||
+                    values.originalWorkflowLoading ||
+                    ((cache.saveContexts as SaveContext[] | undefined) ?? []).length > 0
+                const editorIsAhead =
+                    !!stagedWorkflow?.draft_updated_at &&
+                    !!preview.draft_updated_at &&
+                    dayjs(stagedWorkflow.draft_updated_at).isAfter(dayjs(preview.draft_updated_at))
+                if (ownSaveInFlight || editorIsAhead) {
+                    lemonToast.info('Your latest edits are still saving. Publish again in a moment.')
+                    return
+                }
                 lemonToast.warning('The staged changes were updated elsewhere. Review them, then publish again.')
                 syncWithServerCopy(values, actions)
                 return
