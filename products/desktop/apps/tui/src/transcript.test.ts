@@ -387,6 +387,16 @@ describe("transcriptFrom turn state", () => {
     expect(transcript.turnStartedAt).toBe(new Date(at(2)).getTime());
     expect(transcript.lastTurn).toBeNull();
   });
+
+  it("does not take a reopened chat's start-up chatter for a running turn", () => {
+    const reopened = [
+      ...ACP_LOG,
+      acp(7, { method: "_posthog/status", params: { status: "setup_hooks" } }),
+    ];
+    const transcript = transcriptFrom("acp", reopened);
+    expect(transcript.turnOpen).toBe(false);
+    expect(transcript.lastTurn).toBeNull();
+  });
 });
 
 describe("transcriptFrom last turn", () => {
