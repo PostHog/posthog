@@ -38,9 +38,6 @@ describe("voiceConversationContext", () => {
       },
       { type: "turn_completed", timestamp: 5 },
     ]);
-    expect(result.context).toBe(
-      "User: Check the task\nAgent: The task is ready.",
-    );
     expect(result.reply).toBe("The task is ready.");
   });
   it("omits private reasoning and replaces chunks with the final answer", () => {
@@ -51,9 +48,6 @@ describe("voiceConversationContext", () => {
       message("agent_message_chunk", "is ready.", 4),
       message("agent_message", "The task is ready.", 5),
     ]);
-    expect(result.context).toBe(
-      "User: Check the task\nAgent: The task is ready.",
-    );
     expect(result.reply).toBe("The task is ready.");
     expect(result.replyKey).toBe("5:The task is ready.");
   });

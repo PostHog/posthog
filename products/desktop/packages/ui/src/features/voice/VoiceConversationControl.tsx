@@ -18,7 +18,6 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useQuestionDraftStore } from "@posthog/ui/features/permissions/questionDraftStore";
 import { track } from "@posthog/ui/shell/analytics";
-import { posthogAnalyticsService } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { VoiceControls } from "./VoiceControls";
 import { VoiceToolActivity } from "./VoiceToolActivity";
@@ -67,12 +66,7 @@ function ActiveVoiceConversation({
     () =>
       factory({
         createSession: (sdp, signal) =>
-          client.createTaskVoiceSession(
-            props.taskId,
-            sdp,
-            voiceConversationContext(latest.current.events).context,
-            signal,
-          ),
+          client.createTaskVoiceSession(props.taskId, sdp, signal),
         sendMessage: (text) =>
           latest.current.disabled
             ? Promise.resolve(false)
@@ -106,26 +100,13 @@ function ActiveVoiceConversation({
               task_id: props.taskId,
             });
         },
-        onEnded: ({ sessionId, seconds, finalized, failed }) => {
+        onEnded: ({ seconds, finalized, failed }) =>
           track(ANALYTICS_EVENTS.VOICE_CONVERSATION_ENDED, {
             task_id: props.taskId,
             voice_duration_seconds: seconds,
             finalized,
             failed,
-          });
-          if (sessionId)
-            posthogAnalyticsService.track("$ai_generation", {
-              $ai_model: "gpt-live-1",
-              $ai_provider: "openai",
-              $ai_session_id: props.taskId,
-              $ai_trace_id: sessionId,
-              $ai_span_id: sessionId,
-              $ai_stream: true,
-              $ai_is_error: failed,
-              ...(seconds === null ? {} : { voice_duration_seconds: seconds }),
-              voice_usage_finalized: finalized,
-            });
-        },
+          }),
       }),
     [factory, client, props.taskId],
   );

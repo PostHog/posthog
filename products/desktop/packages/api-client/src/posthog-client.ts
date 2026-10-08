@@ -3245,7 +3245,6 @@ export class PostHogAPIClient {
   async createTaskVoiceSession(
     taskId: string,
     sdp: string,
-    context: string,
     signal: AbortSignal,
   ): Promise<string> {
     const teamId = await this.getTeamId();
@@ -3255,7 +3254,7 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
       overrides: {
-        body: JSON.stringify({ sdp, context, structured_tools: true }),
+        body: JSON.stringify({ sdp, structured_tools: true }),
         signal,
       },
     });

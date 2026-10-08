@@ -3,7 +3,7 @@ import type { SessionActivityEvent } from "../sessions/sessionActivity";
 
 export function voiceConversationContext(
   events: readonly (SessionActivityEvent | AgentConversationEvent)[],
-): { context: string; reply: string; replyKey: string } {
+): { reply: string; replyKey: string } {
   const messages: { role: string; text: string }[] = [];
   let reply = "";
   let replyKey = "";
@@ -49,12 +49,5 @@ export function voiceConversationContext(
     replyKey = role === "Agent" ? `${event.ts}:${text}` : "";
     reply = role === "Agent" ? (messages.at(-1)?.text ?? "") : "";
   }
-  return {
-    context: messages
-      .map(({ role, text }) => `${role}: ${text}`)
-      .join("\n")
-      .slice(-8000),
-    reply,
-    replyKey,
-  };
+  return { reply, replyKey };
 }
