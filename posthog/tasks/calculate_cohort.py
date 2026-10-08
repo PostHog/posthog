@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db import InterfaceError, OperationalError
-from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
+from django.db import InterfaceError, OperationalError, transaction
+from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
 
 import grpc
@@ -177,6 +177,15 @@ MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
+# insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The extra hour covers the time
+# that the task waits in the queue. calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV
+# import that runs longer than this. That import records its own outcome when it finishes, which replaces the reset.
+SOURCELESS_STATIC_COHORT_STUCK_AFTER = timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS, hours=1)
+
+# The path lookup returns NULL for a missing path. IS NOT NULL turns that NULL into false. exclude() therefore selects
+# exactly the rows that filter() rejects. static_cohort_has_supported_population_source rejects a few shapes that this
+# accepts, such as an empty query object. The reset loop does not re-dispatch those.
+HAS_STATIC_POPULATION_SOURCE = Q(query__isnull=False) | Q(filters__properties__values__0__isnull=False)
 
 
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
@@ -230,15 +239,26 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
         )
         .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
+        .filter(HAS_STATIC_POPULATION_SOURCE)
+    )
+
+
+def get_stuck_sourceless_static_cohort_candidates_queryset(cutoff: datetime) -> QuerySet:
+    newest_attempt = CohortCalculationHistory.objects.filter(cohort=OuterRef("pk")).order_by("-started_at")
+    return (
+        Cohort.objects.filter(is_static=True, is_calculating=True, deleted=False)
+        .exclude(HAS_STATIC_POPULATION_SOURCE)
+        .alias(
+            newest_attempt_started_at=Subquery(newest_attempt.values("started_at")[:1]),
+            newest_attempt_finished_at=Subquery(newest_attempt.values("finished_at")[:1]),
+        )
         .filter(
-            # Only fetch cohorts that have a retriggerable population source
-            # (HogQL query or filter criteria). Excludes CSV-upload cohorts
-            # that would always be discarded by the retry logic.
-            # This may match old static cohorts with stale filter data that
-            # predate criteria-based creation; those are caught and skipped
-            # by static_cohort_has_supported_population_source in the loop body.
-            Q(query__isnull=False)
-            | (Q(filters__has_key="properties") & ~Q(filters__properties={}) & ~Q(filters__properties__values=[]))
+            # A cohort is created when its first population is dispatched. A flag run writes its history row only when
+            # it ends. So created_at dates the run of a cohort that was never populated and has no history row.
+            Q(newest_attempt_started_at__isnull=True, last_calculation__isnull=True, created_at__lte=cutoff)
+            # A CSV import opens its history row when it starts and closes the row on every exit except a kill. A
+            # re-upload that waits in the queue or in a retry backoff has a closed newest row. That row does not match.
+            | Q(newest_attempt_started_at__lte=cutoff, newest_attempt_finished_at__isnull=True)
         )
     )
 
@@ -314,6 +334,54 @@ def reset_stuck_cohorts() -> None:
             "reset_stuck_static_cohorts",
             cohort_ids=reset_static_cohort_ids,
             count=len(reset_static_cohort_ids),
+        )
+
+    reset_stuck_sourceless_static_cohorts()
+
+
+def reset_stuck_sourceless_static_cohorts() -> None:
+    # These cohorts have no query or filters to populate from again. A flag cohort is also a snapshot that a later run
+    # would change. So the reset records the failure and never dispatches a population.
+    now = timezone.now()
+    cutoff = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
+    error = get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False)
+    reset_cohort_ids = []
+    for cohort in get_stuck_sourceless_static_cohort_candidates_queryset(cutoff).order_by(F("created_at").asc())[
+        0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
+    ]:
+        with transaction.atomic():
+            # The update repeats the candidate test. It skips a cohort whose run finished after the query above read
+            # it, and a cohort that a user re-uploaded after that read.
+            if not (
+                get_stuck_sourceless_static_cohort_candidates_queryset(cutoff)
+                .filter(pk=cohort.pk)
+                .update(is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=now)
+            ):
+                continue
+
+            # The history tab shows an open row as a run in progress.
+            closed = CohortCalculationHistory.objects.filter(
+                cohort_id=cohort.pk, finished_at__isnull=True, started_at__lte=cutoff
+            ).update(finished_at=now, error=error, error_code=CohortErrorCode.INTERRUPTED)
+            if not closed:
+                CohortCalculationHistory.objects.create(
+                    team_id=cohort.team_id,
+                    cohort=cohort,
+                    filters=cohort.filters or {},
+                    # Only a cohort with no history row gets here. Its run was dispatched when the cohort was created.
+                    started_at=cohort.created_at,
+                    finished_at=now,
+                    error=error,
+                    error_code=CohortErrorCode.INTERRUPTED,
+                )
+        reset_cohort_ids.append(cohort.pk)
+
+    if reset_cohort_ids:
+        COHORT_STUCK_RESETS_COUNTER.inc(len(reset_cohort_ids))
+        logger.warning(
+            "reset_stuck_sourceless_static_cohorts",
+            cohort_ids=reset_cohort_ids,
+            count=len(reset_cohort_ids),
         )
 
 
@@ -1025,7 +1093,7 @@ def insert_cohort_from_filters(
     ignore_result=True,
     max_retries=0,
     queue=CeleryQueue.LONG_RUNNING.value,
-    soft_time_limit=4 * 60 * 60,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag

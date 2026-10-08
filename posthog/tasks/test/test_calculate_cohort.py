@@ -1768,16 +1768,47 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("errored_within_the_hour", relativedelta(minutes=10), False),
-            ("errored_over_an_hour_ago", relativedelta(hours=2), True),
+            ("query_errored_within_the_hour", "query", relativedelta(minutes=10), False),
+            ("query_errored_over_an_hour_ago", "query", relativedelta(hours=2), True),
+            ("filters_errored_over_an_hour_ago", "filters", relativedelta(hours=2), True),
         ]
     )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
     def test_reset_stuck_static_cohorts_honors_a_recent_error(
-        self, _name: str, error_age: relativedelta, expect_reset: bool, mock_insert_cohort_from_query: MagicMock
+        self,
+        _name: str,
+        source: str,
+        error_age: relativedelta,
+        expect_reset: bool,
+        mock_insert_cohort_from_query: MagicMock,
+        mock_insert_cohort_from_filters: MagicMock,
     ) -> None:
         # A population task stamps last_error_at when it schedules a retry, so within the hour the
         # cohort sits in a backoff window, not stuck. Resetting it would dispatch a duplicate.
+        sources = {
+            "query": (
+                {"query": {"kind": "HogQLQuery", "query": "SELECT id FROM persons"}},
+                mock_insert_cohort_from_query,
+            ),
+            "filters": (
+                {
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [{"key": "email", "type": "person", "value": "match@example.com"}],
+                                }
+                            ],
+                        }
+                    }
+                },
+                mock_insert_cohort_from_filters,
+            ),
+        }
+        source_fields, mock_population_task = sources[source]
         now = timezone.now()
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1785,7 +1816,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             is_calculating=True,
             is_static=True,
             last_error_at=now - error_age,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+            **source_fields,
         )
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=2))
 
@@ -1794,7 +1825,96 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.is_calculating, not expect_reset)
         self.assertEqual(cohort.errors_calculating, 1 if expect_reset else 0)
-        self.assertEqual(mock_insert_cohort_from_query.delay.called, expect_reset)
+        self.assertEqual(mock_population_task.delay.called, expect_reset)
+
+    @parameterized.expand(
+        [
+            ("flag_run_killed", None, relativedelta(hours=6), None, None, True),
+            ("flag_run_within_soft_limit", None, relativedelta(hours=4), None, None, False),
+            (
+                "filters_without_values_killed",
+                {"properties": {"type": "AND"}},
+                relativedelta(hours=6),
+                None,
+                None,
+                True,
+            ),
+            (
+                "csv_reupload_killed",
+                {"properties": {}},
+                relativedelta(days=3),
+                relativedelta(days=2),
+                (relativedelta(hours=6), False),
+                True,
+            ),
+            (
+                "csv_reupload_running",
+                {"properties": {}},
+                relativedelta(days=3),
+                relativedelta(days=2),
+                (relativedelta(minutes=10), False),
+                False,
+            ),
+            (
+                "csv_reupload_queued",
+                {"properties": {}},
+                relativedelta(days=3),
+                relativedelta(days=2),
+                (relativedelta(days=2), True),
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    def test_reset_stuck_sourceless_static_cohorts(
+        self,
+        _name: str,
+        filters: dict | None,
+        created_age: relativedelta,
+        last_calculation_age: relativedelta | None,
+        newest_attempt: tuple[relativedelta, bool] | None,
+        expect_reset: bool,
+        mock_insert_cohort_from_query: MagicMock,
+        mock_insert_cohort_from_filters: MagicMock,
+    ) -> None:
+        now = timezone.now()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static without a population source",
+            is_calculating=True,
+            is_static=True,
+            filters=filters,
+            last_calculation=now - last_calculation_age if last_calculation_age else None,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - created_age)
+        if newest_attempt:
+            attempt_age, attempt_finished = newest_attempt
+            CohortCalculationHistory.objects.create(
+                team=self.team,
+                cohort=cohort,
+                filters={},
+                started_at=now - attempt_age,
+                finished_at=now - attempt_age if attempt_finished else None,
+            )
+
+        reset_stuck_cohorts()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.is_calculating, not expect_reset)
+        self.assertEqual(cohort.errors_calculating, 1 if expect_reset else 0)
+        mock_insert_cohort_from_query.delay.assert_not_called()
+        mock_insert_cohort_from_filters.delay.assert_not_called()
+        history = [
+            (row.error_code, row.error, row.finished_at is not None)
+            for row in CohortCalculationHistory.objects.filter(cohort=cohort)
+        ]
+        if expect_reset:
+            interrupted = get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False)
+            expected_history = [(CohortErrorCode.INTERRUPTED, interrupted, True)]
+        else:
+            expected_history = [(None, None, newest_attempt[1])] if newest_attempt else []
+        self.assertEqual(history, expected_history)
 
     @parameterized.expand(
         [
