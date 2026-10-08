@@ -1093,6 +1093,33 @@ mod tests {
     }
 
     #[test]
+    fn a_saturated_pool_keeps_requests_full_instead_of_claiming_keys_early() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(4, Duration::ZERO, 1, now);
+        let first: Vec<_> = (0..4).map(|n| run(&format!("k{n}"), &[n])).collect();
+        let (mut batcher, effects) = batcher.on_groups(now, &workers, 0, first);
+        let request = effects.sends[0].request;
+
+        for n in 4..10 {
+            let effects;
+            (batcher, effects) =
+                batcher.on_groups(now, &workers, 0, vec![run(&format!("k{n}"), &[n])]);
+            assert!(effects.sends.is_empty(), "the only slot is busy");
+        }
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("k4", &[10])]);
+        assert!(effects.sends.is_empty());
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 4);
+        assert_eq!(effects.sends.len(), 1);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("k4", vec![4, 10]), ("k5", vec![5]), ("k6", vec![6]),],
+            "the freed slot gets a full request, and k4's later message joins its run"
+        );
+    }
+
+    #[test]
     fn the_pack_budget_starts_when_a_slot_frees_not_when_messages_arrive() {
         let now = Instant::now();
         let budget = Duration::from_millis(30);
