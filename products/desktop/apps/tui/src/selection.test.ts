@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Gesture } from "./selection";
+import { Gesture, wordAt } from "./selection";
 
 const at = (column: number, row: number) => ({ column, row });
 
@@ -33,6 +33,27 @@ describe("Gesture", () => {
     });
   });
 
+  it("reads a second click on the same cell straight after as a word pick, and a late one as a click", () => {
+    const gesture = new Gesture();
+    gesture.press(at(5, 3));
+    gesture.release(at(5, 3), 1_000);
+    gesture.press(at(5, 3));
+    expect(gesture.release(at(5, 3), 1_300)).toEqual({
+      kind: "word",
+      at: at(5, 3),
+    });
+    gesture.press(at(5, 3));
+    expect(gesture.release(at(5, 3), 1_500)).toEqual({
+      kind: "click",
+      at: at(5, 3),
+    });
+    gesture.press(at(5, 3));
+    expect(gesture.release(at(5, 3), 2_500)).toEqual({
+      kind: "click",
+      at: at(5, 3),
+    });
+  });
+
   it("ignores a drag or release with no press before it", () => {
     const gesture = new Gesture();
     expect(gesture.drag(at(1, 1))).toBeNull();
@@ -40,5 +61,16 @@ describe("Gesture", () => {
     gesture.press(at(1, 1));
     gesture.release(at(1, 1));
     expect(gesture.release(at(1, 1))).toBeNull();
+  });
+});
+
+describe("wordAt", () => {
+  it.each([
+    ["inside a word", 7, { start: 6, end: 11 }],
+    ["on a word's first letter", 0, { start: 0, end: 5 }],
+    ["on a space", 5, null],
+    ["past the end", 20, null],
+  ])("finds the word %s", (_, column, expected) => {
+    expect(wordAt("hello world", column)).toEqual(expected);
   });
 });
