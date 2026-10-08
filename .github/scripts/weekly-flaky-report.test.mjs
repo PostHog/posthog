@@ -645,7 +645,10 @@ describe('weekly flaky report', () => {
         assert.deepEqual(fallback.target, { threadTs: '0' })
         assert.equal(fallback.blocks[0].text.text, '*private* _(not delivered to #team-private)_')
         assert.equal(teamPost.target.channel, '#team-replay')
-        assert.match(teamPost.blocks.at(-1).elements[0].text, /https:\/\/slack\.test\/C_DIGEST\/0/)
+        assert.equal(
+            teamPost.blocks.at(-1).elements[0].text,
+            '<https://slack.test/C_DIGEST/0|Report for all teams> · Wrong owner or wrong numbers? Tell <#C09G8QA6740>'
+        )
         assert.deepEqual(index.target, { threadTs: '0' })
         assert.deepEqual(index.blocks[0].rows[1], [
             { type: 'raw_text', text: 'replay' },

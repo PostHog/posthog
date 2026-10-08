@@ -38,6 +38,7 @@ import {
 
 // Off, each team's slice stays in the digest thread, labeled with the channel it would go to.
 const TEAM_CHANNEL_POSTS = process.env.FLAKY_REPORT_TEAM_CHANNELS === 'true'
+const FEEDBACK_CHANNEL = '<#C09G8QA6740>' // #team-devex
 
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
@@ -541,7 +542,7 @@ function buildTeamBlocks(now, { owner, rows }, digestUrl) {
     return reportBlocks(
         `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days)_`,
         rows,
-        digestUrl ? [`<${digestUrl}|Report for all teams>`] : []
+        [...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []), `Wrong owner or wrong numbers? Tell ${FEEDBACK_CHANNEL}`]
     )
 }
 
