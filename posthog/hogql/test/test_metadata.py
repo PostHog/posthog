@@ -29,10 +29,12 @@ from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models.scoping import team_scope
 from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -379,6 +381,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 0,
             ),
             ("not_compared_to_event", "SELECT '$feature_flag_called' FROM events", True, 0),
+            (
+                "saved_expression_body",
+                "SELECT count() FROM events WHERE flag_call_expr AND distinct_id != '$feature_flag_called'",
+                True,
+                0,
+            ),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(
@@ -390,6 +398,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             query={"query": "SELECT uuid, event FROM events WHERE event = '$feature_flag_called'"},
             columns={"uuid": "String", "event": "String"},
         )
+        with team_scope(self.team.pk, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="events",
+                field_name="flag_call_expr",
+                expression="event = '$feature_flag_called'",
+            )
 
         with patch(
             "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",

@@ -30,6 +30,16 @@ class _FlagCalledOnEventsFinder(TraversingVisitor):
             return
         super().visit_select_query(node)
 
+    def visit_alias(self, node: ast.Alias) -> None:
+        # The resolver inlines a saved expression's body in a hidden alias. The body's offsets point into its own text.
+        if node.hidden:
+            return
+        super().visit_alias(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # The inherited visit follows the field's type into shared CTE types, which takes exponential time.
+        pass
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
