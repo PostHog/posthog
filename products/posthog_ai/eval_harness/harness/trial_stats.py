@@ -57,7 +57,7 @@ def trial_stats(results: Sequence[CaseResult], *, trials: int) -> list[ScorerTri
     for result in results:
         if result.error is not None:
             continue
-        case_name = result.input.get("name", "")
+        case_name = result.input["name"]
         for scorer, score in result.scores.items():
             if score is not None:
                 scores_by_scorer[scorer][case_name].append(score)

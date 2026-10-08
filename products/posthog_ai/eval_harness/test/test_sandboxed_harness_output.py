@@ -161,6 +161,22 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
             "    s: 72.0% (95% CI 61.0-83.0%)\n  PostHog",
             id="single_trial",
         ),
+        pytest.param(
+            ScorerTrialStats(
+                name="s",
+                cases=10,
+                trials=3,
+                mean=0.7,
+                ci_low=0.61,
+                ci_high=0.83,
+                complete_cases=0,
+                pass_all=None,
+                pass_any=None,
+                flaky_cases=0,
+            ),
+            "      pass^3 n/a | pass@3 n/a | 0/0 cases flaky | 10 cases short of 3 trials\n",
+            id="no_case_completed_every_trial",
+        ),
     ],
 )
 async def test_reporter_shows_the_engine_score_with_trial_stats(

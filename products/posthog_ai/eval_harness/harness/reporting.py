@@ -270,15 +270,19 @@ def _score_lines(name: str, score: float, stats: ScorerTrialStats | None) -> lis
     if stats.ci_low is not None and stats.ci_high is not None:
         interval = f" (95% CI {stats.ci_low * 100:.1f}-{stats.ci_high * 100:.1f}%)"
     lines = [f"    {name}: {score * 100:.1f}%{interval}"]
-    if stats.pass_all is not None and stats.pass_any is not None:
+    if stats.trials > 1:
         k = stats.trials
         short = stats.cases - stats.complete_cases
         shortfall = f" | {short} cases short of {k} trials" if short else ""
         lines.append(
-            f"      pass^{k} {stats.pass_all * 100:.1f}% | pass@{k} {stats.pass_any * 100:.1f}% "
+            f"      pass^{k} {_percent(stats.pass_all)} | pass@{k} {_percent(stats.pass_any)} "
             f"| {stats.flaky_cases}/{stats.complete_cases} cases flaky{shortfall}"
         )
     return lines
+
+
+def _percent(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:.1f}%"
 
 
 def _format_duration(seconds: float) -> str:
