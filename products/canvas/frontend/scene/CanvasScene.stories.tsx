@@ -240,8 +240,8 @@ export const NewCanvas: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/task_channels/': [
-                    { id: 'space-personal', name: 'me', system_role: 'personal', channel_type: 'personal' },
-                    { id: SPACE_ID, name: 'general', system_role: 'general', channel_type: 'public' },
+                    { id: 'space-personal', name: 'me', system_role: 'personal' },
+                    { id: SPACE_ID, name: 'growth', system_role: null },
                 ],
             },
         }),

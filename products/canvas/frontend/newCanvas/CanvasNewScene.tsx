@@ -21,7 +21,7 @@ import { CanvasComposer } from '../scene/CanvasComposer'
 import { CanvasStartHero } from '../scene/CanvasStartHero'
 import { CanvasToolbar } from '../scene/CanvasToolbar'
 import { canvasNewLogic } from './canvasNewLogic'
-import { CanvasVisibilitySelect } from './CanvasVisibilitySelect'
+import { CanvasSpaceSelect } from './CanvasSpaceSelect'
 
 export const scene: SceneExport = {
     component: CanvasNewScene,
@@ -54,7 +54,7 @@ export function CanvasNewScene(): JSX.Element {
                         onSubmit={send}
                         submitting={sending}
                         disabledReason={startingBlank ? 'Wait for the canvas to be created.' : sendDisabledReason}
-                        footerStart={<CanvasVisibilitySelect />}
+                        footerStart={<CanvasSpaceSelect />}
                     />
                     <section aria-labelledby="canvas-build-yourself-label" className="flex flex-col gap-2">
                         <Text
