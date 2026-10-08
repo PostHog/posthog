@@ -325,7 +325,7 @@ describe('StateManager', () => {
                     projects: () => ({
                         list: vi.fn().mockResolvedValue({
                             success: true,
-                            data: [789],
+                            data: [{ id: 789 }],
                         }),
                     }),
                 }),
@@ -402,7 +402,7 @@ describe('StateManager', () => {
             mockApi._api = {
                 organizations: () => ({
                     projects: () => ({
-                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                        list: vi.fn().mockResolvedValue({ success: true, data: [{ id: 789 }] }),
                     }),
                 }),
             }
