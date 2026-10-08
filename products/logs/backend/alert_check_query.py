@@ -125,6 +125,22 @@ def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
     )
 
 
+def _period_count_columns(ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[ast.Expr]:
+    """One `period_<i>` count per range, oldest first."""
+    return [
+        ast.Alias(alias=f"period_{i}", expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]))
+        for i, (start, end) in enumerate(ranges)
+    ]
+
+
+def _bounded_settings(max_execution_time: int) -> HogQLGlobalSettings:
+    # Throw rather than break: a partial count could resolve an alert that is actually breaching,
+    # and the caller already handles a failed query.
+    return AlertCheckQuery.SETTINGS.model_copy(
+        update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
+    )
+
+
 def _tag_alert_query(*, team: Team, alert_config_id: str, source: str) -> None:
     tag_queries(
         product=Product.LOGS,
@@ -314,16 +330,8 @@ class AlertCheckQuery:
         return self._execute_count_per_range(ranges)
 
     def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[BucketedCount]:
-        select_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=f"period_{i}",
-                expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]),
-            )
-            for i, (start, end) in enumerate(ranges)
-        ]
-
         query = ast.SelectQuery(
-            select=select_columns,
+            select=_period_count_columns(ranges),
             select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
             where=self.where_expr,
         )
@@ -399,15 +407,8 @@ class BatchedAlertCheckQuery:
         self.date_to = date_to
         self._ch_user = ch_user
         # A caller that runs several of these inside one deadline needs each query to end before
-        # the deadline does. Throw rather than break: a partial count could resolve an alert that
-        # is actually breaching, and the caller already handles a failed cohort.
-        self._settings = (
-            self.SETTINGS
-            if max_execution_time is None
-            else self.SETTINGS.model_copy(
-                update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
-            )
-        )
+        # the deadline does.
+        self._settings = self.SETTINGS if max_execution_time is None else _bounded_settings(max_execution_time)
         self._alert_where_exprs: list[ast.Expr] = [
             build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
             for alert in self.alerts
@@ -648,9 +649,7 @@ class GroupedAlertCheckQuery:
         self.worst_is_highest = worst_is_highest
         self.limit = limit
         self._ch_user = ch_user
-        self._settings = AlertCheckQuery.SETTINGS.model_copy(
-            update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
-        )
+        self._settings = _bounded_settings(max_execution_time)
         self.where_expr = build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
 
     def execute_rolling_checks(
@@ -687,10 +686,7 @@ class GroupedAlertCheckQuery:
 
     def _build_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
         columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in self.group_by]
-        periods: list[ast.Expr] = [
-            ast.Alias(alias=f"period_{i}", expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]))
-            for i, (start, end) in enumerate(ranges)
-        ]
+        periods = _period_count_columns(ranges)
         order_by = [
             ast.OrderExpr(
                 expr=ast.Field(chain=[f"period_{len(ranges) - 1}"]), order="DESC" if self.worst_is_highest else "ASC"

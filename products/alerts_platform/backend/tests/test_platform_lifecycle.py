@@ -276,7 +276,8 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
     def test_an_idle_group_is_reaped_so_its_slot_frees(self, _name: str, case: dict[str, Any], kept: bool) -> None:
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
-                cooldown_minutes=case.get("cooldown_minutes", 0)
+                cooldown_minutes=case.get("cooldown_minutes", 0),
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",)).to_stored(),
             )
             PlatformAlert.objects.create(
                 team=self.team,
@@ -411,9 +412,9 @@ def _group(grouping_key: str) -> GroupOutcome:
 @pytest.mark.parametrize(
     "existing, returned, expected",
     [
-        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=("a", "b", "c"), overflowed=1)),
-        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=("x",), overflowed=1)),
-        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=("x", "a", "b"), overflowed=0)),
+        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1)),
+        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=frozenset({"x"}), overflowed=1)),
+        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0)),
     ],
 )
 def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(

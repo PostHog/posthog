@@ -17,7 +17,7 @@ the shared machine configured with this source's policy, not from the logs produ
 import json
 import time
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Final, cast
@@ -37,6 +37,7 @@ from products.alerts_platform.backend.facade.contracts import (
     CheckFailure,
     GroupingMode,
     GroupOutcome,
+    InstanceCheckState,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -44,6 +45,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.grouping import GroupObservation, decide_groups
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
@@ -221,9 +223,9 @@ def is_in_quiet_hours(schedule_restriction: dict | None, now: datetime, tz_name:
 
 
 def _snapshot(
-    check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...], grouping_key: str = ""
+    check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...], instance: InstanceCheckState | None = None
 ) -> AlertSnapshot:
-    instance = check.instance(grouping_key)
+    instance = instance or check.instance()
     return AlertSnapshot(
         state=AlertState(instance.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
@@ -385,31 +387,39 @@ def _delivery(
         value=value,
         error_message=outcome.error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=(
-            "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
-        ),
+        muted_notification=_muted_value(outcome),
         disable=outcome.disable,
         failed=failed,
     )
-    return recorded, _request(check, recorded, outcome, sends_messages=outcome.notification != NotificationAction.NONE)
+    return recorded, _request(
+        check, recorded, _ungrouped_move(check, outcome), sends_messages=outcome.notification != NotificationAction.NONE
+    )
 
 
 def _request(
-    check: PlatformAlertCheckInput, recorded: PlatformAlertOutcome, outcome: Outcome, *, sends_messages: bool
+    check: PlatformAlertCheckInput,
+    recorded: PlatformAlertOutcome,
+    moves: Mapping[str, tuple[AlertState, AlertState]],
+    *,
+    sends_messages: bool,
+    overflowed: int = 0,
 ) -> AlertDeliveryRequest | None:
     """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
 
-    A firing that opens or closes needs a delivery even when cooldown or mute held the
-    announcement, because a paging destination needs one resolve for every trigger. An alert
-    with no such destination gets no incident action, so its edges start no delivery.
+    `moves` maps each group's key to the state it left and the state it reached. A firing that opens
+    or closes needs a delivery even when cooldown or mute held the announcement, because a paging
+    destination needs one resolve for every trigger. An alert with no such destination gets no
+    incident action, so its edges start no delivery.
     """
     destination_alert_id = str(check.legacy_configuration_id or check.id)
-    incident_action = decide_incident_action(
-        AlertState(check.instance().state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
-    )
-    if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
-        incident_action = None
-    if not sends_messages and incident_action is None:
+    actions = {
+        key: action
+        for key, (before, after) in moves.items()
+        if (action := decide_incident_action(before, after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
+    }
+    if actions and not _has_incident_destination(check.team_id, destination_alert_id):
+        actions = {}
+    if not sends_messages and not actions:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
@@ -421,10 +431,18 @@ def _request(
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
-        # Logs does not group, so its one row has the empty grouping key.
-        incident_actions={"": incident_action} if incident_action is not None else {},
+        incident_actions=actions,
         sends_messages=sends_messages,
+        overflowed=overflowed,
     )
+
+
+def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[str, tuple[AlertState, AlertState]]:
+    return {"": (AlertState(check.instance().state), outcome.new_state)}
+
+
+def _muted_value(outcome: AlertCheckOutcome) -> str:
+    return "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
 
 
 def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
@@ -513,7 +531,7 @@ def _held(
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, _request(check, recorded, outcome, sends_messages=False)
+    return recorded, _request(check, recorded, _ungrouped_move(check, outcome), sends_messages=False)
 
 
 def _evaluate_cohort(
@@ -628,14 +646,6 @@ def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
     return None
 
 
-@frozen
-class _GroupVerdict:
-    grouping_key: str
-    labels: dict[str, str]
-    outcome: AlertCheckOutcome
-    value: float
-
-
 def _evaluate_grouped(
     team: Team,
     check: PlatformAlertCheckInput,
@@ -645,18 +655,18 @@ def _evaluate_grouped(
     query_seconds: int,
     muted: bool,
 ) -> Decision:
-    """One grouped alert: its own query, then the shared machine once per group.
+    """One grouped alert: its own query, then the platform's per-group decision.
 
-    A group with no instance whose check decides nothing is left out, so a quiet group costs no
-    row. An open group the query did not return had no matching log, so it is checked against a
-    zero count and can resolve.
+    An open group the query did not return had no matching log, so it is checked against a zero
+    count and can resolve.
     """
     condition = LogsAlertCondition.of(check)
     date_to = resolve_alert_date_to(check.next_check_at or now, checkpoint)
     lookback = rolling_check_lookback_minutes(
         condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
     )
-    open_keys = [instance.grouping_key for instance in check.instances if instance.state != AlertState.NOT_FIRING.value]
+    open_keys = check.open_keys()
+    limit = len(open_keys) + check.grouping.max_instances
     try:
         result = GroupedAlertCheckQuery(
             team=team,
@@ -667,7 +677,7 @@ def _evaluate_grouped(
             open_groups=[labels for key in open_keys if (labels := _labels_of(key)) is not None],
             worst_is_highest=condition.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE,
             # Room for every open group and a full cap of new ones, so admission sees the worst.
-            limit=len(open_keys) + check.grouping.max_instances,
+            limit=limit,
             max_execution_time=query_seconds,
             ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(
@@ -678,121 +688,60 @@ def _evaluate_grouped(
         return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
 
     counts = {grouping_key_of(group.labels): group for group in result.groups}
-    existing = {instance.grouping_key for instance in check.instances}
-    verdicts: list[_GroupVerdict] = []
     # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
     # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
-    truncated = len(result.groups) >= len(open_keys) + check.grouping.max_instances
+    truncated = len(result.groups) >= limit
     absent = [key for key in open_keys if key not in counts and not (truncated and _labels_of(key) is None)]
+    observations: list[GroupObservation] = []
     for key in [*counts, *absent]:
         group = counts.get(key)
         buckets = group.counts if group is not None else result.zero_counts()
-        current_breached, *prior_windows_breached = _derive_breaches(
+        current_breached, *prior_breached = _derive_breaches(
             buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
         ) or (False,)
-        # The machine alone, without `_verdict`'s metrics, so a quiet group left out below counts nothing.
-        outcome = evaluate_alert_check(
-            _snapshot(check, tuple(prior_windows_breached), key),
-            CheckInput(threshold_breached=current_breached, muted=muted),
-            now,
-            policy=PLATFORM_LOGS_ALERT_POLICY,
-        )
-        decided_nothing = (
-            outcome.new_state == AlertState.NOT_FIRING
-            and outcome.notification == NotificationAction.NONE
-            and outcome.muted_notification == NotificationAction.NONE
-        )
-        if decided_nothing and key not in existing:
-            continue
-        _record_check_metrics(
-            check,
-            new_state=outcome.new_state.value,
-            notification=outcome.notification,
-            muted_notification=outcome.muted_notification,
-            muted_by_quiet_hours=muted,
-            now=now,
-            grouping_key=key,
-        )
-        verdicts.append(
-            _GroupVerdict(
+        observations.append(
+            GroupObservation(
                 grouping_key=key,
-                labels=group.labels if group is not None else (_labels_of(key) or {}),
-                outcome=outcome,
+                current_breached=current_breached,
+                prior_breached=tuple(prior_breached),
                 value=float(buckets[-1].count) if buckets else 0.0,
+                labels=group.labels if group is not None else (_labels_of(key) or {}),
             )
         )
-
-    # Firing verdicts first, so a cap keeps the groups that announce something.
-    verdicts.sort(key=lambda verdict: verdict.outcome.new_state == AlertState.NOT_FIRING)
-    admission = check.admit([verdict.grouping_key for verdict in verdicts])
-    admitted = [verdict for verdict in verdicts if verdict.grouping_key in set(admission.admitted)]
+    decision = decide_groups(
+        check,
+        observations,
+        snapshot_of=lambda instance, prior: _snapshot(check, prior, instance),
+        policy=PLATFORM_LOGS_ALERT_POLICY,
+        now=now,
+        muted=muted,
+    )
+    for verdict in decision.verdicts:
+        _record_check_metrics(
+            check,
+            new_state=verdict.group.new_state,
+            notification=verdict.outcome.notification,
+            muted_notification=verdict.outcome.muted_notification,
+            muted_by_quiet_hours=muted,
+            now=now,
+            grouping_key=verdict.group.grouping_key,
+        )
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, date_to),
         consecutive_failures=0,
-        groups=tuple(
-            GroupOutcome(
-                grouping_key=verdict.grouping_key,
-                kind=NOTIFICATION_EVENT_KINDS[verdict.outcome.notification],
-                new_state=verdict.outcome.new_state.value,
-                notified=verdict.outcome.update_last_notified_at,
-                firing_episode=decide_firing_episode(
-                    _snapshot(check, (), verdict.grouping_key),
-                    verdict.outcome,
-                    now,
-                    policy=PLATFORM_LOGS_ALERT_POLICY,
-                ),
-                value=verdict.value,
-                labels=verdict.labels,
-                muted_notification=(
-                    ""
-                    if verdict.outcome.muted_notification == NotificationAction.NONE
-                    else verdict.outcome.muted_notification.value
-                ),
-            )
-            for verdict in admitted
-        ),
+        groups=tuple(verdict.group for verdict in decision.verdicts),
         query_duration_ms=result.query_duration_ms,
     )
-    return recorded, _grouped_request(check, recorded, admitted, overflowed=admission.overflowed)
-
-
-def _grouped_request(
-    check: PlatformAlertCheckInput,
-    recorded: PlatformAlertOutcome,
-    admitted: Sequence[_GroupVerdict],
-    *,
-    overflowed: int,
-) -> AlertDeliveryRequest | None:
-    destination_alert_id = str(check.legacy_configuration_id or check.id)
-    actions = {
-        verdict.grouping_key: action
-        for verdict in admitted
-        if (
-            action := decide_incident_action(
-                AlertState(check.instance(verdict.grouping_key).state),
-                verdict.outcome.new_state,
-                policy=PLATFORM_LOGS_ALERT_POLICY,
-            )
-        )
-        is not None
-    }
-    if actions and not _has_incident_destination(check.team_id, destination_alert_id):
-        actions = {}
-    sends_messages = any(verdict.outcome.notification != NotificationAction.NONE for verdict in admitted)
-    if not sends_messages and not actions:
-        return None
-    return AlertDeliveryRequest(
-        source=SourceKind.LOGS,
-        team_id=check.team_id,
-        configuration_id=str(check.id),
-        evaluation_key=recorded.evaluation_key,
-        destination_alert_id=destination_alert_id,
-        event_ids_by_kind=_EVENT_IDS_BY_KIND,
-        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
-        incident_actions=actions,
-        sends_messages=sends_messages,
-        overflowed=overflowed,
+    return recorded, _request(
+        check,
+        recorded,
+        {
+            verdict.group.grouping_key: (verdict.snapshot.state, verdict.outcome.new_state)
+            for verdict in decision.verdicts
+        },
+        sends_messages=any(verdict.outcome.notification != NotificationAction.NONE for verdict in decision.verdicts),
+        overflowed=decision.overflowed,
     )
 
 

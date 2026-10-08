@@ -162,7 +162,7 @@ class Grouping:
 class GroupAdmission:
     """Which of a check's groups the configuration has room for, and how many it turned away."""
 
-    admitted: tuple[str, ...]
+    admitted: frozenset[str]
     overflowed: int
 
 
@@ -175,6 +175,34 @@ class InstanceCheckState:
     last_notified_at: datetime | None = None
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
+
+    @classmethod
+    def composed(
+        cls,
+        *,
+        grouping_key: str,
+        state: str,
+        check_status: str,
+        configuration_snooze_until: datetime | None,
+        snooze_until: datetime | None = None,
+        last_notified_at: datetime | None = None,
+        firing_started_at: datetime | None = None,
+    ) -> InstanceCheckState:
+        """An instance as a check, history and the read API all see it.
+
+        The machine reads ERRORED and BROKEN from the same field as firing, so a failing check status
+        takes the place of the instance's state. A configuration mute extends every instance's, and
+        the later of the two holds. The single definition, so what a check judges, what history
+        records and what a reader sees cannot drift apart.
+        """
+        snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        return cls(
+            grouping_key=grouping_key,
+            state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
+            last_notified_at=last_notified_at,
+            snooze_until=max(snoozes, default=None),
+            firing_started_at=firing_started_at,
+        )
 
 
 @frozen
@@ -212,30 +240,37 @@ class PlatformAlertCheckInput:
         """
         existing = {instance.grouping_key for instance in self.instances}
         room = max(self.grouping.max_instances - len(existing), 0)
-        admitted: list[str] = []
+        admitted: set[str] = set()
         overflowed = 0
         for key in dict.fromkeys(grouping_keys):
             if key in existing:
-                admitted.append(key)
+                admitted.add(key)
             elif room > 0:
-                admitted.append(key)
+                admitted.add(key)
                 room -= 1
             else:
                 overflowed += 1
-        return GroupAdmission(admitted=tuple(admitted), overflowed=overflowed)
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
 
     def instance(self, grouping_key: str = "") -> InstanceCheckState:
         """The instance for a group, or the state a group with no instance starts from."""
         for instance in self.instances:
             if instance.grouping_key == grouping_key:
                 return instance
-        return InstanceCheckState(
+        return InstanceCheckState.composed(
             grouping_key=grouping_key,
-            state=PlatformAlertState.NOT_FIRING.value
-            if self.check_status == PlatformAlertCheckStatus.OK
-            else self.check_status,
-            snooze_until=self.snooze_until,
+            state=PlatformAlertState.NOT_FIRING.value,
+            check_status=self.check_status,
+            configuration_snooze_until=self.snooze_until,
         )
+
+    def open_keys(self) -> list[str]:
+        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        return [
+            instance.grouping_key
+            for instance in self.instances
+            if instance.state != PlatformAlertState.NOT_FIRING.value
+        ]
 
     @property
     def filters(self) -> dict[str, Any]:
