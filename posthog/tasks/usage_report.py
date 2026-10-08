@@ -379,6 +379,10 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
+    # Distinct masked log shapes (the `pattern` column) seen in the period. It shows how broadly an app
+    # logs, which record and byte counts cannot. Distinct counts do not add up, so never sum daily values
+    # across days. The value is approximate (uniq) and is 0 when the query fails. Report-only.
+    logs_distinct_patterns_in_period: int
 
     # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
     apm_tracing_bytes_in_period: int
@@ -2691,6 +2695,50 @@ def get_teams_with_sdk_logs_records_in_period(
 
 
 @timed_log()
+def get_teams_with_logs_distinct_patterns_in_period(
+    begin: datetime,
+    end: datetime,
+    team_ids_with_logs: list[int],
+) -> list[tuple[int, int]]:
+    """
+    Returns the approximate number of distinct log patterns per team for the period, as
+    `(team_id, count)` tuples. The ingestion consumer stamps `pattern` onto each record. Rows with an
+    empty pattern are not counted.
+
+    `team_ids_with_logs` has the same contract as in `get_teams_with_sdk_logs_records_in_period`.
+    The `time_bucket` bounds let the primary key prune granules before the `pattern` column is read.
+
+    This metric is report-only and reads raw logs, so a failure returns no rows and does not
+    abort the billing run. There is no retry, because a query that fails on scan size fails again.
+    """
+    if not team_ids_with_logs:
+        return []
+
+    try:
+        with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+            return sync_execute(
+                """
+                SELECT team_id, uniq(pattern) AS count
+                FROM logs_distributed
+                WHERE team_id IN %(team_ids)s
+                  AND time_bucket >= toStartOfDay(toDateTime(%(begin)s))
+                  AND time_bucket <= toStartOfDay(toDateTime(%(end)s))
+                  AND timestamp >= %(begin)s
+                  AND timestamp < %(end)s
+                  AND pattern != ''
+                GROUP BY team_id
+                """,
+                {"team_ids": team_ids_with_logs, "begin": begin, "end": end},
+                workload=Workload.LOGS,
+                settings=CH_BILLING_SETTINGS,
+            )
+    except Exception as err:
+        logger.exception("logs_distinct_patterns.usage_report_failed")
+        capture_exception(err)
+        return []
+
+
+@timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_apm_tracing_usage_in_period(
     begin: datetime,
@@ -2919,6 +2967,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
     team_ids_with_logs = [int(row[0]) for row in logs_records_rows]
     sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
+        period_start, period_end, team_ids_with_logs=team_ids_with_logs
+    )
+    logs_distinct_patterns_rows = get_teams_with_logs_distinct_patterns_in_period(
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
@@ -3211,6 +3262,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_logs_distinct_patterns_in_period": logs_distinct_patterns_rows,
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
@@ -3467,6 +3519,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        logs_distinct_patterns_in_period=all_data["teams_with_logs_distinct_patterns_in_period"].get(team.id, 0),
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
