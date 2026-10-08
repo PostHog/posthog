@@ -46,7 +46,7 @@ function findMostSignificantMetric(
         })
         .filter((m): m is MetricWithResult => m !== null)
         .reduce<MetricWithResult | null>((best, current) => {
-            if (current.isSignificant && !best.isSignificant) {
+            if (best == null || (current.isSignificant && !best.isSignificant)) {
                 return current
             }
             if (current.isSignificant === best.isSignificant && current.maxChanceToWin > best.maxChanceToWin) {
