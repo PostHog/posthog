@@ -7,7 +7,6 @@ import { TodayWorkSectionId } from './todaySpacesLogic'
 const SECTIONS: { id: TodayWorkSectionId; label: string }[] = [
     { id: 'pinned', label: 'Pinned' },
     { id: 'recent', label: 'Recent' },
-    { id: 'spaces', label: 'Spaces' },
 ]
 
 interface TodaySpacesSectionTabsProps {
