@@ -6,7 +6,6 @@ transition is one message.
 """
 
 import hashlib
-from datetime import UTC, datetime
 from typing import Any, ClassVar, Final
 from urllib.parse import urlsplit
 
@@ -15,6 +14,7 @@ from django.conf import settings
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
+from products.alerts_platform.backend.delivery.wire import rfc3339
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
 
 PROVIDER: Final = "webhook"
@@ -27,13 +27,6 @@ WEBHOOK_VERSION: Final = "2"
 _NOT_ENDED: Final = "0001-01-01T00:00:00Z"
 
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
-
-
-def _rfc3339(moment: datetime) -> str:
-    # The ClickHouse HTTP client returns naive datetimes. The history columns hold UTC, and
-    # Alertmanager receivers reject a timestamp with no offset.
-    aware = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
-    return aware.isoformat()
 
 
 def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
@@ -80,8 +73,8 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
                 "status": status,
                 "labels": labels,
                 "annotations": annotations,
-                "startsAt": _rfc3339(transition.episode_started_at or transition.occurred_at),
-                "endsAt": _rfc3339(transition.occurred_at) if status == "resolved" else _NOT_ENDED,
+                "startsAt": rfc3339(transition.episode_started_at or transition.occurred_at),
+                "endsAt": rfc3339(transition.occurred_at) if status == "resolved" else _NOT_ENDED,
                 "generatorURL": "",
                 "fingerprint": _fingerprint(configuration_id, transition),
             }

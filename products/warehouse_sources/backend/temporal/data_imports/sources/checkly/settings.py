@@ -3,7 +3,10 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 
 BASE_URL = "https://api.checklyhq.com"
-API_VERSION = "v2"
+API_VERSION_V2 = "v2"
+API_VERSION_V3 = "v3"
+SUPPORTED_API_VERSIONS = (API_VERSION_V2, API_VERSION_V3)
+DEFAULT_API_VERSION = API_VERSION_V3
 PAGE_SIZE = 100
 RESULT_HISTORY_SECONDS = 30 * 24 * 60 * 60
 RESULT_FIELDS = (
@@ -24,7 +27,8 @@ ENDPOINTS = {
     "check_groups": ChecklyEndpoint(path="/v1/check-groups"),
     "alert_channels": ChecklyEndpoint(path="/v1/alert-channels"),
     "check_statuses": ChecklyEndpoint(path="/v1/check-statuses", primary_keys=("checkId",), paginated=False),
-    "check_results": ChecklyEndpoint(path="/{api_version}/check-results/{checkId}", primary_keys=("checkId", "id")),
+    # v3 has no check-results route, so every version reads results from /v2.
+    "check_results": ChecklyEndpoint(path="/v2/check-results/{checkId}", primary_keys=("checkId", "id")),
 }
 INCREMENTAL_FIELDS = {"check_results": [incremental_field("created_at")]}
 

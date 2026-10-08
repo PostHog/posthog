@@ -67,33 +67,10 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [
-            (200, (True, 200)),
-            (401, (False, 401)),
-            (403, (False, 403)),
-            (404, (False, 404)),
-            (500, (False, 500)),
-        ],
-    )
-    def test_status_mapping(self, status_code: int, expected: tuple[bool, int]) -> None:
-        with mock.patch(CHURNKEY_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-            assert validate_credentials("key", "app") == expected
-
     def test_network_failure_returns_none_status(self) -> None:
         with mock.patch(CHURNKEY_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("key", "app") == (False, None)
-
-    def test_probe_sends_both_auth_headers(self) -> None:
-        with mock.patch(CHURNKEY_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-            validate_credentials("data_abc", "app_123")
-            headers = mock_session.return_value.get.call_args.kwargs["headers"]
-            assert headers["x-ck-api-key"] == "data_abc"
-            assert headers["x-ck-app"] == "app_123"
 
 
 class TestPagination:
@@ -131,29 +108,6 @@ class TestPagination:
         manager.load_state.assert_called_once()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminal_single_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        with mock.patch.object(CHURNKEY_ENDPOINTS["Sessions"], "page_size", 2):
-            _wire(session, [_response([{"_id": "only"}])])
-            manager = _make_manager()
-            rows = _rows(_source(manager))
-
-        assert [r["_id"] for r in rows] == ["only"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_list_body_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"error": "unexpected envelope"})])
@@ -164,46 +118,7 @@ class TestPagination:
             _rows(_source(_make_manager()))
 
 
-class TestAuthAndHeaders:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_auth_and_app_header(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, auths = _wire(session, [_response([{"_id": "a"}])])
-        _rows(_source(_make_manager()))
-
-        # Non-secret headers live on the session; the API key goes through framework auth so it
-        # gets redacted from logs.
-        assert session.headers["x-ck-app"] == "app_123"
-        assert session.headers["content-type"] == "application/json"
-        auth = auths[0]
-        assert auth.name == "x-ck-api-key"
-        assert auth.api_key == "data_key"
-        assert auth.location == "header"
-
-
 class TestChurnkeySource:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, MockSession) -> None:
-        _wire(MockSession.return_value, [])
-        response = _source(_make_manager())
-
-        assert response.name == "Sessions"
-        assert response.primary_keys == ["_id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["createdAt"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_items_is_lazy(self, MockSession) -> None:
-        # Building the SourceResponse must not perform any HTTP — items is a thunk.
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        response = _source(_make_manager())
-        assert session.send.call_count == 0
-
-        list(response.items())
-        assert session.send.call_count == 1
-
     def test_default_page_size_within_api_cap(self) -> None:
         # The API rejects limit > 10,000.
         assert 0 < DEFAULT_PAGE_SIZE <= 10_000

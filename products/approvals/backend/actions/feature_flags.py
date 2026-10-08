@@ -7,8 +7,10 @@ from django.db.models import Model
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
+from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import flag_owner_kind
 
 
 def _to_wire_form(value: Any) -> Any:
@@ -109,6 +111,43 @@ def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict
     return False
 
 
+def _derive_flag_owner_kind(team, resource_id: Optional[str], intent_data: dict[str, Any]) -> Optional[str]:
+    """Classify the flag this change targets, for the ownership record on the change request.
+
+    A create has no flag yet, so there is nothing to classify and nothing to re-verify; the same
+    is true once a flag can no longer be resolved. Both return None rather than a wrong answer.
+    """
+    flag_id = intent_data.get("flag_id") or resource_id
+    if not flag_id:
+        return None
+
+    try:
+        # nosemgrep: idor-lookup-without-team (project_id comes from the change request's own team)
+        flag = FeatureFlag.objects.get(id=flag_id, team__project_id=team.project_id)
+    except (FeatureFlag.DoesNotExist, ValueError, TypeError):
+        return None
+
+    return flag_owner_kind(flag) or OWNER_KIND_UNOWNED
+
+
+def _check_flag_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
+    """Whether the flag moved out from under a pending change request.
+
+    Two ways it can: the flag itself was edited, or a different product adopted it. The second
+    matters on its own, because which policy applies is keyed on the owner, so an owner change
+    puts the request in front of the wrong approvers.
+    """
+    if _check_version_staleness(intent_data, context):
+        return True
+
+    instance = context.get("instance") if context else None
+    if instance is None:
+        return False
+
+    recorded = context.get("recorded_owner_kind") if context else None
+    return owner_kind_changed(recorded, flag_owner_kind(instance) or OWNER_KIND_UNOWNED)
+
+
 def _resolve_existing_flag(change_request) -> Optional[FeatureFlag]:
     """Find the flag a change request operates on, if it already exists.
 
@@ -191,6 +230,15 @@ class FeatureFlagActionBase(BaseAction):
     target_active_state: bool
 
     @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        return _derive_flag_owner_kind(team, resource_id, intent_data)
+
+    @classmethod
     def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return _flag_target_filter(intent_data)
 
@@ -200,7 +248,7 @@ class FeatureFlagActionBase(BaseAction):
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> bool:
-        return _check_version_staleness(intent_data, context)
+        return _check_flag_staleness(intent_data, context)
 
     @classmethod
     def validate_intent(
@@ -228,6 +276,8 @@ class FeatureFlagActionBase(BaseAction):
         instance = _resolve_existing_flag(change_request)
         if instance is not None:
             context["instance"] = instance
+
+        context["recorded_owner_kind"] = change_request.owner_kind
 
         return context
 
@@ -432,6 +482,15 @@ class UpdateFeatureFlagAction(BaseAction):
     intent_fields = ["rollout_percentage"]
 
     @classmethod
+    def derive_owner_kind(
+        cls,
+        team,
+        resource_id: Optional[str],
+        intent_data: dict[str, Any],
+    ) -> Optional[str]:
+        return _derive_flag_owner_kind(team, resource_id, intent_data)
+
+    @classmethod
     def get_target_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return _flag_target_filter(intent_data)
 
@@ -441,7 +500,7 @@ class UpdateFeatureFlagAction(BaseAction):
         intent_data: dict[str, Any],
         context: Optional[dict[str, Any]] = None,
     ) -> bool:
-        return _check_version_staleness(intent_data, context)
+        return _check_flag_staleness(intent_data, context)
 
     @classmethod
     def _extract_rollout_percentages(cls, filters: dict[str, Any]) -> list[dict[str, Any]]:
@@ -619,6 +678,8 @@ class UpdateFeatureFlagAction(BaseAction):
         instance = _resolve_existing_flag(change_request)
         if instance is not None:
             context["instance"] = instance
+
+        context["recorded_owner_kind"] = change_request.owner_kind
 
         return context
 

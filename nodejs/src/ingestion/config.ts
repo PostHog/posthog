@@ -195,6 +195,8 @@ export type IngestionConsumerConfig = {
     // Teams whose merges and deletes tombstone the person row instead of hard-deleting it, and
     // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
     // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    // Teams off this list attach distinct ids without lifecycle marks. Personhog's tombstone RPC
+    // cannot coordinate with those attaches, so a delete can leave a live mapping on a deleted person.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     // Teams whose merges lock the person rows and write the survivor in the transaction; other teams queue it for
     // the next flush. Enable after PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST. Team IDs, or '*'; empty means none.

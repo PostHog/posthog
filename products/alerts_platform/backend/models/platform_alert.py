@@ -20,6 +20,12 @@ from products.alerts_platform.backend.facade.enums import (
 )
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def source_kind_choices() -> list[tuple[str, str]]:
+    # A callable, so a new source does not write a state-only migration for its choice.
+    return PlatformAlertConfigurationSourceKind.choices
+
+
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
@@ -45,13 +51,13 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
 
-    source_kind = models.CharField(max_length=32, choices=SourceKind.choices)
+    source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     source_config = models.JSONField(default=dict)
 
-    threshold_count = models.PositiveIntegerField()
-    threshold_operator = models.CharField(max_length=16)
-
-    window_minutes = models.PositiveIntegerField()
+    # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
+    threshold_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_operator = models.CharField(max_length=16, null=True, blank=True)
+    window_minutes = models.PositiveIntegerField(null=True, blank=True)
 
     check_interval_minutes = models.PositiveIntegerField()
 

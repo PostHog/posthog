@@ -35,9 +35,6 @@ class TestDatabaseThreadStore(APIBaseTest):
                 name="API errors",
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=10,
             )
         self.store = DatabaseThreadStore(self.team.id)

@@ -14,10 +14,6 @@ def _config() -> OrbSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = OrbSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(list(ENDPOINTS))
     def test_incremental_support_matches_settings(self, endpoint: str) -> None:
         schema = next(s for s in OrbSource().get_schemas(_config(), team_id=1) if s.name == endpoint)

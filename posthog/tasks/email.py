@@ -1205,7 +1205,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
     # flag opens up the catch-up delivers their currently-failing schemas naturally.
-    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # group_properties mirror the warehouse-multi-destination gate (destinations/enablement.py):
     # without them, release conditions on the project/organization group can't match,
     # because the analytics group records are keyed by uuid rather than team_id/org_id.
     if not settings.TEST and not posthoganalytics.feature_enabled(

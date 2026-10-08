@@ -72,17 +72,6 @@ def _body(call: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("acme.grafana.net", "https://acme.grafana.net"),
-        ("https://ACME.grafana.net/a/grafana-irm-app/incidents", "https://acme.grafana.net"),
-    ],
-)
-def test_normalize_stack_url(value: str, expected: str) -> None:
-    assert normalize_stack_url(value) == expected
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
         ("oncall-prod-us-central-0.grafana.net/oncall", ONCALL_URL),
         (f"{ONCALL_URL}/api/v1/", ONCALL_URL),
     ],

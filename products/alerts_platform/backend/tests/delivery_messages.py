@@ -11,7 +11,7 @@ from requests.adapters import BaseAdapter
 from requests.structures import CaseInsensitiveDict
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, IncidentAction
 
 EPISODE_STARTED = datetime(2026, 9, 30, 9, tzinfo=UTC)
 OCCURRED = datetime(2026, 9, 30, 10, tzinfo=UTC)
@@ -38,6 +38,7 @@ def alert_message(
     details: tuple[MessageDetail, ...] = (),
     transition: AnnouncedTransition | None = None,
     alert_name: str = "API errors",
+    incident_action: IncidentAction | None = None,
 ) -> AlertMessage:
     return AlertMessage(
         headline=headline,
@@ -45,6 +46,7 @@ def alert_message(
         configuration_id="cfg-1",
         alert_name=alert_name,
         transition=transition or announced_transition(),
+        incident_action=incident_action,
     )
 
 
@@ -92,6 +94,6 @@ def pinned_post(
     session = Session()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    with patch("products.alerts_platform.backend.delivery.webhook_url.pinned_session") as pinned_session:
+    with patch("products.alerts_platform.backend.delivery.wire.pinned_session") as pinned_session:
         pinned_session.return_value.__enter__.return_value = session
         yield adapter

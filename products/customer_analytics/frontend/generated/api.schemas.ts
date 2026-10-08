@@ -780,10 +780,10 @@ export interface AccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at: string | null
+    ignored_at?: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -993,10 +993,10 @@ export interface PatchedAccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at?: string | null
+    ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -1877,7 +1877,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -2163,6 +2163,30 @@ export const IntervalTypeApi = {
     Quarter: 'quarter',
     Year: 'year',
 } as const
+
+export type MetricsFilterOpApi = (typeof MetricsFilterOpApi)[keyof typeof MetricsFilterOpApi]
+
+export const MetricsFilterOpApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export type MetricsAttributeScopeApi = (typeof MetricsAttributeScopeApi)[keyof typeof MetricsAttributeScopeApi]
+
+export const MetricsAttributeScopeApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface MetricsQueryFilterApi {
+    key: string
+    op: MetricsFilterOpApi
+    scope?: MetricsAttributeScopeApi | null
+    value: string
+}
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
@@ -2498,6 +2522,8 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
+    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    metricFilters?: MetricsQueryFilterApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -4744,6 +4770,10 @@ export type AccountsListParams = {
      */
     all_roles_unassigned?: boolean
     /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean
+    /**
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean
@@ -4963,7 +4993,7 @@ export type CustomerTasksListParams = {
      */
     archive_state?: CustomerTasksListArchiveState
     /**
-     * Filter by me, unassigned, or one user ID.
+     * Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.
      * @minLength 1
      */
     assigned_to?: string

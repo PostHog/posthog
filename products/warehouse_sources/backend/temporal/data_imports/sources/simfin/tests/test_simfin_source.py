@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source import SimFinSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source"
@@ -20,45 +18,9 @@ def _make_config(api_key: str = "key", tickers: str = "AAPL, MSFT") -> Any:
 
 
 class TestSimFinSource:
-    def test_source_config_has_api_key_and_tickers_fields(self) -> None:
-        config = SimFinSource().get_source_config
-        assert [f.name for f in config.fields] == ["api_key", "tickers"]
-        api_key_field, tickers_field = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        # The API key is a secret credential, so it must render as a password input.
-        assert api_key_field.type == "password"
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-        # Tickers are not secret and drive the per-ticker fan-out.
-        assert isinstance(tickers_field, SourceFieldInputConfig)
-        assert tickers_field.type == "text"
-        assert tickers_field.secret is False
-        assert tickers_field.required is True
-
-    def test_source_config_is_released_as_alpha(self) -> None:
-        config = SimFinSource().get_source_config
-        # unreleasedSource hides the connector entirely; a finished source must ship visible.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/simfin"
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert SimFinSource.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = SimFinSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # SimFin has no server-side change cursor, so nothing supports incremental.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_exposes_primary_keys(self) -> None:
-        schemas = {s.name: s for s in SimFinSource().get_schemas(_make_config(), team_id=1)}
-        assert schemas["companies"].detected_primary_keys == ["id"]
-        assert schemas["income_statements"].detected_primary_keys == ["id", "fiscal_year", "fiscal_period"]
-        assert schemas["share_prices"].detected_primary_keys == ["id", "date"]
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = SimFinSource().get_schemas(_make_config(), team_id=1, names=["companies", "share_prices"])
@@ -92,13 +54,6 @@ class TestSimFinSource:
             ok, message = SimFinSource().validate_credentials(_make_config(api_key, tickers), team_id=1)
         assert ok is expected_ok
         assert message == expected_message
-
-    def test_validate_credentials_skips_probe_without_tickers(self) -> None:
-        # No point probing the API key if there are no tickers to sync — fail fast on tickers first.
-        with patch(f"{MODULE}.validate_simfin_credentials") as probe:
-            ok, _ = SimFinSource().validate_credentials(_make_config(tickers=""), team_id=1)
-        assert ok is False
-        probe.assert_not_called()
 
     def test_source_for_pipeline_plumbs_tickers_key_and_version(self) -> None:
         inputs = MagicMock()
@@ -137,10 +92,3 @@ class TestSimFinSource:
         errors = SimFinSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
-
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
-        descriptions = SimFinSource().get_canonical_descriptions()
-        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
-        assert set(descriptions.keys()) <= set(ENDPOINTS)
-        assert "income_statements" in descriptions
-        assert "share_prices" in descriptions

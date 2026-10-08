@@ -48,6 +48,7 @@ import {
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
+    MetricsQuery,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -66,6 +67,7 @@ import {
     isInsightVizNode,
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
+    isMetricsQuery,
     isPathsQuery,
     isPathsV2Query,
     isRetentionQuery,
@@ -552,6 +554,7 @@ export interface insightNavLogicValues {
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     query: Node | null // insightDataLogic
     activeView: InsightType
+    metricsQueryCache: MetricsQuery | null
     queryPropertyCache: QueryPropertyCache | null
     tabs: Tab[]
 }
@@ -567,6 +570,9 @@ export interface insightNavLogicActions {
     } // insightDataLogic
     setActiveView: (view: InsightType) => {
         view: InsightType
+    }
+    updateMetricsQueryCache: (query: MetricsQuery) => {
+        query: MetricsQuery
     }
     updateQueryPropertyCache: (cache: QueryPropertyCache) => {
         cache: QueryPropertyCache
@@ -607,6 +613,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     actions({
         setActiveView: (view: InsightType) => ({ view }),
         updateQueryPropertyCache: (cache: QueryPropertyCache) => ({ cache }),
+        updateMetricsQueryCache: (query: MetricsQuery) => ({ query }),
     }),
     reducers({
         queryPropertyCache: [
@@ -616,6 +623,13 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     ...state,
                     ...cache,
                 }),
+            },
+        ],
+        // Metrics clauses share nothing with the product analytics query cache, so the draft is kept whole.
+        metricsQueryCache: [
+            null as MetricsQuery | null,
+            {
+                updateMetricsQueryCache: (_, { query }) => query,
             },
         ],
     }),
@@ -629,6 +643,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
+                } else if (isMetricsQuery(query)) {
+                    return InsightType.METRICS
                 } else if (isInsightVizNode(query)) {
                     // Check for Web Analytics queries first before using the mapping
                     if (isWebAnalyticsInsightQuery(query.source)) {
@@ -703,6 +719,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
+                if (
+                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
+                    activeView === InsightType.METRICS
+                ) {
+                    tabs.push({
+                        label: 'Metrics',
+                        type: InsightType.METRICS,
+                        dataAttr: 'insight-metrics-tab',
+                    })
+                }
+
                 if (activeView === InsightType.WEB_ANALYTICS) {
                     // Like the json only, this is a temporary tab for Web Analytics insights.
                     // We don't display it otherwise and humans shouldn't be able to click to select this tab
@@ -736,6 +763,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
+            if (view === InsightType.METRICS && values.metricsQueryCache) {
+                actions.setQuery(values.metricsQueryCache)
+                return
+            }
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
             if (isDataVisualizationNode(query)) {
@@ -753,7 +784,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
             }
         },
         setQuery: ({ query }) => {
-            if (isInsightVizNode(query)) {
+            if (isMetricsQuery(query)) {
+                actions.updateMetricsQueryCache(query)
+            } else if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
             } else if (isDataTableNode(query)) {
                 const seeded = cachePropertiesFromDataTable(query)
@@ -764,7 +797,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     })),
     afterMount(({ values, actions }) => {
-        if (values.query && isInsightVizNode(values.query)) {
+        if (isMetricsQuery(values.query)) {
+            actions.updateMetricsQueryCache(values.query)
+        } else if (values.query && isInsightVizNode(values.query)) {
             actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
         } else if (values.query && isDataTableNode(values.query)) {
             const seeded = cachePropertiesFromDataTable(values.query)

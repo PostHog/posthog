@@ -1,4 +1,5 @@
 import json
+import logging
 from concurrent.futures import Future
 from contextlib import nullcontext
 from dataclasses import replace
@@ -31,9 +32,11 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
+    _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
     _ShardStaging,
+    _target_presence_clause,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     cleanup_property_removal_staging,
@@ -67,6 +70,7 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
+    count_remaining_for_request,
 )
 from posthog.models.deletion_targets import (
     EVENTS,
@@ -82,7 +86,11 @@ from posthog.models.event.sql import (
     PERSON_PROPERTIES_JSON_TYPE,
     json_property_presence_expr,
 )
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_SOURCE_EVENT,
+    FLAG_EVALUATIONS_TTL_DAYS,
+)
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.test.persons import create_person
 
@@ -132,13 +140,15 @@ def _truncate_writable_events(client: Client) -> None:
 
 
 def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client) -> None:
-    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at). The event name is
-    # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
-    # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the
-    # removal marker, which is what the marker-bounded gate keys on.
+    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at[, _timestamp]). The
+    # event name is stamped here because a property-removal request narrows on it. inserted_at is set
+    # explicitly rather than left to its `DEFAULT timestamp` so a test can place a row before or after
+    # the removal marker, which is what the marker-bounded gate keys on.
+    columns = "team_id, distinct_id, properties, uuid, timestamp, inserted_at"
+    if rows and len(rows[0]) == 7:
+        columns += ", _timestamp"
     client.execute(
-        "INSERT INTO writable_flag_evaluations "
-        "(team_id, distinct_id, properties, uuid, timestamp, inserted_at, event) VALUES",
+        f"INSERT INTO writable_flag_evaluations ({columns}, event) VALUES",
         [(*row, FLAG_EVALUATIONS_SOURCE_EVENT) for row in rows],
     )
 
@@ -1032,11 +1042,14 @@ PROP_TEAM_ID = 88888
 
 def test_property_removal_cleaning_uses_unversioned_pool_udf() -> None:
     client = Mock(spec=Client)
-    client.execute.return_value = [
-        ("properties", "String"),
-        ("person_properties", "String"),
-        ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
-        ("_timestamp", "DateTime"),
+    client.execute.side_effect = [
+        [
+            ("properties", "String"),
+            ("person_properties", "String"),
+            ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
+            ("_timestamp", "DateTime"),
+        ],
+        [("ReplicatedReplacingMergeTree",)],
     ]
     request = DeletionRequestContext(
         request_id=str(uuid4()),
@@ -2532,16 +2545,18 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
 
 
 @pytest.mark.django_db
-def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matching_rows(cluster: ClickhouseCluster):
-    # Property removal cannot rewrite flag_evaluations: the rewrite machinery is scoped to the
-    # events tables, and flag_key sits in the sort key where no mutation can reset it, so even
-    # that machinery could not fully honor a request naming $feature_flag. Completing the
-    # request anyway would report the property erased while a copy of it survived.
+def test_get_property_removal_shards_refuses_a_hogql_predicate_when_flag_evaluations_holds_matching_rows(
+    cluster: ClickhouseCluster,
+):
+    # A HogQL predicate compiles only against the events schema, so the sweep cannot apply it to
+    # flag_evaluations. Sweeping the table without it would erase rows the predicate excludes, and
+    # skipping the table would report the property erased while a copy of it survived.
     request = DataDeletionRequest.objects.create(
         team_id=PROP_TEAM_ID,
         request_type=RequestType.PROPERTY_REMOVAL,
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         properties=["$ip"],
+        hogql_predicate="properties.$browser = 'Chrome'",
         start_time=datetime.now() - timedelta(days=7),
         end_time=datetime.now() + timedelta(days=1),
         status=RequestStatus.APPROVED,
@@ -2563,7 +2578,7 @@ def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matchin
 
     # Match the refusal itself, not just the table name: an UNKNOWN_TABLE error would also carry
     # "flag_evaluations" and would let a broken gate pass this test.
-    with pytest.raises(dagster.Failure, match="cannot be deleted"):
+    with pytest.raises(dagster.Failure, match="cannot be deleted: the request carries a HogQL predicate"):
         list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
 
     # A row ingested after the marker is outside the deletion snapshot, so the gate must ignore it
@@ -2585,30 +2600,59 @@ def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matchin
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "properties, person_properties, insert_value, expect_refusal",
+    "hogql_predicate, properties, person_properties, insert_value, error",
     [
-        pytest.param([], ["email"], '{"email": "a@example.com"}', False, id="person_properties_only"),
-        pytest.param(["$ip"], ["email"], '{"email": "a@example.com"}', False, id="mixed_row_holds_only_the_person_key"),
-        pytest.param(["$ip"], ["email"], '{"$ip": "1.2.3.4"}', True, id="mixed_matches_event_property"),
+        pytest.param("", [], ["email"], '{"email": "a@example.com"}', None, id="person_properties_only"),
+        pytest.param(
+            "", ["$ip"], ["email"], '{"email": "a@example.com"}', None, id="mixed_row_holds_only_the_person_key"
+        ),
+        pytest.param(
+            "",
+            ["$ip"],
+            ["email"],
+            '{"$ip": "1.2.3.4"}',
+            "still match the removal predicate",
+            id="mixed_matches_event_property",
+        ),
+        pytest.param(
+            "properties.$browser = 'Chrome'",
+            [],
+            ["email"],
+            '{"email": "a@example.com"}',
+            None,
+            id="gated_person_properties_only",
+        ),
+        pytest.param(
+            "properties.$browser = 'Chrome'",
+            ["$ip"],
+            ["email"],
+            '{"$ip": "1.2.3.4"}',
+            "cannot be deleted",
+            id="gated_mixed_matches_event_property",
+        ),
     ],
 )
-def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluations(
+def test_verify_property_removal_narrows_person_properties_on_flag_evaluations(
     cluster: ClickhouseCluster,
+    team,
+    hogql_predicate: str,
     properties: list[str],
     person_properties: list[str],
     insert_value: str,
-    expect_refusal: bool,
+    error: str | None,
 ) -> None:
-    # flag_evaluations has no person_properties column (#95693), so the gate drops the
-    # person_properties half of its check. A row that holds only the key named there survives, which
-    # is the accepted cost, and a gate that kept that half would query a column the table does not
-    # have. The event-property half still applies, so a row matching it must still refuse.
+    # verify runs after the shard ops have rewritten rows, so a query error here leaves an erasure
+    # half done. flag_evaluations has no person_properties column (#95693), so both of its checks on
+    # the table drop that half, and a row matching the event-property half still fails the request.
+    # The admin Verify button marks a request completed when its count is zero, so that count must
+    # hold the same rows the job's verify does.
     request = DataDeletionRequest.objects.create(
-        team_id=PROP_TEAM_ID,
+        team_id=team.id,
         request_type=RequestType.PROPERTY_REMOVAL,
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         properties=properties,
         person_properties=person_properties,
+        hogql_predicate=hogql_predicate,
         start_time=datetime.now() - timedelta(days=7),
         end_time=datetime.now() + timedelta(days=1),
         status=RequestStatus.APPROVED,
@@ -2623,15 +2667,133 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
-            [(PROP_TEAM_ID, "someone", insert_value, str(uuid4()), before_marker, before_marker)],
+            [(team.id, "someone", insert_value, str(uuid4()), before_marker, before_marker)],
         )
     ).result()
 
-    if expect_refusal:
-        with pytest.raises(dagster.Failure, match="cannot be deleted"):
-            list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
-    else:
-        assert list(get_property_removal_shards(build_op_context(), cluster, deletion_request))
+    with pytest.raises(dagster.Failure, match=error) if error else nullcontext():
+        verify_property_removal(build_op_context(), cluster, deletion_request, [])
+    assert count_remaining_for_request(request) == (1 if error else 0)
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+
+
+def _flag_evaluation_rows(team_id: int, client: Client) -> list[tuple[str, dict, str, str, int]]:
+    rows = client.execute(
+        "SELECT toString(uuid), properties, flag_key, session_id, toUnixTimestamp(_timestamp) FROM flag_evaluations "
+        "WHERE team_id = %(team_id)s AND _row_exists = 1",
+        {"team_id": team_id},
+    )
+    return sorted(
+        (
+            (uuid, json.loads(properties), flag_key, session_id, kafka_time)
+            for uuid, properties, flag_key, session_id, kafka_time in rows
+        ),
+        key=lambda row: row[0],
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "properties, person_properties",
+    [
+        pytest.param(["$session_id"], [], id="typed_column"),
+        pytest.param(["$feature_flag"], [], id="sort_key_column"),
+        pytest.param(["$session_id"], ["email"], id="with_person_properties"),
+    ],
+)
+def test_full_job_property_removal_rewrites_flag_evaluations(
+    cluster: ClickhouseCluster, properties: list[str], person_properties: list[str]
+) -> None:
+    now = timezone.now()
+    ingested = now - timedelta(hours=1)
+    kafka_time = ingested.replace(microsecond=0)
+    stored = {"$feature_flag": "beta", "$session_id": "s1", "keep": "yes"}
+    replayed_uuid, single_uuid = str(uuid4()), str(uuid4())
+    rows = [
+        (PROP_TEAM_ID, "someone", json.dumps(stored), uuid, ingested, ingested, kafka_time)
+        for uuid in (replayed_uuid, replayed_uuid, single_uuid)
+    ]
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(partial(_insert_flag_evaluations_with_properties, rows)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=properties,
+        person_properties=person_properties,
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    cleaned = {key: value for key, value in stored.items() if key not in properties}
+    # _timestamp keeps the Kafka message time, which flag_evaluations_backfill reads as the consumer position.
+    expected = [
+        (uuid, cleaned, cleaned.get("$feature_flag", ""), cleaned.get("$session_id", ""), int(kafka_time.timestamp()))
+        for uuid in sorted((replayed_uuid, replayed_uuid, single_uuid))
+    ]
+    assert cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result() == expected
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_evaluations(
+    cluster: ClickhouseCluster,
+) -> None:
+    # Tests build the table without a TTL, so the patch deletes the expired row where the drop would.
+    now = timezone.now()
+    live_at = now - timedelta(hours=1)
+    expired_at = now - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 5)
+    stored = json.dumps({"$session_id": "s1", "keep": "yes"})
+    live_uuid, expired_uuid = str(uuid4()), str(uuid4())
+    rows = [
+        (PROP_TEAM_ID, "someone", stored, live_uuid, live_at, live_at),
+        (PROP_TEAM_ID, "someone", stored, expired_uuid, expired_at, expired_at),
+    ]
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(partial(_insert_flag_evaluations_with_properties, rows)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=["$session_id"],
+        start_time=now - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    original = _ShardStaging.finish_step
+
+    def drop_expired_after_reingest(self: _ShardStaging, client: Client, name: str, payload: dict) -> None:
+        original(self, client, name, payload)
+        if self.target.table == FLAG_EVALUATIONS_DATA_TABLE and name == "reingested":
+            client.execute(
+                f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE uuid = %(uuid)s",
+                {"uuid": expired_uuid},
+                settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+            )
+
+    with patch.object(_ShardStaging, "finish_step", drop_expired_after_reingest):
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+            resources={"cluster": cluster},
+        )
+    assert result.success
+
+    remaining = cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result()
+    assert [(uuid, properties) for uuid, properties, *_ in remaining] == [(live_uuid, {"keep": "yes"})]
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
@@ -3018,7 +3180,41 @@ def test_native_property_removal_gate_checks_retained_copies(
     cluster = Mock(spec=ClickhouseCluster)
     cluster.any_host_by_role.side_effect = execute_query
     with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
-        _refuse_property_removal_unsweepable(cluster, [EVENTS_JSON], request, marker)
+        # EVENTS_JSON accepts the rewrite, so the gate skips it. A copy without the flag reaches the
+        # gate's predicate.
+        unsweepable = replace(EVENTS_JSON, accepts_property_rewrite=False)
+        _refuse_property_removal_unsweepable(cluster, [unsweepable], request, marker, log=logging.getLogger(__name__))
+
+
+@pytest.mark.parametrize(
+    "properties,person_properties,stored_properties,present",
+    [
+        ([], ["email"], '{"$unparseable_properties":"malformed $set email"}', True),
+        ([], ["email"], '{"other":"value"}', False),
+    ],
+)
+def test_json_target_presence_clause_sees_quarantine_on_person_only_requests(
+    properties: list[str], person_properties: list[str], stored_properties: str, present: bool
+) -> None:
+    # A copy that kept quarantined raw properties would pass this check and be reinserted past the
+    # marker, where the final verification no longer looks.
+    request = _property_removal_ctx(properties=properties, person_properties=person_properties)
+    target = PropertyRemovalTarget(table=EVENTS_JSON.data_table, shard=1, json_schema=True)
+    clause = _target_presence_clause(request, target, [])
+    [[matched]] = sync_execute(
+        f"""WITH rows AS (
+            SELECT CAST(%(properties)s, %(event_type)s) AS properties,
+                CAST('{{}}', %(person_type)s) AS person_properties,
+                CAST('{{}}', 'JSON(max_dynamic_paths=32)') AS temporary_properties
+        ) SELECT countIf({clause}) FROM rows""",
+        {
+            **_presence_params(request),
+            "properties": stored_properties,
+            "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+        },
+    )
+    assert bool(matched) is present
 
 
 def test_property_removal_where_scopes_to_events_by_default():

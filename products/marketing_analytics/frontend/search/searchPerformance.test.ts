@@ -58,6 +58,13 @@ describe('search performance sources', () => {
         ['GoogleAds', ['landing_page_stats'], 'page', false, 'example.landing_page_stats'],
         ['BingAds', ['keyword_performance_report'], 'page', false, undefined],
         [
+            'BingAds',
+            ['destination_url_performance_report'],
+            'page',
+            false,
+            'example.destination_url_performance_report',
+        ],
+        [
             'GoogleSearchConsole',
             ['search_analytics_by_page', 'search_analytics_by_query_page'],
             'page',

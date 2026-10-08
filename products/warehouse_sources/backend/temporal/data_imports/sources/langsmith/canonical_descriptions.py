@@ -131,4 +131,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "tenant_id": "Id of the workspace the queue belongs to.",
         },
     },
+    "annotation_queue_runs": {
+        "description": "Runs added to each annotation queue, with the queue item's review state. Joins annotation_queues to runs.",
+        "docs_url": "https://docs.smith.langchain.com/evaluation/how_to_guides/annotation_queues",
+        "columns": {
+            "queue_id": "Id of the annotation queue the run is in.",
+            "queue_run_id": "Unique identifier (UUID) for the run's item in the queue.",
+            "id": "Id of the queued run.",
+            "added_at": "When the run was added to the queue.",
+            "last_reviewed_time": "When a reviewer last reviewed the queued run.",
+            "reserved_by": "Reviewers currently holding a reservation on the queued run.",
+            "completed_by": "Reviewers who completed their review of the queued run.",
+            "session_id": "Id of the tracing project (session) the run belongs to.",
+            "trace_id": "Id of the trace (root run) the run belongs to.",
+        },
+    },
+    "threads": {
+        "description": (
+            "Conversation threads in each tracing project. Each row is one thread, with turn counts, token "
+            "usage, cost, latency, and errors rolled up over the traces that started in the last 365 days."
+        ),
+        "docs_url": "https://docs.smith.langchain.com/observability/how_to_guides/threads",
+        "columns": {
+            "project_id": "Id of the tracing project (session) the thread belongs to.",
+            "thread_id": "Id of the thread within its tracing project.",
+            "count": "Number of root traces (conversation turns) in the thread within the window.",
+            "min_start_time": "Start time of the earliest trace in the thread within the window.",
+            "max_start_time": "Start time of the latest trace in the thread within the window.",
+            "first_trace_id": "Id of the first trace in the thread within the window.",
+            "last_trace_id": "Id of the last trace in the thread within the window.",
+            "first_inputs": "Truncated preview of the inputs of the first trace in the thread.",
+            "last_outputs": "Truncated preview of the outputs of the last trace in the thread.",
+            "last_error": "Short summary of the most recent error in the thread, if any.",
+            "num_errored_turns": "Number of root traces in the thread that ended in an error.",
+            "total_tokens": "Total tokens used across the thread's traces.",
+            "total_cost": "Total estimated cost of the thread's traces in USD.",
+            "latency_p50": "Approximate median end-to-end latency of the thread's traces, in seconds.",
+            "latency_p99": "Approximate 99th percentile end-to-end latency of the thread's traces, in seconds.",
+            "feedback_stats": "Aggregated feedback across the thread's traces, keyed by feedback key.",
+        },
+    },
+    "workspaces": {
+        "description": "Workspaces (called tenants in the LangSmith API) the API key can access. Resolves the tenant_id on other tables.",
+        "docs_url": "https://docs.smith.langchain.com/administration/concepts#workspaces",
+        "columns": {
+            "id": "Unique identifier (UUID) for the workspace. Matches tenant_id on other tables.",
+            "organization_id": "Id of the organization the workspace belongs to.",
+            "created_at": "When the workspace was created.",
+            "display_name": "Name of the workspace.",
+            "is_personal": "Whether this is a personal workspace.",
+            "is_deleted": "Whether the workspace is deleted.",
+            "tenant_handle": "Short handle of the workspace, if set.",
+            "role_name": "Role the API key's identity holds in the workspace.",
+        },
+    },
 }

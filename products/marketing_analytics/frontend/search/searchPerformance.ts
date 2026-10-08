@@ -58,7 +58,9 @@ function searchTableNames(source: ExternalDataSource, breakdown: SearchBreakdown
     if (source.source_type === 'GoogleAds') {
         return breakdown === 'page' ? ['landing_page_stats'] : ['keyword', 'keyword_stats']
     }
-    return source.source_type === 'BingAds' && breakdown === 'keyword' ? ['keyword_performance_report'] : []
+    return source.source_type === 'BingAds'
+        ? [breakdown === 'page' ? 'destination_url_performance_report' : 'keyword_performance_report']
+        : []
 }
 
 export function searchPerformanceSource(

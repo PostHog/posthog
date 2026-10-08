@@ -98,7 +98,6 @@ function MetricsQueryEditorControls({
                             index={index}
                             isActive={index === activeClauseIndex}
                             showAlias={viewerClauses.length > 1}
-                            showExplain={false}
                             disabledReason={disabledReason}
                         />
                     ))}

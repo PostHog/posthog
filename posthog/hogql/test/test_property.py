@@ -111,9 +111,16 @@ class TestProperty(BaseTest):
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
         strict: bool = True,
+        cohort_via_distinct_id: bool = False,
     ):
         return clear_locations(
-            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+            property_to_expr(
+                property,
+                team=team or self.team,
+                scope=scope or "event",
+                strict=strict,
+                cohort_via_distinct_id=cohort_via_distinct_id,
+            )
         )
 
     def _selector_to_expr(self, selector: str):
@@ -184,7 +191,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("toFloat(properties.arr) > 100"),
         )
 
     @parameterized.expand(
@@ -273,19 +280,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
+            self._parse_expr("toFloat(properties.a) > 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
+            self._parse_expr("toFloat(properties.a) < 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
+            self._parse_expr("toFloat(properties.a) >= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
+            self._parse_expr("toFloat(properties.a) <= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
@@ -460,16 +467,6 @@ class TestProperty(BaseTest):
                 ),
                 right=ast.Call(name="toDateTime", args=[ast.Constant(value=expected_rhs)]),
             ),
-        )
-
-    def test_property_to_expr_generic_lt_gt_unchanged(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
         )
 
     @parameterized.expand(
@@ -962,12 +959,16 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -975,20 +976,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -1000,7 +1013,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -1015,6 +1028,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(self._selector_to_expr("#a[id='b']"), ast.Constant(value=False))
         self.assertEqual(
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
@@ -1030,7 +1044,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1038,7 +1054,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1047,7 +1065,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -1055,7 +1073,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -1077,6 +1099,30 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
+        )
+
+    @parameterized.expand(
+        [
+            ("in", {}, "IN"),
+            ("negation", {"negation": True}, "NOT IN"),
+            ("not_in_operator", {"operator": "not_in"}, "NOT IN"),
+        ]
+    )
+    def test_cohort_filter_via_distinct_id(self, _name: str, extra: dict, expected_op: str):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "cohort", "key": "id", "value": cohort.pk, **extra},
+                self.team,
+                cohort_via_distinct_id=True,
+            ),
+            self._parse_expr(
+                f"distinct_id {expected_op} "
+                f"(SELECT distinct_id FROM person_distinct_ids WHERE person_id IN COHORT {cohort.pk})"
+            ),
         )
 
     def test_cohort_filter_missing_cohort(self):
@@ -1449,6 +1495,67 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+        # ordered operators leave a Numeric-typed LHS alone too, with no toFloat wrap
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "gt"}),
+            self._parse_expr("properties.count > 5"),
+        )
+
+    @parameterized.expand(
+        [
+            ("person", "person", None),
+            ("event", "event", None),
+            ("group", "group", 0),
+        ]
+    )
+    def test_property_to_expr_ordered_numeric_filter_on_string_property(self, _name, property_type, group_type_index):
+        # An ordered numeric filter on a string-typed (or as-yet-undefined) property compiles to
+        # <String> > <number>, which ClickHouse rejects at read time with NO_COMMON_TYPE (386), so
+        # the LHS needs a toFloat (accurateCastOrNull) cast that drops non-numeric values instead.
+        base: dict = {"type": property_type, "key": "prop", "value": 200, "operator": "gt"}
+        if group_type_index is not None:
+            base["group_type_index"] = group_type_index
+        prefix = {"person": "person.properties", "event": "properties", "group": "group_0.properties"}[property_type]
+
+        for operator, symbol in [("gt", ">"), ("lt", "<"), ("gte", ">="), ("lte", "<=")]:
+            self.assertEqual(
+                self._property_to_expr({**base, "operator": operator}),
+                self._parse_expr(f"toFloat({prefix}.prop) {symbol} 200"),
+            )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "between", "value": [5, 10]}),
+            self._parse_expr(f"toFloat({prefix}.prop) >= 5 and toFloat({prefix}.prop) <= 10"),
+        )
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "not_between", "value": [5, 10]}),
+            self._parse_expr(
+                f"toFloat({prefix}.prop) < 5 or toFloat({prefix}.prop) > 10 or isNull(toFloat({prefix}.prop))"
+            ),
+        )
+        # a non-numeric string value keeps the uncoerced String comparison
+        self.assertEqual(
+            self._property_to_expr({**base, "value": "abc"}),
+            self._parse_expr(f"{prefix}.prop > 'abc'"),
+        )
+
+    def test_property_to_expr_numeric_text_bound_parses_against_coerced_lhs(self):
+        # The filter UI submits a typed-in bound as text, so "200" must coerce like 200 does.
+        # Left uncoerced it compares lexicographically: "9" > "200" matches even though 9 < 200.
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": "200", "operator": "gt"})
+        assert isinstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.left, ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "prop"])]))
+        assert isinstance(expr.right, ast.Constant)
+        self.assertIsInstance(expr.right.value, float)
+        self.assertEqual(expr.right.value, 200.0)
+
+        # between bounds are validated numeric, so text bounds coerce there too
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": ["5", "10"], "operator": "between"})
+        assert isinstance(expr, ast.And)
+        upper = expr.exprs[1]
+        assert isinstance(upper, ast.CompareOperation)
+        assert isinstance(upper.right, ast.Constant)
+        self.assertIsInstance(upper.right.value, float)
+        self.assertEqual(upper.right.value, 10.0)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:
@@ -1709,17 +1816,19 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("(toFloat(properties.age) >= 18 AND toFloat(properties.age) <= 65)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr("(toFloat(person.properties.age) >= 25 AND toFloat(person.properties.age) <= 50)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100 OR isNull(properties.score))"),
+            self._parse_expr(
+                "(toFloat(properties.score) < 0 OR toFloat(properties.score) > 100 OR isNull(toFloat(properties.score)))"
+            ),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1782,25 +1891,25 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("toFloat(properties.age) >= 18"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("toFloat(properties.age) <= 65"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("toFloat(person.properties.age) >= 25"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("toFloat(person.properties.score) <= 100"),
         )
 
     def test_property_to_expr_semver_operators(self):

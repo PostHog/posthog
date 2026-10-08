@@ -2848,6 +2848,11 @@ class TestPrinter(BaseTest):
                 "GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ())",
             ),
             (
+                "grouping_mask",
+                "select grouping(event, distinct_id) as mask, count() as c from events group by grouping sets ((event), (distinct_id), ())",
+                "grouping(events.event, events.distinct_id) AS mask",
+            ),
+            (
                 "cube",
                 "select event, distinct_id, count() as c from events group by cube(event, distinct_id)",
                 "GROUP BY CUBE(events.event, events.distinct_id)",

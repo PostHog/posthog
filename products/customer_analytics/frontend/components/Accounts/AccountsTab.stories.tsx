@@ -20,6 +20,7 @@ import type {
 import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias } from './accountsColumnConfigLogic'
 
 const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
+const COLUMN_CONFIGURATIONS_ENDPOINT = 'api/projects/:team_id/column_configurations/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_EMAIL_THREADS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/'
@@ -246,10 +247,14 @@ function expandedRowDecorators(
 async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
     const canvas = within(canvasElement)
     // Generous first wait: the whole scene mounts and the accounts query resolves before rows exist.
-    await canvas.findByTitle('Show more', {}, { timeout: 15000 })
+    const accountName = await canvas.findByText('Acme Inc', {}, { timeout: 15000 })
+    const row = accountName.closest('tr')
+    if (!row) {
+        throw new Error('Account row did not render')
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
         if (!canvasElement.querySelector('[data-attr="account-expansion"]')) {
-            await userEvent.click(await canvas.findByTitle('Show more'))
+            await userEvent.click(await within(row).findByTitle('Show more'))
         }
         try {
             await waitFor(
@@ -343,6 +348,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [COLUMN_CONFIGURATIONS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [RELATIONSHIP_DEFINITIONS_ENDPOINT]: RELATIONSHIP_DEFINITIONS,
                 [ACCOUNT_ICON_ENDPOINT]: mockAccountIcon,
             },
@@ -781,8 +787,12 @@ function pinnedRowDecorators(overrides: Mocks['get'] = {}): ReturnType<typeof ms
 
 async function expandPinnedRow(canvasElement: HTMLElement): Promise<HTMLElement> {
     const canvas = within(canvasElement)
-    await canvas.findByText('Acme Inc', {}, { timeout: 15000 })
-    await userEvent.click(await canvas.findByTitle('Show more'))
+    const accountName = await canvas.findByText('Acme Inc', {}, { timeout: 15000 })
+    const row = accountName.closest('tr')
+    if (!row) {
+        throw new Error('Account row did not render')
+    }
+    await userEvent.click(await within(row).findByTitle('Show more'))
     return await waitFor(() => {
         const expansion = canvasElement.querySelector<HTMLElement>(PINNED_EXPANSION_SELECTOR)
         if (!expansion) {

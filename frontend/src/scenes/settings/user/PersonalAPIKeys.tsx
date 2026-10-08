@@ -18,6 +18,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -27,7 +28,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { PersonalAPIKeyScopeGroup } from './PersonalAPIKeyScopeGroup'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
@@ -225,13 +225,14 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                             </div>
                                         ) : (
                                             filteredScopeGroups.map((group) => (
-                                                <PersonalAPIKeyScopeGroup
+                                                <ScopeAccessGroup
                                                     // A search opens every group, and clearing it closes them again.
                                                     key={`${group.label}-${searchTerm !== ''}`}
                                                     group={group}
                                                     defaultOpen={searchTerm !== ''}
                                                     onChangeRow={setScopeRadioValue}
                                                     onChangeGroup={setScopeGroupAccess}
+                                                    dataAttrPrefix="personal-api-key-scope-group"
                                                 />
                                             ))
                                         )}

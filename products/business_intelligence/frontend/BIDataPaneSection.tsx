@@ -1,4 +1,4 @@
-import { useMountedLogic } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { BIField } from '~/queries/schema/schema-business-intelligence'
 
@@ -21,13 +21,20 @@ export function BIDataPaneSection({
     path?: string[]
 }): JSX.Element {
     const logic = useMountedLogic(biEditorLogic)
+    const { dataPaneSearch } = useValues(logic)
     return (
         <div className="flex flex-col">
             {title ? <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">{title}</div> : null}
             {fields.length === 0 ? <span className="px-2 text-xs text-tertiary">{emptyText}</span> : null}
             {fields.map((field) =>
                 getBIPropertyTarget(field) ? (
-                    <BIPropertyFieldGroup key={field.id} field={field} path={path} tabId={logic.props.tabId} />
+                    <BIPropertyFieldGroup
+                        key={field.id}
+                        field={field}
+                        path={path}
+                        tabId={logic.props.tabId}
+                        dataPaneSearch={dataPaneSearch}
+                    />
                 ) : (
                     <BIDataPaneField key={field.id} field={field} measure={measure} path={path} />
                 )

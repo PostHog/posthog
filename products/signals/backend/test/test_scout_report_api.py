@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -59,6 +59,7 @@ from products.signals.backend.scout_harness.tools.report import (
     _wants_repo_selection,
     edit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -1382,7 +1383,12 @@ class TestScoutReportAPI(APIBaseTest):
             patch("products.signals.backend.scout_harness.tools.report._assert_edit_gates"),
             pytest.raises(InvalidScoutReportError, match="not in progress"),
         ):
-            edit_report_sync(team=self.team, run=run, report_id=created["report_id"], summary="Late rewrite")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=run),
+                report_id=created["report_id"],
+                summary="Late rewrite",
+            )
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
         return (
@@ -1772,7 +1778,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2057,6 +2063,11 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+        assert props["run_id"] == str(run.id)
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
+        # Ingestion dedupes on this uuid. If its key drifts, an edit retried across a deploy fires twice.
+        edit_key = f"edit|{run.id}|{created['report_id']}|['title', 'updated_at']|new title||re-validated"
+        assert forward.kwargs["event_uuid"] == str(uuid5(NAMESPACE_URL, f"signals_scout_report:{edit_key}"))
 
     def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
         # Classification must ride both lifecycle events: stamped from the authored title on emit, and
@@ -2089,7 +2100,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2116,7 +2127,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2159,7 +2170,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2327,7 +2338,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2349,7 +2360,7 @@ class TestScoutReportAPI(APIBaseTest):
         with patch(CAPTURE_PATH):
             chart_clear = _capture_report_edited(
                 team=self.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 result=EditReportResult(
                     report_id=result.report_id, updated_fields=[], note_appended=False, charts_set=0
                 ),
@@ -2373,7 +2384,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=EditReportResult(
                         report_id=report_id,
                         updated_fields=[],

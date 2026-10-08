@@ -222,7 +222,7 @@ export function InsightVizDisplay({
         showsFlagCallsRetentionNotice,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
@@ -327,6 +327,8 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    titleStatus={insightDataError?.status}
+                    retryAfterTimestamp={insightDataError?.retryAfterTimestamp}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}

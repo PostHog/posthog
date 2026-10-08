@@ -52,11 +52,8 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
-        // The response names the ranker, which picks the card layout. The jev arm's tiles only come as a
-        // grid, so a saved list choice is ignored.
+        // The response names the ranker that ordered the feed.
         expect(logic.values.feedRanker).toBe('jev')
-        expect(logic.values.view).toBe('list')
-        expect(logic.values.displayView).toBe('grid')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
@@ -132,17 +129,6 @@ describe('watchFeedLogic', () => {
             logic.actions.clearFeedFilters()
         })
             .toMatchValues({ scannerIdsFilter: [], tagsFilter: [], search: '', hasFeedFilters: false })
-            .toFinishAllListeners()
-    })
-
-    it('defaults to the list view and keeps the chosen view when filters clear', async () => {
-        logic.mount()
-        expect(logic.values.view).toBe('list')
-        logic.actions.setView('grid')
-        await expectLogic(logic, () => {
-            logic.actions.clearFeedFilters()
-        })
-            .toMatchValues({ view: 'grid' })
             .toFinishAllListeners()
     })
 
