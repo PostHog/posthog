@@ -705,6 +705,12 @@ tools:
             enabled state, sampling settings, `last_swept_at`, and the credit figures (`credits_per_observation`,
             `estimated_monthly_credits`, `credits_this_month`). Call `vision-scanners-get` for one scanner to read its
             full prompt in `scanner_config` and its recording filters in `query`.
+        param_overrides:
+            enabled:
+                description: >
+                    Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the
+                    boolean form `true` / `false`. Omit to list every scanner.
+                cast: boolean-string
         response:
             include:
                 - id
@@ -731,12 +737,6 @@ tools:
                 - updated_at
                 - created_by.id
                 - created_by.email
-        param_overrides:
-            enabled:
-                description: >
-                    Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the
-                    boolean form `true` / `false`. Omit to list every scanner.
-                cast: boolean-string
     vision-scanners-observations-get:
         operation: vision_scanners_observations_retrieve
         enabled: true
