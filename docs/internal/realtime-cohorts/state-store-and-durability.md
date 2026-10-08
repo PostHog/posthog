@@ -166,6 +166,12 @@ State never moves between pods, which is why the processor runs as a single pod.
 - **Merge markers and tombstones** are removed after their retention period.
 - **Orphaned behavioral rows**, left behind when a leaf's definition changes, a cohort is deleted, or a team leaves the catalog, are not collected.
   They are removed only by a merge drain or a partition wipe.
+- **RocksDB's own files** have size caps.
+  The info `LOG` rolls at `COHORT_MAX_LOG_FILE_SIZE_BYTES` (16 MiB), and RocksDB keeps `COHORT_KEEP_LOG_FILE_NUM` (5) of them.
+  The WAL forces a memtable flush at `COHORT_MAX_TOTAL_WAL_SIZE_BYTES` (1 GiB), and the `MANIFEST` rolls at `COHORT_MAX_MANIFEST_FILE_SIZE_BYTES` (64 MiB).
+  A value of 0 keeps the RocksDB default.
+- **Volume usage by file type** is the `store_file_bytes` gauge, labelled `sst`, `wal`, `info_log`, `manifest`, `other` and `checkpoint`.
+  The `checkpoint` value counts only local checkpoint files that the live store does not share, such as SSTs that compaction replaced.
 
 ## Tuning that matters
 
