@@ -53,6 +53,7 @@ from products.data_catalog.backend.facade.api import (
     metrics_visible_to_user,
     run_metric,
 )
+from products.data_catalog.backend.facade.enums import MetricStatus
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -1159,7 +1160,7 @@ def _has_readable_catalog_metrics(team: Team, user: User) -> bool:
 
 
 def _format_metric_run(name: str, envelope: dict) -> str:
-    is_canonical = envelope["status"] == "approved" and not envelope["is_drifted"]
+    is_canonical = envelope["status"] == MetricStatus.APPROVED and not envelope["is_drifted"]
     lines = [
         f"Metric `{name}`: status {envelope['status']}, drifted {'yes' if envelope['is_drifted'] else 'no'}.",
     ]
