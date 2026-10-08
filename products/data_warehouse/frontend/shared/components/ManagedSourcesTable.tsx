@@ -8,9 +8,11 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
@@ -19,6 +21,7 @@ import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { sourceUsageLogic } from '../logics/sourceUsageLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -39,6 +42,10 @@ export function ManagedSourcesTable(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const { sourceUsageById, showSourceCost, rowsStats } = useValues(sourceUsageLogic)
+    const billingPeriodStart = rowsStats?.billing_period_start
+        ? dayjs(rowsStats.billing_period_start).format('MMM D')
+        : null
 
     return (
         <div>
@@ -107,14 +114,44 @@ export function ManagedSourcesTable(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Total Rows Synced',
+                        title: 'Rows stored',
                         key: 'rows_synced',
-                        tooltip: 'Total number of rows synced across all schemas in this source',
+                        tooltip: "Rows currently in this source's tables. This is not what you're billed for.",
                         render: (_, source) =>
                             source.schemas
                                 .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
                                 .toLocaleString(),
                     },
+                    ...(sourceUsageById
+                        ? [
+                              {
+                                  title: 'Billed rows this period',
+                                  key: 'billable_rows',
+                                  tooltip: `Rows synced since ${billingPeriodStart ?? 'the start of this billing period'} that count toward your bill. Every sync counts its rows again, so a table that fully refreshes daily is billed for its rows each day. Free historical syncs are not included.`,
+                                  render: function RenderBillableRows(_: unknown, source: { id: string }) {
+                                      const usage = sourceUsageById[source.id]
+                                      return usage ? usage.billableRows.toLocaleString() : '-'
+                                  },
+                              },
+                          ]
+                        : []),
+                    ...(sourceUsageById && showSourceCost
+                        ? [
+                              {
+                                  title: 'Estimated cost this period',
+                                  key: 'estimated_cost',
+                                  tooltip:
+                                      "This source's share of your organization's synced rows bill so far this period, based on its billed rows. Your free allowance and volume pricing apply to the organization total, so removing a source may not reduce the bill by this amount.",
+                                  render: function RenderEstimatedCost(_: unknown, source: { id: string }) {
+                                      const costUsd = sourceUsageById[source.id]?.costUsd
+                                      if (costUsd === null || costUsd === undefined) {
+                                          return '-'
+                                      }
+                                      return costUsd > 0 && costUsd < 0.01 ? '<$0.01' : humanFriendlyCurrency(costUsd)
+                                  },
+                              },
+                          ]
+                        : []),
                     ...(showMetrics
                         ? [
                               {

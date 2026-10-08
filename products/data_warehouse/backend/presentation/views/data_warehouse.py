@@ -365,8 +365,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cached = cache.get(cache_key)
         if cached is not None:
             payload = dict(cached)
-            payload["breakdown_of_rows_by_source"] = self._breakdown_of_rows_by_source(
-                cached["billing_period_start"], cached["billing_period_end"]
+            payload["breakdown_of_rows_by_source"], payload["billable_rows_by_source"] = (
+                self._breakdown_of_rows_by_source(cached["billing_period_start"], cached["billing_period_end"])
             )
             return Response(status=status.HTTP_200_OK, data=payload)
 
@@ -379,6 +379,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         rows_synced = 0
         billing_available = False
         breakdown_of_rows_by_source: dict[str, int] = {}
+        billable_rows_by_source: dict[str, int] = {}
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -413,7 +414,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
-                breakdown_of_rows_by_source = self._breakdown_of_rows_by_source(
+                breakdown_of_rows_by_source, billable_rows_by_source = self._breakdown_of_rows_by_source(
                     billing_period_start, billing_period_end
                 )
 
@@ -433,6 +434,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "billing_period_end": billing_period_end,
             "billing_period_start": billing_period_start,
             "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
+            "billable_rows_by_source": billable_rows_by_source,
             "materialized_rows_in_billing_period": materialized_rows,
             "total_rows": rows_synced,
             "tracked_billing_rows": billing_tracked_rows,
@@ -443,27 +445,33 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # unreachable would keep serving zeroes long after billing recovered. The cached copy omits
         # the per-source breakdown; see the comment at the top of this method for why.
         if billing_available:
-            cacheable_payload = {k: v for k, v in payload.items() if k != "breakdown_of_rows_by_source"}
+            per_source_keys = {"breakdown_of_rows_by_source", "billable_rows_by_source"}
+            cacheable_payload = {k: v for k, v in payload.items() if k not in per_source_keys}
             cache.set(cache_key, cacheable_payload, TOTAL_ROWS_STATS_CACHE_TTL_SECONDS)
         return Response(status=status.HTTP_200_OK, data=payload)
 
     def _breakdown_of_rows_by_source(
         self, billing_period_start: datetime, billing_period_end: datetime
-    ) -> dict[str, int]:
+    ) -> tuple[dict[str, int], dict[str, int]]:
         # Computed fresh on every request (never cached) because it is scoped to the caller's own
         # readable sources, which differ from one caller to the next on the same team.
-        breakdown: dict[str, int] = {}
-        for source in self._readable_sources().filter(deleted=False):
-            total_rows = (
-                ExternalDataJob.objects.filter(
-                    pipeline=source,
-                    created_at__gte=billing_period_start,
-                    created_at__lt=billing_period_end,
-                ).aggregate(total=Sum("rows_synced"))["total"]
-                or 0
+        source_ids = list(self._readable_sources().filter(deleted=False).values_list("id", flat=True))
+        breakdown: dict[str, int] = {str(source_id): 0 for source_id in source_ids}
+        billable: dict[str, int] = {str(source_id): 0 for source_id in source_ids}
+        totals = (
+            ExternalDataJob.objects.filter(
+                team_id=self.team_id,
+                pipeline_id__in=source_ids,
+                created_at__gte=billing_period_start,
+                created_at__lt=billing_period_end,
             )
-            breakdown[str(source.id)] = total_rows
-        return breakdown
+            .values("pipeline_id")
+            .annotate(total=Sum("rows_synced"), billable_total=Sum("rows_synced", filter=Q(billable=True)))
+        )
+        for row in totals:
+            breakdown[str(row["pipeline_id"])] = row["total"] or 0
+            billable[str(row["pipeline_id"])] = row["billable_total"] or 0
+        return breakdown, billable
 
     @extend_schema(
         parameters=[RunningActivityQuerySerializer],

@@ -108,7 +108,16 @@ class TestDataWarehouseAPI(APIBaseTest):
             rows_synced=150,
             billable=True,
         )
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime(2023, 8, 15, tzinfo=UTC))
+        free_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            rows_synced=1000,
+            billable=False,
+        )
+        ExternalDataJob.objects.filter(pk__in=[job.pk, free_job.pk]).update(
+            created_at=datetime(2023, 8, 15, tzinfo=UTC)
+        )
 
         response = self.client.get(endpoint)
         data = response.json()
@@ -117,6 +126,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(data["tracked_billing_rows"], 100)
         self.assertEqual(data["pending_billing_rows"], 50)
         self.assertEqual(data["total_rows"], 150)
+        self.assertEqual(data["breakdown_of_rows_by_source"], {str(source.pk): 1150})
+        self.assertEqual(data["billable_rows_by_source"], {str(source.pk): 150})
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.get_cached_instance_license")
