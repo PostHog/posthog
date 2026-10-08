@@ -402,6 +402,39 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
     })
 
+    it('counts the audience missing the property the To field reads, and recounts when the To field changes', async () => {
+        const missingByProperty: Record<string, number> = { email: 98, $email: 0 }
+        const checkedFilters: { key: string; operator?: string }[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    const { filters } = (await request.json()) as {
+                        filters: { properties: { key: string; operator?: string }[] }
+                    }
+                    const last = filters.properties[filters.properties.length - 1]
+                    if (!last || last.operator !== PropertyOperator.IsNotSet) {
+                        return [200, { affected: 98, total: 1000 }]
+                    }
+                    checkedFilters.push(filters.properties)
+                    return [200, { affected: missingByProperty[last.key], total: 1000 }]
+                },
+            },
+        })
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 98 })
+        expect(checkedFilters.at(-1)).toEqual([
+            ...LOCAL_AUDIENCE,
+            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+        ])
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: '{{ person.properties.$email }}' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 0 })
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: 'team@example.com' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+    })
+
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })

@@ -11,6 +11,7 @@ import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
+import { BroadcastMissingRecipientEmailBanner } from '../BroadcastMissingRecipientEmailBanner'
 import { BroadcastWizardStep, SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function ReviewRow({
@@ -112,6 +113,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
+                    <BroadcastMissingRecipientEmailBanner />
                     {audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
