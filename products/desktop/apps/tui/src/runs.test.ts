@@ -687,19 +687,19 @@ describe("runNotice after a finished turn", () => {
     expect(notice?.text).toMatch(/^Worked for 2m 30s · done 5:06/);
   });
 
-  it("counts down to the wake-up the agent scheduled instead of calling the turn done", () => {
+  it("says what the agent waits on after it scheduled a wake-up, instead of calling the turn done", () => {
     const notice = runNotice(
       { ...emptyRunView, loaded: true, status: "in_progress" },
       lines,
       false,
       done,
       null,
-      { wake: { at: Date.now() + 90_000, reason: "watching CI" } },
+      { wake: { reason: "watching CI" } },
     );
     expect(notice).toMatchObject({
-      text: "Worked for 2m 30s · waking in 1m 30s",
+      text: "Worked for 2m 30s · waiting:",
       subject: "watching CI",
-      tone: "working",
+      tone: "done",
     });
   });
 

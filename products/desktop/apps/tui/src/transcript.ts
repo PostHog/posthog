@@ -72,15 +72,15 @@ export interface Transcript {
   lastTurn: { durationMs: number; endedAt: number; stopReason?: string } | null;
   // When the open turn started (epoch ms), or null between turns.
   turnStartedAt: number | null;
-  // The wake-up the agent scheduled in its last turn (Claude Code's ScheduleWakeup): when, and why it waits.
-  wake: { at: number; reason: string } | null;
+  // The wake-up the agent scheduled in its last turn (Claude Code's ScheduleWakeup), and why it waits.
+  wake: { reason: string } | null;
 }
 
 const WAKE_TOOL = "ScheduleWakeup";
 const wakeInput = z.object({ reason: z.string().optional() });
 const wakeOutput = z.object({ scheduledFor: z.number() });
 
-// The last turn's scheduled wake-up: the items after its user message hold the call, with its reason and time.
+// The last turn's scheduled wake-up: the items after its user message hold the call, with its reason.
 function wakeOf(items: ConversationItem[]): Transcript["wake"] {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
@@ -89,12 +89,8 @@ function wakeOf(items: ConversationItem[]): Transcript["wake"] {
     const update = item.update;
     if (update.sessionUpdate !== "tool_call" || update.title !== WAKE_TOOL)
       continue;
-    const output = wakeOutput.safeParse(update.rawOutput);
-    if (!output.success) return null;
-    return {
-      at: output.data.scheduledFor,
-      reason: wakeInput.safeParse(update.rawInput).data?.reason ?? "",
-    };
+    if (!wakeOutput.safeParse(update.rawOutput).success) return null;
+    return { reason: wakeInput.safeParse(update.rawInput).data?.reason ?? "" };
   }
   return null;
 }

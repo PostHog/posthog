@@ -410,10 +410,7 @@ describe("transcriptFrom last turn", () => {
       rawOutput: { scheduledFor: 305_000 },
     });
     const log = [...ACP_LOG.slice(0, -1), wake, ACP_LOG.at(-1)!];
-    expect(transcriptFrom("acp", log).wake).toEqual({
-      at: 305_000,
-      reason: "watching CI",
-    });
+    expect(transcriptFrom("acp", log).wake).toEqual({ reason: "watching CI" });
     expect(transcriptFrom("acp", ACP_LOG).wake).toBeNull();
     expect(transcriptFrom("acp", log.slice(0, -1)).wake).toBeNull();
   });
