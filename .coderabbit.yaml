@@ -46,7 +46,10 @@ reviews:
     review_details: false
 
     auto_review:
-        enabled: true
+        # CodeRabbit is retired on this repository in favor of PostHog Review
+        # (.github/review-hog.yml). The rest of this file is kept so a deliberate
+        # re-enable restores the tuned setup rather than the vendor defaults.
+        enabled: false
 
         # Review the commits pushed after the first review too, so work added
         # while a pull request is open is not merged unreviewed. An incremental
@@ -99,6 +102,10 @@ reviews:
         # PostHog does not consistently link issues to PRs.
         issue_assessment:
             mode: 'off'
+
+chat:
+    # No replies in PR conversations unless someone @mentions the bot.
+    auto_reply: false
 
 knowledge_base:
     code_guidelines:
