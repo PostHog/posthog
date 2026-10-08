@@ -215,6 +215,7 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
         .select_related("team", "scanner", "created_by")
         .order_by(F("session_end_checked_at").asc(nulls_first=True), "created_at")[:MAX_CHECKS_PER_TICK]
     )
+    # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the rows read just above
     ReplayObservationRequest.objects.unscoped().filter(id__in=[r.id for r in waiting]).update(
         session_end_checked_at=now
     )
@@ -420,6 +421,7 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
             continue
         delivered.append(request.id)
     return (
+        # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the page read above
         ReplayObservationRequest.objects.unscoped()
         .filter(id__in=delivered, completed_at__isnull=True)
         .update(completed_at=now)
