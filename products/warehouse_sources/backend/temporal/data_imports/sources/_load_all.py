@@ -1163,6 +1163,7 @@ from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
+from .steam.source import SteamSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .stockx.source import StockxSource

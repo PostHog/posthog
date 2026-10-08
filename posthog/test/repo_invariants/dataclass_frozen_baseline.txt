@@ -736,7 +736,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/koyeb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/kubecost.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/kustomer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/lacework.py
@@ -1273,7 +1272,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/world_bank/world_bank.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/writesonic.py
@@ -1303,8 +1301,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zylo/zylo.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/calculate_table_size.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/check_billing_limits.py

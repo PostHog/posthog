@@ -8,7 +8,7 @@ import threading
 import dataclasses
 import pickletools
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import cache
 from types import MappingProxyType
@@ -19,6 +19,7 @@ from django.conf import settings
 from django.db.models import Q, prefetch_related_objects
 
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -799,6 +800,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
@@ -856,6 +858,7 @@ class Database(BaseModel):
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
+        self._table_slot_origins = {}
         self._denied_tables = set()
         self._connection_id = None
         self._direct_connection_metadata = None
@@ -1138,16 +1141,64 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node, table_conflict_mode="override" if self._is_direct_query() else "ignore")
+        self._record_table_slot_origins(node, "warehouse_table")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
+        self._record_table_slot_origins(node, "self_managed_table")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_self_managed_table_names.append(name)
 
+    @staticmethod
+    def _walk_table_slots(
+        node: TableNode, path: tuple[str, ...] = ()
+    ) -> Iterator[tuple[tuple[str, ...], FieldOrTable]]:
+        if path and node.table is not None:
+            yield path, node.table
+        for child in node.children.values():
+            yield from Database._walk_table_slots(child, (*path, child.name))
+
+    def _node_at_slot(self, path: tuple[str, ...]) -> TableNode | None:
+        node = self.tables
+        for name in path:
+            child = node.children.get(name)
+            if child is None:
+                return None
+            node = child
+        return node
+
+    def _record_table_slot_origins(self, node: TableNode, origin: str) -> None:
+        for path, table in self._walk_table_slots(node):
+            installed = self._node_at_slot(path)
+            if installed is not None and installed.table is table:
+                self._table_slot_origins[path] = origin
+
+    def _count_views_shadowed_by_tables(self, node: TableNode) -> None:
+        shadowed: dict[str, int] = {}
+        for path, _ in self._walk_table_slots(node):
+            occupant = self._node_at_slot(path)
+            if occupant is None or occupant.table is None:
+                continue
+            shadowed_by = self._table_slot_origins.get(path, "posthog_table")
+            if shadowed_by == "view":
+                continue
+            shadowed[shadowed_by] = shadowed.get(shadowed_by, 0) + 1
+
+        client = posthoganalytics.default_client
+        if not shadowed or client is None:
+            return
+        try:
+            for shadowed_by, count in shadowed.items():
+                client.metrics.count("hogql.database.views_shadowed", count, attributes={"shadowed_by": shadowed_by})
+        except Exception:
+            logger.warning("hogql_views_shadowed_metric_failed", exc_info=True)
+
     def _add_views(self, node: TableNode):
-        self.tables.merge_with(node)
+        self._count_views_shadowed_by_tables(node)
+        self.tables.merge_with(node, table_conflict_mode="ignore")
+        self._record_table_slot_origins(node, "view")
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
 
