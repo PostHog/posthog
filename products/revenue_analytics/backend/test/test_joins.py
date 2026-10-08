@@ -7,8 +7,10 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.joins import (
     ensure_person_join,
     get_customer_revenue_view_name,
+    remove_customer_revenue_view_joins,
     remove_person_join,
 )
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 pytestmark = [pytest.mark.django_db]
 
@@ -118,3 +120,44 @@ class TestRemovePersonJoin(BaseTest):
 
         assert self._get_active_joins().count() == 1
         assert self._get_active_joins().first().source_table_name == "stripe.org_123.customer_revenue_view"
+
+
+class TestRemoveCustomerRevenueViewJoins(BaseTest):
+    def _get_active_joins(self):
+        return DataWarehouseJoin.objects.filter(team=self.team).exclude(deleted=True)
+
+    def _create_view_joins(self, prefix: str) -> None:
+        ensure_person_join(self.team.pk, prefix)
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=get_customer_revenue_view_name(prefix),
+            source_table_key="id",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="groups",
+        )
+
+    @parameterized.expand(
+        [
+            ("no_remaining_source", None, 0),
+            ("remaining_source_with_same_view", "org_123", 2),
+            ("remaining_source_with_other_view", "other_", 0),
+        ]
+    )
+    def test_removes_orphaned_view_joins(self, _name, remaining_prefix, expected_remaining):
+        self._create_view_joins("org_123_")
+        ensure_person_join(self.team.pk, "unrelated_")
+        if remaining_prefix is not None:
+            ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="source_id",
+                connection_id="connection_id",
+                source_type="Stripe",
+                prefix=remaining_prefix,
+            )
+
+        remove_customer_revenue_view_joins(self.team.pk, "org_123_")
+
+        view_joins = self._get_active_joins().filter(source_table_name="stripe.org_123.customer_revenue_view")
+        assert view_joins.count() == expected_remaining
+        assert self._get_active_joins().filter(source_table_name="stripe.unrelated.customer_revenue_view").exists()
