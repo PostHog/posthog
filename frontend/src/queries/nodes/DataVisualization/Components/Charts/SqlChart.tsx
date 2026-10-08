@@ -39,7 +39,7 @@ export type SqlChartProps = {
 
 /**
  * Picks the @posthog/quill-charts renderer for a SQL insight: combo for mixed bar + line/area
- * series, bar for bar-only, line/area otherwise. (Pie has its own wrapper — see PieChart.)
+ * series, bar for bar-only, line/area otherwise. (Pie, donut and proportion bar have their own wrapper — see PartOfWholeChart.)
  */
 export function sqlChartComponentFor(props: SqlChartProps): (props: SqlChartProps) => JSX.Element {
     switch (sqlChartKind(props)) {
