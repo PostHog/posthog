@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import User
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
@@ -178,16 +180,27 @@ class TestScheduledChangeGating(APIBaseTest):
         # The enable must not have applied — a policy now gates it and it was never approved.
         assert flag.active is False
 
-    def test_scheduled_rollout_change_under_update_policy_is_gated(self, _mock_enabled):
-        self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
+    @parameterized.expand(
+        [
+            (
+                "rollout",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+                {"properties": [], "rollout_percentage": 90},
+            ),
+            (
+                "properties_only",
+                {},
+                {"properties": [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}]},
+            ),
+        ]
+    )
+    def test_scheduled_added_condition_under_update_policy_is_gated(
+        self, _mock_enabled, _name: str, conditions: dict[str, Any], condition_fields: dict[str, Any]
+    ):
+        self._update_policy(conditions)
         flag = self._disabled_flag(key="rollout-flag")
 
-        new_condition: dict[str, Any] = {
-            "variant": None,
-            "properties": [],
-            "rollout_percentage": 90,
-            "aggregation_group_type_index": None,
-        }
+        new_condition: dict[str, Any] = {"variant": None, "aggregation_group_type_index": None, **condition_fields}
         scheduled = self._schedule(
             flag,
             {
@@ -203,9 +216,8 @@ class TestScheduledChangeGating(APIBaseTest):
         process_scheduled_changes()
 
         flag.refresh_from_db()
-        # The new 90% condition must not have been appended (change was gated, not applied).
-        rollouts = [g.get("rollout_percentage") for g in flag.filters.get("groups", [])]
-        assert 90 not in rollouts
+        # The new condition must not have been appended (change was gated, not applied).
+        assert len(flag.filters.get("groups", [])) == 1
         scheduled.change_request.refresh_from_db()
         assert scheduled.change_request.state == ChangeRequestState.EXPIRED
 

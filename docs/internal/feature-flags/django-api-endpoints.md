@@ -114,7 +114,7 @@ A flag already in the requested state is returned unchanged with no write at all
 
 `archive` matches the UI contract by disabling an enabled flag in the same write, because an archived flag must be disabled.
 `unarchive` leaves the flag disabled; enabling it is a separate call.
-It is the one action that cannot return a 409: every gated action declines a change that sets neither `active` nor `filters`, so an `archived`-only write never opens a change request.
+It is the one action that cannot return a 409: every gated action declines a change that sets none of `active`, `filters` and `bucketing_identifier`, so an `archived`-only write never opens a change request.
 
 ### `create_static_cohort_for_flag`
 

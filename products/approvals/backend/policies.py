@@ -221,6 +221,9 @@ class PolicyEngine:
         if not compare_fn:
             return True
 
+        if not self._field_changed(field, intent):
+            return False
+
         gated_changes = intent.get("gated_changes", {})
         field_values = gated_changes.get(field, [])
 
@@ -253,6 +256,9 @@ class PolicyEngine:
         compare_fn = self.COMPARISON_OPERATORS.get(operator)
         if not compare_fn:
             return True
+
+        if not self._field_changed(field, intent):
+            return False
 
         current_state = intent.get("current_state", {})
         gated_changes = intent.get("gated_changes", {})
@@ -309,6 +315,25 @@ class PolicyEngine:
                 return True
 
         return False
+
+    def _field_changed(self, field: str, intent: dict) -> bool:
+        """Whether the change touches the field that a condition names.
+
+        `before_after` compares every value of the field, changed or not. Without this check, a
+        "rollout > 50" policy would gate a release condition edit on a flag that some condition set
+        already rolls out to more than 50%.
+        """
+        before_values = intent.get("current_state", {}).get(field)
+        after_values = intent.get("gated_changes", {}).get(field)
+        if not isinstance(before_values, list) or not isinstance(after_values, list):
+            # Not the path and value shape this check reads, so the condition decides alone.
+            return True
+
+        before_by_path = {v["path"]: v["value"] for v in before_values}
+        after_by_path = {v["path"]: v["value"] for v in after_values}
+        return any(
+            before_by_path.get(path) != after_by_path.get(path) for path in before_by_path.keys() | after_by_path.keys()
+        )
 
     def _has_bypass(self, actor, policy, bypass_role_ids: list[str], context: dict) -> bool:
         """Check if user can bypass this policy based on org membership level or RBAC role."""

@@ -1,3 +1,4 @@
+import json
 from abc import abstractmethod
 from typing import Any, Optional
 from uuid import UUID
@@ -9,8 +10,13 @@ from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import flag_owner_kind
+
+# The API adds these keys to a property filter for display. The flag editor sends them back on
+# every save, so a difference in them is not a change to who gets the flag.
+DISPLAY_ONLY_PROPERTY_KEYS = frozenset({"label", "cohort_name", "group_key_names"})
 
 
 def _to_wire_form(value: Any) -> Any:
@@ -217,6 +223,108 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
             return serializer.save()
     except Exception as e:
         raise ApplyFailed(f"Serializer save failed: {str(e)}")
+
+
+def _canonical_property(prop: Any) -> Any:
+    """Normalize a property filter, so a stored filter and the same filter sent back compare equal.
+
+    Stored filters can predate the serializer's normalization, and the API adds display keys on
+    read. Both differences appear on a save that changes nothing about who gets the flag.
+    """
+    if not isinstance(prop, dict):
+        return prop
+
+    canonical = {
+        key: value for key, value in prop.items() if key not in DISPLAY_ONLY_PROPERTY_KEYS and value is not None
+    }
+
+    operator = canonical.get("operator")
+    if isinstance(operator, str):
+        operator = FEATURE_FLAG_OPERATOR_ALIASES.get(operator, operator)
+        canonical["operator"] = operator
+    # A missing operator means an exact match.
+    if operator == "exact":
+        del canonical["operator"]
+
+    if canonical.get("negation") is False:
+        del canonical["negation"]
+
+    key = canonical.get("key")
+    if isinstance(key, int | float) and not isinstance(key, bool):
+        canonical["key"] = str(key)
+
+    return canonical
+
+
+def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[str]) -> list[dict[str, Any]]:
+    """Return what decides who gets the flag, as path and value pairs.
+
+    These are the settings the flag editor shows under "Release conditions": "match by", each
+    condition set's properties and variant override, and early exit. `feature_enrollment` is not in
+    that section, but flag evaluation checks it before any condition set, so it decides who gets the
+    flag too. Rollout percentages are not here, because the rollout paths already compare them.
+
+    The flag-level `aggregation_group_type_index` is not compared. The serializer derives it from the
+    condition sets, and each set's own value below already carries it.
+    """
+    results: list[dict[str, Any]] = [
+        # A null identifier buckets by distinct ID, the same as the default.
+        {
+            "path": "bucketing_identifier",
+            "value": "device_id" if bucketing_identifier == "device_id" else "distinct_id",
+        },
+        {"path": "early_exit", "value": filters.get("early_exit") is True},
+        {"path": "feature_enrollment", "value": filters.get("feature_enrollment") is True},
+    ]
+
+    groups = filters.get("groups")
+    if not isinstance(groups, list):
+        return results
+
+    flag_aggregation = filters.get("aggregation_group_type_index")
+    for index, group in enumerate(groups):
+        if not isinstance(group, dict):
+            continue
+
+        # The properties of a condition set must all match, so their order does not matter.
+        properties = sorted(
+            (_canonical_property(prop) for prop in group.get("properties") or []),
+            key=lambda prop: json.dumps(prop, sort_keys=True, default=str),
+        )
+        results.append(
+            {
+                "path": f"groups[{index}]",
+                "value": {
+                    "properties": properties,
+                    # The serializer copies the flag-level value into a set that has no key of its own.
+                    "aggregation_group_type_index": group.get("aggregation_group_type_index", flag_aggregation),
+                    # An empty override serves the normal variant split, the same as no override.
+                    "variant": group.get("variant") or None,
+                },
+            }
+        )
+
+    return results
+
+
+def _precondition_version(request, flag: FeatureFlag) -> Optional[int]:
+    """Return the flag version that the caller's change was made against.
+
+    The flag editor sends back every field it loaded. A save from an editor opened before someone
+    else changed the release conditions resends the old ones, and the gate reads that as a release
+    condition change. Applying that request would revert the other edit, so the request records the
+    caller's version and the apply refuses it as stale. A caller that sends no version gets the
+    stored one.
+    """
+    request_data = getattr(request, "data", None)
+    caller_version = request_data.get("version") if isinstance(request_data, dict) else None
+    if (
+        isinstance(caller_version, int)
+        and not isinstance(caller_version, bool)
+        and caller_version != (flag.version or 0)
+    ):
+        return caller_version
+    return flag.version
 
 
 class FeatureFlagActionBase(BaseAction):
@@ -456,11 +564,16 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
 
 
 class UpdateFeatureFlagAction(BaseAction):
-    """Gate feature flag field-level updates based on policy conditions."""
+    """Gate changes to a feature flag's rollout and release conditions.
+
+    A rollout change is gated on every flag. A release condition change is gated on a standalone
+    flag only. Product code rewrites the release conditions of a flag its product owns, for example
+    when an experiment freezes its exposure, and those writes cannot wait for an approval.
+    """
 
     key = "feature_flag.update"
     version = 1
-    description = "Update feature flag fields"
+    description = "Change feature flag release conditions or rollout"
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
 
@@ -480,6 +593,13 @@ class UpdateFeatureFlagAction(BaseAction):
     ]
 
     intent_fields = ["rollout_percentage"]
+
+    # How the description names a release condition path other than a condition set.
+    RELEASE_CONDITION_LABELS = {
+        "bucketing_identifier": "match by",
+        "early_exit": "early exit",
+        "feature_enrollment": "early access enrollment",
+    }
 
     @classmethod
     def derive_owner_kind(
@@ -544,44 +664,46 @@ class UpdateFeatureFlagAction(BaseAction):
 
         return results
 
-    @classmethod
-    def _has_gateable_field_changes(cls, old_filters: dict[str, Any], new_filters: dict[str, Any]) -> bool:
-        """Check if any gateable field has changed between old and new filters."""
-        old_values = cls._extract_rollout_percentages(old_filters)
-        new_values = cls._extract_rollout_percentages(new_filters)
-
+    @staticmethod
+    def _changed_paths(old_values: list[dict[str, Any]], new_values: list[dict[str, Any]]) -> list[str]:
         old_by_path = {v["path"]: v["value"] for v in old_values}
         new_by_path = {v["path"]: v["value"] for v in new_values}
-
-        all_paths = set(old_by_path.keys()) | set(new_by_path.keys())
-
-        for path in all_paths:
-            old_val = old_by_path.get(path)
-            new_val = new_by_path.get(path)
-            if old_val != new_val:
-                return True
-
-        return False
+        paths = [*new_by_path, *(path for path in old_by_path if path not in new_by_path)]
+        return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
-    def _get_triggered_paths(cls, old_filters: dict[str, Any], new_filters: dict[str, Any]) -> list[str]:
-        """Get list of field paths that have changed."""
-        old_values = cls._extract_rollout_percentages(old_filters)
-        new_values = cls._extract_rollout_percentages(new_filters)
+    def _gated_values(
+        cls, flag: Optional[FeatureFlag], change: dict[str, Any]
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+        """Return the values of each gated field before and after the change.
 
-        old_by_path = {v["path"]: v["value"] for v in old_values}
-        new_by_path = {v["path"]: v["value"] for v in new_values}
+        `release_conditions` is present only when the release conditions of a standalone flag
+        changed. A create compares its rollout against an empty baseline, so a flag born with any
+        rollout trips an "any change / >0" policy, and its release conditions are not compared:
+        a new flag serves nobody until it is enabled, and `feature_flag.enable` gates that.
+        """
+        old_filters = (flag.filters or {}) if flag is not None else {}
+        new_filters = change["filters"] if "filters" in change else old_filters
 
-        all_paths = set(old_by_path.keys()) | set(new_by_path.keys())
-        triggered = []
+        before = {"rollout_percentage": cls._extract_rollout_percentages(old_filters)}
+        after = {"rollout_percentage": cls._extract_rollout_percentages(new_filters)}
+        if flag is None:
+            return before, after
 
-        for path in all_paths:
-            old_val = old_by_path.get(path)
-            new_val = new_by_path.get(path)
-            if old_val != new_val:
-                triggered.append(path)
+        old_release = _release_conditions(old_filters, flag.bucketing_identifier)
+        new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
+        # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
+        if cls._changed_paths(old_release, new_release) and flag_owner_kind(flag) is None:
+            before["release_conditions"] = old_release
+            after["release_conditions"] = new_release
 
-        return triggered
+        return before, after
+
+    @classmethod
+    def _triggered_paths(
+        cls, before: dict[str, list[dict[str, Any]]], after: dict[str, list[dict[str, Any]]]
+    ) -> list[str]:
+        return [path for field in after for path in cls._changed_paths(before[field], after[field])]
 
     @classmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
@@ -592,22 +714,7 @@ class UpdateFeatureFlagAction(BaseAction):
 
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        if flag is not None:
-            desired_active = change.get("active")
-            current_active = flag.active
-            if desired_active is not None and desired_active != current_active:
-                if "filters" not in change:
-                    return False
-
-        new_filters = change.get("filters")
-        if not new_filters:
-            return False
-
-        # On a create there is no prior flag — compare the new rollout against an empty baseline,
-        # so a flag born with any rollout trips an "any change / >0" policy.
-        old_filters = (flag.filters or {}) if flag is not None else {}
-
-        if not cls._has_gateable_field_changes(old_filters, new_filters):
+        if not cls._triggered_paths(*cls._gated_values(flag, change)):
             return False
 
         team = cls._get_team(view)
@@ -621,13 +728,7 @@ class UpdateFeatureFlagAction(BaseAction):
         flag = _get_flag_instance(view, *args, **kwargs)
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        old_filters = (flag.filters or {}) if flag is not None else {}
-        new_filters = change.get("filters", {})
-
-        old_rollout_percentages = cls._extract_rollout_percentages(old_filters)
-        new_rollout_percentages = cls._extract_rollout_percentages(new_filters)
-
-        triggered_paths = cls._get_triggered_paths(old_filters, new_filters)
+        current_state, gated_changes = cls._gated_values(flag, change)
 
         # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
         # the approved change replays, the way the lifecycle base records it. Without this an
@@ -637,16 +738,12 @@ class UpdateFeatureFlagAction(BaseAction):
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
-            "current_state": {
-                "rollout_percentage": old_rollout_percentages,
-            },
-            "gated_changes": {
-                "rollout_percentage": new_rollout_percentages,
-            },
-            "triggered_paths": triggered_paths,
+            "current_state": current_state,
+            "gated_changes": gated_changes,
+            "triggered_paths": cls._triggered_paths(current_state, gated_changes),
             "full_request_data": dict(change),
             "preconditions": {
-                "version": flag.version if flag is not None else None,
+                "version": _precondition_version(request, flag) if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
             "skip_opportunistic_filter_cleanup": skip_cleanup,
@@ -730,6 +827,18 @@ class UpdateFeatureFlagAction(BaseAction):
         return flag
 
     @classmethod
+    def _release_condition_change(cls, path: str, before_paths: set[str], after_paths: set[str]) -> str:
+        if not path.startswith("groups["):
+            return cls.RELEASE_CONDITION_LABELS.get(path, path)
+
+        label = f"condition set {int(path[len('groups[') : -1]) + 1}"
+        if path not in before_paths:
+            return f"{label} added"
+        if path not in after_paths:
+            return f"{label} removed"
+        return label
+
+    @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         """Generate human-readable diff showing before/after for gated fields."""
         flag_key = intent_data.get("flag_key", "unknown")
@@ -737,22 +846,29 @@ class UpdateFeatureFlagAction(BaseAction):
         gated_changes = intent_data.get("gated_changes", {})
         triggered_paths = intent_data.get("triggered_paths", [])
 
-        changes_description = []
-        before_values = current_state.get("rollout_percentage", [])
-        after_values = gated_changes.get("rollout_percentage", [])
+        rollout_before = {v["path"]: v["value"] for v in current_state.get("rollout_percentage", [])}
+        rollout_after = {v["path"]: v["value"] for v in gated_changes.get("rollout_percentage", [])}
+        release_before = {v["path"] for v in current_state.get("release_conditions", [])}
+        release_after = {v["path"] for v in gated_changes.get("release_conditions", [])}
 
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
-
+        rollout_display_name = cls.GATEABLE_FIELDS["rollout_percentage"]["display_name"]
+        release_changes: list[str] = []
+        rollout_changes: list[str] = []
         for path in triggered_paths:
-            before_val = before_by_path.get(path, "N/A")
-            after_val = after_by_path.get(path, "N/A")
-            field_display_name = cls.GATEABLE_FIELDS["rollout_percentage"]["display_name"]
-            changes_description.append(f"{field_display_name} at {path}: {before_val}% -> {after_val}%")
+            if path in release_before or path in release_after:
+                release_changes.append(cls._release_condition_change(path, release_before, release_after))
+            else:
+                before_val = rollout_before.get(path, "N/A")
+                after_val = rollout_after.get(path, "N/A")
+                rollout_changes.append(f"{rollout_display_name} at {path}: {before_val}% -> {after_val}%")
 
-        description = (
-            f"Update {cls.GATEABLE_FIELDS['rollout_percentage']['display_name']} for feature flag '{flag_key}'"
-        )
+        changed_fields = [
+            name
+            for name, changes in (("release conditions", release_changes), (rollout_display_name, rollout_changes))
+            if changes
+        ] or [rollout_display_name]
+        description = f"Update {' and '.join(changed_fields)} for feature flag '{flag_key}'"
+        changes_description = [*release_changes, *rollout_changes]
         if changes_description:
             description = f"{description}: {'; '.join(changes_description)}"
 
