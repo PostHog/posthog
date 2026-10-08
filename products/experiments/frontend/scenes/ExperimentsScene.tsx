@@ -138,7 +138,7 @@ const ExperimentsTableFilters = ({
                 >
                     <LemonInput
                         type="search"
-                        placeholder="Search experiments"
+                        placeholder="Search by name or flag"
                         onChange={(search) => onFiltersChange({ search, page: 1 })}
                         value={filters.search || ''}
                     />
