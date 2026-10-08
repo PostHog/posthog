@@ -47,10 +47,15 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
         authorization = f"Bearer {self._token()}"
-        initial = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
+        initial = self.client.get(
+            "/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization, HTTP_ACCEPT="application/json"
+        )
         self.assertEqual(initial.status_code, 200)
         self.assertEqual(initial["Cache-Control"], "no-store")
         self.assertEqual(initial.json(), {"restricted_event_properties": [], "restricted_person_properties": []})
+        legacy = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
+        self.assertEqual(legacy.status_code, 204)
+        self.assertEqual(legacy["Cache-Control"], "no-store")
 
         if revoked == "membership":
             self.organization_membership.delete()
@@ -108,7 +113,9 @@ class TestLivestreamAuthorization(APIBaseTest):
                 access_level=PropertyAccessLevel.NONE.value if name != "$browser" else PropertyAccessLevel.READ.value,
             )
 
-        response = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}")
+        response = self.client.get(
+            "/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}", HTTP_ACCEPT="application/json"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(

@@ -71,6 +71,8 @@ func CheckAccess(ctx context.Context, header http.Header) (*PropertyRestrictions
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
 	request.Header.Set("Authorization", header.Get("Authorization"))
+	// Django answers 204 to a client that does not ask for JSON, so an older service keeps working.
+	request.Header.Set("Accept", "application/json")
 	response, err := authorizationClient.Do(request)
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")

