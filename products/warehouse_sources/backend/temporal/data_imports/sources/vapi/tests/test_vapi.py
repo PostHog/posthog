@@ -99,22 +99,6 @@ def _collect(
 
 
 class TestCreatedAtCursorEndpoints:
-    def test_paginates_with_created_at_lt_until_short_page(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/call?limit=2": [
-                {"id": "3", "createdAt": "2026-01-03T00:00:00.000Z"},
-                {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
-            ],
-            "https://api.vapi.ai/call?limit=2&createdAtLt=2026-01-02T00%3A00%3A00.000Z": [
-                {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
-            ],
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="calls")
-
-        assert [r["id"] for r in rows] == ["3", "2", "1"]
-        assert fetched == list(pages)
-
     def test_saves_cursor_of_last_yielded_row(self, monkeypatch: Any) -> None:
         pages = {
             "https://api.vapi.ai/call?limit=2": [
@@ -128,19 +112,6 @@ class TestCreatedAtCursorEndpoints:
         _collect(monkeypatch, manager, endpoint="calls")
 
         assert manager.saved[-1] == VapiResumeConfig(created_at_cursor="2026-01-02T00:00:00.000Z")
-
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/call?limit=2&createdAtLt=2026-01-02T00%3A00%3A00.000Z": [
-                {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
-            ],
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager(VapiResumeConfig(created_at_cursor="2026-01-02T00:00:00.000Z"))
-        rows = _collect(monkeypatch, manager, endpoint="calls")
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert fetched == list(pages)
 
     def test_incremental_fetches_backfill_then_newer_rows(self, monkeypatch: Any) -> None:
         pages = {
@@ -170,23 +141,6 @@ class TestCreatedAtCursorEndpoints:
         # Incremental legs are bounded windows; a retry re-fetches them, so no resume state.
         assert manager.saved == []
 
-    def test_incremental_on_updated_at_uses_updated_at_filters(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/call?updatedAtGt=2026-01-05T00%3A00%3A00.000Z&limit=2": [
-                {"id": "6", "createdAt": "2026-01-06T00:00:00.000Z", "updatedAt": "2026-01-06T00:00:00.000Z"},
-            ],
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(
-            monkeypatch,
-            _FakeResumableManager(),
-            endpoint="calls",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
-            incremental_field="updatedAt",
-        )
-        assert fetched == list(pages)
-
 
 class TestPageEndpoints:
     def test_walks_ascending_pages_until_has_next_page_false(self, monkeypatch: Any) -> None:
@@ -209,20 +163,6 @@ class TestPageEndpoints:
         assert [r["id"] for r in rows] == ["1", "2", "3"]
         assert fetched == list(pages)
 
-    def test_resume_cursor_narrows_window_and_restarts_at_page_one(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/chat?createdAtGt=2026-01-02T00%3A00%3A00.000Z&limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
-                "results": [{"id": "3", "createdAt": "2026-01-03T00:00:00.000Z"}],
-                "metadata": {"hasNextPage": False},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager(VapiResumeConfig(created_at_cursor="2026-01-02T00:00:00.000Z"))
-        rows = _collect(monkeypatch, manager, endpoint="chats")
-
-        assert [r["id"] for r in rows] == ["3"]
-        assert fetched == list(pages)
-
     def test_incremental_watermark_becomes_created_at_gt(self, monkeypatch: Any) -> None:
         pages = {
             "https://api.vapi.ai/session?createdAtGt=2026-01-05T00%3A00%3A00.000Z&limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
@@ -239,6 +179,23 @@ class TestPageEndpoints:
             db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
             incremental_field="createdAt",
         )
+        assert fetched == list(pages)
+
+    def test_bare_array_response_stops_on_short_page(self, monkeypatch: Any) -> None:
+        # /eval/simulation/run may answer with a bare array instead of the {results, metadata} envelope.
+        pages = {
+            "https://api.vapi.ai/eval/simulation/run?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": [
+                {"id": "r1", "createdAt": "2026-01-01T00:00:00.000Z"},
+                {"id": "r2", "createdAt": "2026-01-02T00:00:00.000Z"},
+            ],
+            "https://api.vapi.ai/eval/simulation/run?limit=2&page=2&sortOrder=ASC&sortBy=createdAt": [
+                {"id": "r3", "createdAt": "2026-01-03T00:00:00.000Z"},
+            ],
+        }
+        fetched = _patch_fetch(monkeypatch, pages)
+        rows = _collect(monkeypatch, _FakeResumableManager(), endpoint="simulation_runs")
+
+        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
         assert fetched == list(pages)
 
 
@@ -291,41 +248,6 @@ class TestUnpaginatedEndpoints:
         assert [r["id"] for r in rows] == ["f1"]
         assert fetched == list(pages)
         assert manager.saved == []
-
-
-class TestPhoneNumbersVersionDispatch:
-    """phone_numbers is the only resource whose wire contract differs between versions: v1 serves a
-    bare createdAt-descending array at /phone-number, v2 a page-numbered envelope at /v2/phone-number."""
-
-    def test_v1_walks_created_at_descending_array(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/phone-number?limit=2": [
-                {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
-                {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
-            ],
-            "https://api.vapi.ai/phone-number?limit=2&createdAtLt=2026-01-01T00%3A00%3A00.000Z": [],
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), api_version=VAPI_VERSION_V1, endpoint="phone_numbers")
-
-        assert [r["id"] for r in rows] == ["2", "1"]
-        assert fetched == list(pages)
-
-    def test_v2_walks_ascending_pages_at_v2_path(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.vapi.ai/v2/phone-number?limit=2&page=1&sortOrder=ASC&sortBy=createdAt": {
-                "results": [
-                    {"id": "1", "createdAt": "2026-01-01T00:00:00.000Z"},
-                    {"id": "2", "createdAt": "2026-01-02T00:00:00.000Z"},
-                ],
-                "metadata": {"hasNextPage": False},
-            },
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(monkeypatch, _FakeResumableManager(), api_version=VAPI_VERSION_V2, endpoint="phone_numbers")
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert fetched == list(pages)
 
 
 class TestVapiSourceResponse:

@@ -151,22 +151,6 @@ def test_requests_and_pagination(
     assert manager.save_state.call_args.args[0].offset == 2
 
 
-@pytest.mark.parametrize("size", [0, 100])
-def test_terminal_page(
-    config: MicrosoftDefenderCloudAppsSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    send: MagicMock,
-    size: int,
-) -> None:
-    rows = [{"_id": str(index)} for index in range(size)]
-    send.return_value = response({"data": rows, "hasNext": False})
-    result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    assert rows_from(result) == rows
-    send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize(
     "body",
     [

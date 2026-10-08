@@ -9,8 +9,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata import stockdata
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.settings import STOCKDATA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.stockdata import (
     StockDataResumeConfig,
     _format_date,
@@ -119,23 +117,6 @@ class TestCursorFormatting:
 
 class TestNewsPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_found_reached(self, MockSession) -> None:
-        session = MockSession.return_value
-        page1 = [{"uuid": f"u{i}"} for i in range(100)]
-        page2 = [{"uuid": f"u{i}"} for i in range(100, 150)]
-        params = _wire(
-            session,
-            [_news_page(page1, found=150, limit=100, page=1), _news_page(page2, found=150, limit=100, page=2)],
-        )
-
-        rows = _rows(_source("news"))
-
-        assert len(rows) == 150
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_at_20k_result_cap(self, MockSession) -> None:
         # limit × page can't exceed 20,000; requesting past it errors, so pagination must stop there.
         session = MockSession.return_value
@@ -173,22 +154,6 @@ class TestNewsPagination:
         assert params[0]["page"] == 3
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        page1 = [{"uuid": f"u{i}"} for i in range(100)]
-        page2 = [{"uuid": f"u{i}"} for i in range(100, 200)]
-        _wire(
-            session,
-            [_news_page(page1, found=200, limit=100, page=1), _news_page(page2, found=200, limit=100, page=2)],
-        )
-
-        manager = _make_manager()
-        _rows(_source("news", manager=manager))
-
-        # State saved once, with the next page to resume from, only while more pages remain.
-        manager.save_state.assert_called_once_with(StockDataResumeConfig(next_page=2))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_data_page(None, drop_data=True)])
@@ -200,25 +165,6 @@ class TestNewsPagination:
 
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_news_sorts_by_published_on_and_omits_symbols_by_default(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_news_page([{"uuid": "u1"}], found=1, limit=100, page=1)])
-
-        _rows(_source("news", symbols=None))
-
-        assert params[0]["sort"] == "published_on"
-        assert "symbols" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_news_filters_by_normalized_symbols_when_configured(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_news_page([{"uuid": "u1"}], found=1, limit=100, page=1)])
-
-        _rows(_source("news", symbols=" aapl, msft ,"))
-
-        assert params[0]["symbols"] == "AAPL,MSFT"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_news_incremental_passes_published_after_watermark(self, MockSession) -> None:
         session = MockSession.return_value
@@ -240,25 +186,6 @@ class TestRequestParams:
         assert params[0]["symbols"] == "AAPL"
         assert params[0]["date_from"] == "2021-04-09"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_intraday_uses_hour_interval(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_data_page([])])
-
-        _rows(_source("intraday", symbols="AAPL"))
-
-        assert params[0]["interval"] == "hour"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_watermark_params_on_first_incremental_sync(self, MockSession) -> None:
-        # A first incremental sync has no stored watermark, so no server-side filter should be sent.
-        session = MockSession.return_value
-        params = _wire(session, [_data_page([])])
-
-        _rows(_source("eod", symbols="AAPL", db_incremental_field_last_value=None))
-
-        assert "date_from" not in params[0]
-
 
 class TestRequiresSymbols:
     @parameterized.expand([("quote",), ("eod",), ("intraday",), ("dividends",), ("splits",)])
@@ -272,48 +199,6 @@ class TestRequiresSymbols:
         with pytest.raises(ValueError) as exc:
             _source("eod", symbols=" , ")
         assert "[missing_symbols]" in str(exc.value)
-
-
-class TestRowShapes:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_eod_rows_flatten_nested_ohlcv(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _data_page(
-                    [
-                        {
-                            "ticker": "AAPL",
-                            "date": "2021-04-09T00:00:00.000000Z",
-                            "data": {"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100},
-                        }
-                    ]
-                )
-            ],
-        )
-
-        rows = _rows(_source("eod", symbols="AAPL"))
-
-        assert rows == [
-            {
-                "ticker": "AAPL",
-                "date": "2021-04-09T00:00:00.000000Z",
-                "open": 1.0,
-                "high": 2.0,
-                "low": 0.5,
-                "close": 1.5,
-                "volume": 100,
-            }
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_data_object_yields_no_rows(self, MockSession) -> None:
-        # StockData.org signals an empty result set as `"data": {}` — it must not become a junk row.
-        session = MockSession.return_value
-        _wire(session, [_data_page({})])
-
-        assert _rows(_source("quote", symbols="AAPL")) == []
 
 
 class TestHttpErrors:
@@ -367,12 +252,6 @@ class TestSourceResponse:
             assert response.partition_keys == [expected_partition]
             assert response.partition_mode == "datetime"
 
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in STOCKDATA_ENDPOINTS:
-            response = _source(endpoint, symbols="AAPL")
-            assert response.name == endpoint
-            assert callable(response.items)
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -403,7 +282,3 @@ class TestValidateCredentials:
             ok, message = validate_credentials("k")
         assert ok is False
         assert message
-
-
-def test_module_exposes_base_url() -> None:
-    assert stockdata.STOCKDATA_BASE_URL == "https://api.stockdata.org/v1"

@@ -1531,7 +1531,8 @@ class _PreviewSession(_NoRedirectSession):
         self._body_budget = PREVIEW_MAX_TOTAL_BODY_BYTES
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-        kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
         kwargs["stream"] = True
         response = super().send(request, **kwargs)
         try:

@@ -50,6 +50,8 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
 6. **Sync feature flags** - run `sync_feature_flags` so each flag in the PR's `constants.tsx` that the golden lacks exists and is on.
+   Then `warm_team_metadata_cache` and `warm_flags_cache` fill the flags Redis (`redis7` database 1), which `feature-flags` reads. Django and `feature-flags` share `FLAGS_REDIS_URL`, and `feature-flags` uses the stack's object storage for cache misses.
+   A celery `worker` runs in the preview, without the scheduler, so tasks such as the flag cache refresh that a flag save queues actually run.
 7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
    A Caddy container (`static-proxy`) takes the exposed port.
    It serves `/static/*` from `staticfiles/` and sends all other requests to web, so asset requests do not use Django threads.
