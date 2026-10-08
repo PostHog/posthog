@@ -115,12 +115,11 @@ tools:
             what the number is and its grain, plus any inclusion or exclusion that changes it. Leave out source tables
             or views, lineage, column lists, upstream corrections, and comparisons with or pointers to other metrics.
             Never walk through the query or calculation steps (the definition carries those); put rationale for the
-            chosen definition in 'reasoning'. Before creating a metric, inspect the complete
-            catalog with metric-list and inspect a candidate's definition with metric-describe when it may be reusable.
-            When the metric comes from an existing saved insight, pass that insight's 'source_insight_short_id' instead
-            of copying its query into 'definition' - the two are mutually exclusive. The server snapshots the insight's
-            query, tracks drift against it, and the metric then links back to the insight so a person can edit the query
-            where it lives.
+            chosen definition in 'reasoning'. Before creating a metric, inspect the complete catalog with metric-list
+            and inspect a candidate's definition with metric-describe when it may be reusable. When the metric comes
+            from an existing saved insight, pass that insight's 'source_insight_short_id' instead of copying its query
+            into 'definition' - the two are mutually exclusive. The server snapshots the insight's query, tracks drift
+            against it, and the metric then links back to the insight so a person can edit the query where it lives.
         exclude_params:
             - created_source
         inject_body:
