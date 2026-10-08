@@ -6,6 +6,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Model
 
+from posthog.dataclasses import frozen
+
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
@@ -325,6 +327,14 @@ def _precondition_version(request, flag: FeatureFlag) -> Optional[int]:
     ):
         return caller_version
     return flag.version
+
+
+@frozen
+class _GatedValues:
+    """The values of each gated field before and after a change, keyed by field name."""
+
+    before: dict[str, list[dict[str, Any]]]
+    after: dict[str, list[dict[str, Any]]]
 
 
 class FeatureFlagActionBase(BaseAction):
@@ -672,9 +682,7 @@ class UpdateFeatureFlagAction(BaseAction):
         return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
-    def _gated_values(
-        cls, flag: Optional[FeatureFlag], change: dict[str, Any]
-    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
+    def _gated_values(cls, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
         """Return the values of each gated field before and after the change.
 
         `release_conditions` is present only when the release conditions of a standalone flag
@@ -688,7 +696,7 @@ class UpdateFeatureFlagAction(BaseAction):
         before = {"rollout_percentage": cls._extract_rollout_percentages(old_filters)}
         after = {"rollout_percentage": cls._extract_rollout_percentages(new_filters)}
         if flag is None:
-            return before, after
+            return _GatedValues(before=before, after=after)
 
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
         new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
@@ -697,13 +705,13 @@ class UpdateFeatureFlagAction(BaseAction):
             before["release_conditions"] = old_release
             after["release_conditions"] = new_release
 
-        return before, after
+        return _GatedValues(before=before, after=after)
 
     @classmethod
-    def _triggered_paths(
-        cls, before: dict[str, list[dict[str, Any]]], after: dict[str, list[dict[str, Any]]]
-    ) -> list[str]:
-        return [path for field in after for path in cls._changed_paths(before[field], after[field])]
+    def _triggered_paths(cls, values: _GatedValues) -> list[str]:
+        return [
+            path for field in values.after for path in cls._changed_paths(values.before[field], values.after[field])
+        ]
 
     @classmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
@@ -714,7 +722,7 @@ class UpdateFeatureFlagAction(BaseAction):
 
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        if not cls._triggered_paths(*cls._gated_values(flag, change)):
+        if not cls._triggered_paths(cls._gated_values(flag, change)):
             return False
 
         team = cls._get_team(view)
@@ -728,7 +736,7 @@ class UpdateFeatureFlagAction(BaseAction):
         flag = _get_flag_instance(view, *args, **kwargs)
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        current_state, gated_changes = cls._gated_values(flag, change)
+        values = cls._gated_values(flag, change)
 
         # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
         # the approved change replays, the way the lifecycle base records it. Without this an
@@ -738,9 +746,9 @@ class UpdateFeatureFlagAction(BaseAction):
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
-            "current_state": current_state,
-            "gated_changes": gated_changes,
-            "triggered_paths": cls._triggered_paths(current_state, gated_changes),
+            "current_state": values.before,
+            "gated_changes": values.after,
+            "triggered_paths": cls._triggered_paths(values),
             "full_request_data": dict(change),
             "preconditions": {
                 "version": _precondition_version(request, flag) if flag is not None else None,
