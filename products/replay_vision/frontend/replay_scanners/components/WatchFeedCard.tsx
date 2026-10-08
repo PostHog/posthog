@@ -398,15 +398,18 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                 </Link>
                 <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
                 <WatchCardPerson observation={observation} person={person} />
-                <p
-                    className="m-0 mt-1 flex items-start gap-1.5 border-t pt-2 text-sm text-secondary"
-                    data-attr="vision-watch-feed-why"
-                >
-                    <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
-                    <span className="line-clamp-2">
-                        <span className="font-medium text-default">Why this recording:</span> {watchFeedRowWhy(reason)}
-                    </span>
-                </p>
+                {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
+                    the border between two rows. */}
+                <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
+                    <span className="block h-px w-10 bg-border" aria-hidden />
+                    <p className="m-0 flex items-start gap-1.5 text-sm text-secondary">
+                        <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                        <span className="line-clamp-2">
+                            <span className="font-medium text-default">Why this recording:</span>{' '}
+                            {watchFeedRowWhy(reason)}
+                        </span>
+                    </p>
+                </div>
             </div>
         </article>
     )
