@@ -647,7 +647,7 @@ describe('weekly flaky report', () => {
         assert.equal(teamPost.target.channel, '#team-replay')
         assert.equal(
             teamPost.blocks.at(-1).elements[0].text,
-            '<https://slack.test/C_DIGEST/0|Report for all teams> · Wrong owner or wrong numbers? Tell <#C09G8QA6740>'
+            '<https://slack.test/C_DIGEST/0|Report for all teams> · Wrong owner, wrong numbers, general feedback? Tell <#C09G8QA6740>!'
         )
         assert.deepEqual(index.target, { threadTs: '0' })
         assert.deepEqual(index.blocks[0].rows[1], [

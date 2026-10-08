@@ -525,7 +525,7 @@ function buildTeamBlocks(now, { owner, rows }, digestUrl) {
     return reportBlocks(
         `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days)_`,
         rows,
-        [...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []), `Wrong owner or wrong numbers? Tell ${FEEDBACK_CHANNEL}`]
+        [...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []), `Wrong owner, wrong numbers, general feedback? Tell ${FEEDBACK_CHANNEL}!`]
     )
 }
 
