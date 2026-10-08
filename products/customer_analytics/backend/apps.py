@@ -35,6 +35,11 @@ class CustomerAnalyticsConfig(AppConfig):
 
                 return api.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
 
+            def create_account_audience_query(self, team, filters: AccountAudienceFilters):
+                from products.customer_analytics.backend.facade import api  # noqa: PLC0415
+
+                return api.create_account_audience_query(team, filters)
+
             def get_account_group_type_name(self, team) -> str | None:
                 from products.customer_analytics.backend.facade import api  # noqa: PLC0415
 

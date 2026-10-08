@@ -61,7 +61,7 @@ export function AccountsColumnConfigurator(): JSX.Element {
 }
 
 function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { selectColumns, accountsColumnGroups, databaseLoading, editingColumn, editingColumnIndex } =
+    const { selectColumns, accountsColumnGroups, databaseLoading, editingColumn, editingColumnIndex, canSaveView } =
         useValues(accountsColumnConfigLogic)
     const { moveColumn, resetColumns, unselectColumn, setEditingColumnIndex } = useActions(accountsColumnConfigLogic)
 
@@ -78,7 +78,7 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                             Reset to defaults
                         </LemonButton>
                     </div>
-                    <SaveViewButton />
+                    {canSaveView && <SaveViewButton />}
                     <LemonButton type="primary" onClick={onClose} data-attr="accounts-columns-done">
                         Done
                     </LemonButton>

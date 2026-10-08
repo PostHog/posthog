@@ -12,8 +12,10 @@ from posthog.models.team import Team
 
 from products.customer_analytics.backend.facade.api import (
     count_accounts_for_audience,
+    create_account_audience_query,
     list_account_external_ids_for_audience,
 )
+from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -23,9 +25,19 @@ from products.workflows.backend.facade.contracts import AccountAudienceCustomPro
 @override_settings(IN_UNIT_TESTING=True)
 class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
     def _list(self, filters: AccountAudienceFilters | None = None, cursor: str | None = None, limit: int = 100):
-        return list_account_external_ids_for_audience(
-            self.team, filters or AccountAudienceFilters(), cursor=cursor, limit=limit
+        filters = filters or AccountAudienceFilters()
+        external_ids = list_account_external_ids_for_audience(self.team, filters, cursor=cursor, limit=limit)
+        if cursor is None and len(external_ids) < limit:
+            assert self._list_audience_query(filters) == external_ids
+        return external_ids
+
+    def _list_audience_query(self, filters: AccountAudienceFilters) -> list[str]:
+        runner = AccountsQueryRunner(
+            query=create_account_audience_query(self.team, filters), team=self.team, user=self.user
         )
+        response = runner.calculate()
+        name_index = runner.columns.index("name")
+        return sorted(row[name_index]["external_id"] for row in response.results)
 
     def _custom_property_filters(self, definition_id, operator: str, value=None) -> AccountAudienceFilters:
         return AccountAudienceFilters(
@@ -51,7 +63,7 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert self._list() == ["mine"]
 
-    def test_excludes_ignored_accounts_from_list_and_count(self):
+    def test_excludes_ignored_but_keeps_churned_accounts(self):
         create_account(team_id=self.team.id, name="Tracked", external_id="tracked")
         create_account(
             team_id=self.team.id,
@@ -59,9 +71,15 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
             external_id="ignored",
             ignored_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
+        create_account(
+            team_id=self.team.id,
+            name="Churned",
+            external_id="churned",
+            churned_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
 
-        assert self._list() == ["tracked"]
-        assert count_accounts_for_audience(self.team, AccountAudienceFilters()) == 1
+        assert self._list() == ["churned", "tracked"]
+        assert count_accounts_for_audience(self.team, AccountAudienceFilters()) == 2
 
     def test_tag_filter_narrows(self):
         tagged = create_account(team_id=self.team.id, name="Tagged", external_id="tagged")

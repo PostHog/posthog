@@ -207,6 +207,8 @@ _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
+    from posthog.schema import AccountsQuery
+
     from posthog.models.user import User
 
     from products.customer_analytics.backend.models import CustomPropertyValue
@@ -581,6 +583,14 @@ def list_account_external_ids_for_audience(
     )
 
     return account_audience.list_account_external_ids_for_audience(team, filters, cursor=cursor, limit=limit)
+
+
+def create_account_audience_query(team: Team, filters: "AccountAudienceFilters") -> "AccountsQuery":
+    from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
+        account_audience,
+    )
+
+    return account_audience.create_account_audience_query(team, filters)
 
 
 def create_external_account(

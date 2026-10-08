@@ -8,6 +8,8 @@ keep the two in sync so a trigger audience matches what the Accounts scene previ
 from typing import Any, cast
 from uuid import UUID
 
+from posthog.schema import AccountsQuery
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -87,6 +89,12 @@ def count_accounts_for_audience(team: Team, filters: AccountAudienceFilters) -> 
     tag_queries(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY)
     response = execute_hogql_query(query=query, team=team, user=_audience_principal(team))
     return int(response.results[0][0]) if response.results else 0
+
+
+def create_account_audience_query(team: Team, filters: AccountAudienceFilters) -> AccountsQuery:
+    # The list must select exactly the accounts the count and the send select, so it
+    # reuses their predicate instead of translating the filters a second time.
+    return AccountsQuery(filterExpression=ast.And(exprs=_where_exprs(team, filters)).to_hogql())
 
 
 def _active_relationship_account_ids(user_ids: tuple[int, ...] | None = None) -> ast.SelectQuery | ast.SelectSetQuery:
