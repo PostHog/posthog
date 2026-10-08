@@ -464,6 +464,7 @@ class DestinationType(LabeledStrEnum):
     WEBHOOK = "webhook", "Webhook"
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
+    EMAIL = "email", "Email"
 
 
 class PagerDutySeverity(StrEnum):
@@ -499,6 +500,7 @@ class AlertDestinationData(TypedDict):
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
+    email_addresses: NotRequired[list[str]]
 
 
 class AlertDestinationValidationError(Exception):
