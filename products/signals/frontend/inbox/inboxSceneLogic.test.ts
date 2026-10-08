@@ -251,10 +251,18 @@ describe('inboxSceneLogic routing', () => {
         await expectLogic(logic).toFinishAllListeners()
         const originalLocation = window.location
         const pathname = `/project/${MOCK_DEFAULT_TEAM.id}${urls.inboxReport('reports', 'r-missing')}`
+        const replaceSpy = jest.fn()
         Object.defineProperty(window, 'location', {
             configurable: true,
             writable: true,
-            value: { ...originalLocation, pathname, search: '?view=all', hash: '', href: originalLocation.href },
+            value: {
+                ...originalLocation,
+                pathname,
+                search: '?view=all',
+                hash: '',
+                href: originalLocation.href,
+                replace: replaceSpy,
+            },
         })
         try {
             await expectLogic(logic, () => logic.actions.setSelectedReportId('r-missing'))
@@ -263,11 +271,10 @@ describe('inboxSceneLogic routing', () => {
 
             expect(logic.values.selectedReport).toBeNull()
             expect(logic.values.selectedReportLoading).toBe(redirects)
-            expect(window.location.href).toBe(
-                redirects
-                    ? `/project/${owningTeamId}${urls.inboxReport('reports', 'r-missing')}?view=all`
-                    : originalLocation.href
+            expect(replaceSpy.mock.calls).toEqual(
+                redirects ? [[`/project/${owningTeamId}${urls.inboxReport('reports', 'r-missing')}?view=all`]] : []
             )
+            expect(window.location.href).toBe(originalLocation.href)
             expect(captureSpy).toHaveBeenCalledWith(
                 'Inbox report not found',
                 expect.objectContaining({ report_id: 'r-missing', outcome }),

@@ -1061,10 +1061,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         redirectToReportProject: ({ id, teamId }) => {
             captureInboxReportNotFound({ reportId: id, outcome: 'redirected' })
             const { pathname, search, hash } = window.location
-            userLogic.actions.switchTeam(
-                teamId,
-                `/project/${teamId}${removeProjectIdIfPresent(pathname)}${search}${hash}`
-            )
+            // Replace, not push: Back would return to the broken link and redirect again.
+            window.location.replace(`/project/${teamId}${removeProjectIdIfPresent(pathname)}${search}${hash}`)
         },
         // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
         // of the already-open report). Rank/list_size come from whichever loaded list holds it.
