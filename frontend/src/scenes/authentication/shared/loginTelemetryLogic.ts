@@ -40,7 +40,6 @@ export const LISTENED_ACTIONS = {
     twoFactorError: 'set general error (scenes.authentication.login-2fa.login2FALogic)',
     resetRequested: 'submit request password reset success (scenes.authentication.password-reset.passwordResetLogic)',
     recentLoginSelected: 'select recent login (scenes.authentication.login.recentLoginsLogic)',
-    recentLoginRemoved: 'remove recent login (scenes.authentication.login.recentLoginsLogic)',
     otherLoginMethodsShown: 'show other login methods (scenes.authentication.login.recentLoginsLogic)',
 } as const
 
@@ -110,9 +109,6 @@ export const loginTelemetryLogic = kea<loginTelemetryLogicType>([
         },
         [LISTENED_ACTIONS.recentLoginSelected]: ({ recentLogin }: { recentLogin: RecentLogin }) => {
             posthog.capture('recent login selected', { method: recentLogin.method, region: values.preflight?.region })
-        },
-        [LISTENED_ACTIONS.recentLoginRemoved]: () => {
-            posthog.capture('recent login removed', { region: values.preflight?.region })
         },
         [LISTENED_ACTIONS.otherLoginMethodsShown]: () => {
             posthog.capture('other login methods shown', { region: values.preflight?.region })

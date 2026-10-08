@@ -4,7 +4,7 @@ import type { FieldName } from 'kea-forms'
 
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
-import { RecentLogin, forgetRecentLogin, readRecentLogins } from 'scenes/authentication/shared/recentLogins'
+import { RecentLogin, readRecentLogins } from 'scenes/authentication/shared/recentLogins'
 
 import { loginLogic } from './loginLogic'
 
@@ -37,9 +37,6 @@ export interface recentLoginsLogicActions {
         allowCredentials: PublicKeyCredentialDescriptorJSON[] | undefined
         params: BeginPasskeyLoginParams | undefined
     } // passkeyLogic
-    removeRecentLogin: (email: string) => {
-        email: string
-    }
     selectRecentLogin: (recentLogin: RecentLogin) => {
         recentLogin: RecentLogin
     }
@@ -79,7 +76,6 @@ export const recentLoginsLogic = kea<recentLoginsLogicType>([
     actions({
         setRecentLogins: (recentLogins: RecentLogin[]) => ({ recentLogins }),
         selectRecentLogin: (recentLogin: RecentLogin) => ({ recentLogin }),
-        removeRecentLogin: (email: string) => ({ email }),
         showOtherLoginMethods: true,
     }),
     reducers({
@@ -120,9 +116,6 @@ export const recentLoginsLogic = kea<recentLoginsLogicType>([
             // Without `autoAttempt`, so the click only fills the form and never leaves the page on its own
             actions.setLoginValue('email', email)
             actions.precheck({ email })
-        },
-        removeRecentLogin: ({ email }) => {
-            actions.setRecentLogins(forgetRecentLogin(email))
         },
     })),
     afterMount(({ actions }) => {

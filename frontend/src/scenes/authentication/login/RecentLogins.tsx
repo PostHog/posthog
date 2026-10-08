@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLock, IconX } from '@posthog/icons'
+import { IconLock } from '@posthog/icons'
 
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
@@ -37,7 +37,7 @@ function RecentLoginIcon({ method }: { method: LoginMethod }): JSX.Element {
 
 export function RecentLogins({ onSelect }: { onSelect?: (recentLogin: RecentLogin) => void }): JSX.Element | null {
     const { recentLogins } = useValues(recentLoginsLogic)
-    const { selectRecentLogin, removeRecentLogin } = useActions(recentLoginsLogic)
+    const { selectRecentLogin } = useActions(recentLoginsLogic)
 
     if (!recentLogins.length) {
         return null
@@ -53,39 +53,28 @@ export function RecentLogins({ onSelect }: { onSelect?: (recentLogin: RecentLogi
                     const label = methodLabel(recentLogin.method)
                     const lastUsed = dayjs(recentLogin.lastUsedAt).fromNow()
                     return (
-                        <div key={recentLogin.email} className="flex items-center gap-1">
-                            <LemonButton
-                                type="secondary"
-                                size="large"
-                                fullWidth
-                                className="flex-1 min-w-0"
-                                icon={<RecentLoginIcon method={recentLogin.method} />}
-                                data-attr="login-recent-account"
-                                onClick={() => {
-                                    selectRecentLogin(recentLogin)
-                                    onSelect?.(recentLogin)
-                                }}
-                            >
-                                <span className="flex items-center gap-2 min-w-0 flex-1">
-                                    <span className="flex flex-col min-w-0 flex-1 text-left">
-                                        <span className="font-semibold truncate">{recentLogin.email}</span>
-                                        <span className="text-xs font-normal text-secondary truncate">
-                                            {label ? `${label} · ${lastUsed}` : lastUsed}
-                                        </span>
+                        <LemonButton
+                            key={recentLogin.email}
+                            type="secondary"
+                            size="large"
+                            fullWidth
+                            icon={<RecentLoginIcon method={recentLogin.method} />}
+                            data-attr="login-recent-account"
+                            onClick={() => {
+                                selectRecentLogin(recentLogin)
+                                onSelect?.(recentLogin)
+                            }}
+                        >
+                            <span className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="flex flex-col min-w-0 flex-1 text-left">
+                                    <span className="font-semibold truncate">{recentLogin.email}</span>
+                                    <span className="text-xs font-normal text-secondary truncate">
+                                        {label ? `${label} · ${lastUsed}` : lastUsed}
                                     </span>
-                                    {index === 0 && <LemonTag type="success">Latest</LemonTag>}
                                 </span>
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                icon={<IconX />}
-                                tooltip="Remove from this list"
-                                aria-label={`Remove ${recentLogin.email} from recent logins`}
-                                data-attr="login-recent-account-remove"
-                                onClick={() => removeRecentLogin(recentLogin.email)}
-                            />
-                        </div>
+                                {index === 0 && <LemonTag type="success">Latest</LemonTag>}
+                            </span>
+                        </LemonButton>
                     )
                 })}
             </div>

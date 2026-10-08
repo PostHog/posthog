@@ -64,9 +64,3 @@ export function recordRecentLogin(user: Pick<UserType, 'email' | 'is_impersonate
     const others = readRecentLogins().filter(({ email }) => !isSameEmail(email, user.email))
     writeRecentLogins([recentLogin, ...others].slice(0, MAX_RECENT_LOGINS))
 }
-
-export function forgetRecentLogin(email: string): RecentLogin[] {
-    const remaining = readRecentLogins().filter((recentLogin) => !isSameEmail(recentLogin.email, email))
-    writeRecentLogins(remaining)
-    return remaining
-}

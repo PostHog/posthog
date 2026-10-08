@@ -35,7 +35,6 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
     recentLoginSelected: () => recentLoginsLogic.actionTypes.selectRecentLogin,
-    recentLoginRemoved: () => recentLoginsLogic.actionTypes.removeRecentLogin,
     otherLoginMethodsShown: () => recentLoginsLogic.actionTypes.showOtherLoginMethods,
 }
 
