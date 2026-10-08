@@ -243,6 +243,7 @@ from .chatwoot.source import ChatwootSource
 from .checkly.source import ChecklySource
 from .checkmarx.source import CheckmarxSource
 from .checkout_com.source import CheckoutComSource
+from .chess_com.source import ChessComSource
 from .chift.source import ChiftSource
 from .chorus.source import ChorusSource
 from .churnkey.source import ChurnkeySource

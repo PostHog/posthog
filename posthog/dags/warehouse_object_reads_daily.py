@@ -30,7 +30,7 @@ from products.web_analytics.dags.web_preaggregated_utils import (
 QUERY_LOG_ARCHIVE_TABLE = "query_log_archive"
 TEMPORAL_QUERY_KIND = "temporal"
 QUERY_FINISH_TYPE = "QueryFinish"
-MAX_EXECUTION_TIME_SECONDS = 600
+MAX_EXECUTION_TIME_SECONDS = 30 * 60
 ONE_GIB = 1024**3
 MAX_MEMORY_USAGE_BYTES = 8 * ONE_GIB
 SPILL_GROUP_BY_AFTER_BYTES = 2 * ONE_GIB

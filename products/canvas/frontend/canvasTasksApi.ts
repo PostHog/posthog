@@ -3,13 +3,19 @@ import {
     taskChannelsProvisionDefaultsCreate,
     taskChannelsRetrieve,
     tasksCreate,
+    tasksList,
+    tasksPartialUpdate,
     tasksRetrieve,
     tasksRunCreate,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role'>
+import { canvasesVersionsRetrieve } from './generated/api'
+import type { CanvasApi } from './generated/api.schemas'
+import { canvasPromptTarget, isCanvasGenerationPrompt } from './scene/canvasGenerationPrompt'
+
+export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role' | 'channel_type'>
 export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
     Partial<Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'error_message'>>
 export type CanvasGenerationTask = Pick<TaskDetailDTOApi, 'id' | 'title'> & {
@@ -42,6 +48,7 @@ function toSpaces(response: unknown): CanvasSpace[] {
         id: String(row.id),
         name: String(row.name ?? ''),
         system_role: row.system_role === 'personal' || row.system_role === 'general' ? row.system_role : null,
+        channel_type: String(row.channel_type ?? ''),
     }))
 }
 
@@ -89,6 +96,95 @@ export async function createCanvasGenerationTask(
 
 export async function loadCanvasGenerationTask(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
     return toCanvasTask(await tasksRetrieve(projectId, taskId))
+}
+
+const VERSION_PAGE_SIZE = 100
+
+/** A task moved to another space, and the space it came from. */
+export interface CanvasTaskMove {
+    id: string
+    from: string | null
+}
+
+/** The chat tasks this person started on the canvas: every run whose prompt names it, and the runs behind its versions. */
+export async function ownCanvasTaskIds(
+    projectId: string,
+    canvas: Pick<CanvasApi, 'id' | 'generation_task_id'>,
+    user: { id: number; uuid: string }
+): Promise<string[]> {
+    const userUuid = user.uuid
+    const ids = new Set<string>()
+    // Each generation prompt names its canvas on one line, so this also finds earlier runs that made no version.
+    for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
+        const page = await tasksList(projectId, {
+            created_by: user.id,
+            search: canvasPromptTarget(canvas.id),
+            limit: VERSION_PAGE_SIZE,
+            offset,
+        })
+        // The search matches text anywhere, so only a real generation prompt for this canvas counts.
+        for (const task of page.results) {
+            if ('description' in task && isCanvasGenerationPrompt(task.description, canvas.id)) {
+                ids.add(task.id)
+            }
+        }
+        if (!page.next) {
+            break
+        }
+    }
+    for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
+        const page = await canvasesVersionsRetrieve(projectId, canvas.id, { limit: VERSION_PAGE_SIZE, offset })
+        for (const version of page.results) {
+            if (version.task_id && version.created_by?.uuid === userUuid) {
+                ids.add(version.task_id)
+            }
+        }
+        if (!page.next) {
+            break
+        }
+    }
+    if (canvas.generation_task_id && !ids.has(canvas.generation_task_id)) {
+        const task = await loadCanvasGenerationTask(projectId, canvas.generation_task_id)
+        if (task.created_by?.uuid === userUuid) {
+            ids.add(task.id)
+        }
+    }
+    return [...ids]
+}
+
+/** What happened when a move failed, given how many chats could not move back. */
+export function partialMoveMessage(unrestored: number): string {
+    return unrestored
+        ? `The canvas didn’t move. ${unrestored} of its chats moved to your personal space and stayed there.`
+        : 'The canvas and its chats didn’t move, so nothing changed. Try again.'
+}
+
+/** Moves tasks back to the spaces they came from. Returns how many stayed where they were. */
+export async function restoreCanvasTasks(projectId: string, moves: CanvasTaskMove[]): Promise<number> {
+    const results = await Promise.allSettled(
+        moves.map((move) => tasksPartialUpdate(projectId, move.id, { channel: move.from }))
+    )
+    return results.filter((result) => result.status === 'rejected').length
+}
+
+/** Files tasks in a space, so their chats are only as visible as that space. Either every task moves or none does. */
+export async function moveCanvasTasks(
+    projectId: string,
+    taskIds: string[],
+    spaceId: string
+): Promise<CanvasTaskMove[]> {
+    const current = await Promise.all(
+        taskIds.map(async (id) => ({ id, from: (await tasksRetrieve(projectId, id)).channel ?? null }))
+    )
+    const pending = current.filter((task) => task.from !== spaceId)
+    const results = await Promise.allSettled(
+        pending.map((task) => tasksPartialUpdate(projectId, task.id, { channel: spaceId }))
+    )
+    const moved = pending.filter((_, index) => results[index].status === 'fulfilled')
+    if (moved.length < pending.length) {
+        throw new Error(partialMoveMessage(await restoreCanvasTasks(projectId, moved)))
+    }
+    return moved
 }
 
 export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {

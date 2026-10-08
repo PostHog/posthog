@@ -16,8 +16,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -64,6 +66,47 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             now=self.now,
         )
 
+    @cached_property
+    def hogql_database(self) -> Database:
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=create_default_modifiers_for_team(self.team, self.modifiers),
+            timings=self.timings,
+        )
+
+    @cached_property
+    def hogql_context(self) -> HogQLContext:
+        modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        return HogQLContext(
+            team_id=self.team.pk,
+            modifiers=modifiers,
+            database=self.hogql_database,
+        )
+
+    def _placement_fields(self, source: MarketingAnalyticsSearchSource) -> dict[str, ast.Expr]:
+        table = self.hogql_database.get_table(source.statsTable.split("."))
+        fields = (
+            (
+                ("top_rate", "metrics_top_impression_percentage"),
+                ("absolute_top_rate", "metrics_absolute_top_impression_percentage"),
+            )
+            if source.sourceType == "GoogleAds"
+            else (
+                ("top_rate", "top_impression_rate_percent"),
+                ("absolute_top_rate", "absolute_top_impression_rate_percent"),
+            )
+        )
+        result: dict[str, ast.Expr] = {}
+        for name, field in fields:
+            value: ast.Expr = ast.Field(chain=["s", field]) if table.has_field(field) else ast.Constant(value=None)
+            result[name] = (
+                parse_expr("toFloatOrNull(replaceAll(toString({value}), '%', '')) / 100", placeholders={"value": value})
+                if source.sourceType == "BingAds" and table.has_field(field)
+                else value
+            )
+        return result
+
     @property
     def include_posthog_conversions(self) -> bool:
         return bool(self.query.includePostHogConversions and self.query.breakdown == "page" and not self.query.keyword)
@@ -91,6 +134,8 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             "date_from": ast.Constant(value=date_range.date_from()),
             "date_to": ast.Constant(value=date_range.date_to()),
         }
+        if source.sourceType in ("GoogleAds", "BingAds"):
+            placeholders.update(self._placement_fields(source))
         if source.sourceType == "GoogleSearchConsole":
             if (self.query.keyword is not None or self.query.page is not None) and not source.queryPageTable:
                 raise ValueError("Search details require the query and page table")
@@ -125,7 +170,9 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     'GoogleSearchConsole' AS platform, NULL AS matchType, NULL AS currency,
                     sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
                     0 AS total_cost, 0 AS conversion_count,
-                    sum(toFloat(s.position) * toFloat(s.impressions)) AS position_total
+                    sum(toFloat(s.position) * toFloat(s.impressions)) AS position_total,
+                    NULL AS top_impressions, 0 AS top_eligible_impressions,
+                    NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
                 FROM {stats} AS s
                 WHERE toDate(date) >= toDate({date_from}) AND toDate(date) <= toDate({date_to})
                     AND {keyword_filter} AND {page_filter}
@@ -142,8 +189,12 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     nullIf(upper(currency_code), '') AS currency,
                     sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
                     sum(toFloat(spend)) AS total_cost,
-                    sum(toFloat(conversions_qualified)) AS conversion_count, 0 AS position_total
-                FROM {stats}
+                    sum(toFloat(conversions_qualified)) AS conversion_count, 0 AS position_total,
+                    sum({top_rate} * toFloat(s.impressions)) AS top_impressions,
+                    sumIf(toFloat(s.impressions), {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sum({absolute_top_rate} * toFloat(s.impressions)) AS absolute_top_impressions,
+                    sumIf(toFloat(s.impressions), {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+                FROM {stats} AS s
                 WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
                     AND ad_distribution = 'Search'
                 GROUP BY page, currency
@@ -163,8 +214,12 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     sum(toFloat(metrics_clicks)) AS click_count,
                     sum(toFloat(metrics_impressions)) AS impression_count,
                     sum(toFloat(metrics_cost_micros)) / 1000000 AS total_cost,
-                    sum(toFloat(metrics_conversions)) AS conversion_count, 0 AS position_total
-                FROM {stats}
+                    sum(toFloat(metrics_conversions)) AS conversion_count, 0 AS position_total,
+                    sumIf(toFloat({top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS top_impressions,
+                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sumIf(toFloat({absolute_top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS absolute_top_impressions,
+                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+                FROM {stats} AS s
                 WHERE toDate(segments_date) >= toDate({date_from})
                     AND toDate(segments_date) <= toDate({date_to})
                     AND segments_ad_network_type IN ('SEARCH', 'SEARCH_PARTNERS')
@@ -184,7 +239,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     sum(toFloat(s.metrics_clicks)) AS click_count,
                     sum(toFloat(s.metrics_impressions)) AS impression_count,
                     sum(toFloat(s.metrics_cost_micros)) / 1000000 AS total_cost,
-                    sum(toFloat(s.metrics_conversions)) AS conversion_count, 0 AS position_total
+                    sum(toFloat(s.metrics_conversions)) AS conversion_count, 0 AS position_total,
+                    sumIf(toFloat({top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS top_impressions,
+                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sumIf(toFloat({absolute_top_rate}) * toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH') AS absolute_top_impressions,
+                    sumIf(toFloat(s.metrics_impressions), s.segments_ad_network_type = 'SEARCH' AND {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
                 FROM {stats} AS s
                 LEFT JOIN (
                     SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
@@ -207,8 +266,12 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             SELECT {period} AS period, nullIf(lower(trim(keyword)), '') AS keyword, NULL AS page, 'BingAds' AS platform,
                 nullIf(lower(bid_match_type), '') AS matchType, nullIf(upper(currency_code), '') AS currency,
                 sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
-                sum(toFloat(spend)) AS total_cost, sum(toFloat(conversions)) AS conversion_count, 0 AS position_total
-            FROM {stats}
+                sum(toFloat(spend)) AS total_cost, sum(toFloat(conversions)) AS conversion_count, 0 AS position_total,
+                    sum({top_rate} * toFloat(s.impressions)) AS top_impressions,
+                    sumIf(toFloat(s.impressions), {top_rate} IS NOT NULL) AS top_eligible_impressions,
+                    sum({absolute_top_rate} * toFloat(s.impressions)) AS absolute_top_impressions,
+                    sumIf(toFloat(s.impressions), {absolute_top_rate} IS NOT NULL) AS absolute_top_eligible_impressions
+            FROM {stats} AS s
             WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
             GROUP BY keyword, matchType, currency
             """,
@@ -240,7 +303,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 if(platform = 'GoogleSearchConsole', NULL, sumIf(total_cost, period = 1) / nullIf(sumIf(click_count, period = 1), 0)) AS previous_cpc,
                 sumIf(total_cost, period = 1) / nullIf(sumIf(conversion_count, period = 1), 0) AS previous_cpa,
                 if(platform = 'GoogleSearchConsole', sumIf(position_total, period = 0) / nullIf(sumIf(impression_count, period = 0), 0), NULL) AS position,
-                if(platform = 'GoogleSearchConsole', sumIf(position_total, period = 1) / nullIf(sumIf(impression_count, period = 1), 0), NULL) AS previous_position
+                if(platform = 'GoogleSearchConsole', sumIf(position_total, period = 1) / nullIf(sumIf(impression_count, period = 1), 0), NULL) AS previous_position,
+                sumIf(top_impressions, period = 0) / nullIf(sumIf(top_eligible_impressions, period = 0), 0) AS topImpressionRate,
+                sumIf(absolute_top_impressions, period = 0) / nullIf(sumIf(absolute_top_eligible_impressions, period = 0), 0) AS absoluteTopImpressionRate,
+                sumIf(top_impressions, period = 1) / nullIf(sumIf(top_eligible_impressions, period = 1), 0) AS previous_topImpressionRate,
+                sumIf(absolute_top_impressions, period = 1) / nullIf(sumIf(absolute_top_eligible_impressions, period = 1), 0) AS previous_absoluteTopImpressionRate
             FROM {sources}
             WHERE positionCaseInsensitive(coalesce(keyword, page, ''), {search}) > 0
             GROUP BY keyword, page, platform, matchType, currency
@@ -270,6 +337,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             timings=self.timings,
             limit_context=self.limit_context,
         )
+        goal_runner.__dict__["_shared_hogql_database"] = self.hogql_database
         goals = goal_runner._get_team_conversion_goals()
         event_goals: list[ConversionGoal] = [goal for goal in goals if goal.kind != "DataWarehouseNode"]
         filtered_goals, skipped_goals = goal_runner._filter_invalid_conversion_goals(event_goals)
@@ -367,6 +435,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         result = execute_hogql_query(
             query_type="marketing_analytics_search_query",
             query=self.to_query(),
+            context=self.hogql_context,
             team=self.team,
             user=self.user,
             timings=self.timings,
