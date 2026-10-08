@@ -5,8 +5,8 @@ import { LemonButton, LemonCard, LemonTag, LemonTagType } from '@posthog/lemon-u
 
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 
-import { CHANNEL_COPY, ChannelStatus, ChannelSummary } from './channelCatalog'
 import { channelCatalogLogic } from './channelCatalogLogic'
+import { CHANNEL_COPY, ChannelStatus, ChannelSummary } from './channelSummary'
 import type { ChannelType } from './MessageChannels'
 
 const CHANNEL_ICONS: Record<ChannelType, JSX.Element> = {

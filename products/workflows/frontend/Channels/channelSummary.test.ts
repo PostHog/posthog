@@ -1,4 +1,4 @@
-import { ChannelStatus, summarizeChannel } from './channelCatalog'
+import { ChannelStatus, summarizeChannel } from './channelSummary'
 import type { ChannelType } from './MessageChannels'
 
 const email = (verified: boolean): any => ({ kind: 'email', config: { verified } })

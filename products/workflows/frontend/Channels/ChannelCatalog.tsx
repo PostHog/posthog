@@ -5,9 +5,9 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 
-import { CATALOG_CHANNELS } from './channelCatalog'
 import { ChannelCatalogCard } from './ChannelCatalogCard'
 import { channelCatalogLogic } from './channelCatalogLogic'
+import { CATALOG_CHANNELS } from './channelSummary'
 
 const GRID_CLASS = 'grid gap-2 grid-cols-1 @min-[44rem]/main-content:grid-cols-2 @min-[72rem]/main-content:grid-cols-3'
 

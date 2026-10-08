@@ -4,15 +4,16 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { IntegrationType } from '../../../../frontend/src/types'
+import { hogFlowsList } from '../generated/api'
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../OptOuts/optOutCategoriesLogic'
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
@@ -42,6 +43,7 @@ export interface workflowsSetupGuideLogicValues {
     templatesLoading: boolean // messageTemplatesLogic
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     chosenPath: WorkflowsOnboardingPath | null
     completedCount: number
@@ -139,6 +141,8 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             featureFlagLogic,
             ['featureFlags'],
             integrationsLogic,
@@ -171,17 +175,20 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
             },
         ],
     }),
-    loaders({
+    loaders(({ values }) => ({
         hasMessagingWorkflow: [
             null as boolean | null,
             {
                 loadHasMessagingWorkflow: async () => {
-                    const response = await api.hogFlows.getHogFlows({ type: ['messaging'], limit: 1 })
+                    const response = await hogFlowsList(String(values.currentProjectId), {
+                        type: 'messaging',
+                        limit: 1,
+                    })
                     return response.count > 0
                 },
             },
         ],
-    }),
+    })),
     selectors({
         teamState: [
             (s) => [s.stateByTeam, s.currentTeamId],
