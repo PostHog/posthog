@@ -18,6 +18,12 @@ echo "Power user or aspiring power user?"
 echo "Check out our docs on deploying PostHog! https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
 
+if [ "$(. /etc/os-release 2>/dev/null && echo "$ID")" != "ubuntu" ]; then
+    echo "This installer only supports Ubuntu. It uses apt to install its dependencies."
+    echo "Install Ubuntu, or follow the docs above to set up PostHog by hand."
+    exit 1
+fi
+
 if [ -n "$1" ]
 then
     export POSTHOG_APP_TAG=$1
