@@ -87,6 +87,7 @@ _NON_CODE_FILE = re.compile(
 
 SkipReason = Literal["no_new_commits", "merge_only", "docs_only", "system_one_below_threshold"]
 RunReason = Literal[
+    "commits_removed",
     "system_one_above_threshold",
     "system_one_unavailable",
     "interdiff_too_large",
@@ -281,7 +282,10 @@ class PushGate:
         previous_shas = set(previous.commit_shas)
         new_shas = [sha for sha in current.commit_shas if sha not in previous_shas]
         if not new_shas:
-            return _matched("no_new_commits")
+            if _same_full_diff(previous, current):
+                return _matched("no_new_commits")
+            # A force-push back to an earlier commit adds no commit but removes changes the last review saw.
+            return _runs("commits_removed")
         own_shas = [sha for sha in new_shas if sha not in current.merge_shas]
         if _same_full_diff(previous, current):
             return _matched("merge_only", own_commits=len(own_shas))

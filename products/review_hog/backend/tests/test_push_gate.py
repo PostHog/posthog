@@ -77,7 +77,12 @@ _CODE_PUSH = _push(
 
 @parameterized.expand(
     [
-        ("force_push_back", _push(new_commits=[], pr_files=[]), "no_new_commits", True),
+        (
+            "force_push_back",
+            _push(new_commits=[_commit("a")], pr_files=[_file("posthog/billing.py", _BILLING)]),
+            "no_new_commits",
+            True,
+        ),
         # Master's commits are on the base, so only the merge commit is new, and the PR's lines only moved.
         (
             "base_merge",
@@ -177,6 +182,14 @@ def test_push_gate_reviews_the_push_when_system_one_is_unavailable(_name: str, e
             "interdiff_too_large",
         ),
         ("compare_gone", {**_CODE_PUSH, "compare/master...new": None}, "compare_unavailable"),
+        (
+            "force_push_drops_commit",
+            {
+                "compare/master...old": _pr([_commit("a"), _commit("c")], [_file("posthog/billing.py", _BILLING_FIX)]),
+                "compare/master...new": _pr([_commit("a")], [_file("posthog/billing.py", _BILLING)]),
+            },
+            "commits_removed",
+        ),
         (
             "patch_left_out",
             _push(
