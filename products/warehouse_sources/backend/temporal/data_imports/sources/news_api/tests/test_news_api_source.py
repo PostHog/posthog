@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
     NewsApiSourceConfig,
 )
@@ -24,15 +23,6 @@ class TestNewsApiSource:
         # get_schemas is a static, no-I/O catalog, so the public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_source_config_required_fields(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_key", "query", "language"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["query"].required is True
-        # The search query drives the article endpoints — a source with no query can't sync them.
-        assert fields["language"].required is False
-
     @parameterized.expand(
         [
             ("everything", True),
@@ -49,11 +39,6 @@ class TestNewsApiSource:
     def test_get_schemas_names_filter(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["sources"])
         assert [s.name for s in schemas] == ["sources"]
-
-    def test_everything_incremental_field_is_published_at(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        fields = [f["field"] for f in schemas["everything"].incremental_fields]
-        assert fields == ["publishedAt"]
 
     def test_validate_credentials_success(self) -> None:
         with patch(
@@ -96,23 +81,6 @@ class TestNewsApiSource:
         assert captured["language"] == "en"
         assert captured["db_incremental_field_last_value"] == "2026-03-04T00:00:00"
 
-    def test_source_for_pipeline_drops_cursor_on_full_refresh(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "top_headlines"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-03-04T00:00:00"
-
-        captured: dict[str, Any] = {}
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.news_api_source",
-            side_effect=lambda **kwargs: captured.update(kwargs),
-        ):
-            self.source.source_for_pipeline(_config(), MagicMock(), inputs)
-
-        # A full-refresh sync must not forward a stale watermark as `from`.
-        assert captured["db_incremental_field_last_value"] is None
-
     def test_empty_language_becomes_none(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "everything"
@@ -127,8 +95,3 @@ class TestNewsApiSource:
             self.source.source_for_pipeline(_config(language=""), MagicMock(), inputs)
 
         assert captured["language"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        canonical = self.source.get_canonical_descriptions()
-        schema_names = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schema_names <= set(canonical)

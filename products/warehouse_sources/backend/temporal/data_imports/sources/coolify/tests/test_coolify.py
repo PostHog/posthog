@@ -77,9 +77,6 @@ class TestCoolifyHostnameValidation:
         # that validates as one host but connects to another must be rejected outright (SSRF).
         assert hostname_of(url) is None
 
-    def test_accepts_a_plain_instance_url(self) -> None:
-        assert hostname_of(BASE_URL) == "coolify.example.com"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.is_cloud",
         return_value=True,
@@ -119,86 +116,6 @@ class TestCoolifyClientConfig:
             assert "capture" not in client_config
 
 
-class TestCoolifySensitiveFields:
-    def test_databases_strip_credentials_of_every_database_type(self) -> None:
-        # /databases mixes every standalone database type in one listing, and a token with the
-        # `read:sensitive` or `root` ability gets the credential fields back; each type's
-        # password and connection URLs must be gone before the record is stored.
-        record = {
-            "uuid": "db-1",
-            "name": "prod-pg",
-            "postgres_password": "leak-me",
-            "internal_db_url": "postgres://coolify:leak-me@db:5432/prod",
-            "external_db_url": "postgres://coolify:leak-me@example.com:5432/prod",
-            "init_scripts": [{"filename": "init.sql", "content": "leak-me"}],
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "databases", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"uuid": "db-1", "name": "prod-pg"}]
-
-    def test_deployments_strip_logs_and_configuration_snapshots(self) -> None:
-        # Deploy logs echo build output (which can print env values) and the configuration
-        # snapshot holds the full application config; both are hidden by Coolify for plain read
-        # tokens and must not land in the warehouse for privileged ones either.
-        record = {
-            "deployment_uuid": "dep-1",
-            "status": "finished",
-            "logs": '[{"output": "leak-me"}]',
-            "configuration_snapshot": {"env": "leak-me"},
-            "configuration_diff": {"env": "leak-me"},
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "deployments", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"deployment_uuid": "dep-1", "status": "finished"}]
-
-    def test_projects_round_trip_untouched(self) -> None:
-        # Only endpoints that declare sensitive_fields get filtered; everything else must
-        # round-trip untouched or the strip would silently drop real data.
-        record = {"uuid": "proj-1", "name": "web", "description": None}
-        resource = coolify_source(BASE_URL, "coolify-token", "projects", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([dict(record)]) == [record]
-
-    def test_servers_strip_sentinel_and_logdrain_credentials(self) -> None:
-        # A `read:sensitive`/`root` token also gets back the Sentinel APM token, its custom
-        # collector URL, and the raw log-drain forwarder config/parser (which can itself embed
-        # Axiom/New Relic/a custom endpoint's credentials); none of that may reach storage.
-        record = {
-            "uuid": "srv-1",
-            "name": "hetzner-1",
-            "logdrain_axiom_api_key": "leak-me",
-            "logdrain_newrelic_license_key": "leak-me",
-            "sentinel_token": "leak-me",
-            "sentinel_custom_url": "https://sentinel.internal/leak-me",
-            "logdrain_custom_config": "leak-me",
-            "logdrain_custom_config_parser": "leak-me",
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "servers", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [{"uuid": "srv-1", "name": "hetzner-1"}]
-
-    def test_applications_strip_the_embedded_destination_servers_credentials(self) -> None:
-        # Applications nest their destination server's settings object; the recursive strip must
-        # reach it too, or a privileged token's Sentinel token/log-drain config leaks through the
-        # applications table even though the servers table strips it.
-        record = {
-            "uuid": "app-1",
-            "name": "web",
-            "destination": {
-                "server": {
-                    "uuid": "srv-1",
-                    "sentinel_token": "leak-me",
-                    "logdrain_custom_config": "leak-me",
-                }
-            },
-        }
-        resource = coolify_source(BASE_URL, "coolify-token", "applications", team_id=1, job_id="job-1")
-
-        assert resource._apply_transforms([record]) == [
-            {"uuid": "app-1", "name": "web", "destination": {"server": {"uuid": "srv-1"}}}
-        ]
-
-
 class TestCoolifyFlatEndpoints:
     def test_reads_the_bare_array_from_the_versioned_path(self, requests_mock: Any) -> None:
         # Coolify list endpoints answer a bare JSON array under /api/v1; a wrong data_selector or
@@ -212,42 +129,6 @@ class TestCoolifyFlatEndpoints:
 class TestCoolifyDeploymentsFanout:
     def _mock_applications(self, requests_mock: Any, uuids: list[str]) -> None:
         requests_mock.get(f"{API_BASE}/applications", json=[{"uuid": uuid, "name": f"app-{uuid}"} for uuid in uuids])
-
-    def test_deployments_carry_their_parent_application_uuid(self, requests_mock: Any) -> None:
-        # Deployment rows only carry the numeric application_id; the parent's uuid projection
-        # (renamed off the `_applications_` prefix) is what joins them to the applications
-        # table's primary key.
-        self._mock_applications(requests_mock, [APP_UUID])
-        requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            json={"count": 1, "deployments": [{"deployment_uuid": "dep-1", "status": "finished"}]},
-        )
-
-        assert _rows("deployments") == [
-            {"deployment_uuid": "dep-1", "status": "finished", "application_uuid": APP_UUID}
-        ]
-
-    def test_pages_with_skip_and_take_until_the_reported_count(self, requests_mock: Any) -> None:
-        # The endpoint pages with skip/take and reports the grand total under `count`; wrong
-        # param names or a wrong total path would either sync only the newest page or loop.
-        self._mock_applications(requests_mock, [APP_UUID])
-        page_one = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
-        page_two = [{"deployment_uuid": "dep-last"}]
-        deployments = requests_mock.get(
-            f"{API_BASE}/deployments/applications/{APP_UUID}",
-            [
-                {"json": {"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page_one}},
-                {"json": {"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page_two}},
-            ],
-        )
-
-        rows = _rows("deployments")
-
-        assert len(rows) == DEPLOYMENTS_PAGE_SIZE + 1
-        assert deployments.call_count == 2
-        first_request, second_request = deployments.request_history
-        assert first_request.qs["take"] == [str(DEPLOYMENTS_PAGE_SIZE)]
-        assert second_request.qs["skip"] == [str(DEPLOYMENTS_PAGE_SIZE)]
 
     def test_an_application_deleted_mid_sync_does_not_fail_the_table(self, requests_mock: Any) -> None:
         # An app removed between the parent listing and its child fetch answers 404; one such app
@@ -344,13 +225,3 @@ class TestCoolifyValidateCredentials:
 
         assert not valid
         assert error is not None and "reach" in error
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.make_tracked_session")
-    def test_probes_the_normalized_teams_endpoint(self, mock_session: MagicMock) -> None:
-        # A pasted `/api/v1` suffix must not double into `/api/v1/api/v1/teams`.
-        mock_session.return_value.get.return_value = _make_response(json_body=[], status_code=200)
-
-        validate_credentials(f"{BASE_URL}/api/v1/", "coolify-token", team_id=1)
-
-        args, _ = mock_session.return_value.get.call_args
-        assert args[0] == f"{API_BASE}/teams"

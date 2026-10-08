@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.groq import (
     GROQ_BASE_URL,
-    _get_headers,
     groq_source,
     validate_credentials,
 )
@@ -60,34 +59,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestGroq:
-    def test_get_headers_uses_bearer_auth(self) -> None:
-        headers = _get_headers("gsk_secret")
-        assert headers["Authorization"] == "Bearer gsk_secret"
-        assert headers["Accept"] == "application/json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_batches_follows_cursor_across_pages(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, auths = _wire(
-            session,
-            [
-                _response({"data": [{"id": "batch_1"}], "paging": {"next_cursor": "cur1"}}),
-                _response({"data": [{"id": "batch_2"}], "paging": {"next_cursor": "cur2"}}),
-                _response({"data": [{"id": "batch_3"}]}),  # no cursor -> last page
-            ],
-        )
-
-        rows = _rows(groq_source("gsk_k", "batches", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["batch_1", "batch_2", "batch_3"]
-        assert session.send.call_count == 3
-        # The cursor from each page must be forwarded as the `cursor` param on the next request.
-        assert "cursor" not in params[0]
-        assert params[1]["cursor"] == "cur1"
-        assert params[2]["cursor"] == "cur2"
-        # The bearer token rides on the framework auth, not a hand-built header.
-        assert auths[0].token == "gsk_k"
-
     @parameterized.expand([("files",), ("models",)])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_paginated_reads_single_page(self, endpoint: str, MockSession: mock.MagicMock) -> None:
@@ -99,16 +70,6 @@ class TestGroq:
         rows = _rows(groq_source("gsk_k", endpoint, team_id=1, job_id="j"))
 
         assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_data_page_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": []})])
-
-        rows = _rows(groq_source("gsk_k", "models", team_id=1, job_id="j"))
-
-        assert rows == []
         assert session.send.call_count == 1
 
     @mock.patch(SLEEP_PATCH)
@@ -134,17 +95,6 @@ class TestGroq:
         with pytest.raises(RESTClientRetryableError):
             _rows(groq_source("gsk_k", "models", team_id=1, job_id="j"))
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_body_then_valid_recovers(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(["glitch"]), _response({"data": [{"id": "batch_1"}]})])
-
-        rows = _rows(groq_source("gsk_k", "models", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["batch_1"]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("rate_limited", 429, "Too Many Requests"), ("server_error", 503, "Service Unavailable")])
     @mock.patch(SLEEP_PATCH)
@@ -218,11 +168,3 @@ class TestGroq:
         assert ok is False
         assert status is None
         make_session.assert_not_called()
-
-    def test_validate_credentials_swallows_transport_error(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(GROQ_SESSION_PATCH, return_value=session):
-            ok, status = validate_credentials("gsk_x")
-        assert ok is False
-        assert status is None

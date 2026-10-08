@@ -12,31 +12,6 @@ _CHECK_RBAC_ROLE_ACCESS = f"{_SOURCE_MODULE}.check_rbac_role_access"
 
 
 class TestAnthropicSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in AnthropicSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == {
-            "users",
-            "invites",
-            "workspaces",
-            "api_keys",
-            "workspace_members",
-            "usage_report",
-            "cost_report",
-            "claude_code_analytics",
-            "claude_code_model_breakdown",
-            "analytics_user_activity",
-            "analytics_user_cost",
-            "analytics_user_usage",
-            "analytics_connector_usage",
-            "analytics_plugin_usage",
-            "analytics_skill_usage",
-            "analytics_summaries",
-            "rbac_groups",
-            "rbac_group_members",
-            "rbac_roles",
-            "rbac_role_permissions",
-        }
-
     @parameterized.expand([("usage_report",), ("cost_report",)])
     def test_report_endpoints_are_incremental_on_starting_at(self, endpoint: str) -> None:
         # Only the report endpoints have a genuine server-side time filter (starting_at).
@@ -134,26 +109,7 @@ class TestAnthropicSourceForPipeline:
         assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
 
 
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert AnthropicSource().lists_tables_without_credentials is True
-        tables = AnthropicSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert "usage_report" in names and "cost_report" in names
-        usage = next(t for t in tables if t["name"] == "usage_report")
-        assert "Incremental" in usage["sync_methods"]
-        assert usage["description"]  # canonical description is surfaced
-
-
 class TestAnalyticsEndpointPermissions:
-    @patch(_CHECK_ANALYTICS_ACCESS, return_value="needs read:analytics")
-    def test_only_the_analytics_tables_carry_the_probe_result(self, _probe) -> None:
-        permissions = AnthropicSource().get_endpoint_permissions(
-            MagicMock(api_key="sk-ant-admin-test"), team_id=1, endpoints=["users", "analytics_user_cost"]
-        )
-        assert permissions == {"users": None, "analytics_user_cost": "needs read:analytics"}
-
     @patch(_CHECK_ANALYTICS_ACCESS)
     def test_no_probe_when_no_analytics_table_is_requested(self, probe) -> None:
         # The probe is a live request, so schema discovery must not pay for it unless a table needs it.

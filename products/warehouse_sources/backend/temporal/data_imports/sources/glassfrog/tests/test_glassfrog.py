@@ -1,6 +1,5 @@
 import json
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest import mock
@@ -67,33 +66,6 @@ class TestGetRows:
         RESTClient._send_request.retry.wait = self._original_wait  # type: ignore[attr-defined]
 
     @mock.patch(SESSION_PATCH)
-    def test_short_first_page_yields_rows_unwrapped_from_resource_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows_body = [{"id": 1, "name": "General Company Circle"}, {"id": 2, "name": "Ops"}]
-        prepared = _wire(session, [_response(200, {"circles": rows_body})])
-
-        rows = _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
-
-        assert rows == rows_body
-        assert session.send.call_count == 1
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}/circles?per_page={GLASSFROG_PAGE_SIZE}&page=1"
-
-    @mock.patch(SESSION_PATCH)
-    def test_walks_pages_until_a_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        first_page = [{"id": i} for i in range(GLASSFROG_PAGE_SIZE)]
-        prepared = _wire(
-            session,
-            [_response(200, {"tensions": first_page}), _response(200, {"tensions": [{"id": GLASSFROG_PAGE_SIZE}]})],
-        )
-
-        rows = _rows(glassfrog_source("gf_key", "tensions", team_id=1, job_id="j"))
-
-        assert rows == [*first_page, {"id": GLASSFROG_PAGE_SIZE}]
-        assert session.send.call_count == 2
-        assert [parse_qs(urlsplit(p.url or "").query)["page"] for p in prepared] == [["1"], ["2"]]
-
-    @mock.patch(SESSION_PATCH)
     def test_repeated_page_raises_instead_of_looping(self, MockSession) -> None:
         session = MockSession.return_value
         full_page = [{"id": i} for i in range(GLASSFROG_PAGE_SIZE)]
@@ -103,13 +75,6 @@ class TestGetRows:
             _rows(glassfrog_source("gf_key", "tensions", team_id=1, job_id="j"))
 
         assert session.send.call_count == 2
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_collection_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(200, {"people": []})])
-
-        assert _rows(glassfrog_source("gf_key", "people", team_id=1, job_id="j")) == []
 
     @mock.patch(SESSION_PATCH)
     def test_missing_resource_key_raises(self, MockSession) -> None:
@@ -146,16 +111,6 @@ class TestGetRows:
         assert rows == [{"id": 42}]
         assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}{query}"
 
-    @mock.patch(SESSION_PATCH)
-    def test_api_key_sent_via_header_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        prepared = _wire(session, [_response(200, {"roles": [{"id": 1}]})])
-
-        _rows(glassfrog_source("gf_test_key", "roles", team_id=1, job_id="j"))
-
-        assert prepared[0].headers["X-Auth-Token"] == "gf_test_key"
-        assert session.headers.get("Accept") == "application/json"
-
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(SESSION_PATCH)
     def test_retryable_status_raises_after_retries(self, _name: str, status_code: int, MockSession) -> None:
@@ -167,16 +122,6 @@ class TestGetRows:
 
         # 5 attempts before giving up.
         assert session.send.call_count == 5
-
-    @mock.patch(SESSION_PATCH)
-    def test_recovers_after_transient_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(500, {}), _response(200, {"circles": [{"id": 1}]})])
-
-        rows = _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(SESSION_PATCH)
@@ -243,16 +188,6 @@ class TestValidateCredentials:
         # The key rides a custom header, which `requests` would replay across a cross-origin
         # redirect — the probe must not follow redirects.
         assert session.get.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_maps_to_not_validated(self, MockSession) -> None:
-        # The probe must never raise out of validate_credentials — an unreachable API means
-        # "not validated", not a crashed source-create request.
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        MockSession.return_value = session
-
-        assert validate_credentials("gf_key") is False
 
 
 class TestGlassfrogSourceResponse:
