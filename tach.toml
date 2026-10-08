@@ -1179,7 +1179,7 @@ from = [
 expose = [
     "backend\\.models.*",
     "backend\\.temporal\\.data_imports\\.sources\\.common.*",
-    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs\\.postgres.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs.*",
     "backend\\.temporal\\.data_imports\\.sources\\.google_search_console.*",
     "backend\\.temporal\\.data_imports\\.sources\\.mysql.*",
     "backend\\.temporal\\.data_imports\\.sources\\.postgres.*",

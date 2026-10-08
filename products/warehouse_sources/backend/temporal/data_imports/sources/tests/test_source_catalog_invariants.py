@@ -268,21 +268,16 @@ def test_source_icon_file_exists(source_type):
     )
 
 
-def test_all_registered_sources_have_valid_classification():
+def test_all_registered_sources_have_valid_classification() -> None:
     for source in ALL_SOURCES.values():
         config = source.get_source_config
         split = get_nonsensitive_and_sensitive_field_names(config.fields)
 
-        # No field should appear in both sets
         overlap = split.nonsensitive & split.sensitive
         assert not overlap, f"{config.name}: fields in both sets: {overlap}"
 
 
-def test_password_typed_fields_must_be_marked_secret():
-    """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-    it would obscure on screen but still be returned in plain text from the API.
-    """
-
+def test_password_typed_fields_must_be_marked_secret() -> None:
     def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
         offenders: list[str] = []
         for field in fields:
@@ -310,9 +305,7 @@ def test_password_typed_fields_must_be_marked_secret():
     )
 
 
-def test_dynamic_classification_covers_old_hardcoded_allowlist():
-    """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
+def test_dynamic_classification_covers_old_hardcoded_allowlist() -> None:
     old_allowed = {
         "stripe_account_id",
         "database",
@@ -348,7 +341,6 @@ def test_dynamic_classification_covers_old_hardcoded_allowlist():
         "namespace",
     }
 
-    # Collect all nonsensitive field names across all sources
     all_nonsensitive: set[str] = set()
     for source in ALL_SOURCES.values():
         config = source.get_source_config

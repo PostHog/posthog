@@ -4604,8 +4604,7 @@ jobs:
         needs: [turbo-discover]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        # An empty mode means this run never selected, so there is no decision to report,
-        # unless it ran a product without its core tests, which is a selection too.
+        # An empty mode means this run never selected, so there is no decision to report.
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
@@ -4613,7 +4612,7 @@ jobs:
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
-            && (needs.turbo-discover.outputs.mode != '' || fromJSON(needs.turbo-discover.outputs.telemetry || '{}').leaf_scoped_test_files > 0)
+            && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
               # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
