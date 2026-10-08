@@ -10,7 +10,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-TASK_PATH = "products.workflows.backend.presentation.views.hog_flow.reschedule_hog_flow_timing"
+TASK_PATH = "products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing"
 
 
 def _actions(delay_duration: str = "7d", webhook_url: str = "https://example.com") -> list[dict]:
@@ -117,7 +117,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         assert response.status_code == 200, response.json()
         mock_task.delay.assert_not_called()
 
-    @patch("products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing")
+    @patch(TASK_PATH)
     def test_mcp_draft_routed_edit_does_not_enqueue_sweep(self, mock_task):
         flow_id = self._create_flow()
 
@@ -128,7 +128,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         assert HogFlow.objects.get(pk=flow_id).draft is not None
         mock_task.delay.assert_not_called()
 
-    @patch("products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing")
+    @patch(TASK_PATH)
     def test_publish_of_timing_shortening_draft_enqueues_sweep(self, mock_task):
         flow_id = self._create_flow()
         response = self._patch_delay_via_mcp(flow_id)
@@ -169,7 +169,7 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
         assert enable.status_code == 200, enable.json()
         mock_task.delay.assert_called_once_with(team_id=self.team.id, hog_flow_id=flow_id, action_ids=["delay_1"])
 
-    @patch("products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing")
+    @patch(TASK_PATH)
     def test_graph_operation_shortening_delay_enqueues_sweep(self, mock_task):
         flow_id = self._create_flow()
 

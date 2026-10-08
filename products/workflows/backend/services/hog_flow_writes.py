@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_datetime
 
 from products.workflows.backend.facade.contracts import WorkflowHasNoDraft, WorkflowStale, WorkflowWriteResult
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
@@ -104,6 +104,32 @@ def _save_live(instance: HogFlow, validated_data: dict, **overrides: object) -> 
     for attr, value in data.items():
         setattr(instance, attr, value)
     instance.save()
+
+
+def _derive_from_locked_graph(locked: HogFlow, validated_data: dict) -> dict:
+    # HogFlowSerializer.validate derives trigger, billable_action_types and exit_condition from the
+    # actions it read before the row lock. A write without actions keeps the locked row's actions, and a
+    # concurrent graph write can change those actions before the lock. Derive these fields again from the
+    # locked actions, so that the save does not pair the new graph with fields derived from the old graph.
+    if "actions" in validated_data:
+        return validated_data
+    actions = locked.actions or []
+    derived = dict(validated_data)
+    trigger_action = next((action for action in actions if action.get("type") == "trigger"), None)
+    if "trigger" in derived and trigger_action is not None:
+        derived["trigger"] = trigger_action.get("config")
+    if "exit_condition" in derived:
+        # validate forces exit_only_at_end when the trigger it read is row-scoped. Apply that rule to the
+        # locked trigger instead. When only the old trigger forced the value, keep the locked row's value.
+        if (derived.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+            derived["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
+        elif (validated_data.get("trigger") or {}).get("type") in ROW_SCOPED_TRIGGER_TYPES:
+            del derived["exit_condition"]
+    if "billable_action_types" in derived:
+        derived["billable_action_types"] = sorted(
+            {action.get("type", "") for action in actions if action.get("type") in BILLABLE_ACTION_TYPES}
+        )
+    return derived
 
 
 def _refresh_action_redirects(target: HogFlow, old: HogFlow, new_actions: Optional[list]) -> None:
@@ -239,6 +265,97 @@ def _pause_schedules_on_audience_change(before: HogFlow, after: HogFlow) -> int:
         return 0
     return after.schedules.filter(status=HogFlowScheduleStatus.ACTIVE).update(
         status=HogFlowScheduleStatus.PAUSED, next_run_at=None, updated_at=timezone.now()
+    )
+
+
+def update_workflow(
+    *,
+    team_id: int,
+    user_id: Optional[int],
+    hog_flow_id: UUID,
+    validated_data: dict,
+    route_to_draft: bool,
+    base_updated_at: Optional[str],
+    base_live_updated_at: Optional[str],
+    includes_staged_draft: bool,
+    validated_status: str,
+) -> WorkflowWriteResult:
+    # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
+    # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
+    # between, so we reject with 409 rather than silently clobbering it. Strictly-newer (not equality)
+    # avoids false positives from timestamp round-tripping - equal means the client is already current.
+    # Callers that omit `base_updated_at` keep the previous last-writer-wins behavior.
+    base_stamp = _parse_stamp(base_updated_at)
+
+    with transaction.atomic():
+        before_update = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
+        # Validation ran before this lock, and a draft validates leniently. If the status moved since
+        # and the payload does not set it, that lenient content would land on a live workflow.
+        if "status" not in validated_data and before_update.status != validated_status:
+            raise WorkflowStale()
+        # The write target is a second read, so `before_update` keeps the pre-write state.
+        instance = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+
+        # Draft edits race against other draft edits, not against the live row (which they don't
+        # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
+        guard_timestamp = before_update.updated_at
+        if route_to_draft and before_update.draft_updated_at:
+            guard_timestamp = before_update.draft_updated_at
+        # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on
+        # a non-active workflow carries the staged draft merged into it. The draft is only cleared on
+        # that explicit signal, so an API caller that resends live content never loses a draft.
+        clears_staged_draft = (
+            not route_to_draft
+            and before_update.status != HogFlow.State.ACTIVE
+            and before_update.draft is not None
+            and includes_staged_draft
+        )
+        if clears_staged_draft:
+            # A revision restore writes the draft without moving the live stamp, so fence on the newer one.
+            if before_update.draft_updated_at and (
+                guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
+            ):
+                guard_timestamp = before_update.draft_updated_at
+        if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
+            raise WorkflowStale()
+
+        if route_to_draft:
+            _write_draft(instance, before_update, validated_data)
+            # Metadata in the same payload still applies live. Content (and the fields validate()
+            # derives from it - trigger, billable_action_types) must not leak onto the live row:
+            # they were computed from the draft's graph.
+            remaining = {
+                k: v
+                for k, v in validated_data.items()
+                if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
+            }
+            if remaining:
+                # The draft-stamp guard above doesn't protect this live write: a concurrent
+                # live-metadata edit bumps updated_at but not draft_updated_at, so a staged save
+                # would silently overwrite it. Clients that write metadata alongside a staged
+                # draft send the live stamp they loaded as a second fence.
+                base_live = _parse_stamp(base_live_updated_at)
+                if base_live and before_update.updated_at and before_update.updated_at > base_live:
+                    raise WorkflowStale()
+                _save_live(instance, remaining)
+        else:
+            validated_data = _derive_from_locked_graph(before_update, validated_data)
+            _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
+            bump = _stage_revision_bump(instance, before_update, validated_data)
+            if clears_staged_draft:
+                _save_live(instance, validated_data, draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
+                unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.pk)
+            else:
+                _save_live(instance, validated_data)
+            if bump:
+                _append_revisions(team_id, user_id, instance, before_update)
+
+    paused = 0
+    if not route_to_draft:
+        _reschedule_timing_edits(team_id, before_update, instance)
+        paused = _pause_schedules_on_audience_change(before_update, instance)
+    return WorkflowWriteResult(
+        previous=field_values(before_update), current=field_values(instance), schedules_paused=paused
     )
 
 
