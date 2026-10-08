@@ -51,6 +51,13 @@ describe('buildHealthDebugChecks', () => {
             expected: ['flag_state'],
         },
         {
+            name: 'a flag-state subcode the page does not know, while the browser finds nothing',
+            health: { findings: [{ ...PAUSED, subcode: 'running_but_unknown_case' }] },
+            browserWarning: null,
+            browserNoMetricsWarning: false,
+            expected: ['flag_state'],
+        },
+        {
             name: 'no metrics on the page while the server counts one',
             health: { findings: [] },
             browserWarning: null,

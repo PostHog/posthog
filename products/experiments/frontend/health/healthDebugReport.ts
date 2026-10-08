@@ -83,9 +83,14 @@ function serverResult(
 }
 
 function flagStateChecks(input: HealthDebugInput): HealthDebugCheck[] {
-    // A subcode the page does not know maps to no warning, so the comparison shows it as a difference.
     const serverWarning = input.health ? experimentWarningFromHealth(input.health) : null
-    const differs = !!input.health && warningLabel(serverWarning) !== warningLabel(input.browserWarning)
+    // A subcode the page does not know maps to no warning, so it can match a browser that finds none.
+    // The raw finding still counts as a difference then.
+    const hasUnmappedServerFinding =
+        !serverWarning && !!input.health?.findings.some((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
+    const differs =
+        !!input.health &&
+        (hasUnmappedServerFinding || warningLabel(serverWarning) !== warningLabel(input.browserWarning))
     return [
         {
             check: 'flag_state',

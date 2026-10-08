@@ -1267,11 +1267,6 @@ export interface experimentLogicMeta {
             exposures: any,
             isExperimentDraft: boolean
         ) => HealthPanelFinding[] | null
-        browserNoMetricsWarning: (
-            orderedPrimaryMetricsWithResults: unknown[],
-            orderedSecondaryMetricsWithResults: unknown[],
-            isExperimentLaunched: boolean
-        ) => boolean
         firstPrimaryMetric: (
             experiment: Experiment
         ) => ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
@@ -1323,6 +1318,23 @@ export interface experimentLogicMeta {
             metricIndex: number
             result: any
         }[]
+        browserNoMetricsWarning: (
+            orderedPrimaryMetricsWithResults: {
+                displayIndex: number
+                error: any
+                metric: ExperimentMetricUnion
+                metricIndex: number
+                result: any
+            }[],
+            orderedSecondaryMetricsWithResults: {
+                displayIndex: number
+                error: any
+                metric: ExperimentMetricUnion
+                metricIndex: number
+                result: any
+            }[],
+            isExperimentLaunched: boolean
+        ) => boolean
         statsMethod: (experiment: Experiment) => ExperimentStatsMethod
     }
 }
