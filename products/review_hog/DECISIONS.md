@@ -209,6 +209,12 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   pipeline perspective skills with the pipeline's review framing in front, and `lens_priority.md` follows the finding
   format: it maps the severity guide onto P0-P3 and limits findings to issues the change causes. The text matches the
   version the design was measured with. Skill edits do not reach the copies.
+- **Fetched files.** The design was measured with test and `.txt` files in the diff, but the PR fetch dropped both for
+  every design. A single-agent turn now fetches them (`PRFilter(review_tests_and_text=True)`), with their PR comments
+  so dedup sees the comments on every reviewed file; the pipeline keeps the old filter. Lockfiles, minified assets,
+  snapshots, `*.schema.py`, build dirs, and images stay out for both. The fetch activity therefore picks the design
+  before it fetches. A full and a Flash turn at the same head each persist their own `pr_snapshot`, latest wins, so
+  two such turns that overlap in time can read each other's file set.
 - **Lens parts.** `plan_lens_chunks` counts reviewable lines only: everything except lockfiles, snapshots, generated
   code, binary and image assets, and `max_migration.txt`. Markdown, JSON, tests, docs, CI config, and `tools/` count,
   because a general reviewer cannot assume what a repository's other files are: Markdown can be the product (prompt

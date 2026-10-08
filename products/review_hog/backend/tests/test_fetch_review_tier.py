@@ -84,7 +84,8 @@ class TestFetchDecidesTheTier(BaseTest):
         _kill_switch: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
-        # default runs every Flash turn without its lenses and no error shows it.
+        # default runs every Flash turn without its lenses and no error shows it. Only the
+        # single-agent design fetches test and `.txt` files, so the design must be known first.
         pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
         mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [pr_file], "")
         meta = _fetch_and_persist(
@@ -100,6 +101,9 @@ class TestFetchDecidesTheTier(BaseTest):
         )
 
         assert meta.lens_chunk_count == expected_parts
+        assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
+            "review_tests_and_text": review_mode == REVIEW_MODE_FLASH
+        }
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

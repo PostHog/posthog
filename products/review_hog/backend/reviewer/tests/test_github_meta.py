@@ -449,24 +449,37 @@ class TestFetchPrData:
 
         assert set(tmp_path.iterdir()) == before
 
-    def test_filtered_and_test_files_are_excluded(self, mock_request: Mock, mock_paginated: Mock) -> None:
-        # Test files and a lock file must be dropped from both pr_files and the diff snapshot.
+    @parameterized.expand(
+        [
+            ("pipeline", False, ["src/module.py"]),
+            ("single_agent", True, ["tests/test_module.py", "requirements.txt", "src/module.py"]),
+        ]
+    )
+    def test_filtered_and_test_files_are_excluded(
+        self, mock_request: Mock, mock_paginated: Mock, _name: str, review_tests_and_text: bool, expected: list[str]
+    ) -> None:
+        # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
+        # design, which was measured with them in its diff; the pipeline was tuned without them. A
+        # comment follows its file, so dedup sees exactly the comments on reviewed files.
         _wire(
             mock_request,
             mock_paginated,
             _pr_json(),
+            comments=[_comment_json(comment_id=1, path="tests/test_module.py")],
             files=[
                 _file_json(filename="tests/test_module.py", status="added", patch="@@ -0,0 +1,1 @@\n+x"),
+                _file_json(filename="requirements.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+w"),
                 _file_json(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
                 _file_json(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
             ],
         )
 
         fetcher = PRFetcher("owner", "repo", 789, token="test-token")
-        _, _, files, diff = fetcher.fetch_pr_data()
+        _, comments, files, diff = fetcher.fetch_pr_data(review_tests_and_text=review_tests_and_text)
 
-        assert [f.filename for f in files] == ["src/module.py"]
-        assert "tests/test_module.py" not in diff
+        assert [f.filename for f in files] == expected
+        assert [comment.path for comment in comments] == (["tests/test_module.py"] if review_tests_and_text else [])
+        assert ("=== tests/test_module.py [added] ===" in diff) is review_tests_and_text
         assert "yarn.lock" not in diff
         assert "=== src/module.py [modified] ===" in diff
 

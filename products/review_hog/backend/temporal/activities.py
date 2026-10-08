@@ -644,6 +644,13 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     nothing", enforced here like fork rejection).
     """
     token, installation_id = _installation_auth(input.team_id, input.repository)
+    # The flag is read here, never in the workflow, so a replay reads the recorded choice.
+    design_choice = select_review_design(
+        input.review_mode,
+        kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
+    )
+    logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)
+    review_tests_and_text = design_choice.design == REVIEW_DESIGN_SINGLE_AGENT
     pr_number, pr_url = input.pr_number, input.pr_url
     if pr_number is None and input.head_branch:
         discovered = find_open_pr_for_branch(
@@ -659,7 +666,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         pr_metadata, pr_comments, pr_files, diff = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data()
+        ).fetch_pr_data(review_tests_and_text=review_tests_and_text)
         if pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -672,6 +679,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             repository=input.repository,
             head_branch=input.head_branch or "",
             installation_id=installation_id,
+            review_tests_and_text=review_tests_and_text,
         )
     head_sha = pr_metadata.head_sha or ""
     report_id = upsert_review_report(
@@ -726,12 +734,6 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=pr_comments,
         pr_files=pr_files,
     )
-    # The flag is read here, never in the workflow, so a replay reads the recorded choice.
-    design_choice = select_review_design(
-        input.review_mode,
-        kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
-    )
-    logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)
     lens_plan = plan_lens_chunks(pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
     if already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")

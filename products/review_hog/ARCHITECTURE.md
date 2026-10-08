@@ -329,7 +329,9 @@ pipeline. `reviewhog_review_started` reports the choice as `review_design` and i
    returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The fetch activity rejects fork PRs
    (`PRMetadata.is_fork`) non-retryably before opening the report. The
    `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
-   snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
+   snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out, with their comments
+   (`PRFilter`). A single-agent Flash turn keeps test and `*.txt` files (`review_tests_and_text`), so the fetch
+   activity picks the design before it fetches. `branch =
 pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / `user_id`) into every sandbox
    activity — there is no ContextVar identity. The team's GitHub integration is validated up front by
    `validate_github_integration_activity`; `upsert_review_report` opens the living `ReviewReport`, and

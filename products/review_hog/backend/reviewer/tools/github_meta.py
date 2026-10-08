@@ -28,6 +28,16 @@ def _format_diff_section(filename: str, status: str, patch: str) -> str:
 
 
 class PRFilter:
+    def __init__(self, *, review_tests_and_text: bool = False) -> None:
+        # The single-agent design was measured on diffs that kept test and `.txt` files; the pipeline drops them.
+        self.review_tests_and_text = review_tests_and_text
+
+    def skips(self, filename: str) -> bool:
+        """Whether the review leaves this file out, and its comments out of dedup."""
+        if self.review_tests_and_text:
+            return self.is_filtered_file(filename) and not filename.lower().endswith(".txt")
+        return self.is_filtered_file(filename) or self.is_test_file(filename)
+
     @staticmethod
     def is_test_file(filename: str) -> bool:
         """Check if a filename matches common test file patterns.
@@ -256,7 +266,12 @@ def find_open_pr_for_branch(
 
 
 def fetch_branch_compare(
-    *, token: str, repository: str, head_branch: str, installation_id: str | None = None
+    *,
+    token: str,
+    repository: str,
+    head_branch: str,
+    installation_id: str | None = None,
+    review_tests_and_text: bool = False,
 ) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
     """Fetch a PR-less branch target as a compare diff against the repo's default branch.
 
@@ -299,7 +314,7 @@ def fetch_branch_compare(
             GITHUB_COMPARE_FILES_CAP,
         )
 
-    pr_filter = PRFilter()
+    pr_filter = PRFilter(review_tests_and_text=review_tests_and_text)
     pr_parser = PRParser()
     pr_files: list[PRFile] = []
     diff_sections: list[str] = []
@@ -307,7 +322,7 @@ def fetch_branch_compare(
     for file in files:
         additions += file["additions"]
         deletions += file["deletions"]
-        if pr_filter.is_filtered_file(file["filename"]) or pr_filter.is_test_file(file["filename"]):
+        if pr_filter.skips(file["filename"]):
             continue
         patch = file.get("patch")
         pr_files.append(
@@ -394,9 +409,7 @@ class PRFetcher:
                 installation_id=self._installation_id,
                 endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/comments",
             ):
-                if pr_filter.is_filtered_file(comment["path"]):
-                    continue
-                if pr_filter.is_test_file(comment["path"]):
+                if pr_filter.skips(comment["path"]):
                     continue
                 pr_comments.append(
                     PRComment(
@@ -432,9 +445,7 @@ class PRFetcher:
                 installation_id=self._installation_id,
                 endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
             ):
-                if pr_filter.is_filtered_file(file["filename"]):
-                    continue
-                if pr_filter.is_test_file(file["filename"]):
+                if pr_filter.skips(file["filename"]):
                     continue
                 patch = file.get("patch")
                 pr_files.append(
@@ -451,11 +462,13 @@ class PRFetcher:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
         return pr_files, "\n\n".join(diff_sections)
 
-    def fetch_pr_data(self) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
+    def fetch_pr_data(
+        self, *, review_tests_and_text: bool = False
+    ) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
         """Fetch PR data from the GitHub API, returning everything in-process (no files).
 
         Returns ``(pr_metadata, pr_comments, pr_files, diff)`` where ``diff`` is the reviewed files'
-        point-in-time unified patch.
+        point-in-time unified patch. ``review_tests_and_text`` keeps test and ``.txt`` files (`PRFilter`).
         """
         pr = github_api_request(
             "GET",
@@ -464,7 +477,7 @@ class PRFetcher:
             installation_id=self._installation_id,
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
         ).json()
-        pr_filter = PRFilter()
+        pr_filter = PRFilter(review_tests_and_text=review_tests_and_text)
         pr_parser = PRParser()
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr_filter)
