@@ -45,6 +45,7 @@ export function TrendLineCard({
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             curve: 'monotone',
+            legend: { show: true },
             showAxisLines: true,
             showTickMarks: true,
             showCrosshair: true,

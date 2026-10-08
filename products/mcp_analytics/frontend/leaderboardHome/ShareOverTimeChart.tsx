@@ -46,6 +46,7 @@ export function ShareOverTimeChart({
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'percent',
+            legend: { show: true },
             barCornerRadius: 4,
             showAxisLines: true,
             showTickMarks: true,

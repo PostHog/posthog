@@ -673,6 +673,68 @@ const INTENT_DIGEST = {
     intent_count: 100,
 }
 
+// Leaderboard home tab. Counts are invented; the model names only need to map to the labs the tab groups by.
+const MODEL_SHARES: [string, number][] = [
+    ['claude-sonnet-4-5', 0.34],
+    ['gpt-5-codex', 0.2],
+    ['claude-opus-4-1', 0.12],
+    ['gemini-2.5-pro', 0.1],
+    ['gpt-5', 0.08],
+    ['composer-1', 0.05],
+    ['grok-4', 0.04],
+    ['qwen3-coder', 0.03],
+    ['Unknown', 0.04],
+]
+
+const PROTOCOL_SHARES: [string, number][] = [
+    ['2025-06-18', 0.5],
+    ['2025-11-25', 0.35],
+    ['2025-03-26', 0.1],
+    ['Unknown', 0.05],
+]
+
+const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
+    DAILY_TOTALS.flatMap(([day, calls]) =>
+        shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
+    )
+
+// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
+const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
+    $mcp_tool_category: [
+        ['Data exploration', 2240, 210, 150],
+        ['Insights', 950, 120, 20],
+        ['Dashboards', 260, 70, 2],
+        ['Cohorts', 95, 40, 6],
+    ],
+    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
+        String(r[0]),
+        Number(r[1]),
+        100,
+        Number(r[2]),
+    ]),
+    $mcp_intent_source: [
+        ['argument', 3100, 260, 90],
+        ['derived', 800, 120, 40],
+        ['Unknown', 300, 60, 10],
+    ],
+    $mcp_error_type: [
+        ['timeout', 90, 40, 90],
+        ['validation', 60, 30, 60],
+        ['auth', 30, 15, 30],
+        ['rate_limit', 15, 9, 15],
+    ],
+    $mcp_auth_method: [
+        ['oauth', 3400, 280, 120],
+        ['personal_api_key', 800, 110, 20],
+    ],
+    $mcp_llm_model_source: [
+        ['self_reported', 3600, 290, 130],
+        ['request_metadata', 600, 90, 10],
+    ],
+}
+
+const LATENCY_RESULTS = DAILY_TOTALS.map(([day], index) => [day, 700 + index * 20, 3100 + index * 90])
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
@@ -829,6 +891,24 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
+                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
+                    if (query.includes('AS label')) {
+                        const property = query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
+                        if (query.includes('AS bucket')) {
+                            return [
+                                200,
+                                {
+                                    results: bucketedShareResults(
+                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
+                                    ),
+                                },
+                            ]
+                        }
+                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
+                    }
+                    if (query.includes('AS p50')) {
+                        return [200, { results: LATENCY_RESULTS }]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -875,6 +955,13 @@ export const DashboardNarrow: Story = {
             <MCPAnalyticsDashboardOverview />
         </div>
     ),
+}
+
+export const DashboardLeaderboardHome: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
+    },
 }
 
 export const DashboardWithMenuBar: Story = {

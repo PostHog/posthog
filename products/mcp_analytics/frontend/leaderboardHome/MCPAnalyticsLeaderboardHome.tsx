@@ -116,7 +116,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <LabScoreboard shares={labShares} loading={facetsLoading} />
                 <TwoColumns>
                     <ShareOverTimeChart
-                        title="Share of calls by model"
+                        title="Model share of calls over time"
                         labels={dailyActivity.labels}
                         series={modelSeries}
                         loading={facetsLoading}
@@ -129,7 +129,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 </TwoColumns>
                 <TwoColumns>
                     <ShareOverTimeChart
-                        title="Share of calls by AI lab"
+                        title="AI lab share of calls over time"
                         labels={dailyActivity.labels}
                         series={labSeries}
                         loading={facetsLoading}
@@ -144,7 +144,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
             <Section title="Protocol and sign-in">
                 <ShareOverTimeChart
-                    title="Share of calls by MCP protocol version"
+                    title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
                     series={protocolVersionSeries}
                     loading={facetsLoading}
