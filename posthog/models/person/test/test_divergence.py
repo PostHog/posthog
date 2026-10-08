@@ -116,21 +116,31 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             flush=False,
         )
 
-    def _stop_person_merges(self) -> None:
+    def _stop_merges(self, table: str) -> None:
         # A background merge collapses the older rows that the stale and swept shapes are made of.
-        sync_execute("SYSTEM STOP MERGES person")
-        self.addCleanup(sync_execute, "SYSTEM START MERGES person")
+        sync_execute(f"SYSTEM STOP MERGES {table}")
+        self.addCleanup(sync_execute, f"SYSTEM START MERGES {table}")
+
+    def _stop_person_merges(self) -> None:
+        self._stop_merges("person")
+
+    def _attach_swept_part(self, table: str, sort_key: str, columns: str, rows: list[dict[str, Any]]) -> None:
+        # Stopped merges also block lightweight deletes, which run as mutations, so the rows are deleted
+        # in a one-part side table whose part is then attached to the target table.
+        self._stop_merges(table)
+        staging = f"person_divergence_swept_{table}_{self.team.pk}"
+        sync_execute(f"DROP TABLE IF EXISTS {staging} SYNC")
+        sync_execute(f"CREATE TABLE {staging} AS {table} ENGINE = ReplacingMergeTree(version) ORDER BY {sort_key}")
+        self.addCleanup(sync_execute, f"DROP TABLE IF EXISTS {staging} SYNC")
+        sync_execute(f"INSERT INTO {staging} ({columns}) VALUES", rows, settings={"optimize_on_insert": 0}, flush=False)
+        sync_execute(f"DELETE FROM {staging} WHERE 1", settings={"lightweight_deletes_sync": 2})
+        sync_execute(f"ALTER TABLE {table} ATTACH PARTITION tuple() FROM {staging}")
 
     def _swept_rows(self, rows_by_person: dict[UUID, list[tuple[int, bool, float]]]) -> None:
-        # Stopped merges also block lightweight deletes, which run as mutations, so the rows are deleted
-        # in a one-part side table whose part is then attached to person.
-        self._stop_person_merges()
-        staging = f"person_divergence_swept_{self.team.pk}"
-        sync_execute(f"DROP TABLE IF EXISTS {staging} SYNC")
-        sync_execute(f"CREATE TABLE {staging} AS person ENGINE = ReplacingMergeTree(version) ORDER BY (team_id, id)")
-        self.addCleanup(sync_execute, f"DROP TABLE IF EXISTS {staging} SYNC")
-        sync_execute(
-            f"INSERT INTO {staging} ({_PERSON_COLUMNS}) VALUES",
+        self._attach_swept_part(
+            "person",
+            "(team_id, id)",
+            _PERSON_COLUMNS,
             [
                 {
                     "id": person_uuid,
@@ -147,11 +157,27 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
                 for person_uuid, rows in rows_by_person.items()
                 for version, deleted, hours_ago in rows
             ],
-            settings={"optimize_on_insert": 0},
-            flush=False,
         )
-        sync_execute(f"DELETE FROM {staging} WHERE 1", settings={"lightweight_deletes_sync": 2})
-        sync_execute(f"ALTER TABLE person ATTACH PARTITION tuple() FROM {staging}")
+
+    def _swept_mapping_rows(self, distinct_id: str, person_uuid: UUID, rows: list[tuple[int, bool, float]]) -> None:
+        self._attach_swept_part(
+            "person_distinct_id2",
+            "(team_id, distinct_id)",
+            "distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition",
+            [
+                {
+                    "distinct_id": distinct_id,
+                    "person_id": str(person_uuid),
+                    "team_id": self.team.pk,
+                    "is_deleted": int(deleted),
+                    "version": version,
+                    "_timestamp": _utc_naive(hours_ago),
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+                for version, deleted, hours_ago in rows
+            ],
+        )
 
     def _ch_person(self, person_uuid: UUID | str) -> tuple[int, int, dict[str, Any]]:
         [[deleted, version, properties]] = sync_execute(
@@ -731,6 +757,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("winner_is_another_person_below_postgres", "other", False, 1, "other_person", 2),
             ("winner_above_postgres", "self", False, 7, "stale", 8),
             ("absent_from_clickhouse", None, False, None, "absent", 2),
+            ("swept_from_clickhouse", "swept", True, 100, "absent", 101),
         ]
     )
     def test_republishes_a_divergent_mapping_for_its_postgres_owner(
@@ -745,7 +772,9 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         person = self._pg_person(version=3, distinct_ids={"divergent": 2, "steady": 0})
         self._ch_person_row(person.uuid, 3)
         self._ch_mapping_row("steady", person.uuid, 0)
-        if ch_owner is not None and ch_version is not None:
+        if ch_owner == "swept":
+            self._swept_mapping_rows("divergent", person.uuid, [(1, False, 2), (100, True, 1)])
+        elif ch_owner is not None and ch_version is not None:
             owner = person.uuid if ch_owner == "self" else uuid4()
             self._ch_mapping_row("divergent", owner, ch_version, deleted=ch_deleted)
 
