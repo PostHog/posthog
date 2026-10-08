@@ -506,6 +506,17 @@ class WorkflowAccessDenied(Exception):
 
 
 @frozen
+class WorkflowActor:
+    """Who made a workflow change, for its activity log entry. ``team_id`` is the project the request
+    came through. ``user`` carries the core ``User`` row, as ``log_activity`` takes it."""
+
+    organization_id: UUID
+    team_id: int
+    user: "User | None"
+    was_impersonated: bool
+
+
+@frozen
 class WorkflowWriteResult:
     previous: Mapping[str, object]
     current: Mapping[str, object]

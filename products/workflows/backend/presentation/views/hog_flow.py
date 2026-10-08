@@ -3,7 +3,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import timedelta
 from time import monotonic
@@ -78,6 +78,7 @@ from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaIte
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
@@ -109,6 +110,11 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
+from products.workflows.backend.facade.activity import (
+    bulk_delete_archived_workflows,
+    log_workflow_activity,
+    resume_workflow_email_sending,
+)
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
@@ -132,6 +138,7 @@ from products.workflows.backend.facade.contracts import (
     StaffPausedError,
     Workflow,
     WorkflowAccessDenied,
+    WorkflowActor,
     WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
@@ -161,7 +168,6 @@ from products.workflows.backend.facade.email_health import (
     fold_email_totals,
     get_email_sending_state,
     pause_requires_staff,
-    resume_email_sending,
     team_email_sending_allowance,
     verified_email_domains,
 )
@@ -3957,6 +3963,14 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
+@frozen
+class _DeletedWorkflow:
+    """What a usage event names about a workflow that a bulk delete removed."""
+
+    id: uuid_mod.UUID
+    name: str | None
+
+
 class StaleWorkflowUpdateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4533,7 +4547,7 @@ class HogFlowViewSet(
         )
 
     def _report_workflow_action(
-        self, event: str, instance: HogFlow | WorkflowRef, extra_properties: Optional[dict] = None
+        self, event: str, instance: "HogFlow | WorkflowRef | _DeletedWorkflow", extra_properties: Optional[dict] = None
     ) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
         # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
@@ -4567,7 +4581,7 @@ class HogFlowViewSet(
             validated_data=serializer.validated_data,
         )
         serializer.instance = HogFlow(**result.current)
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
+        self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
         self._report_workflow_action(
@@ -4634,14 +4648,18 @@ class HogFlowViewSet(
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
         self._apply_written_state(serializer.instance, result)
-        before_update = HogFlow(**result.previous)
-
         self._report_schedules_paused(result, serializer.instance)
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
+        self._log_activity(
+            serializer.instance.id,
+            serializer.instance.name,
+            "updated",
+            previous=result.previous,
+            current=result.current,
+        )
         self._emit_resource_edited(serializer.instance)
 
         # PostHog capture for hog_flow activated (draft -> active)
-        if before_update.status == HogFlow.State.DRAFT and serializer.instance.status == HogFlow.State.ACTIVE:
+        if result.previous.get("status") == HogFlow.State.DRAFT and serializer.instance.status == HogFlow.State.ACTIVE:
             self._report_workflow_action(
                 "hog_flow_activated",
                 serializer.instance,
@@ -4657,10 +4675,38 @@ class HogFlowViewSet(
         # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
         flow_id = instance.id
         with transaction.atomic():
-            log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
+            self._log_activity(instance.id, instance.name, "deleted")
             destroy_workflow(team_id=self.team_id, hog_flow_id=instance.pk)
         instance.id = flow_id
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
+
+    def _activity_actor(self) -> WorkflowActor:
+        return WorkflowActor(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=cast(User, self.request.user),
+            was_impersonated=is_impersonated(self.request),
+        )
+
+    def _log_activity(
+        self,
+        workflow_id: uuid_mod.UUID,
+        name: Optional[str],
+        activity: str,
+        *,
+        previous: Optional[Mapping[str, object]] = None,
+        current: Optional[Mapping[str, object]] = None,
+        detail_type: Optional[str] = None,
+    ) -> None:
+        log_workflow_activity(
+            actor=self._activity_actor(),
+            workflow_id=workflow_id,
+            name=name,
+            activity=activity,
+            previous=previous,
+            current=current,
+            detail_type=detail_type,
+        )
 
     def _actor_id(self) -> Optional[int]:
         return self.request.user.id if self.request.user.is_authenticated else None
@@ -4725,9 +4771,7 @@ class HogFlowViewSet(
         self._report_schedules_paused(result, instance)
         # Explicit "updated" (the action name "graph" isn't in ACTIVITY_TYPES, which would fall back to
         # the indistinct "changed" and miss the describer's per-field rendering).
-        log_activity_from_viewset(
-            self, instance, activity="updated", name=instance.name, previous=HogFlow(**result.previous)
-        )
+        self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
         self._report_workflow_action(
             "hog_flow_graph_updated",
@@ -4793,9 +4837,7 @@ class HogFlowViewSet(
             raise StaleWorkflowUpdateError()
         self._apply_written_state(instance, result)
 
-        log_activity_from_viewset(
-            self, instance, activity="updated", name=instance.name, previous=HogFlow(**result.previous)
-        )
+        self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
         self._report_workflow_action(
             "hog_flow_action_email_updated",
@@ -4963,9 +5005,7 @@ class HogFlowViewSet(
         locked = instance
 
         self._report_schedules_paused(result, locked)
-        log_activity_from_viewset(
-            self, locked, activity="published", name=locked.name, previous=HogFlow(**result.previous)
-        )
+        self._log_activity(locked.id, locked.name, "published", previous=result.previous, current=result.current)
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
@@ -4987,8 +5027,8 @@ class HogFlowViewSet(
         result = discard_draft(team_id=self.team_id, hog_flow_id=instance.pk)
         self._apply_written_state(instance, result)
 
-        log_activity_from_viewset(
-            self, instance, activity="draft_discarded", name=instance.name, previous=HogFlow(**result.previous)
+        self._log_activity(
+            instance.id, instance.name, "draft_discarded", previous=result.previous, current=result.current
         )
         self._emit_resource_edited(instance)
         self._report_workflow_action("hog_flow_draft_discarded", instance)
@@ -5051,8 +5091,8 @@ class HogFlowViewSet(
         self._apply_written_state(instance, result)
         locked = instance
 
-        log_activity_from_viewset(
-            self, locked, activity="revision_restored", name=locked.name, previous=HogFlow(**result.previous)
+        self._log_activity(
+            locked.id, locked.name, "revision_restored", previous=result.previous, current=result.current
         )
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_revision_restored", locked, {"version": restored_version})
@@ -5395,7 +5435,7 @@ class HogFlowViewSet(
         param_serializer = WorkflowProposalRejectRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 
-        instance = self.get_object()
+        instance = self._workflow_ref()
         with transaction.atomic():
             proposal = self._get_proposal_or_404(instance, proposal_id)
             locked_proposal = lock_proposal(team_id=self.team_id, proposal_id=proposal.id)
@@ -5408,7 +5448,7 @@ class HogFlowViewSet(
                 resolved_by_id=request.user.pk if request.user.is_authenticated else None,
             )
 
-        log_activity_from_viewset(self, instance, activity="proposal_rejected", name=instance.name)
+        self._log_activity(instance.id, instance.name, "proposal_rejected")
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal, context={"hog_flow": instance}).data)
 
@@ -5421,7 +5461,7 @@ class HogFlowViewSet(
         still has them to resolve.
         """
         self._require_self_optimising_enabled()
-        instance = self.get_object()
+        instance = self._workflow_ref()
 
         if request.method == "POST":
             param_serializer = HogFlowOptimizationSerializer(data=request.data)
@@ -5429,19 +5469,16 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlow.State.ACTIVE:
                 raise WorkflowNotLiveError()
-            changed = set_optimization_enabled(hog_flow_id=instance.pk, enabled=enabled)
+            changed = set_optimization_enabled(hog_flow_id=instance.id, enabled=enabled)
             if changed:
-                log_activity_from_viewset(
-                    self,
-                    instance,
-                    activity="optimization_enabled" if enabled else "optimization_disabled",
-                    name=instance.name,
+                self._log_activity(
+                    instance.id, instance.name, "optimization_enabled" if enabled else "optimization_disabled"
                 )
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
         else:
-            enabled = is_optimization_enabled(instance.pk)
+            enabled = is_optimization_enabled(instance.id)
 
         return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
 
@@ -5786,38 +5823,19 @@ class HogFlowViewSet(
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        # Match the single destroy path: deleting a workflow needs object-level editor access, not just
-        # visibility. filter_queryset_by_access_level only drops effective-"none" (invisible) objects, so an
-        # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
-        candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
-        self.user_access_control.preload_object_access_controls(candidates)
-        deletable = [
-            flow
-            for flow in candidates
-            if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
-        ]
-
-        # Hard deletes must leave a trail, same as the single destroy path. Lock the rows so the
-        # audit entries match exactly what this request deletes (a concurrently removed row gets no
-        # entry), and share the delete's transaction so a failed delete rolls its audit rows back.
-        # Usage events fire only after commit.
-        with transaction.atomic():
-            deleted_ids = set(
-                self.get_queryset()
-                .select_for_update()
-                .filter(id__in=[flow.id for flow in deletable])
-                .values_list("id", flat=True)
+        deleted = bulk_delete_archived_workflows(
+            project_id=self.team.project_id,
+            workflow_ids=validated_ids,
+            user_access_control=self.user_access_control,
+            actor=self._activity_actor(),
+        )
+        # Usage events fire only after the delete commits.
+        for flow_id, name in deleted:
+            self._report_workflow_action(
+                "hog_flow_deleted", _DeletedWorkflow(id=flow_id, name=name), {"via": "bulk_delete"}
             )
-            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
-            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
-            deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
-            for flow in deleted_flows:
-                log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
 
-        for flow in deleted_flows:
-            self._report_workflow_action("hog_flow_deleted", flow, {"via": "bulk_delete"})
-
-        return Response({"deleted": deleted_count})
+        return Response({"deleted": len(deleted)})
 
     # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
     # tail is the healthiest workflows, and search reaches past the cap.
@@ -6003,34 +6021,24 @@ class HogFlowViewSet(
         a workflow that is still generating complaints or hard bounces pauses again within minutes,
         while a customer who has cleaned up their audience does not have to wait on support.
         """
-        hog_flow = self.get_object()
-        before_update = HogFlow.objects.get(id=hog_flow.id)
+        hog_flow = self._workflow_ref()
         try:
-            resumed_at = resume_email_sending(team_id=hog_flow.team_id, hog_flow_id=hog_flow.id)
+            resumed_at = resume_workflow_email_sending(
+                team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, actor=self._activity_actor()
+            )
         except StaffPausedError:
             raise exceptions.PermissionDenied(
                 "This pause can only be lifted by PostHog. Contact support to get sending re-enabled."
             )
         if resumed_at is None:
             raise exceptions.ValidationError({"detail": "Email sending is not paused for this workflow."})
-        hog_flow.refresh_from_db(
-            fields=[
-                "email_sending_paused_at",
-                "email_sending_paused_reason",
-                "email_sending_paused_by",
-                "email_sending_resumed_at",
-            ]
-        )
-        log_activity_from_viewset(
-            self, hog_flow, activity="email_sending_resumed", name=hog_flow.name, previous=before_update
-        )
         return Response(
             WorkflowEmailPauseStatusSerializer(
                 {
                     "email_sending_paused": False,
                     "email_sending_paused_at": None,
                     "email_sending_paused_reason": "",
-                    "email_sending_resumed_at": hog_flow.email_sending_resumed_at,
+                    "email_sending_resumed_at": resumed_at,
                 }
             ).data
         )
