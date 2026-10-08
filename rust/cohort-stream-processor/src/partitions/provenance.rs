@@ -541,56 +541,52 @@ impl ProvenanceClassifier {
         let Some(expected) = self.expected_offsets(&partitions, boot).await else {
             return;
         };
-        {
-            for (partition, generation) in pending {
-                let Ok(partition_id) = u16::try_from(partition) else {
-                    continue;
-                };
-                let stored = match handle.read_partition_provenance(partition_id).await {
-                    Ok(slots) => StoredProvenance::decode(slots),
-                    Err(error) => {
-                        counter!(PARTITION_PROVENANCE_ERRORS_TOTAL, "stage" => "read").increment(1);
-                        warn!(partition, error = %error, "provenance: read failed; retrying next tick");
-                        continue;
-                    }
-                };
-                let empty = HashMap::new();
-                let expected = expected.get(&partition).unwrap_or(&empty);
-                let is_boot = boot.contains(&partition);
-                let verdict = classify(&stored, expected, !is_boot, adopt_legacy && is_boot);
-                let mut staged = StagedBatch::default();
-                stage_classification(&mut staged, partition_id, &verdict);
-                if !staged.is_empty() {
-                    if let Err(error) = handle.commit(staged).await {
-                        counter!(PARTITION_PROVENANCE_ERRORS_TOTAL, "stage" => "write")
-                            .increment(1);
-                        warn!(partition, error = %error, "provenance: verdict write failed; retrying next tick");
-                        continue;
-                    }
-                }
-                if !self.registry.settle(partition, generation, verdict.class) {
+        for (partition, generation) in pending {
+            let Ok(partition_id) = u16::try_from(partition) else {
+                continue;
+            };
+            let stored = match handle.read_partition_provenance(partition_id).await {
+                Ok(slots) => StoredProvenance::decode(slots),
+                Err(error) => {
+                    counter!(PARTITION_PROVENANCE_ERRORS_TOTAL, "stage" => "read").increment(1);
+                    warn!(partition, error = %error, "provenance: read failed; retrying next tick");
                     continue;
                 }
-                boot_remaining.remove(&partition);
-                counter!(PARTITION_PROVENANCE_CLASSIFIED_TOTAL, "class" => verdict.label)
-                    .increment(1);
-                let lineage = verdict.lineage_write.or(stored.lineage);
-                match verdict.class {
-                    PartitionClass::Warm => info!(
-                        partition,
-                        class = verdict.label,
-                        lineage = ?lineage.map(|lineage| lineage.id),
-                        "provenance: partition holds its full history",
-                    ),
-                    PartitionClass::Fenced(reason) => warn!(
-                        partition,
-                        reason = reason.as_str(),
-                        lineage = ?lineage.map(|lineage| lineage.id),
-                        stored = ?stored.inputs,
-                        committed = ?expected,
-                        "provenance: partition is missing history; its reconciles withhold their completion markers",
-                    ),
+            };
+            let empty = HashMap::new();
+            let expected = expected.get(&partition).unwrap_or(&empty);
+            let is_boot = boot.contains(&partition);
+            let verdict = classify(&stored, expected, !is_boot, adopt_legacy && is_boot);
+            let mut staged = StagedBatch::default();
+            stage_classification(&mut staged, partition_id, &verdict);
+            if !staged.is_empty() {
+                if let Err(error) = handle.commit(staged).await {
+                    counter!(PARTITION_PROVENANCE_ERRORS_TOTAL, "stage" => "write").increment(1);
+                    warn!(partition, error = %error, "provenance: verdict write failed; retrying next tick");
+                    continue;
                 }
+            }
+            if !self.registry.settle(partition, generation, verdict.class) {
+                continue;
+            }
+            boot_remaining.remove(&partition);
+            counter!(PARTITION_PROVENANCE_CLASSIFIED_TOTAL, "class" => verdict.label).increment(1);
+            let lineage = verdict.lineage_write.or(stored.lineage);
+            match verdict.class {
+                PartitionClass::Warm => info!(
+                    partition,
+                    class = verdict.label,
+                    lineage = ?lineage.map(|lineage| lineage.id),
+                    "provenance: partition holds its full history",
+                ),
+                PartitionClass::Fenced(reason) => warn!(
+                    partition,
+                    reason = reason.as_str(),
+                    lineage = ?lineage.map(|lineage| lineage.id),
+                    stored = ?stored.inputs,
+                    committed = ?expected,
+                    "provenance: partition is missing history; its reconciles withhold their completion markers",
+                ),
             }
         }
     }

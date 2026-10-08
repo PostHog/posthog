@@ -212,11 +212,11 @@ Each consumer writes the offsets it commits into the provenance before it forces
 At the start of each tenure, after the boot assignment settles, the processor compares the provenance with the consumer groups' committed offsets.
 After a restore, it compares with the checkpoint's offsets, because the restore rewinds the inputs to them.
 
-| Verdict | When                                                                                                    | Reconcile                                   |
-| ------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| warm    | The lineage exists and no stored offset is behind its group's commit, or no group has a commit yet      | Walks and produces `reconcile_complete`     |
-| cold    | No lineage while a group has commits, or the partition moved to this pod after boot                     | Produces `reconcile_withheld` with `cold`   |
-| stale   | A stored offset is behind its group's commit, or a group has a commit that the provenance never recorded | Produces `reconcile_withheld` with `stale`  |
+| Verdict | When                                                                                                     | Reconcile                                  |
+| ------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| warm    | The lineage exists and no stored offset is behind its group's commit, or no group has a commit yet       | Walks and produces `reconcile_complete`    |
+| cold    | No lineage while a group has commits, or the partition moved to this pod after boot                      | Produces `reconcile_withheld` with `cold`  |
+| stale   | A stored offset is behind its group's commit, or a group has a commit that the provenance never recorded | Produces `reconcile_withheld` with `stale` |
 
 A cold or stale verdict is stored in the lineage, so a restart keeps it.
 Nothing clears it yet: the partition withholds every marker until an operator rebuilds it.
