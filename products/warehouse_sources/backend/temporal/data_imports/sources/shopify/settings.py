@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 # TODO: andrew - pull EndpointConfig out from reddit_ads and into common place. make this extend that class
 # to include query_filter for graphql endpoints
-@dataclass
+@dataclass(frozen=True)
 class ShopifyEndpointConfig:
     fields: list[IncrementalField]
     query_filter: str | None
