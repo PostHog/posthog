@@ -4290,7 +4290,8 @@ jobs:
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_REF: ${{ github.head_ref }}
-              run: python3 .github/scripts/ci_backend_relay.py gate
+              # Unbuffered, so each poll shows in the live log instead of all at once when the step ends.
+              run: python3 -u .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |

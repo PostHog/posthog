@@ -473,14 +473,16 @@ def gate_verdict(
 ) -> Progress:
     """The gate verdict that this attempt of the relay job reports.
 
-    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed,
-    the relay retries the failed Depot jobs and reports the new verdict. A failed prerequisite
-    is not retried, because it fails the same way until a commit fixes it.
+    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed
+    or was cancelled, the relay retries the failed and cancelled Depot jobs and reports the new
+    verdict. A cancel is not a test verdict, so the re-run asks for the tests again. A failed
+    prerequisite is not retried, because it fails the same way until a commit fixes it.
     """
     if rerun:
         settled = poll(reader, event, GATE_CHECK, deadline_minutes=0, absent_minutes=0)
         target = DEPOT_RUN_URL.match(settled.details_url)
-        if target and settled.phase == Phase.FINISHED and settled.state != "success" and not settled.root_failure:
+        failed = settled.phase == Phase.FINISHED and settled.state != "success"
+        if target and (failed or settled.phase == Phase.CANCELLED) and not settled.root_failure:
             retried = retry(*target.groups())
             if retried:
                 return retried
@@ -535,7 +537,7 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url),
+            *retry_instructions(event, result.details_url, run_id),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
