@@ -850,7 +850,7 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
-def _is_young_first_attempt() -> bool:
+def is_young_first_attempt() -> bool:
     if not activity.in_activity():
         return False
 
@@ -873,7 +873,7 @@ def should_check_shutdown(
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable or _is_young_first_attempt()
+    return incremental_sync_raise_during_shutdown or source_is_resumable or is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(
