@@ -4487,11 +4487,11 @@ class HogFlowViewSet(
         return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
 
     def _workflow(self) -> Workflow:
-        """The workflow in the URL, or 404 when the team has none with that id, or 403 below the required level."""
+        """The workflow in the URL, or 404 when the project has none with that id, or 403 below the required level."""
         user_access_control, required_level = self._object_access()
         try:
             return get_workflow(
-                team_id=self.team_id,
+                project_id=self.team.project_id,
                 workflow_id=self.kwargs["pk"],
                 user_access_control=user_access_control,
                 required_level=required_level,

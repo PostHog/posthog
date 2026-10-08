@@ -5098,11 +5098,11 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @parameterized.expand([("another_teams_workflow",), ("malformed_id",)])
-    def test_hog_flow_retrieve_404s_for_an_id_outside_the_team(self, case: str):
-        if case == "another_teams_workflow":
+    @parameterized.expand([("another_projects_workflow",), ("malformed_id",)])
+    def test_hog_flow_retrieve_404s_for_an_id_outside_the_project(self, case: str):
+        if case == "another_projects_workflow":
             other_team = Team.objects.create(organization=self.organization)
-            workflow_id = str(HogFlow.objects.create(team=other_team, name="Other team's flow").id)
+            workflow_id = str(HogFlow.objects.create(team=other_team, name="Other project's flow").id)
         else:
             workflow_id = "not-a-uuid"
 
