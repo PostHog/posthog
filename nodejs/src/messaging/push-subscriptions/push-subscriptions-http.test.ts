@@ -61,7 +61,6 @@ describe('push subscriptions http', () => {
         ['us.i.posthog.com', false],
         ['shadow.example.com', false],
     ])('marks a request with Host %s as mirrored: %s', async (host, mirrored) => {
-        // Envoy appends -shadow to the Host of the copy it mirrors, and only that copy may skip the write.
         await new Promise<void>((resolve, reject) => {
             const req = httpRequest(
                 `${base}/api/push_subscriptions/`,
