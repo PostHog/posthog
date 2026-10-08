@@ -1013,6 +1013,7 @@ tools:
     vision-requests-create:
         operation: vision_requests_create
         enabled: true
+        requires_ai_consent: true
         annotations:
             readOnly: false
             destructive: false

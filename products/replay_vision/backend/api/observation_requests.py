@@ -20,8 +20,10 @@ from posthog.models.user import User
 from posthog.permissions import is_authenticated_via_project_secret_api_key, is_scout_sandbox_request
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.observations import ScannerResultSerializer
 from products.replay_vision.backend.api.scanners import BulkObserveResultSerializer, InlineScanConfigSerializer
+from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
@@ -29,11 +31,14 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.observation_requests import (
+    IdempotencyKeyConflict,
     InlineScanSpec,
+    RequestProgress,
     RequestSession,
     RequestSessionState,
     create_observation_request,
     request_progress,
+    request_progress_many,
 )
 from products.replay_vision.backend.scanner_access import can_read_targeted_experiment, readable_observation_scanner_ids
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
@@ -224,8 +229,8 @@ class ObservationRequestViewSet(
         readable = readable_observation_scanner_ids(self.user_access_control, self.team_id)
         return queryset.filter(Q(scanner_id__in=readable) | Q(scanner__isnull=True))
 
-    def _render(self, request: ReplayObservationRequest) -> dict[str, Any]:
-        progress = request_progress(request)
+    def _render(self, request: ReplayObservationRequest, progress: RequestProgress | None = None) -> dict[str, Any]:
+        progress = progress or request_progress(request)
         completed = request.completed_at is not None or progress.settled
         return ObservationRequestSerializer(
             {
@@ -246,7 +251,8 @@ class ObservationRequestViewSet(
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         page = self.paginate_queryset(self.filter_queryset(self.get_queryset()))
         rows = page if page is not None else list(self.get_queryset())
-        data = [self._render(r) for r in rows]
+        progress = request_progress_many(rows)
+        data = [self._render(r, progress[r.id]) for r in rows]
         return self.get_paginated_response(data) if page is not None else Response(data)
 
     @extend_schema(
@@ -257,12 +263,19 @@ class ObservationRequestViewSet(
                 description="A request with this `idempotency_key` already exists. Nothing new was started.",
             ),
             202: ObservationRequestSerializer,
+            409: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="This `idempotency_key` already names a request made by another caller.",
+            ),
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Scan sessions with a saved scanner or an inline question. Poll the returned request for results."""
-        if not self.team.organization.is_ai_data_processing_approved:
-            raise ValidationError("Your organization needs to allow AI analysis before you run a Replay Vision scan.")
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you run a Replay Vision scan.",
+                code=AI_CONSENT_REQUIRED_CODE,
+            )
         body = CreateObservationRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         data = body.validated_data
@@ -287,18 +300,26 @@ class ObservationRequestViewSet(
             )
 
         user = None if self._is_service_call else cast(User, request.user)
-        observation_request, created = create_observation_request(
-            team=self.team,
-            user=user,
-            source=ObservationRequestSource.PROJECT_SECRET_API_KEY
-            if self._is_service_call
-            else ObservationRequestSource.USER,
-            session_ids=data["session_ids"],
-            scanner=scanner,
-            inline=inline,
-            idempotency_key=data.get("idempotency_key"),
-            reference=data["reference"],
-        )
+        try:
+            observation_request, created = create_observation_request(
+                team=self.team,
+                user=user,
+                source=ObservationRequestSource.PROJECT_SECRET_API_KEY
+                if self._is_service_call
+                else ObservationRequestSource.USER,
+                session_ids=data["session_ids"],
+                scanner=scanner,
+                inline=inline,
+                idempotency_key=data.get("idempotency_key"),
+                reference=data["reference"],
+            )
+        except IdempotencyKeyConflict:
+            return Response(
+                ReplayVisionErrorSerializer(
+                    {"detail": "This idempotency_key is already used by another caller. Send a new one."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
         if created:
             self._capture_created(request, observation_request, kind="scanner" if scanner is not None else "inline")
         return Response(

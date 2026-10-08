@@ -115,6 +115,13 @@ class TestObservationRequestAPI(APIBaseTest):
         self.assertEqual(second.json()["id"], first.json()["id"])
         self.assertEqual(self.start_workflow.call_count, starts)
 
+        # Another caller reusing the key must not read back a request it may not be allowed to see.
+        other = self._psak_client(["replay_scanner:write", "session_recording:read"]).post(
+            self.url, payload, format="json"
+        )
+        self.assertEqual(other.status_code, 409, other.json())
+        self.assertEqual(self.start_workflow.call_count, starts)
+
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 
         response = self.client.post(
@@ -176,6 +183,13 @@ class TestRequestProgress(APIBaseTest):
             ("succeeded", ObservationStatus.SUCCEEDED, timedelta(0), "succeeded", True),
             ("row_not_written_yet", None, timedelta(0), "pending", False),
             ("row_never_written", None, APPLY_SCANNER_EXECUTION_TIMEOUT + timedelta(minutes=1), "lost", True),
+            (
+                "row_stuck_running",
+                ObservationStatus.RUNNING,
+                APPLY_SCANNER_EXECUTION_TIMEOUT + timedelta(minutes=1),
+                "lost",
+                True,
+            ),
         ]
     )
     def test_session_state_follows_its_observation(
@@ -197,4 +211,22 @@ class TestRequestProgress(APIBaseTest):
         progress = request_progress(request, now=request.created_at + age)
 
         self.assertEqual([s.state for s in progress.sessions], [state, "skipped"])
+        self.assertEqual(progress.settled, settled)
+
+    @parameterized.expand(
+        [
+            ("still_starting", timedelta(0), "pending", False),
+            ("starter_died", timedelta(hours=1), "failed", True),
+        ]
+    )
+    def test_a_request_whose_scans_are_still_starting_is_not_settled(
+        self, _name: str, age: timedelta, state: str, settled: bool
+    ) -> None:
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team, scanner=None, session_ids=["s1"], start_outcomes=[], source="user"
+        )
+
+        progress = request_progress(request, now=request.created_at + age)
+
+        self.assertEqual([s.state for s in progress.sessions], [state])
         self.assertEqual(progress.settled, settled)

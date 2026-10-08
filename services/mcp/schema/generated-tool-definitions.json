@@ -13611,7 +13611,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "requires_ai_consent": true
     },
     "vision-requests-get": {
         "description": "Read a scan request made with `vision-requests-create`: its `status` (`running` until every session has settled, then `completed`) and, for each session, its `state`, `observation_id` and `scanner_result` once it succeeded.",
