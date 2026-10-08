@@ -22,9 +22,18 @@ export function CohortCsvDropzone({
             showUploadedFiles={false}
             callToAction={
                 <div
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.currentTarget.click()
+                        }
+                    }}
                     className={cn(
                         'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
                         'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent',
                         value?.name && 'border-success'
                     )}
                 >
