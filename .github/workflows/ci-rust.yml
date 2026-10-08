@@ -151,7 +151,7 @@ jobs:
                       "cohort-core": 22,
                       "cohort-event-shuffler": 25,
                       "cohort-seeder": 77,
-                      "cohort-stream-processor": 146,
+                      "cohort-stream-processor": 266,
                       "common-alloc": 5,
                       "common-cache": 6,
                       "common-compression": 5,
@@ -554,6 +554,23 @@ jobs:
                           USAGE_INGESTION_E2E_TOPIC=clickhouse_billing_usage_records_test \
                           USAGE_INGESTION_E2E_LOAD_REQUESTS=2000 \
                               run_nextest usage-ingestion-ignored -p usage-ingestion --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
+                      # cohort-stream-processor's integration tests are #[ignore]'d (they need Kafka,
+                      # and merge_durability also needs S3). This job has Kafka and the replay
+                      # SeaweedFS (open access, `posthog` bucket). `kind(test)` keeps the lib's
+                      # ignored Postgres test and benchmarks out. Single-threaded because the
+                      # tests share the broker and time rebalances. Redpanda caps total partitions
+                      # at its fd ulimit / topic_fds_per_partition (5), which can be ~200 under a
+                      # 1024 ulimit. The merge and seed tests create several 64-partition topics.
+                      if [ "$pkg" = "cohort-stream-processor" ]; then
+                          docker exec rust-kafka-1 rpk cluster config set topic_fds_per_partition 1 \
+                              || echo "::warning::could not raise the Redpanda partition limit"
+                          CHECKPOINT_S3_ENDPOINT=http://localhost:8333 \
+                          CHECKPOINT_S3_BUCKET=posthog \
+                          CHECKPOINT_S3_REGION=us-east-1 \
+                          CHECKPOINT_S3_ACCESS_KEY_ID=any \
+                          CHECKPOINT_S3_SECRET_ACCESS_KEY=any \
+                              run_nextest cohort-stream-processor-ignored -p cohort-stream-processor -E 'kind(test)' --run-ignored only --test-threads=1 || overall_rc=1
                       fi
                       echo "::endgroup::"
                   done
