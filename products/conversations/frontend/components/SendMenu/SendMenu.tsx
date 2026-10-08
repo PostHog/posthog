@@ -100,7 +100,7 @@ export function SendMenu({
                     <div className="px-2 pt-1 pb-2 border-b">
                         <div className="flex items-center gap-1 text-xs text-secondary">
                             <ReplyIcon isPrivate={isPrivate} channel={channel} />
-                            {isPrivate ? 'Private note' : getReplyDestination(channel)}
+                            <span>{isPrivate ? 'Private note' : getReplyDestination(channel)}</span>
                         </div>
                         <div className="ph-no-capture font-semibold">
                             {isPrivate ? 'Only your team will see this.' : audience}
