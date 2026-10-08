@@ -35,6 +35,7 @@ from .serializers import (
     DismissWarehouseSuggestionSerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
+    WarehouseSuggestionStatusSerializer,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -65,7 +66,7 @@ class ProjectAccessPermission(BasePermission):
 
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "warehouse_objects"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "status"]
     scope_object_write_actions = ["dismiss", "resume"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
@@ -96,6 +97,11 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 offset=offset,
             ),
         )
+
+    @extend_schema(responses={200: WarehouseSuggestionStatusSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def status(self, request: Request, **kwargs: Any) -> Response:
+        return Response(WarehouseSuggestionStatusSerializer(api.suggestion_status(self.team_id)).data)
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:

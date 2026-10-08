@@ -5,16 +5,20 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from ..logic import suggestions
-from ..logic.access import SubjectAccess, visible_suggestions
+from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
 from ..logic.flags import is_warehouse_suggestions_enabled
-from ..models import WarehouseSuggestion
+from ..logic.payloads import payload_from_json, payload_view, source_table_ids
+from ..logic.rules import RULES
+from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
     SubjectEditAccessRequiredError,
     Suggestion,
     SuggestionDraft,
     SuggestionNotFoundError,
     SuggestionPage,
+    SuggestionPayloadView,
     SuggestionReviewer,
+    SuggestionStatus,
 )
 from .enums import (
     WarehouseSuggestionAssetOutcome,
@@ -33,6 +37,7 @@ __all__ = [
     "is_warehouse_suggestions_enabled",
     "list_suggestions",
     "resume_suggestion",
+    "suggestion_status",
     "upsert_suggestions",
 ]
 
@@ -51,13 +56,26 @@ def list_suggestions(
     offset: int,
 ) -> SuggestionPage:
     visible, access = visible_suggestions(team_id, user_access_control, kind=kind, status=status)
-    page = visible[offset : offset + limit]
-    return SuggestionPage(count=visible.count(), results=[_to_contract(row, access) for row in page])
+    page = list(visible[offset : offset + limit])
+    return SuggestionPage(count=visible.count(), results=_to_contracts(team_id, user_access_control, page, access))
+
+
+def suggestion_status(team_id: int) -> SuggestionStatus:
+    config = WarehouseSuggestionTeamConfig.objects.filter(team_id=team_id).first() or WarehouseSuggestionTeamConfig()
+    return SuggestionStatus(
+        enabled=config.enabled,
+        eligible=config.eligible,
+        days_with_data=config.days_with_data,
+        window_days=RULES.window_days,
+        paused_reason=config.paused_reason,
+        refreshed_at=config.last_run_at,
+    )
 
 
 def get_suggestion(team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID) -> Suggestion:
     row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
-    return _to_contract(row, access)
+    (suggestion,) = _to_contracts(team_id, user_access_control, [row], access)
+    return suggestion
 
 
 def dismiss_suggestion(
@@ -108,7 +126,8 @@ def _decide(
         note=note,
         transitions=suggestions.HUMAN_TRANSITIONS,
     )
-    return _to_contract(decided, access)
+    (suggestion,) = _to_contracts(team_id, user_access_control, [decided], access)
+    return suggestion
 
 
 def _visible_suggestion(
@@ -121,13 +140,26 @@ def _visible_suggestion(
     return row, access
 
 
-def _to_contract(row: WarehouseSuggestion, access: SubjectAccess) -> Suggestion:
+def _to_contracts(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    rows: list[WarehouseSuggestion],
+    access: SubjectAccess,
+) -> list[Suggestion]:
+    stored = {
+        row.id: payload_from_json(WarehouseSuggestionKind(row.kind), row.payload_version, row.payload) for row in rows
+    }
+    readable = readable_table_ids(team_id, user_access_control, source_table_ids(stored.values()))
+    return [_to_contract(row, access, payload_view(stored[row.id], readable)) for row in rows]
+
+
+def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: SuggestionPayloadView) -> Suggestion:
     return Suggestion(
         id=row.id,
         kind=WarehouseSuggestionKind(row.kind),
         subject_kind=WarehouseSuggestionSubjectKind(row.subject_kind),
         subject_id=row.subject_id,
-        payload=row.payload,
+        payload=payload,
         payload_version=row.payload_version,
         evidence=row.evidence,
         evidence_window_start=row.evidence_window_start,

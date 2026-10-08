@@ -12,6 +12,7 @@ import type {
     DismissWarehouseSuggestionApi,
     PaginatedWarehouseSuggestionListApi,
     WarehouseSuggestionApi,
+    WarehouseSuggestionStatusApi,
     WarehouseSuggestionsListParams,
 } from './api.schemas'
 
@@ -87,5 +88,19 @@ export const warehouseSuggestionsResumeCreate = async (
     return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWarehouseSuggestionsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/status/`
+}
+
+export const warehouseSuggestionsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseSuggestionStatusApi> => {
+    return apiMutator<WarehouseSuggestionStatusApi>(getWarehouseSuggestionsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
