@@ -50,7 +50,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, QuarantineLiftState, RunPurpose, ShiftBandKind
+from .enums import ActorType, QuarantineLiftState, RunPurpose, RunReviewFilter, ShiftBandKind
 
 User = get_user_model()
 
@@ -486,7 +486,6 @@ def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOv
         broken=raw.totals_broken,
         unstable=raw.totals_unstable,
         at_risk=raw.totals_at_risk,
-        noisy=raw.totals_noisy,
         clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
@@ -522,7 +521,7 @@ def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int |
 
 def list_runs(
     team_id: int,
-    review_state: str | None = None,
+    review_state: RunReviewFilter | None = None,
     repo_id: UUID | None = None,
     pr_number: int | None = None,
     commit_sha: str | None = None,

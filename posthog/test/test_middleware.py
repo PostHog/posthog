@@ -29,6 +29,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.constants import AvailableFeature
 from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
@@ -37,13 +38,15 @@ from posthog.middleware import (
     per_request_logging_context_middleware,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -618,6 +621,45 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
 
+    def test_bootstrap_does_not_serialize_a_project_after_access_is_revoked(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(f"/project/{self.second_team.pk}/home")
+        assert response.status_code == 200
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.second_team.pk
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        role = Role.objects.create(name="Project admins", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        AccessControl.objects.create(
+            team=self.second_team,
+            resource="project",
+            resource_id=str(self.second_team.pk),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.second_team,
+            resource="project",
+            resource_id=str(self.second_team.pk),
+            access_level="admin",
+            role=role,
+        )
+
+        response = self.client.get(f"/project/{self.second_team.pk}/home")
+
+        assert response.status_code == 200
+        assert self.app_context(response)["current_team"] is None
+        assert self.app_context(response)["current_project"] is None
+        self.user.refresh_from_db()
+        assert self.user.current_team_id is None
+
     def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -1127,7 +1169,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
@@ -2375,6 +2416,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 "/complete/saml/",
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
+            ),
+            (
+                "access_blocked",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "access_blocked"),
+                "/login?error_code=access_blocked",
             ),
         ]
     )

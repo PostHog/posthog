@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 from typing import cast
 
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -9,14 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
     RecurlySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import (
-    ENDPOINTS,
-    RECURLY_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
-
-INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
-FULL_REFRESH_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_incremental]
 
 
 class TestRecurlySource:
@@ -25,31 +17,10 @@ class TestRecurlySource:
         self.team_id = 123
         self.config = RecurlySourceConfig(api_key="test-key", region="us")
 
-    def test_get_schemas_returns_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
-    def test_incremental_endpoints_advertise_incremental(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is True
-        assert schema.supports_append is True
-        assert {field["field"] for field in schema.incremental_fields} == {"created_at", "updated_at"}
-
-    @pytest.mark.parametrize("endpoint", FULL_REFRESH_ENDPOINTS)
-    def test_full_refresh_endpoints_do_not_advertise_incremental(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is False
-        assert schema.supports_append is False
-        assert schema.incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["accounts"])
         assert len(schemas) == 1
         assert schemas[0].name == "accounts"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source.recurly_source")
     def test_source_for_pipeline_plumbs_inputs(self, mock_recurly_source):

@@ -5,8 +5,10 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
+import { captureBIWorksheetAction } from './biEditorAnalytics'
 
 export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldownProps }): JSX.Element {
     const { selection, queries, showRows } = useValues(biDrilldownLogic(props))
@@ -31,15 +33,20 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                     <div className="flex flex-wrap gap-2">
                         <LemonButton
                             type="primary"
-                            onClick={close}
+                            onClick={() => {
+                                if (props.query.kind === NodeKind.BIVisualizationNode) {
+                                    captureBIWorksheetAction('drilldown_worksheet_opened', props.query.config)
+                                }
+                                close()
+                            }}
                             to={
                                 queries.worksheet
-                                    ? `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
+                                    ? `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
                                     : undefined
                             }
                             disabledReason={
                                 !queries.worksheet
-                                    ? 'Open comparison-period rows below to explore their original dates'
+                                    ? 'Maximum filter group depth reached. View the underlying rows instead.'
                                     : undefined
                             }
                         >
@@ -52,7 +59,16 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                         >
                             View underlying rows
                         </LemonButton>
-                        <LemonButton type="secondary" to={urls.sqlEditor({ query: queries.rows })} onClick={close}>
+                        <LemonButton
+                            type="secondary"
+                            to={urls.sqlEditor({ query: queries.rows })}
+                            onClick={() => {
+                                if (props.query.kind === NodeKind.BIVisualizationNode) {
+                                    captureBIWorksheetAction('drilldown_sql_opened', props.query.config)
+                                }
+                                close()
+                            }}
+                        >
                             Open in SQL editor
                         </LemonButton>
                     </div>

@@ -1394,6 +1394,10 @@ class CustomerTaskAssigneeCannotViewAccount(Exception):
     pass
 
 
+class CustomerTaskRoleNotFound(Exception):
+    pass
+
+
 class CustomerTaskInvalidTransition(Exception):
     def __init__(self, current: str, requested: str) -> None:
         self.current = current
@@ -1463,6 +1467,7 @@ class CustomerTaskListFilters:
     search: str | None = None
     account_id: UUID | None = None
     assigned_to: str | None = None
+    assigned_role_id: UUID | None = None
     statuses: tuple[str, ...] = ()
     archive_state: str = "active"
     due_after: datetime | None = None

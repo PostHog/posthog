@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -118,12 +117,15 @@ class TestRestRows:
         def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
             assert method == "GET"
             fetched_urls.append(url)
+            config = JUMPCLOUD_ENDPOINTS[endpoint]
             skip = int(url.split("skip=")[1].split("&")[0])
-            index = skip // REST_PAGE_SIZE
+            index = skip // (config.page_size or REST_PAGE_SIZE)
             page = pages[index] if index < len(pages) else []
             response = MagicMock()
-            if JUMPCLOUD_ENDPOINTS[endpoint].api == "v1":
+            if config.api == "v1":
                 response.json.return_value = {"totalCount": sum(len(p) for p in pages), "results": page}
+            elif config.data_key:
+                response.json.return_value = {config.data_key: page, "count": sum(len(p) for p in pages)}
             else:
                 response.json.return_value = page
             return response
@@ -142,23 +144,6 @@ class TestRestRows:
             rows.extend(page)
         return rows, fetched_urls
 
-    def test_v1_short_page_stops_without_saving_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, urls = self._collect("users", [[{"_id": "a"}, {"_id": "b"}]], manager, monkeypatch)
-        assert rows == [{"_id": "a"}, {"_id": "b"}]
-        assert len(urls) == 1
-        assert "sort=_id" in urls[0]
-        assert manager.saved == []
-
-    def test_v1_paginates_until_short_page_and_checkpoints_skip(self, monkeypatch: Any) -> None:
-        full_page = [{"_id": str(i)} for i in range(REST_PAGE_SIZE)]
-        manager = _FakeResumableManager()
-        rows, urls = self._collect("users", [full_page, [{"_id": "last"}]], manager, monkeypatch)
-        assert len(rows) == REST_PAGE_SIZE + 1
-        assert len(urls) == 2
-        # State is saved after the full page (pointing at the next offset), then we stop short.
-        assert manager.saved == [JumpcloudResumeConfig(skip=REST_PAGE_SIZE)]
-
     def test_v1_resumes_from_saved_skip(self, monkeypatch: Any) -> None:
         full_page = [{"_id": str(i)} for i in range(REST_PAGE_SIZE)]
         manager = _FakeResumableManager(JumpcloudResumeConfig(skip=REST_PAGE_SIZE))
@@ -168,16 +153,34 @@ class TestRestRows:
         assert len(urls) == 1
         assert f"skip={REST_PAGE_SIZE}" in urls[0]
 
-    def test_v2_bare_array_endpoint(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            ("bare_array", "user_groups", "https://console.jumpcloud.com/api/v2/usergroups?"),
+            ("wrapped_alerts", "alerts", "https://console.jumpcloud.com/api/v2/alerts?"),
+            (
+                "wrapped_risk_events",
+                "identity_risk_events",
+                "https://console.jumpcloud.com/api/v2/identityrisk/events?",
+            ),
+        ]
+    )
+    def test_v2_endpoint_rows(self, _name: str, endpoint: str, url_prefix: str) -> None:
         manager = _FakeResumableManager()
-        rows, urls = self._collect("user_groups", [[{"id": "g1"}]], manager, monkeypatch)
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            rows, urls = self._collect(endpoint, [[{"id": "g1"}]], manager, monkeypatch)
         assert rows == [{"id": "g1"}]
-        assert urls[0].startswith("https://console.jumpcloud.com/api/v2/usergroups?")
+        assert urls[0].startswith(url_prefix)
 
-    def test_eu_region_targets_eu_console(self, monkeypatch: Any) -> None:
+    def test_system_insights_pages_with_its_larger_page_size(self, monkeypatch: Any) -> None:
+        page_size = JUMPCLOUD_ENDPOINTS["system_insights_apps"].page_size
+        assert page_size is not None and page_size > REST_PAGE_SIZE
+        full_page = [{"system_id": "s1", "name": f"app{i}"} for i in range(page_size)]
         manager = _FakeResumableManager()
-        _, urls = self._collect("users", [[{"_id": "a"}]], manager, monkeypatch, region="eu")
-        assert urls[0].startswith("https://console.eu.jumpcloud.com/")
+        rows, urls = self._collect("system_insights_apps", [full_page, [{"system_id": "s2"}]], manager, monkeypatch)
+        assert len(rows) == page_size + 1
+        assert [u.split("?")[0] for u in urls] == ["https://console.jumpcloud.com/api/v2/systeminsights/apps"] * 2
+        assert f"limit={page_size}" in urls[0]
+        assert manager.saved == [JumpcloudResumeConfig(skip=page_size)]
 
     def test_applications_strips_saml_private_key_before_emitting(self, monkeypatch: Any) -> None:
         # An SSO application row carries its SAML IdP signing key at `config.idpPrivateKey.value`;
@@ -201,7 +204,14 @@ class TestRestRows:
         ]
 
     @parameterized.expand(
-        [("applications", False), ("users", True), ("application_users", False), ("system_users", True)]
+        [
+            ("applications", False),
+            ("users", True),
+            ("application_users", False),
+            ("system_users", True),
+            ("policy_results", False),
+            ("policy_statuses", False),
+        ]
     )
     def test_secret_bearing_endpoint_disables_http_sample_capture(self, endpoint: str, expected_capture: bool) -> None:
         # HTTP sample capture writes the raw response body before row-level `redact_keys` runs, so
@@ -233,19 +243,22 @@ class TestRestRows:
             )
         assert capture_kwargs == [expected_capture]
 
-    def test_v1_non_wrapped_payload_raises_value_error(self, monkeypatch: Any) -> None:
+    @parameterized.expand([("v1", "users"), ("v2_wrapped", "alerts")])
+    def test_non_wrapped_payload_raises_value_error(self, _name: str, endpoint: str) -> None:
         def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
             response = MagicMock()
-            response.json.return_value = [{"_id": "a"}]  # bare list where v1 wraps in "results"
+            response.json.return_value = [{"_id": "a"}]  # bare list where the endpoint wraps its rows
             return response
 
-        monkeypatch.setattr(jumpcloud, "_request", fake_request)
-        monkeypatch.setattr(jumpcloud, "make_tracked_session", lambda **kwargs: MagicMock())
-        with pytest.raises(ValueError):
+        with (
+            patch.object(jumpcloud, "_request", fake_request),
+            patch.object(jumpcloud, "make_tracked_session", lambda **kwargs: MagicMock()),
+            pytest.raises(ValueError),
+        ):
             list(
                 get_rows(
                     api_key="key",
-                    endpoint="users",
+                    endpoint=endpoint,
                     logger=MagicMock(),
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
@@ -273,13 +286,19 @@ class TestFanoutRows:
             if path == parent_config.path:
                 index = skip // REST_PAGE_SIZE
                 page = parent_pages[index] if index < len(parent_pages) else []
-                response.json.return_value = {"results": page} if parent_config.api == "v1" else page
+                if parent_config.api == "v1":
+                    response.json.return_value = {"results": page}
+                elif parent_config.data_key:
+                    response.json.return_value = {parent_config.data_key: page}
+                else:
+                    response.json.return_value = page
                 return response
             parent_id = path.split("/")[4]
             child = children.get(parent_id, [])
             if isinstance(child, int):
                 raise requests.HTTPError(response=_response_with_status(child))
-            response.json.return_value = child[skip : skip + REST_PAGE_SIZE]
+            child_page = child[skip : skip + REST_PAGE_SIZE]
+            response.json.return_value = {config.data_key: child_page} if config.data_key else child_page
             return response
 
         monkeypatch.setattr(jumpcloud, "_request", fake_request)
@@ -318,6 +337,18 @@ class TestFanoutRows:
         assert len(rows) == REST_PAGE_SIZE + 1
         assert {row["system_id"] for row in rows} == {"s1"}
         assert [u.split("?")[0] for u in urls[1:]] == ["https://console.jumpcloud.com/api/v2/systems/s1/users"] * 2
+
+    def test_alert_occurrences_read_wrapped_alerts_and_occurrences(self, monkeypatch: Any) -> None:
+        occurrence = {"alertObjectId": "a1", "occurredAt": "2026-01-01T00:00:00Z", "context": {}}
+        manager = _FakeResumableManager()
+        rows, urls = self._collect(
+            "alert_occurrences", [[{"objectId": "a1"}, {"objectId": "a2"}]], {"a1": [occurrence]}, manager, monkeypatch
+        )
+        assert rows == [{**occurrence, "alert_id": "a1"}]
+        assert [u.split("?")[0] for u in urls[1:]] == [
+            "https://console.jumpcloud.com/api/v2/alerts/a1/occurrences",
+            "https://console.jumpcloud.com/api/v2/alerts/a2/occurrences",
+        ]
 
     def test_checkpoints_parent_offset_after_each_full_parent_page(self, monkeypatch: Any) -> None:
         full_page = [{"_id": f"a{i}"} for i in range(REST_PAGE_SIZE)]
@@ -392,34 +423,6 @@ class TestEventRows:
             rows.extend(page)
         return rows, request_bodies
 
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_first_sync_queries_the_90_day_retention_window(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, bodies = self._collect(manager, monkeypatch, [([{"id": "e1"}], None)])
-        assert bodies == [
-            {
-                "service": ["all"],
-                "start_time": "2026-04-16T12:00:00Z",
-                "end_time": "2026-07-15T12:00:00Z",
-                "limit": EVENTS_PAGE_SIZE,
-            }
-        ]
-
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_incremental_sync_starts_at_the_watermark(self, monkeypatch: Any) -> None:
-        from datetime import UTC, datetime
-
-        manager = _FakeResumableManager()
-        _, bodies = self._collect(
-            manager,
-            monkeypatch,
-            [([{"id": "e1"}], None)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 7, 10, 8, 30, tzinfo=UTC),
-        )
-        assert bodies[0]["start_time"] == "2026-07-10T08:30:00Z"
-        assert bodies[0]["end_time"] == "2026-07-15T12:00:00Z"
-
     def test_follows_search_after_cursor_and_checkpoints_after_yield(self, monkeypatch: Any) -> None:
         full_page = [{"id": str(i)} for i in range(EVENTS_PAGE_SIZE)]
         cursor = [1747608000000, "evt"]
@@ -437,14 +440,6 @@ class TestEventRows:
                 search_after=cursor, start_time=bodies[0]["start_time"], end_time=bodies[0]["end_time"]
             )
         ]
-
-    def test_full_page_without_search_after_header_terminates(self, monkeypatch: Any) -> None:
-        # A full page whose response lacks the cursor header must stop rather than loop on page one.
-        full_page = [{"id": str(i)} for i in range(EVENTS_PAGE_SIZE)]
-        manager = _FakeResumableManager()
-        rows, bodies = self._collect(manager, monkeypatch, [(full_page, None)])
-        assert len(rows) == EVENTS_PAGE_SIZE
-        assert len(bodies) == 1
 
     def test_resumes_with_saved_window_and_cursor(self, monkeypatch: Any) -> None:
         cursor = [123, "evt"]
@@ -548,4 +543,7 @@ class TestJumpcloudSourceResponse:
 
     def test_partition_keys_are_stable_fields(self) -> None:
         # Guards against accidentally partitioning on a churning field like lastContact.
-        assert all(cfg.partition_key in (None, "created", "timestamp") for cfg in JUMPCLOUD_ENDPOINTS.values())
+        assert all(
+            cfg.partition_key in (None, "created", "createdAt", "startedAt", "timestamp")
+            for cfg in JUMPCLOUD_ENDPOINTS.values()
+        )

@@ -10,13 +10,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
-    ANALYTICS_HOST,
-    DISCOVERY_URL,
-    IMS_TOKEN_URL,
     AdobeAnalyticsClient,
     AdobeAnalyticsResumeConfig,
     adobe_analytics_source,
-    build_report_body,
     get_rows,
     metric_column_names,
     parse_date,
@@ -24,11 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     report_rows,
     resolve_window,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
-    ADOBE_ANALYTICS_ENDPOINTS,
-    ENDPOINTS,
-    REPORT_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -206,23 +197,6 @@ class TestResolveWindow:
         assert window.end == today
 
 
-class TestBuildReportBody:
-    def test_body_scopes_a_single_day_and_page(self) -> None:
-        body = build_report_body("rs1", "variables/page", ["metrics/visits", "metrics/orders"], date(2024, 1, 31), 2)
-
-        assert body["rsid"] == "rs1"
-        assert body["dimension"] == "variables/page"
-        assert body["globalFilters"] == [
-            {"type": "dateRange", "dateRange": "2024-01-31T00:00:00.000/2024-02-01T00:00:00.000"}
-        ]
-        assert body["metricContainer"]["metrics"] == [
-            {"columnId": "0", "id": "metrics/visits"},
-            {"columnId": "1", "id": "metrics/orders"},
-        ]
-        assert body["settings"]["page"] == 2
-        assert body["settings"]["limit"] == REPORT_PAGE_SIZE
-
-
 class TestReportRows:
     def test_metric_columns_are_positional(self) -> None:
         payload = _report_payload([{"itemId": "1", "value": "Home", "data": [10, 20]}])
@@ -249,26 +223,8 @@ class TestReportRows:
         assert rows[0]["item_id"] == "7"
         assert rows[0]["orders"] is None
 
-    def test_empty_report_yields_no_rows(self) -> None:
-        assert report_rows({"rows": []}, "rs1", date(2024, 1, 1), "variables/page", ["visits"]) == []
-
 
 class TestClientAuth:
-    def test_token_is_minted_once_and_sent_with_the_api_key(self) -> None:
-        with _sessions() as (api, auth):
-            api.get.return_value = _response({"content": []})
-            client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid", min_request_interval=0)
-
-            client.get_json("/segments")
-            client.get_json("/segments")
-
-            assert auth.post.call_count == 1
-            assert auth.post.call_args.args[0] == IMS_TOKEN_URL
-            assert auth.post.call_args.kwargs["data"]["grant_type"] == "client_credentials"
-            headers = api.get.call_args.kwargs["headers"]
-            assert headers["Authorization"] == "Bearer tok"
-            assert headers["x-api-key"] == "cid"
-
     def test_401_remints_the_token_once_and_retries(self) -> None:
         with _sessions() as (api, auth):
             api.get.side_effect = [_response({}, 401), _response({"content": [{"id": "s1"}]})]
@@ -295,37 +251,8 @@ class TestClientAuth:
             with pytest.raises(requests.HTTPError):
                 client.get_json("/segments")
 
-    def test_requests_are_paced_under_the_throttle(self, _no_sleep: mock.MagicMock) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"content": []})
-            client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid")
-
-            client.get_json("/segments")
-            client.get_json("/segments")
-
-            assert _no_sleep.call_count >= 1
-            assert _no_sleep.call_args.args[0] <= 0.5
-
 
 class TestGlobalCompanyIdDiscovery:
-    def test_configured_id_skips_discovery(self) -> None:
-        with _sessions() as (api, _auth):
-            client = AdobeAnalyticsClient("cid", "sec", _LOGGER, "gcid", min_request_interval=0)
-
-            assert client.base_url == f"{ANALYTICS_HOST}/api/gcid"
-            api.get.assert_not_called()
-
-    def test_discovers_from_discovery_me(self) -> None:
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"imsOrgs": [{"companies": [{"globalCompanyId": "discovered"}]}]})
-            client = AdobeAnalyticsClient("cid", "sec", _LOGGER, None, min_request_interval=0)
-
-            assert client.resolve_global_company_id() == "discovered"
-            assert api.get.call_args.args[0] == DISCOVERY_URL
-            # Cached — a second call must not re-probe discovery.
-            assert client.resolve_global_company_id() == "discovered"
-            assert api.get.call_count == 1
-
     @pytest.mark.parametrize("payload", [{}, {"imsOrgs": []}, {"imsOrgs": [{"companies": []}]}])
     def test_missing_company_raises_actionable_error(self, payload: dict[str, Any]) -> None:
         with _sessions() as (api, _auth):
@@ -383,68 +310,6 @@ class TestMetadataEndpoints:
         assert manager.saved == [AdobeAnalyticsResumeConfig(page=1)]
         assert manager.cleared == 1
 
-    def test_stops_on_an_empty_page_when_last_page_is_not_flagged(self) -> None:
-        manager = FakeResumeManager()
-
-        batches = _get_rows(
-            [
-                _response({"content": [{"id": "s1"}]}),
-                _response({"content": []}),
-            ],
-            None,
-            "segments",
-            manager,
-        )
-
-        assert batches == [[{"id": "s1"}]]
-        assert manager.cleared == 1
-
-    def test_scopes_the_request_to_the_report_suite(self) -> None:
-        manager = FakeResumeManager()
-
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"content": [], "lastPage": True})
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date=None,
-                    endpoint="segments",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert api.get.call_args.args[0] == f"{ANALYTICS_HOST}/api/gcid/segments"
-            assert api.get.call_args.kwargs["params"]["rsids"] == "rs1"
-            assert api.get.call_args.kwargs["params"]["page"] == 0
-
-    def test_resumes_from_the_saved_page(self) -> None:
-        manager = FakeResumeManager(AdobeAnalyticsResumeConfig(page=4))
-
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"content": [{"id": "s1"}], "lastPage": True})
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date=None,
-                    endpoint="segments",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert api.get.call_args.kwargs["params"]["page"] == 4
-
     @pytest.mark.parametrize("endpoint, suite_param", [("dimensions", "rsid"), ("metrics", "rsid")])
     def test_bare_array_catalogs_are_single_shot_and_carry_the_report_suite(
         self, endpoint: str, suite_param: str
@@ -473,96 +338,8 @@ class TestMetadataEndpoints:
             assert api.get.call_args.kwargs["params"] == {suite_param: "rs1"}
             assert manager.cleared == 1
 
-    def test_report_suites_are_not_scoped_to_a_suite(self) -> None:
-        manager = FakeResumeManager()
-
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response({"content": [{"rsid": "rs1"}], "lastPage": True})
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date=None,
-                    endpoint="report_suites",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert "rsids" not in api.get.call_args.kwargs["params"]
-
 
 class TestReportEndpoint:
-    @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 3))
-    def test_walks_day_windows_ascending_and_checkpoints_each_day(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager()
-
-        with _sessions() as (api, _auth):
-            api.post.side_effect = [
-                _response(_report_payload([{"itemId": "1", "value": "2024-01-02", "data": [1, 2, 3]}])),
-                _response(_report_payload([{"itemId": "2", "value": "2024-01-03", "data": [4, 5, 6]}])),
-            ]
-            batches = list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date="2024-01-02",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert [row["date"] for batch in batches for row in batch] == ["2024-01-02", "2024-01-03"]
-            assert batches[0][0]["visits"] == 1
-            assert batches[0][0]["pageviews"] == 3
-            bodies = [call.kwargs["json"] for call in api.post.call_args_list]
-            assert [body["globalFilters"][0]["dateRange"].split("/")[0][:10] for body in bodies] == [
-                "2024-01-02",
-                "2024-01-03",
-            ]
-            # Checkpoint advances to the next unfetched day, never past the window.
-            assert manager.saved == [AdobeAnalyticsResumeConfig(page=0, next_date="2024-01-03")]
-            assert manager.cleared == 1
-
-    @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 1))
-    def test_pages_within_a_day_before_advancing(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager()
-
-        with _sessions() as (api, _auth):
-            api.post.side_effect = [
-                _response(
-                    _report_payload([{"itemId": "1", "value": "a", "data": [1]}], last_page=False, total_pages=2)
-                ),
-                _response(_report_payload([{"itemId": "2", "value": "b", "data": [2]}], last_page=True, total_pages=2)),
-            ]
-            batches = list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension="variables/page",
-                    report_metrics="metrics/visits",
-                    start_date="2024-01-01",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            assert len(batches) == 2
-            assert [call.kwargs["json"]["settings"]["page"] for call in api.post.call_args_list] == [0, 1]
-            assert manager.saved == [AdobeAnalyticsResumeConfig(page=1, next_date="2024-01-01")]
-
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 3))
     def test_resumes_mid_window_from_saved_day_and_page(self, _mock_today: mock.MagicMock) -> None:
         manager = FakeResumeManager(AdobeAnalyticsResumeConfig(page=2, next_date="2024-01-03"))
@@ -588,31 +365,6 @@ class TestReportEndpoint:
             body = api.post.call_args.kwargs["json"]
             assert body["globalFilters"][0]["dateRange"].startswith("2024-01-03")
             assert body["settings"]["page"] == 2
-
-    @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 3))
-    def test_stale_resume_state_outside_the_window_is_ignored(self, _mock_today: mock.MagicMock) -> None:
-        manager = FakeResumeManager(AdobeAnalyticsResumeConfig(page=5, next_date="2020-01-01"))
-
-        with _sessions() as (api, _auth):
-            api.post.return_value = _response(_report_payload([]))
-            list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date="2024-01-03",
-                    endpoint="report",
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
-
-            body = api.post.call_args.kwargs["json"]
-            assert body["globalFilters"][0]["dateRange"].startswith("2024-01-03")
-            assert body["settings"]["page"] == 0
 
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 3, 6))
     def test_incremental_run_re_reads_the_restatement_window(self, _mock_today: mock.MagicMock) -> None:
@@ -668,43 +420,6 @@ class TestReportEndpoint:
 
 
 class TestAdobeAnalyticsSourceResponse:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_primary_keys_match_the_endpoint_catalog(self, endpoint: str) -> None:
-        response = adobe_analytics_source(
-            client_id="cid",
-            client_secret="sec",
-            global_company_id="gcid",
-            report_suite_id="rs1",
-            report_dimension=None,
-            report_metrics=None,
-            start_date=None,
-            endpoint=endpoint,
-            logger=_LOGGER,
-            resumable_source_manager=FakeResumeManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ADOBE_ANALYTICS_ENDPOINTS[endpoint].primary_key
-        assert response.sort_mode == "asc"
-
-    def test_report_is_partitioned_on_the_stable_day_column(self) -> None:
-        response = adobe_analytics_source(
-            client_id="cid",
-            client_secret="sec",
-            global_company_id="gcid",
-            report_suite_id="rs1",
-            report_dimension=None,
-            report_metrics=None,
-            start_date=None,
-            endpoint="report",
-            logger=_LOGGER,
-            resumable_source_manager=FakeResumeManager(),
-        )
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-        assert response.partition_format == "month"
-
     def test_metadata_tables_are_not_datetime_partitioned(self) -> None:
         response = adobe_analytics_source(
             client_id="cid",

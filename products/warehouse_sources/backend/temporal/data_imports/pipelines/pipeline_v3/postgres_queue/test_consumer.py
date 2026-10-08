@@ -1,10 +1,11 @@
 import math
+import time
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError as DjangoOperationalError
 from django.test import override_settings
@@ -25,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GROUP_TABLE_HANDLES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -441,6 +446,9 @@ class TestProcessGroup:
         consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
 
         batches = [_make_batch()]
+        GROUP_TABLE_HANDLES.retain(
+            ExportSignalMessage.from_dict(batches[0].to_export_signal()), MagicMock(), last_batch_index=0
+        )
 
         with (
             patch(
@@ -462,6 +470,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), batches)
 
         mock_unlock.assert_called_once()
+        assert len(GROUP_TABLE_HANDLES) == 0
 
     @pytest.mark.asyncio
     async def test_halts_group_when_batch_does_not_succeed(self):
@@ -1047,6 +1056,71 @@ class TestAdminShutdownErrorClassification:
             await asyncio.wait_for(run_task, timeout=5.0)
 
         mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_queue_gauges_are_probed_before_the_first_poll(self):
+        consumer = _make_consumer()
+        calls: list[str] = []
+
+        async def probe(*args: Any, **kwargs: Any) -> bool:
+            calls.append("probe")
+            return True
+
+        async def first_poll(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            calls.append("poll")
+            consumer._shutdown.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch.object(consumer._adapter, "observe_queue_gauges", side_effect=probe),
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer_module.BatchQueue, "get_unprocessed_and_lock", side_effect=first_poll),
+            patch.object(consumer_module.BatchQueue, "release_all_owned_leases", new_callable=AsyncMock),
+        ):
+            await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+        assert calls[:2] == ["probe", "poll"]
+        assert consumer._holds_gauge_slot is True
+
+    @pytest.mark.parametrize(
+        "holds_slot, in_warmup, expect_probe",
+        [
+            (False, True, True),
+            (True, True, False),
+            (False, False, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_recovery_loop_retries_the_gauge_slot_only_while_a_new_pod_lacks_it(
+        self, holds_slot, in_warmup, expect_probe
+    ):
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        consumer._holds_gauge_slot = holds_slot
+        consumer._gauge_warmup_deadline = time.monotonic() + (60 if in_warmup else -1)
+        second_tick = asyncio.Event()
+        sweeps = 0
+
+        async def sweep() -> None:
+            nonlocal sweeps
+            sweeps += 1
+            if sweeps == 2:
+                second_tick.set()
+
+        with (
+            patch.object(consumer, "_recovery_sweep_with_timeout", side_effect=sweep),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch.object(
+                consumer._adapter, "observe_queue_gauges", new_callable=AsyncMock, return_value=False
+            ) as probe,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(second_tick.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        assert (probe.await_count > 0) is expect_probe
 
     @pytest.mark.asyncio
     async def test_recovery_sweep_does_not_report_admin_shutdown_error(self):
@@ -3857,6 +3931,49 @@ class TestShutdown:
         main_conn.close.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,conn_closed,expected_calls",
+        [
+            (None, False, 1),
+            (psycopg.OperationalError("server closed the connection unexpectedly"), False, 1),
+            (TimeoutError(), False, 1),
+            (None, True, 0),
+        ],
+    )
+    async def test_close_releases_gauge_slot_once_and_survives_failure(self, error, conn_closed, expected_calls):
+        consumer = _make_consumer()
+        recovery_conn = _make_healthy_conn(closed=conn_closed)
+        consumer._recovery_conn = recovery_conn
+
+        with (
+            patch.object(
+                consumer._adapter, "release_queue_gauges_slot", new_callable=AsyncMock, side_effect=error
+            ) as mock_release,
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock),
+        ):
+            await consumer._close()
+
+        assert mock_release.await_count == expected_calls
+        if expected_calls:
+            mock_release.assert_awaited_once_with(recovery_conn)
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_wait_on_a_slow_gauge_slot_release(self):
+        consumer = _make_consumer()
+
+        async def hang(conn):
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(batch_consumer_module, "GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS", 0.01),
+            patch.object(consumer._adapter, "release_queue_gauges_slot", side_effect=hang),
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock) as mock_release_all,
+        ):
+            await asyncio.wait_for(consumer._close(), timeout=5.0)
+
+        mock_release_all.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_close_drains_in_flight_tasks(self):
         consumer = _make_consumer()
         consumer._poll_conn = _make_healthy_conn()
@@ -3961,6 +4078,10 @@ class TestIsRetryableError:
             ("Primary key required for incremental syncs", False),
             ("ExternalDataSchema matching query does not exist.", False),
             ("ExternalDataJob matching query does not exist.", False),
+            (
+                "Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.",
+                False,
+            ),
             ("connection reset by peer", True),
         ],
     )

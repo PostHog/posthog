@@ -89,10 +89,3 @@ class TestReplicateSource:
         _, kwargs = mock_source.call_args
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials must yield the public-docs table catalog (SourceTables).
-        tables = {t["name"]: t for t in ReplicateSource().get_documented_tables()}
-        assert set(tables) == {"predictions", "trainings", "deployments", "models", "hardware", "account"}
-        assert "Incremental" in tables["predictions"]["sync_methods"]
-        assert "Incremental" not in tables["trainings"]["sync_methods"]

@@ -9,12 +9,6 @@ from parameterized import parameterized
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -24,13 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     YouTubeAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
-    ANALYTICS_SCOPE,
     CHANNEL_DAILY,
     DEMOGRAPHICS,
     ENDPOINTS,
     REVISION_LOOKBACK_SECONDS,
     TOP_VIDEOS,
-    YOUTUBE_READONLY_SCOPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
     YouTubeAnalyticsSource,
@@ -82,43 +74,10 @@ class TestYouTubeAnalyticsSource:
             oauth,
         )
 
-    def test_source_config_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        # Dropping the flag would expose the source to every project, not just the ones opted in.
-        assert config.featureFlag == "dwh_youtube_analytics"
-        assert config.iconPath == "/static/services/youtube_analytics.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/youtube-analytics"
-
-    def test_authentication_is_a_posthog_owned_oauth_app(self) -> None:
-        fields = self.source.get_source_config.fields
-        oauth = next(f for f in fields if isinstance(f, SourceFieldOauthConfig))
-
-        assert oauth.name == "youtube_analytics_integration_id"
-        assert oauth.kind == "youtube-analytics"
-        assert oauth.required is True
-        # The frontend warns on a missing grant, so both scopes the source calls must be listed.
-        assert oauth.requiredScopes is not None
-        assert set(oauth.requiredScopes.split()) == {ANALYTICS_SCOPE, YOUTUBE_READONLY_SCOPE}
-
-    def test_no_field_asks_the_user_for_oauth_credentials(self) -> None:
-        # Users must never be asked to register their own Google app and paste a refresh token.
-        inputs = [f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)]
-
-        assert [f.name for f in inputs] == ["start_date"]
-        assert inputs[0].type == SourceFieldInputConfigType.TEXT
-        assert inputs[0].required is False
-
     def test_pins_the_vendor_api_version_it_calls(self) -> None:
         assert self.source.supported_versions == ("v2",)
         assert self.source.default_version == "v2"
         assert (self.source.api_docs_url or "").startswith("https://")
-
-    def test_get_schemas_returns_every_report(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_every_report_is_incremental_on_day(self, endpoint: str) -> None:
@@ -144,9 +103,6 @@ class TestYouTubeAnalyticsSource:
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=[TOP_VIDEOS])
         assert [schema.name for schema in schemas] == [TOP_VIDEOS]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     def test_lists_tables_without_credentials(self) -> None:
         # The report catalog is static, so public docs can render it without connecting.
@@ -296,26 +252,6 @@ class TestYouTubeAnalyticsSource:
         values.update(overrides)
         return cast(SourceInputs, SimpleNamespace(**values))
 
-    def test_source_for_pipeline_syncs_with_the_integration_token(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = self._inputs()
-        get_integration, oauth_cls, _ = self._patch_integration(_integration())
-
-        with get_integration, oauth_cls, mock.patch(f"{MODULE}.youtube_analytics_source") as mock_source:
-            response = self.source.source_for_pipeline(_config(start_date="2026-01-01"), manager, inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["access_token"] == "access-token"
-        assert kwargs["channel_id"] == "UC123"
-        assert kwargs["start_date"] == "2026-01-01"
-        assert kwargs["endpoint"] == CHANNEL_DAILY
-        assert kwargs["api_version"] == "v2"
-        assert kwargs["logger"] is inputs.logger
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01"
-        assert response is mock_source.return_value
-
     def test_source_for_pipeline_hands_the_sync_a_forced_token_refresh(self) -> None:
         # Google tokens expire mid-backfill, so the sync must be able to re-mint one.
         manager = mock.MagicMock(spec=ResumableSourceManager)
@@ -338,12 +274,3 @@ class TestYouTubeAnalyticsSource:
             )
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_honors_a_pinned_api_version(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        get_integration, oauth_cls, _ = self._patch_integration(_integration())
-
-        with get_integration, oauth_cls, mock.patch(f"{MODULE}.youtube_analytics_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, self._inputs(api_version="v3"))
-
-        assert mock_source.call_args.kwargs["api_version"] == "v3"

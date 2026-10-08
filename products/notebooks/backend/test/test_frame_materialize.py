@@ -284,7 +284,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # The s3() endpoint/bucket/key/credentials are bound as query params, not spliced as
         # literals: sync_execute's single %-substitution pass escapes them (so a % or quote in
         # a config value can't corrupt the format pass or reach the credential zone). A
-        # regression back to literal splicing is the design doc's named injection risk.
+        # regression back to literal splicing is an injection risk.
         # Path-style URL uses the CH-reachable endpoint, NOT OBJECT_STORAGE_ENDPOINT.
         with self.settings(
             NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="http://store:19000",

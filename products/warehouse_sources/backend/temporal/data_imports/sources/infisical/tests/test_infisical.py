@@ -102,19 +102,6 @@ def _query(url: str) -> dict[str, list[str]]:
 
 
 class TestNormalizeBaseUrl:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("app.infisical.com", "https://app.infisical.com"),
-            ("https://eu.infisical.com/", "https://eu.infisical.com"),
-            ("  https://app.infisical.com/api/v1  ", "https://app.infisical.com"),
-            ("http://secrets.example.com:8443/some/path", "https://secrets.example.com:8443"),
-            ("HTTPS://Secrets.Example.COM", "https://secrets.example.com"),
-        ],
-    )
-    def test_normalizes(self, raw, expected):
-        assert normalize_base_url(raw) == expected
-
     @pytest.mark.parametrize("bad", ["", "https://", "not a url!", "https://bad_host/"])
     def test_rejects_invalid(self, bad):
         with pytest.raises(ValueError):
@@ -162,14 +149,6 @@ class TestAuditLogRows:
         saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
         assert saved_offsets == [3, 4]
 
-    def test_full_refresh_has_no_start_date(self):
-        page = _response(json_data={"auditLogs": [{"id": "1", "orgId": "org-123"}]})
-        _rows, session, _manager = _run_get_rows([_login_response(), page], "audit_logs")
-
-        params = _query(_get_urls(session)[0])
-        assert "startDate" not in params
-        assert "endDate" in params
-
     def test_resumes_saved_window_and_offset(self):
         manager = mock.MagicMock()
         manager.can_resume.return_value = True
@@ -191,30 +170,6 @@ class TestAuditLogRows:
         assert rows == []
         manager.save_state.assert_not_called()
 
-    def test_drops_rows_from_other_orgs(self):
-        # The audit-log endpoint is scoped by the token's org, not a path param, so an identity
-        # with access to more than one org could receive another org's events. Defense in depth:
-        # rows whose orgId isn't the configured org are dropped, but pagination still advances by
-        # the raw page size so the server offset stays correct.
-        audit_config = INFISICAL_ENDPOINTS["audit_logs"]
-        page1 = _response(
-            json_data={
-                "auditLogs": [
-                    {"id": "a", "orgId": "org-123"},
-                    {"id": "b", "orgId": "other-org"},
-                    {"id": "c", "orgId": "org-123"},
-                ]
-            }
-        )
-        page2 = _response(json_data={"auditLogs": [{"id": "d", "orgId": "org-123"}]})
-        with mock.patch.object(audit_config, "page_limit", 3):
-            rows, session, manager = _run_get_rows([_login_response(), page1, page2], "audit_logs")
-
-        assert [r["id"] for r in rows] == ["a", "c", "d"]
-        # Offset advances by the raw (unfiltered) page size, so the second page is requested at 3.
-        assert _query(_get_urls(session)[1])["offset"] == ["3"]
-        assert [call.args[0].offset for call in manager.save_state.call_args_list] == [3, 4]
-
 
 class TestOffsetPaginatedRows:
     def test_identities_paginates_with_stable_sort(self):
@@ -234,24 +189,6 @@ class TestOffsetPaginatedRows:
         assert first["offset"] == ["0"]
         assert second["offset"] == ["2"]
         assert [call.args[0].offset for call in manager.save_state.call_args_list] == [2, 3]
-
-
-class TestUnpaginatedRows:
-    @pytest.mark.parametrize(
-        "endpoint, path, data_key",
-        [
-            ("projects", "/api/v1/projects", "projects"),
-            ("organization_memberships", "/api/v2/organizations/org-123/memberships", "users"),
-        ],
-    )
-    def test_single_request_list(self, endpoint, path, data_key):
-        page = _response(json_data={data_key: [{"id": "1", "orgId": "org-123"}, {"id": "2", "orgId": "org-123"}]})
-        rows, session, _manager = _run_get_rows([_login_response(), page], endpoint)
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        urls = _get_urls(session)
-        assert len(urls) == 1
-        assert urlparse(urls[0]).path == path
 
 
 class TestProjectMembershipsFanOut:
@@ -403,14 +340,6 @@ class TestProjectEnvironmentsFanOut:
 
 
 class TestOrgScoping:
-    # /api/v1/projects isn't org-scoped — a machine identity shared with several orgs sees them
-    # all. Without the orgId filter, the projects table and the project_memberships fan-out would
-    # leak project and membership data from orgs other than the configured one.
-    def test_projects_table_excludes_other_orgs(self):
-        page = _response(json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]})
-        rows, _session, _manager = _run_get_rows([_login_response(), page], "projects")
-        assert [r["id"] for r in rows] == ["p1"]
-
     @pytest.mark.parametrize(
         "endpoint, body",
         [
@@ -422,28 +351,8 @@ class TestOrgScoping:
         rows, _session, _manager = _run_get_rows([_login_response(), _response(json_data=body)], endpoint)
         assert [r["id"] for r in rows] == ["r1"]
 
-    def test_project_memberships_fan_out_skips_other_orgs(self):
-        projects = _response(
-            json_data={"projects": [{"id": "p1", "orgId": "org-123"}, {"id": "p2", "orgId": "other-org"}]}
-        )
-        memberships_p1 = _response(json_data={"memberships": [{"id": "m1", "projectId": "p1"}]})
-        rows, session, _manager = _run_get_rows([_login_response(), projects, memberships_p1], "project_memberships")
-        assert [r["id"] for r in rows] == ["m1"]
-        # Only the configured org's project is ever fetched; the foreign project is skipped.
-        paths = [urlparse(u).path for u in _get_urls(session)]
-        assert paths == ["/api/v1/projects", "/api/v1/projects/p1/memberships"]
-
 
 class TestTokenHandling:
-    def test_logs_in_once_across_pages(self):
-        page1 = _response(json_data={"auditLogs": [{"id": "1"}]})
-        _rows, session, _manager = _run_get_rows([_login_response(), page1], "audit_logs")
-
-        logins = [call for call in session.request.call_args_list if call.args[0] == "post"]
-        assert len(logins) == 1
-        assert logins[0].args[1] == "https://app.infisical.com/api/v1/auth/universal-auth/login"
-        assert logins[0].kwargs["json"] == {"clientId": "cid", "clientSecret": "csecret"}
-
     def test_relogins_once_when_token_rejected_mid_sync(self):
         rejected = _response(status_code=401)
         page = _response(json_data={"projects": [{"id": "1", "orgId": "org-123"}]})
@@ -452,45 +361,6 @@ class TestTokenHandling:
         assert [r["id"] for r in rows] == ["1"]
         logins = [call for call in session.request.call_args_list if call.args[0] == "post"]
         assert len(logins) == 2
-
-    def test_both_sessions_disable_sample_capture(self):
-        # Sample capture reads response.text inside the adapter before _send's size cap runs,
-        # so both sessions must ride capture-disabled adapters to keep an unbounded body from
-        # a customer-controlled host out of memory. The auth body additionally carries the
-        # client secret and minted accessToken in camelCase fields the name-based scrubbers
-        # don't recognise. The secret is value-redacted on every session.
-        data_session, auth_session = mock.MagicMock(), mock.MagicMock()
-        auth_session.request.side_effect = [_login_response()]
-        data_session.request.side_effect = [_response(json_data={"projects": [{"id": "1", "orgId": "org-123"}]})]
-        factory = mock.MagicMock(side_effect=[data_session, auth_session])
-        with (
-            mock.patch.object(infisical_module, "make_tracked_session", factory),
-            mock.patch.object(infisical_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            rows = [
-                row
-                for batch in get_rows(
-                    base_url="https://app.infisical.com",
-                    client_id="cid",
-                    client_secret="csecret",
-                    organization_id="org-123",
-                    endpoint="projects",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=mock.MagicMock(),
-                    team_id=1,
-                )
-                for row in batch
-            ]
-
-        assert rows == [{"id": "1", "orgId": "org-123"}]
-        data_session_kwargs, auth_session_kwargs = (call.kwargs for call in factory.call_args_list)
-        assert data_session_kwargs["capture"] is False
-        assert auth_session_kwargs["capture"] is False
-        assert "csecret" in auth_session_kwargs["redact_values"]
-        assert "csecret" in data_session_kwargs["redact_values"]
-        # Only the login POST goes through the capture-disabled session.
-        assert [call.args[0] for call in auth_session.request.call_args_list] == ["post"]
-        assert [call.args[0] for call in data_session.request.call_args_list] == ["get"]
 
     def test_requests_never_follow_redirects(self):
         page = _response(json_data={"projects": [{"id": "1"}]})

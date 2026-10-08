@@ -1,13 +1,11 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-
-import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -369,13 +367,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
-            lemonToast.success('Cohort saved', {
-                toastId: `cohort-saved-${cohort.id}`,
-                button: {
-                    label: 'View cohort',
-                    action: () => router.actions.push(urls.cohort(cohort.id)),
-                },
-            })
+            cohortSavedToast(cohort, 'retention_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)
         },
     })),
