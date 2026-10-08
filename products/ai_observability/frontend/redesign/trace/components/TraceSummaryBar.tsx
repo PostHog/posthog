@@ -2,7 +2,8 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { NodeStats, LabeledLink } from '../types'
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
+import { LabeledLink } from '../types'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { TraceIdChip } from './TraceIdChip'
@@ -11,7 +12,7 @@ export interface TraceSummaryBarProps {
     traceId: string
     timestamp: string
     person: LabeledLink | null
-    totals: NodeStats
+    totals: TraceNodeStatsApi
 }
 
 export function TraceSummaryBar({ traceId, timestamp, person, totals }: TraceSummaryBarProps): JSX.Element {

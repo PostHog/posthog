@@ -440,7 +440,6 @@ jobs:
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
                         - 'products/notebooks/backend/**'
-                        - 'products/autoresearch/backend/**'
                         - 'products/exports/backend/temporal/subscriptions/**'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
@@ -515,6 +514,7 @@ jobs:
                       selfDriving:
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -692,9 +692,12 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       # posthog/egress is included because the stamphog worker routes its
-                      # GitHub calls through the egress transport.
+                      # GitHub calls through the egress transport. products/stamphog/packages is
+                      # included because the worker copies the review engine from its own image
+                      # into every review sandbox, so an engine change ships only on a redeploy.
                       stamphog:
                         - 'products/stamphog/backend/**'
+                        - 'products/stamphog/packages/**'
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -740,27 +743,6 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
@@ -1082,7 +1064,7 @@ jobs:
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
                       BASE="HEAD^"
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*(products/exports/backend/temporal/subscriptions|products/autoresearch/backend)'; then
+                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/exports/backend/temporal/subscriptions'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

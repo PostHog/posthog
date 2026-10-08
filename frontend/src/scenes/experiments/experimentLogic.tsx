@@ -25,6 +25,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -84,6 +85,15 @@ import {
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
+    type ExperimentHealthFinding,
+    type ExperimentHealthFindingActionKind,
+    type ExperimentHealthFindingOpenKind,
+    captureExperimentHealthFindingActedOn,
+    captureExperimentHealthFindingOpened,
+    captureExperimentHealthFindingShown,
+    exposureHealthEventProperties,
+} from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
@@ -134,7 +144,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
-    resolveSharedMetric,
+    sharedMetricEffectiveQuery,
     sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
@@ -280,6 +290,31 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
         ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
     )
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
+function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
+    const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
+        ({ query }) => query?.uuid === uuid
+    )
+    return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
+}
+
+/**
+ * kea-loaders turns a rejected loader into a failure action, so awaiting `asyncActions.updateExperiment()` does
+ * not throw. Call this right after dispatching `updateExperiment`: it awaits the queued request of that dispatch
+ * and returns whether the save succeeded. The loader still owns error reporting and conflict recovery.
+ */
+async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean> {
+    const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
+    if (!updatePromise) {
+        return false
+    }
+    try {
+        await updatePromise
+        return true
+    } catch {
+        return false
+    }
 }
 
 // Max concurrent metric queries to avoid overwhelming the celery queue's
@@ -450,6 +485,7 @@ export interface experimentLogicValues {
     excludedVariants: string[]
     experiment: Experiment
     experimentId: Experiment['id']
+    experimentLoadCount: number
     experimentLoading: boolean
     experimentMissing: boolean
     experimentUpdate: Experiment | null
@@ -903,6 +939,23 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthFindingActedOn: (
+        finding: ExperimentHealthFinding,
+        actionKind: ExperimentHealthFindingActionKind
+    ) => {
+        actionKind: ExperimentHealthFindingActionKind
+        finding: ExperimentHealthFinding
+    }
+    reportHealthFindingOpened: (
+        finding: ExperimentHealthFinding,
+        openKind: ExperimentHealthFindingOpenKind
+    ) => {
+        finding: ExperimentHealthFinding
+        openKind: ExperimentHealthFindingOpenKind
+    }
+    reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
+        finding: ExperimentHealthFinding
+    }
     resetRunningExperiment: () => {
         value: true
     }
@@ -1342,6 +1395,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_triggered_by?: string | null
             }
         ) => ({ experiment, forceRefresh, context }),
+        reportHealthFindingShown: (finding: ExperimentHealthFinding) => ({ finding }),
+        reportHealthFindingOpened: (finding: ExperimentHealthFinding, openKind: ExperimentHealthFindingOpenKind) => ({
+            finding,
+            openKind,
+        }),
+        reportHealthFindingActedOn: (
+            finding: ExperimentHealthFinding,
+            actionKind: ExperimentHealthFindingActionKind
+        ) => ({ finding, actionKind }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1579,6 +1641,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 toggleDebugPanel: (state) => !state,
             },
         ],
+        // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
+        // without the finding's event does not mean that the finding is gone: only the flag-state
+        // banner renders on every tab. `experiment results refresh completed` holds the state per load.
+        experimentLoadCount: [
+            0,
+            {
+                loadExperimentSuccess: (state) => state + 1,
+            },
+        ],
         currentRefresh: [
             null as CurrentRefreshSnapshot | null,
             {
@@ -1772,7 +1843,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
                     const newMetric = {
-                        ...resolveSharedMetric(savedMetric),
+                        ...sharedMetricEffectiveQuery(savedMetric),
                         uuid: newUuid,
                         name,
                     }
@@ -1839,7 +1910,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                removeMetricBreakdown: (state, { uuid, index }) => {
+                removeMetricBreakdown: (state, { uuid, index, breakdown }) => {
                     /**
                      * Check if the UUID belongs to a shared metric
                      * Shared Metric types are confusing. The query property
@@ -1851,13 +1922,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     )
 
                     if (savedMetricIndex !== -1) {
-                        // Handle shared metric - update saved_metrics metadata
+                        // Handle shared metric - update saved_metrics metadata. The scene shows the breakdowns
+                        // of the link's effective_query, which only the API resolves, so that list can differ
+                        // from metadata.breakdowns until the save returns. Remove the breakdown by value, so
+                        // that an index into the shown list never removes a different breakdown.
                         const savedMetric = savedMetrics[savedMetricIndex]
+                        const breakdowns = savedMetric.metadata?.breakdowns || []
+                        const position = breakdowns.findIndex((candidate) => objectsEqual(candidate, breakdown))
                         savedMetrics[savedMetricIndex] = {
                             ...savedMetric,
                             metadata: {
                                 ...savedMetric.metadata,
-                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
+                                breakdowns: breakdowns.filter((_, i) => i !== position),
                             },
                         }
 
@@ -2201,6 +2277,26 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
         },
+        reportHealthFindingShown: ({ finding }) => {
+            // The page remounts its warnings within one load, for example on a tab change or after
+            // a save, and each mount reports again.
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            cache.shownHealthFindingKeys ??= new Set<string>()
+            if (cache.shownHealthFindingKeys.has(key)) {
+                return
+            }
+            cache.shownHealthFindingKeys.add(key)
+            captureExperimentHealthFindingShown(values.experiment, finding)
+        },
+        reportHealthFindingOpened: ({ finding, openKind }) => {
+            // Zero exposures has no sign in the collapsed panel, so the reader opens it before the
+            // page reports it. Report "shown" first to keep the order of the two events.
+            actions.reportHealthFindingShown(finding)
+            captureExperimentHealthFindingOpened(values.experiment, finding, openKind)
+        },
+        reportHealthFindingActedOn: ({ finding, actionKind }) => {
+            captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
+        },
         beforeUnmount: () => {
             clearTimeout(cache.notificationOfferTimer)
         },
@@ -2515,6 +2611,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        ...exposureHealthEventProperties(
+                            values.exposures,
+                            values.exposureCriteria?.multiple_variant_handling
+                        ),
                     })
 
                     const finalState: FinishedRefreshState = caughtError
@@ -3343,7 +3443,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
@@ -3366,6 +3466,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Adding a breakdown changes how the metric is computed, so re-run results. The recalculation
             // flow reuses the current window (metric_config_change), so this breakdown recomputes on its
@@ -3379,7 +3483,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
@@ -3402,6 +3506,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this reuses the current window (metric_config_change), so this metric
@@ -3439,14 +3547,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * figure out if it's a primary metric
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             /**
              * updating a breakdown limit triggers a recalculation.
@@ -3484,14 +3593,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * find if the updated metris is primary
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
             /**
              * updating a breakdown limit triggers a recalculation.
              */

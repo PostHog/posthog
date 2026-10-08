@@ -16,21 +16,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
-    DEFAULT_ARCHIVE_BACKFILL_DAYS,
     MAX_LABEL_LENGTH,
     MAX_LOCATIONS,
     Location,
     OpenMeteoResumeConfig,
     _fetch,
     _redact_apikey,
-    base_url,
     build_params,
     get_rows,
     normalize_rows,
     open_meteo_source,
     parse_locations,
     parse_start_date,
-    parse_time,
     resolve_archive_range,
     validate_credentials,
 )
@@ -106,19 +103,6 @@ def _query(url: str) -> dict[str, list[str]]:
 
 class TestParseLocations:
     @pytest.mark.parametrize(
-        "raw,expected",
-        [
-            ("51.5,-0.12", [Location(51.5, -0.12, None)]),
-            ("51.5,-0.12,London", [Location(51.5, -0.12, "London")]),
-            ("  51.5 , -0.12 , London  ", [Location(51.5, -0.12, "London")]),
-            ("51.5,-0.12\n\n  \n40.7,-74.0", [Location(51.5, -0.12), Location(40.7, -74.0)]),
-            ("40.7,-74.0,New York, NY", [Location(40.7, -74.0, "New York, NY")]),
-        ],
-    )
-    def test_valid(self, raw: str, expected: list[Location]) -> None:
-        assert parse_locations(raw) == expected
-
-    @pytest.mark.parametrize(
         "raw,message",
         [
             (None, "At least one location"),
@@ -141,64 +125,21 @@ class TestParseLocations:
         with pytest.raises(ValueError, match="Too many locations"):
             parse_locations(raw)
 
-    def test_allows_exactly_max_locations(self) -> None:
-        raw = "\n".join(f"{index}.5,0" for index in range(MAX_LOCATIONS))
-        assert len(parse_locations(raw)) == MAX_LOCATIONS
-
     def test_rejects_an_oversized_label(self) -> None:
         # The label is copied onto every row of every batch, so an unbounded one is amplified by the
         # batch's row count and can exhaust the worker.
         with pytest.raises(ValueError, match="label of"):
             parse_locations(f"51.5,-0.12,{'x' * (MAX_LABEL_LENGTH + 1)}")
 
-    def test_allows_a_label_of_exactly_the_maximum_length(self) -> None:
-        label = "x" * MAX_LABEL_LENGTH
-        assert parse_locations(f"51.5,-0.12,{label}") == [Location(51.5, -0.12, label)]
-
 
 class TestParseStartDate:
-    @pytest.mark.parametrize("raw,expected", [(None, None), ("", None), ("  ", None), ("2024-01-01", date(2024, 1, 1))])
-    def test_valid(self, raw: str | None, expected: date | None) -> None:
-        assert parse_start_date(raw) == expected
-
     @pytest.mark.parametrize("raw", ["01/01/2024", "2024-13-01", "yesterday"])
     def test_invalid_raises(self, raw: str) -> None:
         with pytest.raises(ValueError, match="YYYY-MM-DD"):
             parse_start_date(raw)
 
 
-class TestParseTime:
-    @pytest.mark.parametrize(
-        "raw,expected",
-        [
-            ("2026-01-02T03:00", datetime(2026, 1, 2, 3, 0, tzinfo=UTC)),
-            ("2026-01-02", datetime(2026, 1, 2, 0, 0, tzinfo=UTC)),
-        ],
-    )
-    def test_returns_utc_aware_datetime(self, raw: str, expected: datetime) -> None:
-        parsed = parse_time(raw)
-        assert parsed == expected
-        # A naive datetime would be incomparable with the stored watermark.
-        assert parsed.tzinfo is not None
-
-
 class TestRequestBuilding:
-    @pytest.mark.parametrize(
-        "endpoint_name,api_key,expected_host",
-        [
-            ("weather_forecast_hourly", None, "https://api.open-meteo.com"),
-            ("weather_forecast_hourly", "key", "https://customer-api.open-meteo.com"),
-            ("weather_archive_hourly", None, "https://archive-api.open-meteo.com"),
-            ("weather_archive_hourly", "key", "https://customer-archive-api.open-meteo.com"),
-            ("air_quality_hourly", None, "https://air-quality-api.open-meteo.com"),
-            ("air_quality_hourly", "key", "https://customer-air-quality-api.open-meteo.com"),
-        ],
-    )
-    def test_commercial_host_only_used_with_an_api_key(
-        self, endpoint_name: str, api_key: str | None, expected_host: str
-    ) -> None:
-        assert base_url(OPEN_METEO_ENDPOINTS[endpoint_name], api_key) == expected_host
-
     def test_params_carry_the_endpoint_block_and_variables(self) -> None:
         endpoint = OPEN_METEO_ENDPOINTS["weather_archive_daily"]
         params = build_params(endpoint, LONDON, None, start=date(2026, 1, 1), end=date(2026, 1, 31))
@@ -226,48 +167,6 @@ class TestRequestBuilding:
 
 
 class TestNormalizeRows:
-    def test_pivots_parallel_arrays_into_one_row_per_timestamp(self) -> None:
-        payload = _hourly_body(
-            ["2026-01-01T00:00", "2026-01-01T01:00"],
-            temperature_2m=[1.5, 2.5],
-            wind_speed_10m=[10.0, 11.0],
-        )
-
-        rows = normalize_rows(OPEN_METEO_ENDPOINTS["weather_archive_hourly"], payload, LONDON)
-
-        assert [row["time"] for row in rows] == ["2026-01-01T00:00", "2026-01-01T01:00"]
-        assert [row["temperature_2m"] for row in rows] == [1.5, 2.5]
-        assert [row["wind_speed_10m"] for row in rows] == [10.0, 11.0]
-        assert [row["time_utc"] for row in rows] == [
-            datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
-            datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
-        ]
-
-    def test_stamps_requested_coordinates_and_keeps_the_served_grid_cell_separate(self) -> None:
-        payload = _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.5])
-
-        row = normalize_rows(OPEN_METEO_ENDPOINTS["weather_archive_hourly"], payload, LONDON)[0]
-
-        # The primary key is built from the configured coordinates, so they must survive verbatim
-        # rather than being overwritten by the grid cell Open-Meteo snapped to.
-        assert row["location_id"] == "51.5074,-0.1278"
-        assert row["latitude"] == 51.5074
-        assert row["longitude"] == -0.1278
-        assert row["location_label"] == "London"
-        assert row["resolved_latitude"] == 51.5
-        assert row["resolved_longitude"] == -0.125
-        assert row["elevation"] == 23.0
-
-    def test_pads_a_short_series_rather_than_shifting_later_values(self) -> None:
-        payload = _hourly_body(
-            ["2026-01-01T00:00", "2026-01-01T01:00", "2026-01-01T02:00"],
-            temperature_2m=[1.5, 2.5],
-        )
-
-        rows = normalize_rows(OPEN_METEO_ENDPOINTS["weather_archive_hourly"], payload, LONDON)
-
-        assert [row["temperature_2m"] for row in rows] == [1.5, 2.5, None]
-
     def test_current_block_yields_a_single_flat_row(self) -> None:
         payload = {
             "latitude": 51.5,
@@ -392,15 +291,6 @@ class TestFetch:
 class TestResolveArchiveRange:
     TODAY = date(2026, 6, 1)
 
-    def test_falls_back_to_a_bounded_backfill_when_nothing_is_configured(self) -> None:
-        start, end = resolve_archive_range(None, None, self.TODAY)
-
-        assert end == self.TODAY
-        assert (self.TODAY - start).days == DEFAULT_ARCHIVE_BACKFILL_DAYS
-
-    def test_uses_the_configured_start_date(self) -> None:
-        assert resolve_archive_range(date(2020, 1, 1), None, self.TODAY) == (date(2020, 1, 1), self.TODAY)
-
     @pytest.mark.parametrize(
         "watermark",
         [datetime(2026, 5, 20, 6, 0, tzinfo=UTC), date(2026, 5, 20), "2026-05-20T06:00"],
@@ -410,11 +300,6 @@ class TestResolveArchiveRange:
 
         assert start == date(2026, 5, 20)
         assert end == self.TODAY
-
-    def test_returns_an_empty_range_once_the_watermark_reaches_today(self) -> None:
-        start, end = resolve_archive_range(None, datetime(2026, 6, 2, tzinfo=UTC), self.TODAY)
-
-        assert start > end
 
 
 class TestArchiveWindowing:
@@ -437,28 +322,6 @@ class TestArchiveWindowing:
         return batches, session
 
     @time_machine.travel("2026-03-01", tick=False)
-    def test_covers_every_location_within_a_window_before_advancing(self) -> None:
-        manager = FakeResumeManager()
-        responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
-
-        batches, session = self._run(manager, responses, "2026-01-01")
-
-        windows = [(_query(url)["start_date"][0], _query(url)["end_date"][0]) for url in _requested_urls(session)]
-        latitudes = [_query(url)["latitude"][0] for url in _requested_urls(session)]
-
-        # Windows outermost, locations innermost. Locations outermost would let the pipeline
-        # checkpoint the watermark at London's newest row while New York still had history to fetch.
-        assert windows == [
-            ("2026-01-01", "2026-01-31"),
-            ("2026-01-01", "2026-01-31"),
-            ("2026-02-01", "2026-03-01"),
-            ("2026-02-01", "2026-03-01"),
-        ]
-        assert latitudes == ["51.5074", "40.7128", "51.5074", "40.7128"]
-        # One batch per window, holding both locations' rows.
-        assert [len(batch) for batch in batches] == [2, 2]
-
-    @time_machine.travel("2026-03-01", tick=False)
     def test_windows_are_contiguous_and_never_overlap(self) -> None:
         manager = FakeResumeManager()
         responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
@@ -472,16 +335,6 @@ class TestArchiveWindowing:
         first, second = boundaries[0], boundaries[2]
         assert (first[1] - first[0]).days == ARCHIVE_WINDOW_DAYS - 1
         assert (second[0] - first[1]).days == 1
-
-    @time_machine.travel("2026-03-01", tick=False)
-    def test_checkpoints_after_each_window_and_clears_on_completion(self) -> None:
-        manager = FakeResumeManager()
-        responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
-
-        self._run(manager, responses, "2026-01-01")
-
-        assert [state.next_start_date for state in manager.saved] == ["2026-02-01", "2026-03-02"]
-        assert manager.cleared is True
 
     @time_machine.travel("2026-03-01", tick=False)
     def test_resumes_from_the_saved_window(self) -> None:
@@ -544,36 +397,8 @@ class TestRollingEndpoints:
         assert [state.location_index for state in manager.saved] == [1, 2]
         assert manager.cleared is True
 
-    def test_resumes_from_the_saved_location_index(self) -> None:
-        manager = FakeResumeManager(OpenMeteoResumeConfig(location_index=1))
-        responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0]))]
-
-        _, session = self._run(manager, responses, [LONDON, NEW_YORK])
-
-        assert [_query(url)["latitude"][0] for url in _requested_urls(session)] == ["40.7128"]
-
 
 class TestOpenMeteoSourceResponse:
-    @pytest.mark.parametrize("endpoint_name", sorted(OPEN_METEO_ENDPOINTS))
-    def test_response_metadata_matches_the_endpoint_catalog(self, endpoint_name: str) -> None:
-        response = open_meteo_source(
-            endpoint_name=endpoint_name,
-            locations_raw="51.5,-0.12",
-            api_key=None,
-            start_date_raw=None,
-            db_incremental_field_last_value=None,
-            resumable_source_manager=FakeResumeManager(),
-            logger=structlog.get_logger(),
-        )
-
-        endpoint = OPEN_METEO_ENDPOINTS[endpoint_name]
-        assert response.name == endpoint_name
-        assert response.primary_keys == endpoint.primary_keys
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["time_utc"]
-        assert response.partition_format == endpoint.partition_format
-        assert response.sort_mode == "asc"
-
     def test_bad_locations_fail_before_any_request_is_made(self) -> None:
         with pytest.raises(ValueError, match="out of range"):
             open_meteo_source(

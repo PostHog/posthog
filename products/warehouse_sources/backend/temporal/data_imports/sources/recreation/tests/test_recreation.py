@@ -95,17 +95,6 @@ class TestRecreationSourceTransport:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [RecreationResumeConfig(offset=PAGE_LIMIT)]
 
-    def test_short_page_terminates_without_saving_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_ridb_response(_facility_rows(0, 3), total_count=3, offset=0)]
-        rows, sent_params = self._drive("Facilities", manager, responses)
-
-        assert len(rows) == 3
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
-
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True

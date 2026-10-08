@@ -82,13 +82,13 @@ export function ScannerGoalFlow(): JSX.Element {
                     <div className="rounded-lg border-2 border-[var(--color-ai)] p-4 flex flex-col gap-4">
                         <div className="flex flex-col gap-1">
                             <label htmlFor="vision-goal-flow-goal" className="text-sm font-semibold">
-                                What do you want to find out?
+                                Which sessions should the scanner watch for you and what should it find out?
                             </label>
                             <LemonTextArea
                                 id="vision-goal-flow-goal"
                                 value={goalDraftInput}
                                 onChange={setGoalDraftInput}
-                                placeholder="e.g. Find out where people give up in billing"
+                                placeholder="e.g. Watch users who enter the checkout flow and summarize why customers convert or drop off"
                                 minRows={3}
                                 maxRows={6}
                                 data-attr="vision-goal-flow-goal"

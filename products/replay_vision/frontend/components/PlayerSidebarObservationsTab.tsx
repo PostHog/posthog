@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconCollapse, IconExpand, IconEye } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconEye } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSwitch, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown/LemonDropdown'
@@ -13,18 +13,10 @@ import { urls } from 'scenes/urls'
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { SCANNER_TYPE_TAG_TYPE, configFromSnapshot, scannerTypeLabel } from '../replay_scanners/types'
-import {
-    ObservationSeekbarMark,
-    isFlaggedObservation,
-    isSummaryObservation,
-    observationSeekbarMarks,
-    readModelOutput,
-    readReasoning,
-    scannerLabel,
-} from '../utils/observation'
-import { currentMarkIndex, nextMarkAfter } from '../utils/observationTimeline'
+import { SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../replay_scanners/types'
+import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
+import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { visionSurfaceShown } from '../utils/visionSurface'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -37,7 +29,7 @@ import {
 } from './ObservationCard'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
-import { ObservationTimeline } from './ObservationTimeline'
+import { RecordingTimeline } from './RecordingTimeline'
 import { ScannerTypeBadge, scannerTypeIcon } from './ScannerTypeBadge'
 
 export function PlayerSidebarObservationsTab(): JSX.Element | null {
@@ -163,59 +155,17 @@ function ObservationRuns({
     onSeek: (timestampMs: number) => void
 }): JSX.Element | null {
     const logic = observationsDockLogic({ sessionId })
-    const { focusedObservationId, followMoments, retryingObservationIds } = useValues(logic)
+    const { focusedObservationId, retryingObservationIds } = useValues(logic)
     const { focusObservation, retryObservation } = useActions(logic)
-    const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
-    const paneRef = useRef<HTMLDivElement>(null)
-    const followedMs = useRef<number | null>(null)
-    const marksByRun = useMemo(
-        () => new Map(observations.map((o) => [o.id, observationSeekbarMarks([o])])),
-        [observations]
-    )
-    const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
-    const focusedMarks = focused ? (marksByRun.get(focused.id) ?? []) : []
-    const currentIndex = currentMarkIndex(focusedMarks, currentPlayerTime)
-    const currentMs = currentIndex >= 0 ? focusedMarks[currentIndex].timestampMs : null
-
-    useEffect(() => {
-        if (!followMoments) {
-            followedMs.current = null
-            return
-        }
-        if (currentMs === null || followedMs.current === currentMs) {
-            return
-        }
-        followedMs.current = currentMs
-        paneRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)?.scrollIntoView({ block: 'nearest' })
-    }, [currentMs, followMoments])
-
     if (observations.length === 0) {
         return null
     }
-    const flaggedCount = observations.filter(isFlaggedObservation).length
+    const focused = observations.find((o) => o.id === focusedObservationId) ?? defaultFocus(observations)
     return (
-        <div className="flex-1 min-h-0 overflow-y-auto" data-attr="vision-observation-runs">
-            {focused && (
-                <FocusPane
-                    ref={paneRef}
-                    sessionId={sessionId}
-                    observation={focused}
-                    marks={marksByRun.get(focused.id) ?? []}
-                    onSeek={onSeek}
-                    onRetry={() => retryObservation(focused.id)}
-                    retrying={retryingObservationIds.includes(focused.id)}
-                />
-            )}
-            <SectionHeader label="Runs" count={observations.length} className="sticky top-0 z-10">
-                {flaggedCount > 0 && (
-                    <Tooltip title={`${flaggedCount} flagged`}>
-                        <LemonBadge.Number count={flaggedCount} size="small" status="primary" />
-                    </Tooltip>
-                )}
-            </SectionHeader>
+        <>
+            <SectionHeader label="Observations" />
             <div>
                 {observations.map((observation) => {
-                    const count = marksByRun.get(observation.id)?.length ?? 0
                     const scannerType = observation.scanner_snapshot?.scanner_type
                     return (
                         <div key={observation.id} className="border-b border-primary">
@@ -240,38 +190,26 @@ function ObservationRuns({
                                     <span className="text-sm truncate flex-1">{scannerLabel(observation)}</span>
                                     <span className="flex items-center gap-2 min-w-0 max-w-[60%]">
                                         <RunResult observation={observation} />
-                                        {count > 0 && (
-                                            <Tooltip title={`${count} cited moment${count === 1 ? '' : 's'}`}>
-                                                <LemonBadge.Number
-                                                    count={count}
-                                                    maxDigits={2}
-                                                    size="small"
-                                                    status={isFlaggedObservation(observation) ? 'primary' : 'muted'}
-                                                />
-                                            </Tooltip>
-                                        )}
                                     </span>
                                 </span>
                             </LemonButton>
+                            {observation.id === focused?.id && (
+                                <FocusPane
+                                    observation={observation}
+                                    onSeek={onSeek}
+                                    onRetry={() => retryObservation(observation.id)}
+                                    retrying={retryingObservationIds.includes(observation.id)}
+                                />
+                            )}
                         </div>
                     )
                 })}
             </div>
-        </div>
+        </>
     )
 }
 
-function SectionHeader({
-    label,
-    count,
-    className,
-    children,
-}: {
-    label: string
-    count: number
-    className?: string
-    children?: ReactNode
-}): JSX.Element {
+function SectionHeader({ label, className }: { label: string; className?: string }): JSX.Element {
     return (
         <div
             className={cn(
@@ -280,8 +218,6 @@ function SectionHeader({
             )}
         >
             {label}
-            <LemonBadge.Number count={count} maxDigits={2} size="small" status="muted" showZero />
-            {children}
         </div>
     )
 }
@@ -296,50 +232,29 @@ function RunResult({ observation }: { observation: ReplayObservationApi }): JSX.
     return <ObservationResultSummary observation={observation} />
 }
 
-const FocusPane = forwardRef<
-    HTMLDivElement,
-    {
-        sessionId: string
-        observation: ReplayObservationApi
-        marks: ObservationSeekbarMark[]
-        onSeek: (timestampMs: number) => void
-        onRetry: () => void
-        retrying: boolean
-    }
->(function FocusPane({ sessionId, observation, marks, onSeek, onRetry, retrying }, ref) {
-    const [textOpenFor, setTextOpenFor] = useState<string | null>(null)
-    const showText = textOpenFor === observation.id
+function FocusPane({
+    observation,
+    onSeek,
+    onRetry,
+    retrying,
+}: {
+    observation: ReplayObservationApi
+    onSeek: (timestampMs: number) => void
+    onRetry: () => void
+    retrying: boolean
+}): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver<HTMLDivElement>({ box: 'border-box' })
     const isSummary = isSummaryObservation(observation)
     const reasoning = observation.status === 'succeeded' && !isSummary ? readReasoning(observation) : null
     const hasText = observation.status === 'succeeded' && (isSummary || reasoning !== null)
-    const textLabel = isSummary ? 'summary' : 'reasoning'
-    const prompt = configFromSnapshot(observation.scanner_snapshot)?.prompt ?? null
-    const scannerType = observation.scanner_snapshot?.scanner_type
     return (
         <div
-            ref={ref}
-            className="overflow-hidden transition-[height] duration-200 ease-in-out border-b"
+            className="overflow-hidden transition-[height] duration-200 ease-in-out border-t bg-surface-primary"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: contentHeight }}
             data-attr="vision-focus-run"
         >
             <div ref={contentRef}>
-                <div className="flex items-center gap-2 px-3 py-2">
-                    {scannerType && (
-                        <Tooltip title={scannerTypeLabel(scannerType)}>
-                            <LemonTag type={SCANNER_TYPE_TAG_TYPE[scannerType]} size="small">
-                                {scannerTypeIcon(scannerType)}
-                            </LemonTag>
-                        </Tooltip>
-                    )}
-                    <Tooltip title={prompt}>
-                        <span className="text-sm font-semibold truncate">{scannerLabel(observation)}</span>
-                    </Tooltip>
-                    <span className="ml-auto shrink-0 min-w-0 max-w-[50%]">
-                        <RunResult observation={observation} />
-                    </span>
-                </div>
                 {(observation.error_reason || isInFlight(observation)) && (
                     <div className="flex flex-col gap-2 px-2 pb-2">
                         {observation.status === 'failed' && observation.error_reason && (
@@ -369,37 +284,8 @@ const FocusPane = forwardRef<
                         )}
                     </div>
                 )}
-                {marks.length > 0 && (
-                    <>
-                        <SectionHeader label="Moments" count={marks.length} />
-                        <ObservationTimeline sessionId={sessionId} marks={marks} onSeek={onSeek} />
-                    </>
-                )}
                 <div className="flex flex-col gap-2 px-2 py-2">
-                    {observation.status === 'succeeded' && marks.length === 0 && (
-                        <span className="text-xs text-muted">No cited moments.</span>
-                    )}
-                    <div className="flex items-center gap-2">
-                        {hasText && (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                sideIcon={showText ? <IconCollapse /> : <IconExpand />}
-                                onClick={() => setTextOpenFor(showText ? null : observation.id)}
-                                data-attr="vision-run-text-toggle"
-                            >
-                                {showText ? `Hide ${textLabel}` : `Show ${textLabel}`}
-                            </LemonButton>
-                        )}
-                        <Link
-                            data-attr="vision-observation-open-from-sidebar"
-                            to={urls.replayVisionObservation(observation.id)}
-                            className="text-xs ml-auto"
-                        >
-                            View details
-                        </Link>
-                    </div>
-                    {hasText && showText && (
+                    {hasText && (
                         <div className="text-sm">
                             {isSummary ? (
                                 <ObservationPrimaryOutput
@@ -418,19 +304,33 @@ const FocusPane = forwardRef<
                             )}
                         </div>
                     )}
+                    <Link
+                        data-attr="vision-observation-open-from-sidebar"
+                        to={urls.replayVisionObservation(observation.id)}
+                        className="text-xs self-end"
+                    >
+                        View details
+                    </Link>
                 </div>
             </div>
         </div>
     )
-})
+}
 
 function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, seekbarMarks, followMoments } = useValues(logic)
-    const { setFollowMoments, focusObservation } = useActions(logic)
+    const { observations, observationsLoading, timeline, followMoments, summarizePending } = useValues(logic)
+    const { setFollowMoments, summarize } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason } = quotaUx(quota)
     const lastJumpMs = useRef<number | null>(null)
+    const timelineRef = useRef<HTMLDivElement>(null)
+    const followedIndex = useRef<number | null>(null)
     // The player logic is keyed; seek the exact mounted instance, not a propless default
-    const { logicProps, sessionPlayerMetaData, currentPlayerTime } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionPlayerMetaData, currentPlayerTime, sessionPlayerData } =
+        useValues(sessionRecordingPlayerLogic)
+    const durationMs = sessionPlayerData.durationMs > 0 ? sessionPlayerData.durationMs : null
+    const timelineRows = useMemo(() => buildTimelineRows(timeline, durationMs), [timeline, durationMs])
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
@@ -440,23 +340,31 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
         lastJumpMs.current !== null && Math.abs(currentPlayerTime - lastJumpMs.current) < 1000
             ? lastJumpMs.current
             : currentPlayerTime
-    const nextMoment = nextMarkAfter(seekbarMarks, nextFrom)
-    const jumpToNextMoment = (): void => {
-        if (!nextMoment) {
+    const nextStopMs = nextTimelineStopMs(timeline, nextFrom)
+    const jumpToNext = (): void => {
+        if (nextStopMs === null) {
             return
         }
-        lastJumpMs.current = nextMoment.timestampMs
-        seekToTime(nextMoment.timestampMs)
-        const owner = observations.find((o) =>
-            observationSeekbarMarks([o]).some((m) => m.timestampMs === nextMoment.timestampMs)
-        )
-        if (owner) {
-            focusObservation(owner.id)
-        }
+        lastJumpMs.current = nextStopMs
+        seekToTime(nextStopMs)
     }
+    const currentIndex = currentRowIndex(timelineRows, currentPlayerTime)
+
+    useEffect(() => {
+        if (!followMoments) {
+            followedIndex.current = null
+            return
+        }
+        if (currentIndex < 0 || followedIndex.current === currentIndex) {
+            return
+        }
+        followedIndex.current = currentIndex
+        timelineRef.current?.querySelector<HTMLElement>(CURRENT_MOMENT_SELECTOR)?.scrollIntoView({ block: 'nearest' })
+    }, [currentIndex, followMoments])
 
     return (
-        <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
+        // A container, so long observation text wraps at the sidebar's width instead of widening the sidebar.
+        <div className="@container flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
             {observationsLoading && observations.length === 0 ? (
                 <div className="flex items-center gap-2 text-muted p-4">
                     <Spinner /> Loading observations…
@@ -485,7 +393,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                 <>
                     <div className="@container flex items-center gap-2 p-2 border-b bg-surface-secondary">
                         <ScannerPicker sessionId={sessionId} scanBlock={scanBlock} type="secondary" />
-                        {seekbarMarks.length > 0 && (
+                        {timelineRows.length > 0 && (
                             <div className="ml-auto flex items-center gap-2">
                                 <LemonSwitch
                                     size="xsmall"
@@ -499,17 +407,31 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                                         size="small"
                                         type="secondary"
                                         sideIcon={<IconChevronRight />}
-                                        disabledReason={nextMoment ? undefined : 'No later moments'}
-                                        onClick={jumpToNextMoment}
+                                        disabledReason={
+                                            nextStopMs !== null ? undefined : 'Nothing later in the recording'
+                                        }
+                                        onClick={jumpToNext}
                                         data-attr="vision-next-moment"
                                     >
-                                        Next moment
+                                        Next
                                     </LemonButton>
                                 </span>
                             </div>
                         )}
                     </div>
-                    <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
+                    <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
+                        <SectionHeader label="Timeline" />
+                        <RecordingTimeline
+                            timeline={timeline}
+                            rows={timelineRows}
+                            currentTimeMs={currentPlayerTime}
+                            onSeek={seekToTime}
+                            onSummarize={summarize}
+                            summarizing={summarizePending}
+                            summarizeDisabledReason={scanBlock?.reason ?? quotaDisabledReason}
+                        />
+                        <ObservationRuns sessionId={sessionId} observations={observations} onSeek={seekToTime} />
+                    </div>
                 </>
             )}
         </div>

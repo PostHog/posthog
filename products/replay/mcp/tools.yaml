@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product replay
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product replay
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Session replays
 feature: replay
 url_prefix: /replay
@@ -74,6 +72,7 @@ tools:
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
+        hooks: replay/sessionRecordingGetHooks
         response:
             exclude:
                 - person.properties
@@ -99,6 +98,7 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
     session-recording-playlist-get:
         operation: session_recording_playlists_retrieve
         enabled: true
@@ -135,10 +135,8 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
             - type
-    session-recording-playlists-destroy:
-        operation: session_recording_playlists_destroy
-        enabled: false
     session-recording-playlists-list:
         operation: session_recording_playlists_list
         enabled: true
@@ -153,27 +151,6 @@ tools:
         description: >
             List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
             playlists with their metadata and recording counts.
-    session-recording-playlists-recordings-create:
-        operation: session_recording_playlists_recordings_create
-        enabled: false
-    session-recording-playlists-recordings-destroy:
-        operation: session_recording_playlists_recordings_destroy
-        enabled: false
-    session-recording-playlists-recordings-retrieve:
-        operation: session_recording_playlists_recordings_retrieve
-        enabled: false
-    session-recording-playlists-update:
-        operation: session_recording_playlists_update
-        enabled: false
-    session-recordings-list:
-        operation: session_recordings_list
-        enabled: false
-    session-recordings-partial-update:
-        operation: session_recordings_partial_update
-        enabled: false
-    session-recordings-update:
-        operation: session_recordings_update
-        enabled: false
 wrappers:
     query-session-recordings-list:
         schema_ref: AssistantRecordingsQuery

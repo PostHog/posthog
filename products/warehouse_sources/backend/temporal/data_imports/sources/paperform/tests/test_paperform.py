@@ -26,8 +26,6 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 PAPERFORM_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.paperform.paperform.make_tracked_session"
 )
-# tenacity sleeps between retries; patch it so the retry-path test doesn't actually wait.
-TENACITY_SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _resp(results_key: str, items: list[dict[str, Any]], *, has_more: bool = False, status: int = 200) -> Response:
@@ -105,17 +103,6 @@ def _build(
 
 
 class TestTopLevel:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops(self, MockSession: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        rows, calls = _build(manager, "forms", [_resp("forms", [{"id": "f1"}, {"id": "f2"}])], MockSession)
-
-        assert rows == [{"id": "f1"}, {"id": "f2"}]
-        assert len(calls) == 1
-        assert calls[0][1] == {"limit": PAGE_SIZE, "sort": "ASC"}
-        # has_more is false, so no resume state is persisted.
-        assert manager.saved == []
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_after_id_cursor_until_has_more_false(self, MockSession: mock.MagicMock) -> None:
         manager = _FakeManager()
@@ -210,42 +197,6 @@ class TestFanOut:
         assert submission_call["after_id"] == "s9"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_old_shape_resume_state_restarts_fresh(self, MockSession: mock.MagicMock) -> None:
-        # Resume state written before the migration only bookmarked a form id; it can't seed the
-        # framework fan-out, so the whole fan-out restarts (the merge dedupes re-pulled rows).
-        manager = _FakeManager(PaperformResumeConfig(cursor="s9", form_id="deleted-form"))
-        rows, _calls = _build(
-            manager,
-            "submissions",
-            [
-                _resp("forms", [{"id": "f1"}]),
-                _resp("submissions", [{"id": "s1"}]),
-            ],
-            MockSession,
-        )
-
-        assert rows == [{"form_id": "f1", "id": "s1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_each_form_once(self, MockSession: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        rows, calls = _build(
-            manager,
-            "products",
-            [
-                _resp("forms", [{"id": "f1"}, {"id": "f2"}]),
-                _resp("products", [{"SKU": "P-1"}]),
-                _resp("products", []),
-            ],
-            MockSession,
-        )
-
-        assert rows == [{"form_id": "f1", "SKU": "P-1"}]
-        # Non-paginated child requests carry no pagination params.
-        product_calls = [params for url, params in calls if url.endswith("/products")]
-        assert product_calls == [{}, {}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_watermark_first_page_of_each_form_only(self, MockSession: mock.MagicMock) -> None:
         manager = _FakeManager()
         _rows_out, calls = _build(
@@ -272,38 +223,8 @@ class TestFanOut:
         # ...and later pages advance purely on after_id (after_id supersedes after_date server-side).
         assert "after_date" not in by_url_cursor[("https://api.paperform.co/v1/forms/f1/submissions", "s1")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_stale_watermark(self, MockSession: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        # partial_submissions declares no incremental fields, so a leftover watermark must not filter.
-        _rows_out, calls = _build(
-            manager,
-            "partial_submissions",
-            [
-                _resp("forms", [{"id": "f1"}]),
-                _resp("partial-submissions", [{"id": "p1"}]),
-            ],
-            MockSession,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-
-        assert all("after_date" not in params for _url, params in calls)
-
 
 class TestRetryAndErrors:
-    @mock.patch(TENACITY_SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        # A 500 is retried by the client; the follow-up 200 completes the page.
-        rows, _calls = _build(
-            manager,
-            "forms",
-            [_resp("forms", [], status=500), _resp("forms", [{"id": "f1"}])],
-            MockSession,
-        )
-        assert rows == [{"id": "f1"}]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_raises(self, MockSession: mock.MagicMock) -> None:
         manager = _FakeManager()

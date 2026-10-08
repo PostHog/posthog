@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { TodayMenuParts } from './todayMenuParts'
-import { spaceNewSessionUrl, todaySpacesLogic } from './todaySpacesLogic'
+import { todaySpacesLogic } from './todaySpacesLogic'
 
 interface TodaySpaceActionsProps {
     parts: TodayMenuParts
@@ -42,7 +42,7 @@ export function TodaySpaceActions({
 
     return (
         <>
-            <Item to={spaceNewSessionUrl(space.id)} dataAttr={attr('new-session')}>
+            <Item to={urls.taskSpaceNewSession(space.id)} dataAttr={attr('new-session')}>
                 <IconPlus />
                 New session
             </Item>

@@ -1,7 +1,8 @@
-"""Feature-flag gate for the autoresearch product.
+"""Feature-flag gates for the autoresearch product.
 
-Access is controlled by the `autoresearch` feature flag. Rollout is configured
-on the flag in PostHog, so code only asks whether it's enabled for this user/team.
+Access is controlled by the `autoresearch` feature flag. The `autoresearch-report-notebook`
+flag gates the report notebook that a training run builds. Rollout is configured on each
+flag in PostHog, so code only asks whether it's enabled for this user/team.
 """
 
 from django.conf import settings
@@ -15,6 +16,7 @@ from posthog.permissions import posthog_feature_flag_value
 from products.feature_flags.backend.facade import api as feature_flags_facade
 
 AUTORESEARCH_FLAG = "autoresearch"
+REPORT_NOTEBOOK_FLAG = "autoresearch-report-notebook"
 
 
 def has_autoresearch_access(
@@ -22,6 +24,25 @@ def has_autoresearch_access(
     *,
     team_id: int | None = None,
     organization_id: str | None = None,
+) -> bool:
+    return _flag_enabled(AUTORESEARCH_FLAG, user, team_id=team_id, organization_id=organization_id)
+
+
+def has_report_notebook_access(
+    user: AbstractBaseUser | AnonymousUser | None,
+    *,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> bool:
+    return _flag_enabled(REPORT_NOTEBOOK_FLAG, user, team_id=team_id, organization_id=organization_id)
+
+
+def _flag_enabled(
+    flag: str,
+    user: AbstractBaseUser | AnonymousUser | None,
+    *,
+    team_id: int | None,
+    organization_id: str | None,
 ) -> bool:
     if not user or not user.is_authenticated:
         return False
@@ -34,7 +55,7 @@ def has_autoresearch_access(
     # fail closed rather than grant access on any active flag row.
     # Don't apply this in TEST mode, because tests mock feature_enabled directly.
     if settings.DEBUG and not getattr(settings, "TEST", False):
-        return _local_flag_enabled(team_id=team_id)
+        return _local_flag_enabled(flag, team_id=team_id)
 
     if team_id is not None and organization_id is None:
         organization_id = _organization_id_for_team(team_id)
@@ -46,7 +67,7 @@ def has_autoresearch_access(
     if organization_id is not None:
         return bool(
             posthog_feature_flag_value(
-                AUTORESEARCH_FLAG,
+                flag,
                 distinct_id,
                 organization_id=organization_id,
                 team_id=team_id,
@@ -62,7 +83,7 @@ def has_autoresearch_access(
 
     return bool(
         posthoganalytics.feature_enabled(
-            AUTORESEARCH_FLAG,
+            flag,
             distinct_id,
             groups=groups,
             group_properties=group_properties,
@@ -77,5 +98,5 @@ def _organization_id_for_team(team_id: int) -> str | None:
     return str(organization_id) if organization_id else None
 
 
-def _local_flag_enabled(*, team_id: int | None) -> bool:
-    return feature_flags_facade.flag_is_active(AUTORESEARCH_FLAG, team_id=team_id)
+def _local_flag_enabled(flag: str, *, team_id: int | None) -> bool:
+    return feature_flags_facade.flag_is_active(flag, team_id=team_id)

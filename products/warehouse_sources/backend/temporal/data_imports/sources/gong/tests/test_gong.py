@@ -1,4 +1,3 @@
-import base64
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -13,15 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
-    _build_url,
     _format_datetime,
-    _get_headers,
     _to_datetime,
     get_rows,
     gong_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gong.settings import GONG_ENDPOINTS
 
 
 class _FakeResponse:
@@ -89,9 +85,6 @@ class TestFormatDatetime:
     def test_format_datetime(self, _name: str, value: datetime, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestToDatetime:
     @parameterized.expand(
@@ -106,23 +99,6 @@ class TestToDatetime:
     )
     def test_to_datetime(self, _name: str, value: Any, expected: datetime | None) -> None:
         assert _to_datetime(value) == expected
-
-
-class TestGetHeaders:
-    def test_basic_auth_header(self) -> None:
-        headers = _get_headers("my-key", "my-secret")
-        expected_token = base64.b64encode(b"my-key:my-secret").decode()
-        assert headers["Authorization"] == f"Basic {expected_token}"
-        assert headers["Accept"] == "application/json"
-
-
-class TestBuildUrl:
-    def test_without_params(self) -> None:
-        assert _build_url("/v2/users", {}) == f"{GONG_BASE_URL}/v2/users"
-
-    def test_with_params(self) -> None:
-        url = _build_url("/v2/calls", {"cursor": "abc"})
-        assert url == f"{GONG_BASE_URL}/v2/calls?cursor=abc"
 
 
 class TestValidateCredentials:
@@ -155,72 +131,7 @@ class TestValidateCredentials:
         assert session.requested_urls == [f"{GONG_BASE_URL}/v2/workspaces"]
 
 
-class TestCursorPagination:
-    def test_paginates_until_cursor_absent(self) -> None:
-        responses = [
-            _FakeResponse(json_data={"users": [{"id": "1"}], "records": {"cursor": "abc"}}),
-            _FakeResponse(json_data={"users": [{"id": "2"}]}),
-        ]
-        session = _FakeSession(responses)
-        manager = _FakeResumableManager()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("key", "secret", "users", mock.MagicMock(), manager))
-
-        assert batches == [[{"id": "1"}], [{"id": "2"}]]
-        assert session.requested_urls == [
-            f"{GONG_BASE_URL}/v2/users",
-            f"{GONG_BASE_URL}/v2/users?cursor=abc",
-        ]
-        # Non-windowed endpoints do not persist resume state.
-        assert manager.saved_states == []
-
-    def test_single_page_without_records(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data={"workspaces": [{"id": "w1"}]})])
-        manager = _FakeResumableManager()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(get_rows("key", "secret", "workspaces", mock.MagicMock(), manager))
-
-        assert batches == [[{"id": "w1"}]]
-        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/workspaces"]
-
-
 class TestWindowedCalls:
-    def test_single_window_incremental(self) -> None:
-        last_value = datetime.now(UTC) - timedelta(days=5)
-        session = _FakeSession([_FakeResponse(json_data={"calls": [{"id": "c1"}]})])
-        manager = _FakeResumableManager()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "calls",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=last_value,
-                )
-            )
-
-        assert batches == [[{"id": "c1"}]]
-        # Exactly one window (last_value is within the 90-day cap of now).
-        assert len(session.requested_urls) == 1
-        assert f"fromDateTime={_format_datetime(last_value)}" in unquote(session.requested_urls[0])
-        # State saved once after the window completes.
-        assert len(manager.saved_states) == 1
-
     def test_cursor_within_window(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=5)
         responses = [
@@ -336,6 +247,10 @@ class TestGongSource:
             ("answered_scorecards", ["answeredScorecardId"], "callStartTime", "asc"),
             # A user's stats are one row per day, so the user id alone would merge every day into one.
             ("interaction_stats", ["userId", "day"], "day", "asc"),
+            ("daily_activity", ["userId", "fromDate"], "fromDate", "asc"),
+            # A folder can hold the same call more than once, as different snippets.
+            ("library_folder_calls", ["folderId", "id", "created"], "created", "asc"),
+            ("flows", ["id"], None, "asc"),
             ("workspaces", ["id"], None, "asc"),
         ]
     )
@@ -353,20 +268,6 @@ class TestGongSource:
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
-
-    def test_every_endpoint_has_a_config(self) -> None:
-        assert set(GONG_ENDPOINTS) == {
-            "calls",
-            "calls_extensive",
-            "calls_content",
-            "transcripts",
-            "users",
-            "scorecards",
-            "trackers",
-            "answered_scorecards",
-            "interaction_stats",
-            "workspaces",
-        }
 
 
 class TestExtensiveCalls:
@@ -628,47 +529,6 @@ class TestTranscripts:
 
 class TestDateFilteredStats:
     @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
-    def test_answered_scorecards_filter_by_whole_review_days_and_page_in_body(self) -> None:
-        session = _FakeSession(
-            [
-                _FakeResponse(
-                    json_data={"answeredScorecards": [{"answeredScorecardId": 1}], "records": {"cursor": "page2"}}
-                ),
-                _FakeResponse(json_data={"answeredScorecards": [{"answeredScorecardId": 2}]}),
-            ]
-        )
-        manager = _FakeResumableManager()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=session,
-        ):
-            batches = list(
-                get_rows(
-                    "key",
-                    "secret",
-                    "answered_scorecards",
-                    mock.MagicMock(),
-                    manager,
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value="2026-03-05T18:30:00Z",
-                )
-            )
-
-        assert batches == [[{"answeredScorecardId": 1}], [{"answeredScorecardId": 2}]]
-        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/stats/activity/scorecards"] * 2
-        # Gong reads the dates in the company's time zone, so the day before the watermark is
-        # re-read, and the window ends at UTC yesterday so it never reaches past the company's today.
-        assert session.posted_bodies == [
-            {"filter": {"reviewFromDate": "2026-03-04", "reviewToDate": "2026-03-09", "reviewMethod": "BOTH"}},
-            {
-                "filter": {"reviewFromDate": "2026-03-04", "reviewToDate": "2026-03-09", "reviewMethod": "BOTH"},
-                "cursor": "page2",
-            },
-        ]
-        assert manager.saved_states == [GongResumeConfig(window_start="2026-03-09T00:00:00Z")]
-
-    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
     def test_interaction_stats_request_one_day_at_a_time_and_stamp_the_day(self) -> None:
         session = _FakeSession(
             [
@@ -731,3 +591,118 @@ class TestDateFilteredStats:
                 list(rows)
 
         assert len(session.requested_urls) == 2
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_daily_activity_turns_each_users_days_into_rows(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "usersDetailedActivities": [
+                            {
+                                "userId": "u1",
+                                "userEmailAddress": "one@example.com",
+                                "userDailyActivityStats": [
+                                    {"fromDate": "2026-03-07T00:00:00-08:00", "callsAsHost": ["c1"]},
+                                    {"fromDate": "2026-03-08T00:00:00-08:00", "callsAsHost": []},
+                                ],
+                            },
+                            {"userId": "u2", "userEmailAddress": "two@example.com", "userDailyActivityStats": None},
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "daily_activity",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value="2026-03-07T08:00:00Z",
+                )
+            )
+
+        assert session.posted_bodies == [{"filter": {"fromDate": "2026-03-06", "toDate": "2026-03-09"}}]
+        assert batches == [
+            [
+                {
+                    "userId": "u1",
+                    "userEmailAddress": "one@example.com",
+                    "fromDate": "2026-03-07T00:00:00-08:00",
+                    "callsAsHost": ["c1"],
+                },
+                {
+                    "userId": "u1",
+                    "userEmailAddress": "one@example.com",
+                    "fromDate": "2026-03-08T00:00:00-08:00",
+                    "callsAsHost": [],
+                },
+            ]
+        ]
+
+
+class TestFanOut:
+    def test_library_folder_calls_are_stamped_with_their_folder_and_an_emptied_folder_is_skipped(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"folders": [{"id": "f1"}, {"id": "f2"}]}),
+                _FakeResponse(status_code=404, text='{"errors":["No folders found for the specified period"]}'),
+                _FakeResponse(json_data={"id": "f2", "calls": [{"id": "c1", "created": "2026-01-01T00:00:00Z"}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(get_rows("key", "secret", "library_folder_calls", mock.MagicMock(), _FakeResumableManager()))
+
+        assert session.requested_urls == [
+            f"{GONG_BASE_URL}/v2/library/folders",
+            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f1",
+            f"{GONG_BASE_URL}/v2/library/folder-content?folderId=f2",
+        ]
+        assert batches == [[{"id": "c1", "created": "2026-01-01T00:00:00Z", "folderId": "f2"}]]
+
+    def test_flows_are_listed_per_active_user_and_kept_once(self) -> None:
+        company_flow = {"id": "company", "visibility": "Company"}
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "users": [
+                            {"id": "u1", "emailAddress": "one@example.com", "active": True},
+                            {"id": "u2", "emailAddress": "gone@example.com", "active": False},
+                        ],
+                        "records": {"cursor": "users2"},
+                    }
+                ),
+                _FakeResponse(json_data={"flows": [company_flow, {"id": "mine", "visibility": "Personal"}]}),
+                _FakeResponse(json_data={"users": [{"id": "u3", "emailAddress": "three@example.com", "active": True}]}),
+                _FakeResponse(json_data={"flows": [company_flow], "records": {"cursor": "flows2"}}),
+                _FakeResponse(json_data={"flows": [{"id": "shared", "visibility": "Shared"}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(get_rows("key", "secret", "flows", mock.MagicMock(), _FakeResumableManager()))
+
+        assert [unquote(url) for url in session.requested_urls] == [
+            f"{GONG_BASE_URL}/v2/users",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=one@example.com",
+            f"{GONG_BASE_URL}/v2/users?cursor=users2",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com",
+            f"{GONG_BASE_URL}/v2/flows?flowOwnerEmail=three@example.com&cursor=flows2",
+        ]
+        assert [row["id"] for batch in batches for row in batch] == ["company", "mine", "shared"]

@@ -1,17 +1,13 @@
-{% from "_macros.jinja" import cite_in, mark_key_moment, pick_media, rate_notability %}Summarize this session.{% if user_prompt %}
+{% from "_macros.jinja" import cite_in, learned_preferences, mark_key_moment, pick_media, rate_notability %}Summarize this session.{% if user_prompt %}
 
 Additional context from the team operating the product being recorded:
 {{ user_prompt }}{% endif %}
-
+{{ learned_preferences(scanner_rules) }}
 `title` is a short, plain-text headline, up to 120 characters (citations go in `summary`, not the title).{% if user_prompt %} If the context above specifies a naming convention or format for observations, `title` must follow it exactly (an observation's name is its title).{% endif %} `summary` should be {{ length_guidance }}.
 
 {{ cite_in('summary') }}
 
-Then break the whole recording down into `chapters`: the distinct parts of what the user did, in order, from the start of the video to its end. A new chapter starts where the user moves on to something else: a new page, a new task, a change of approach, or a different section or feature of the same page. Aim for about {{ chapter_target }} chapters when the session has that many distinct parts, and never split where nothing changes on screen. A long stretch on one page still splits by what the user reads or does there, and no chapter should cover several minutes of varied activity with a generic heading like "Browses page". Each chapter gives the video second it starts at, a heading of a few words, and the frame that best shows it. The chapters describe the recording as it happened, even when the context above asks the summary to focus on one area.{% if long_idle_breaks %}
-
-The user was idle for a long time at these points, and the idle time is cut from the video, so the video jumps straight past it. Start a new chapter at each of these video seconds:
-{% for idle_break in long_idle_breaks %}{% set minutes = (idle_break.idle_s / 60) | round | int %}- video second {{ idle_break.video_s }}, after about {{ minutes }} minute{{ "" if minutes == 1 else "s" }} idle
-{% endfor %}{% endif %}
+Then break the whole recording down into `chapters`: the distinct parts of what the user did, in order, from the start of the video to its end. A new chapter starts where the user moves on to something else: a new page, a new task, a change of approach, or a different section or feature of the same page. Aim for about {{ chapter_target }} chapters when the session has that many distinct parts, and never split where nothing changes on screen. Keep each chapter at least about 20 seconds long, except a notable moment. A long stretch on one page still splits by what the user reads or does there, and no chapter should cover several minutes of varied activity with a generic heading like "Browses page". Each chapter gives the video second it starts at, a heading of a few words, and the frame that best shows it. The chapters describe the recording as it happened, even when the context above asks the summary to focus on one area.
 
 {{ rate_notability() }}
 

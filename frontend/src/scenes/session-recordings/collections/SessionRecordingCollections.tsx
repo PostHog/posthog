@@ -14,7 +14,7 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType, SessionRecordingPlaylistType } from '~/types'
 
 import { BuiltInCollections } from './BuiltInCollections'
-import { COLUMN_WIDTHS, countColumn, nameColumn, progressColumn, watchNextColumn } from './collectionColumns'
+import { COLUMN_WIDTHS, countColumn, nameColumn, watchNextColumn } from './collectionColumns'
 import { CollectionSectionHeading } from './CollectionSectionHeading'
 import { SessionRecordingCollectionsEmptyState } from './SessionRecordingCollectionsEmptyState'
 import { PLAYLISTS_PER_PAGE, sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
@@ -71,7 +71,6 @@ export function SessionRecordingCollections(): JSX.Element {
                 )
             },
         },
-        progressColumn(),
         watchNextColumn(),
         {
             width: COLUMN_WIDTHS.actions,

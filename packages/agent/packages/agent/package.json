@@ -184,7 +184,7 @@
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@hono/node-server": "^1.19.9",
-    "@openai/codex": "0.154.0",
+    "@openai/codex": "0.159.2",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "^0.208.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.208.0",

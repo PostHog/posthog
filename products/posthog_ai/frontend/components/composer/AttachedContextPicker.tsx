@@ -7,16 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { attachedContextLogic } from '../../logics/attachedContextLogic'
-import { contextPickerLogic } from '../../logics/contextPickerLogic'
-
-const PICKER_GROUP_TYPES: TaxonomicFilterGroupType[] = [
-    TaxonomicFilterGroupType.Events,
-    TaxonomicFilterGroupType.Actions,
-    TaxonomicFilterGroupType.Insights,
-    TaxonomicFilterGroupType.Dashboards,
-    TaxonomicFilterGroupType.Notebooks,
-    TaxonomicFilterGroupType.ErrorTrackingIssues,
-]
+import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
 
 export interface AttachedContextPickerProps {
     className?: string
@@ -37,7 +28,7 @@ export function AttachedContextPicker({ className = 'flex-shrink-0 border' }: At
                     type="tertiary"
                     className={className}
                     groupType={TaxonomicFilterGroupType.Events}
-                    groupTypes={PICKER_GROUP_TYPES}
+                    groupTypes={CONTEXT_PICKER_GROUP_TYPES}
                     onChange={handleTaxonomicFilterChange}
                     icon={<IconAtSign className="text-secondary" />}
                     placeholder={hasContext ? null : 'Add context'}

@@ -123,7 +123,7 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
 
 Create an API key in your Gorgias account under **Settings → REST API**. Use the email of the account that owns the key together with the key itself.
 
-This source authenticates with HTTP Basic Auth (email + API key) and requires read access to the endpoints you want to sync (tickets, messages, customers, users, satisfaction surveys, tags, views, teams, macros, custom fields, voice calls).""",
+This source authenticates with HTTP Basic Auth (email + API key) and requires read access to the endpoints you want to sync (tickets, messages, customers, users, satisfaction surveys, tags, views, teams, macros, custom fields, events, voice calls, voice call events, voice call recordings).""",
             iconPath="/static/services/gorgias.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gorgias",
             releaseStatus=ReleaseStatus.GA,

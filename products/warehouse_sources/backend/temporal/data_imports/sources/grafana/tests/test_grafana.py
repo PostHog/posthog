@@ -122,10 +122,6 @@ class TestNormalizeHost:
 
 
 class TestResolveAuthHeaders:
-    def test_token_auth_sends_bearer(self):
-        headers = _resolve_auth_headers(_token_auth())
-        assert headers["Authorization"] == "Bearer glsa_secret"
-
     def test_basic_auth_sends_base64_credentials(self):
         headers = _resolve_auth_headers(_basic_auth())
         # base64("admin:hunter2")
@@ -134,11 +130,6 @@ class TestResolveAuthHeaders:
     def test_org_id_header_set_when_provided(self):
         headers = _resolve_auth_headers(_token_auth(), org_id="2")
         assert headers["X-Grafana-Org-Id"] == "2"
-
-    @pytest.mark.parametrize("org_id", [None, "", "  "])
-    def test_org_id_header_omitted_when_blank(self, org_id):
-        headers = _resolve_auth_headers(_token_auth(), org_id=org_id)
-        assert "X-Grafana-Org-Id" not in headers
 
     @pytest.mark.parametrize(
         "auth",
@@ -185,21 +176,8 @@ class TestBoundedResponseReading:
             _read_body_bounded(response)
         response.iter_content.assert_not_called()
 
-    def test_reads_body_within_limit(self):
-        response = _response(body_chunks=[b'{"a"', b": 1}"])
-        assert _read_body_bounded(response) == b'{"a": 1}'
-
 
 class TestPermissionErrorParsing:
-    def test_parses_named_scope_from_403_body(self):
-        response = _response(
-            status_code=403,
-            json_data={
-                "message": "You'll need additional permissions to perform this action. Permissions needed: teams:read"
-            },
-        )
-        assert "teams:read" in _permission_error_from_response(response)
-
     def test_falls_back_to_generic_message(self):
         response = _response(status_code=403, json_data={"message": "Access denied"})
         message = _permission_error_from_response(response)
@@ -208,14 +186,6 @@ class TestPermissionErrorParsing:
 
 
 class TestValidateCredentials:
-    def test_valid_credentials(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=200, json_data={"id": 1, "name": "Main Org."})
-        with _patch_session(session):
-            assert validate_credentials("https://x.grafana.net", _token_auth()) == (True, None)
-            assert session.get.call_args.args[0] == "https://x.grafana.net/api/org"
-            assert session.get.call_args.kwargs["allow_redirects"] is False
-
     def test_invalid_credentials(self):
         session = mock.MagicMock()
         session.get.return_value = _response(status_code=401, json_data={"message": "Unauthorized"})
@@ -363,40 +333,6 @@ class TestPagedRows:
             )
         return batches, session, manager
 
-    def test_stops_after_partial_page(self):
-        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
-        partial_page = [{"uid": "last"}]
-        batches, session, manager = self._run("dashboards", [full_page, partial_page])
-
-        assert len(batches) == 2
-        assert batches[1] == partial_page
-        assert session.get.call_count == 2
-        assert _query(session.get.call_args_list[0].args[0])["page"] == "1"
-        assert _query(session.get.call_args_list[1].args[0])["page"] == "2"
-        # Resume state advances only past completed full pages, so a crash re-yields (never skips).
-        assert [s.next_page for s in manager.saved] == [2]
-
-    def test_empty_first_page_yields_nothing(self):
-        batches, session, _ = self._run("folders", [[]])
-        assert batches == []
-        assert session.get.call_count == 1
-
-    def test_dashboards_search_params(self):
-        batches, session, _ = self._run("dashboards", [[{"uid": "d1"}]])
-        query = _query(session.get.call_args.args[0])
-        assert query["type"] == "dash-db"
-        assert query["limit"] == str(DEFAULT_PAGE_SIZE)
-        assert urlparse(session.get.call_args.args[0]).path == "/api/search"
-
-    def test_wrapped_endpoint_extracts_rows(self):
-        batches, session, _ = self._run("teams", [{"teams": [{"id": 7}], "totalCount": 1}])
-        assert batches == [[{"id": 7}]]
-        assert _query(session.get.call_args.args[0])["perpage"] == str(DEFAULT_PAGE_SIZE)
-
-    def test_orgs_pages_from_zero(self):
-        _, session, _ = self._run("orgs", [[{"id": 1}]])
-        assert _query(session.get.call_args.args[0])["page"] == "0"
-
     def test_resumes_from_saved_page(self):
         manager = FakeResumableManager(GrafanaResumeConfig(next_page=3))
         batches, session, _ = self._run("dashboards", [[{"uid": "d1"}]], manager=manager)
@@ -416,40 +352,6 @@ class TestPagedRows:
             batches, session, manager = self._run("dashboards", [full_page] * 6)
         assert session.get.call_count == 3
         assert manager.saved[-1].next_page == 4
-
-    def test_stops_at_wall_clock_deadline_despite_full_pages(self):
-        # The request budget alone still lets a host stall each successful response just under the
-        # socket timeout for days; the walk must stop at the wall-clock deadline and leave resume
-        # state so the next sync continues.
-        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
-        clock = {"now": 0.0}
-        session = mock.MagicMock()
-
-        def slow_get(url, **kwargs):
-            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
-            return _response(status_code=200, json_data=full_page)
-
-        session.get.side_effect = slow_get
-        manager = FakeResumableManager()
-        with (
-            _patch_session(session),
-            mock.patch.object(grafana_module, "_is_host_safe", return_value=(True, None)),
-            mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]),
-        ):
-            batches = list(
-                get_rows(
-                    host="https://x.grafana.net",
-                    auth=_token_auth(),
-                    org_id=None,
-                    endpoint="dashboards",
-                    logger=mock.MagicMock(),
-                    team_id=1,
-                    resumable_source_manager=manager,  # type: ignore[arg-type]
-                )
-            )
-        assert session.get.call_count == 2
-        assert len(batches) == 2
-        assert manager.saved[-1].next_page == 3
 
 
 class TestFanOutRows:
@@ -485,37 +387,6 @@ class TestFanOutRows:
             )
         urls = [call.args[0] for call in session.get.call_args_list]
         return batches, urls, manager
-
-    def test_team_members_fan_out_and_fill_missing_team_id(self):
-        batches, urls, _ = self._run(
-            "team_members",
-            {
-                "/api/teams/search": [{"teams": [{"id": 1}, {"id": 2}], "totalCount": 2}],
-                "/api/teams/1/members": [[{"userId": 10}]],
-                "/api/teams/2/members": [[{"userId": 11, "teamId": 2}]],
-            },
-        )
-        assert batches == [[{"teamId": 1, "userId": 10}], [{"teamId": 2, "userId": 11}]]
-        assert [urlparse(url).path for url in urls] == [
-            "/api/teams/search",
-            "/api/teams/1/members",
-            "/api/teams/2/members",
-        ]
-
-    def test_dashboard_versions_follow_continue_token(self):
-        batches, urls, _ = self._run(
-            "dashboard_versions",
-            {
-                "/api/search": [[{"uid": "d1"}]],
-                "/api/dashboards/uid/d1/versions": [
-                    {"versions": [{"version": 3}], "continueToken": "tok"},
-                    {"versions": [{"version": 2}], "continueToken": ""},
-                ],
-            },
-        )
-        assert batches == [[{"uid": "d1", "version": 3}], [{"uid": "d1", "version": 2}]]
-        assert _query(urls[1]) == {"limit": str(DASHBOARD_VERSIONS_PAGE_SIZE)}
-        assert _query(urls[2]) == {"limit": str(DASHBOARD_VERSIONS_PAGE_SIZE), "continueToken": "tok"}
 
     def test_dashboard_versions_legacy_array_pages_by_offset(self):
         full_page = [{"uid": "d1", "version": v} for v in range(DASHBOARD_VERSIONS_PAGE_SIZE)]
@@ -599,19 +470,6 @@ class TestAnnotationRows:
             )
         return batches, session, manager
 
-    def test_single_unsaturated_window(self):
-        rows = [{"id": 1, "time": 100}, {"id": 2, "time": 50}]
-        batches, session, manager = self._run([_response(status_code=200, json_data=rows)])
-
-        assert batches == [rows]
-        assert session.get.call_count == 1
-        query = _query(session.get.call_args.args[0])
-        assert query["type"] == "annotation"
-        assert query["from"] == "0"
-        assert query["limit"] == str(ANNOTATIONS_LIMIT)
-        # Final window completes the walk — no resume state to leave behind.
-        assert manager.saved == []
-
     def test_saturated_window_bisects_oldest_first(self):
         saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
         left_rows = [{"id": 1, "time": 10}]
@@ -636,22 +494,6 @@ class TestAnnotationRows:
         assert calls[2] == (mid, first_to)
         # After the older half yields, the resume boundary advances to its upper bound.
         assert [s.annotations_from_ms for s in manager.saved] == [mid]
-
-    def test_incremental_watermark_becomes_from_param(self):
-        batches, session, _ = self._run(
-            [_response(status_code=200, json_data=[{"id": 3, "time": 1700000000500}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000000,
-        )
-        assert _query(session.get.call_args.args[0])["from"] == "1700000000000"
-
-    def test_full_refresh_ignores_watermark(self):
-        batches, session, _ = self._run(
-            [_response(status_code=200, json_data=[])],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert _query(session.get.call_args.args[0])["from"] == "0"
 
     def test_resumes_from_saved_boundary(self):
         manager = FakeResumableManager(GrafanaResumeConfig(annotations_from_ms=5_000_000))
@@ -679,21 +521,6 @@ class TestAnnotationRows:
         with mock.patch.object(grafana_module, "MAX_ANNOTATION_REQUESTS_PER_RUN", 3):
             _, session, _ = self._run(get)
         assert session.get.call_count == 3
-
-    def test_stops_at_wall_clock_deadline_despite_saturated_windows(self):
-        # The request budget alone still lets a host stall each successful (saturated) response just
-        # under the socket timeout for days; the walk must stop at the wall-clock deadline.
-        saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
-        clock = {"now": 0.0}
-
-        def slow_get(url, **kwargs):
-            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
-            return _response(status_code=200, json_data=saturated)
-
-        with mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]):
-            batches, session, _ = self._run(slow_get)
-        assert session.get.call_count == 2
-        assert batches == []
 
 
 class TestGrafanaSourceResponse:

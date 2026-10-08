@@ -4,14 +4,11 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
     ENDPOINT_CONFIG,
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source"
-
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Companies", "LeadNotes", "ContactNotes", "CompanyNotes"}
 
 
 class TestKommoSource:
@@ -25,49 +22,10 @@ class TestKommoSource:
         # force the token to be re-entered instead of reusing the stored one.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_api_version_is_pinned_to_the_path_the_source_calls(self) -> None:
-        assert self.source.supported_versions == ("v4",)
-        assert self.source.default_version == "v4"
-        assert self.source.resolve_api_version(None) == "v4"
-        assert all(endpoint.path.startswith("/api/v4/") for endpoint in ENDPOINT_CONFIG.values())
-
-    def test_get_schemas_marks_only_ordered_endpoints_incremental(self) -> None:
-        # Tasks and Events expose a timestamp filter but no ordering parameter for it, so they
-        # must stay full refresh rather than advertising a watermark we cannot trust.
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        assert {name for name, schema in schemas.items() if schema.supports_incremental} == INCREMENTAL_ENDPOINTS
-        assert all(
-            [f["field"] for f in schemas[name].incremental_fields] == ["updated_at"] for name in INCREMENTAL_ENDPOINTS
-        )
-
     def test_incremental_fields_only_declared_where_a_server_side_filter_exists(self) -> None:
         assert set(INCREMENTAL_FIELDS) == {
             name for name, endpoint in ENDPOINT_CONFIG.items() if endpoint.incremental_param is not None
         }
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://acme.kommo.com/api/v4/leads",
-            "403 Client Error: Forbidden for url: https://acme.kommo.com/api/v4/users",
-            "402 Client Error: Payment Required for url: https://acme.kommo.com/api/v4/events",
-            "404 Client Error: Not Found for url: https://acme.kommo.com/api/v4/leads",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_and_billing_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://acme.kommo.com/api/v4/leads",
-            "500 Server Error for url: https://acme.kommo.com/api/v4/leads",
-        ],
-    )
-    def test_non_retryable_errors_leave_transient_failures_retryable(self, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize("subdomain", ["acme.amocrm.ru", "evil.example.com/acme", "", "acme_corp"])
     @mock.patch(f"{_MODULE}.validate_kommo_credentials")

@@ -1,3 +1,5 @@
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+import type { ReportChartApi, ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
@@ -24,6 +26,8 @@ export interface TodaySessionPreview {
     branch: string | null
     /** What filed the session, or null when a person made it by hand. */
     source: string | null
+    /** The source product's icon, for the origins that have one. */
+    sourceIcon: JSX.Element | null
     author: TaskUserBasicInfoApi | null
     timestamp: string | null
     message: string | null
@@ -55,7 +59,39 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview
+/** What a report's hover card says, read from a personal briefing item or from one of the team's reports. */
+export interface TodayReportCard {
+    /** Stable per report and list. It keys the card's live metric queries and its analytics. */
+    key: string
+    /** The report the card's resolve and dismiss buttons act on, or null when the card has no report. */
+    reportId: string | null
+    title: string
+    /** Why the briefing picked the report. Null for the team's reports, which no briefing picked. */
+    reason: string | null
+    /** Resolved or dismissed since the briefing, or null while open. */
+    stateLabel: string | null
+    resolved: boolean
+    priority: string | null
+    summary: string | null
+    pullRequestState: PrStateEnumApi | null
+    pullRequestUrl: string | null
+    signalCount: number | null
+    updatedAt: string | null
+    metrics: ReportMetricApi[]
+    /** Charts from the report body. The card draws one when no metric has a chart. */
+    charts: ReportChartApi[]
+    sourceLabel: string
+}
+
+/** A report's hover card. The card text comes with the page, so it opens without a request. */
+export interface TodayReportPreview {
+    kind: 'report'
+    card: TodayReportCard
+    /** Where the card opened: a link in the briefing text, or a left-bar row. */
+    surface: 'briefing' | 'sidebar'
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayReportPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {
@@ -96,6 +132,7 @@ export function sessionPreview(
         branch: item.branch,
         source:
             item.originProduct && item.originProduct !== 'user_created' ? recentSourceLabel(item.originProduct) : null,
+        sourceIcon: getOriginProductMeta(item.originProduct ?? undefined)?.icon ?? null,
         author: item.author,
         timestamp: item.timestamp,
         message: item.finalMessage,

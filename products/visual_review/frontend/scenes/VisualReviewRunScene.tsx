@@ -16,6 +16,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
+import { CleanQuarantinedToggle } from '../components/CleanQuarantinedToggle'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -227,10 +229,23 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
+        cleanQuarantinedSnapshots,
+        cleanQuarantinedGroups,
+        showCleanQuarantined,
+        quarantinedRunSnapshotsLoading,
+        quarantinedRunSnapshotsLoadFailed,
+        quarantineLiftsLoading,
+        quarantineLiftsLoadFailed,
+        quarantinedIdentifiersLoading,
+        quarantinedIdentifiersLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
+        isRequestingLift,
+        isCancellingLift,
+        selectedLiftRequest,
+        selectedLiftOnMergeDisabledReason,
         isRunInProgress,
         isRunProcessing,
         isReportingOnly,
@@ -245,9 +260,12 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        requestLiftOnMerge,
+        cancelLiftOnMerge,
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
+        toggleCleanQuarantined,
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
@@ -261,6 +279,12 @@ export function VisualReviewRunScene(): JSX.Element {
         : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
     const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
+    // Stays out of view until the quarantined stories load, so the footer never offers an empty list.
+    const showCleanQuarantinedToggle =
+        !isReportingOnly &&
+        !quarantinedRunSnapshotsLoading &&
+        (quarantinedRunSnapshotsLoadFailed || cleanQuarantinedSnapshots.length > 0)
+    const showFooterToggles = showQuarantinedToggle || showCleanQuarantinedToggle
 
     // Navigate over what's actually visible — when quarantined items are hidden, next/previous
     // must skip them rather than selecting a hidden quarantined snapshot.
@@ -541,18 +565,31 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || sortedChangedSnapshots.length > 1) && (
+                    {(showFooterToggles || sortedChangedSnapshots.length > 1) && (
                         <div
-                            className={`flex items-center gap-2 px-3 pb-2 ${
-                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
+                            className={`flex flex-wrap items-center gap-2 px-3 pb-2 ${
+                                showFooterToggles ? 'justify-between' : 'justify-end'
                             }`}
                         >
-                            {showQuarantinedToggle && (
-                                <QuarantinedThumbnailsToggle
-                                    hiddenCount={hiddenQuarantinedCount}
-                                    isExpanded={showQuarantinedThumbnails}
-                                    onClick={toggleQuarantinedThumbnails}
-                                />
+                            {showFooterToggles && (
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                                    {showQuarantinedToggle && (
+                                        <QuarantinedThumbnailsToggle
+                                            hiddenCount={hiddenQuarantinedCount}
+                                            isExpanded={showQuarantinedThumbnails}
+                                            onClick={toggleQuarantinedThumbnails}
+                                        />
+                                    )}
+                                    {showQuarantinedToggle && showCleanQuarantinedToggle && <span>·</span>}
+                                    {showCleanQuarantinedToggle && (
+                                        <CleanQuarantinedToggle
+                                            cleanCount={cleanQuarantinedSnapshots.length}
+                                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                                            isExpanded={showCleanQuarantined}
+                                            onClick={toggleCleanQuarantined}
+                                        />
+                                    )}
+                                </div>
                             )}
                             {visibleNavSnapshots.length > 1 && (
                                 <div className="flex items-center gap-2">
@@ -585,6 +622,22 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                         </div>
                     )}
+
+                    {showCleanQuarantinedToggle &&
+                        showCleanQuarantined &&
+                        // A failed reload keeps the previous rows, which no longer describe this run.
+                        !quarantinedRunSnapshotsLoadFailed &&
+                        run.pr_number != null && (
+                            <CleanQuarantinedSnapshots
+                                groups={cleanQuarantinedGroups}
+                                prNumber={run.pr_number}
+                                // The groups read both lists, so either one still loading or failed leaves them unknown.
+                                liftsLoading={quarantineLiftsLoading || quarantinedIdentifiersLoading}
+                                liftsLoadFailed={quarantineLiftsLoadFailed || quarantinedIdentifiersLoadFailed}
+                                selectedSnapshotId={selectedSnapshotId}
+                                onSelect={setSelectedSnapshotId}
+                            />
+                        )}
                 </div>
 
                 {/* Body: diff viewer */}
@@ -610,6 +663,14 @@ export function VisualReviewRunScene(): JSX.Element {
                                 quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId, notifyOwners)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
+                            liftRequest={selectedLiftRequest}
+                            liftOnMergeDisabledReason={selectedLiftOnMergeDisabledReason}
+                            isRequestingLift={isRequestingLift}
+                            isCancellingLift={isCancellingLift}
+                            onRequestLiftOnMerge={
+                                isReportingOnly ? undefined : () => requestLiftOnMerge(selectedSnapshot)
+                            }
+                            onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoId={run.repo_id}

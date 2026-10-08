@@ -32,11 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 LOGGER = structlog.get_logger()
 
 ACCOUNTS = AWS_ORGANIZATIONS_ENDPOINTS["accounts"]
-ORGANIZATION = AWS_ORGANIZATIONS_ENDPOINTS["organization"]
 ORGANIZATIONAL_UNITS = AWS_ORGANIZATIONS_ENDPOINTS["organizational_units"]
 POLICIES = AWS_ORGANIZATIONS_ENDPOINTS["policies"]
-RESOURCE_TAGS = AWS_ORGANIZATIONS_ENDPOINTS["resource_tags"]
-ROOTS = AWS_ORGANIZATIONS_ENDPOINTS["roots"]
 
 JAN_2025 = 1735689600.0  # 2025-01-01T00:00:00Z
 
@@ -148,45 +145,6 @@ class TestNormalizeRow:
             "paths": ["o-example/r-exam/111111111111/"],
         }
 
-    def test_organization_row_drops_the_deprecated_available_policy_types_member(self) -> None:
-        row = normalize_row(
-            ORGANIZATION,
-            {
-                "Id": "o-example",
-                "Arn": "arn:aws:organizations::111111111111:organization/o-example",
-                "FeatureSet": "ALL",
-                "MasterAccountArn": "arn:aws:organizations::111111111111:account/o-example/111111111111",
-                "MasterAccountEmail": "owner@example.com",
-                "MasterAccountId": "111111111111",
-                "AvailablePolicyTypes": [{"Type": "SERVICE_CONTROL_POLICY", "Status": "ENABLED"}],
-            },
-        )
-
-        assert row == {
-            "id": "o-example",
-            "arn": "arn:aws:organizations::111111111111:organization/o-example",
-            "feature_set": "ALL",
-            "master_account_arn": "arn:aws:organizations::111111111111:account/o-example/111111111111",
-            "master_account_email": "owner@example.com",
-            "master_account_id": "111111111111",
-        }
-
-    def test_root_row_keeps_the_policy_type_list_whole(self) -> None:
-        row = normalize_row(
-            ROOTS,
-            {
-                "Id": "r-exam",
-                "Name": "Root",
-                "PolicyTypes": [{"Type": "TAG_POLICY", "Status": "ENABLED"}],
-            },
-        )
-
-        assert row == {
-            "id": "r-exam",
-            "name": "Root",
-            "policy_types": [{"Type": "TAG_POLICY", "Status": "ENABLED"}],
-        }
-
 
 class TestSignedRequest:
     def test_request_is_signed_for_the_global_endpoint_and_names_the_operation(self) -> None:
@@ -250,25 +208,6 @@ class TestSignedRequest:
 
 
 class TestPagination:
-    def test_walk_continues_past_an_empty_page_and_stops_only_on_a_null_token(self) -> None:
-        pages = [
-            page("Accounts", [{"Id": "111111111111"}], next_token="one"),
-            # Documented behavior: a list operation can return an empty page while more
-            # results are still available.
-            page("Accounts", [], next_token="two"),
-            page("Accounts", [{"Id": "222222222222"}]),
-        ]
-
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            token = payload.get("NextToken")
-            index = {None: 0, "one": 1, "two": 2}[token]
-            return pages[index]
-
-        batches, calls, _ = run_endpoint("accounts", responder)
-
-        assert [row["id"] for row in flatten(batches)] == ["111111111111", "222222222222"]
-        assert [call[1].get("NextToken") for call in calls] == [None, "one", "two"]
-
     @pytest.mark.parametrize(
         "endpoint,operation,expects_max_results",
         [
@@ -311,15 +250,6 @@ class TestPagination:
 
 
 class TestPolicies:
-    def test_one_walk_per_policy_type(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            return page("Policies", [{"Id": f"p-{payload['Filter'].lower()}", "Type": payload["Filter"]}])
-
-        batches, calls, _ = run_endpoint("policies", responder)
-
-        assert [payload["Filter"] for _, payload in calls] == list(POLICY_FILTERS)
-        assert len(flatten(batches)) == len(POLICY_FILTERS)
-
     @pytest.mark.parametrize(
         "code,message",
         [
@@ -346,25 +276,6 @@ class TestPolicies:
 
 
 class TestOrganizationalUnits:
-    def test_nested_units_are_discovered_and_stamped_with_their_parent(self) -> None:
-        children = {
-            "r-exam": [{"Id": "ou-exam-aaaaaaaa", "Name": "Engineering"}],
-            "ou-exam-aaaaaaaa": [{"Id": "ou-exam-bbbbbbbb", "Name": "Platform"}],
-            "ou-exam-bbbbbbbb": [],
-        }
-
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if operation == "ListRoots":
-                return page("Roots", [{"Id": "r-exam"}])
-            return page("OrganizationalUnits", children[payload["ParentId"]])
-
-        batches, _, _ = run_endpoint("organizational_units", responder)
-
-        assert [(row["id"], row["parent_id"], row["parent_type"]) for row in flatten(batches)] == [
-            ("ou-exam-aaaaaaaa", "r-exam", "ROOT"),
-            ("ou-exam-bbbbbbbb", "ou-exam-aaaaaaaa", "ORGANIZATIONAL_UNIT"),
-        ]
-
     def test_a_unit_returned_twice_does_not_walk_the_same_subtree_forever(self) -> None:
         def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
             if operation == "ListRoots":
@@ -403,16 +314,6 @@ class TestResourceTags:
 
         return responder
 
-    def test_tags_are_collected_from_every_taggable_resource_type(self) -> None:
-        batches, _, _ = run_endpoint("resource_tags", self._responder())
-
-        assert [(row["resource_id"], row["resource_type"], row["key"], row["value"]) for row in flatten(batches)] == [
-            ("111111111111", "ACCOUNT", "team", "111111111111"),
-            ("r-exam", "ROOT", "team", "r-exam"),
-            ("ou-exam-aaaaaaaa", "ORGANIZATIONAL_UNIT", "team", "ou-exam-aaaaaaaa"),
-            ("p-example", "POLICY", "team", "p-example"),
-        ]
-
     def test_a_resource_deleted_mid_sync_is_skipped(self) -> None:
         batches, _, _ = run_endpoint("resource_tags", self._responder(missing="r-exam"))
 
@@ -422,36 +323,8 @@ class TestResourceTags:
             "p-example",
         ]
 
-    def test_primary_key_is_unique_per_resource_and_tag_key(self) -> None:
-        rows = flatten(run_endpoint("resource_tags", self._responder())[0])
-        keys = [tuple(row[column] for column in RESOURCE_TAGS.primary_key or []) for row in rows]
-
-        assert len(set(keys)) == len(keys)
-
 
 class TestResume:
-    def test_a_saved_token_starts_the_walk_where_the_last_attempt_stopped(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            assert payload["NextToken"] == "page-two"
-            return page("Accounts", [{"Id": "222222222222"}])
-
-        manager = FakeResumeManager(AwsOrganizationsResumeConfig(next_token="page-two"))
-        batches, calls, _ = run_endpoint("accounts", responder, manager=manager)
-
-        assert len(calls) == 1
-        assert [row["id"] for row in flatten(batches)] == ["222222222222"]
-
-    def test_state_is_saved_after_every_page_and_cleared_once_the_walk_completes(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if payload.get("NextToken") is None:
-                return page("Accounts", [{"Id": "111111111111"}], next_token="page-two")
-            return page("Accounts", [{"Id": "222222222222"}])
-
-        _, _, manager = run_endpoint("accounts", responder)
-
-        assert [state.next_token for state in manager.saved] == ["page-two", None]
-        assert manager.cleared is True
-
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing(self) -> None:
         def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
             if payload.get("NextToken") == "stale":

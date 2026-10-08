@@ -404,10 +404,13 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.ChoiceField(
-        choices=RestrictionLevel.choices,
+    restriction_level = serializers.IntegerField(
+        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
         required=False,
-        help_text="Who can edit this dashboard.",
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
     )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
