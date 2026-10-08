@@ -5,7 +5,7 @@ import atexit
 import warnings
 import contextlib
 from collections.abc import Generator, Iterable, Iterator
-from functools import update_wrapper
+from functools import cache, update_wrapper
 from pathlib import Path
 
 import pytest
@@ -233,6 +233,36 @@ def _report_subtest_failures_as_test_failures() -> None:
         del pytest_unittest.TestCaseFunction.addSubTest
 
 
+def _check_authentication_principals() -> None:
+    # posthog/test/repo_invariants/test_authentication_credential_types.py reads each authenticate()
+    # annotation to find the classes that resolve a real User. mypy cannot check those annotations,
+    # because User lookups are typed Any, so every request that a test authenticates checks one.
+    from rest_framework.views import APIView  # noqa: PLC0415 — deferred until pytest_configure
+
+    from posthog.test.authentication_principals import (  # noqa: PLC0415 — deferred until pytest_configure
+        is_concrete,
+        principal_types,
+    )
+
+    perform_authentication = APIView.perform_authentication
+    cached_principal_types = cache(principal_types)
+
+    def checked_perform_authentication(self, request):
+        perform_authentication(self, request)
+        authenticator = request.successful_authenticator
+        if authenticator is None:
+            return
+        authentication_class = type(authenticator)
+        principals = cached_principal_types(authentication_class)
+        if is_concrete(principals) and not isinstance(request.user, tuple(principals)):
+            raise AssertionError(
+                f"{authentication_class.__qualname__}.authenticate() returned a {type(request.user).__name__}, "
+                f"but its return annotation allows only {sorted(t.__name__ for t in principals)}."
+            )
+
+    APIView.perform_authentication = checked_perform_authentication  # type: ignore[method-assign]
+
+
 def pytest_configure(config) -> None:
     _report_subtest_failures_as_test_failures()
     _cache_reverse_rel_identity()
@@ -240,6 +270,7 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
+    _check_authentication_principals()
     if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
         from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
             EventsSchemaRecorder,

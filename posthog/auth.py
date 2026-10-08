@@ -236,7 +236,7 @@ class SessionAuthentication(
     # outside DRF get it too.
     activity_credential_type = "session"
 
-    def authenticate(self, request):
+    def authenticate(self, request) -> Optional[tuple[User, None]]:
         with tracer.start_as_current_span("posthog.auth.session"):
             auth_result = super().authenticate(request)
 
@@ -370,7 +370,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
 
         return personal_api_key_object
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
             personal_api_key_with_source = self.find_key_with_source(request)
             if not personal_api_key_with_source:
@@ -463,7 +463,7 @@ class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.Base
     keyword = "Bearer"
     activity_credential_type = "team_secret_token"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[TeamSecretTokenUser, None]]:
         secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
@@ -526,7 +526,7 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
     # must fall through to the route's legacy branch; transitional until #66179.
     defer_migrated_team_tokens = False
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[ProjectSecretAPIKeyUser, None]]:
         token = _extract_phs_token(request)
         if not token:
             return None
@@ -573,7 +573,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
     keyword = "Bearer"
     activity_credential_type = "internal_jwt"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -581,7 +581,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
                     try:
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                        user = User.objects.get(pk=info["id"])
+                        user = User.objects.get(pk=info["id"], is_active=True)
                         refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
                         self.record_activity_actor(user)
                         return (user, None)
@@ -752,7 +752,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             expires_at=int(claims["exp"]),
         )
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
             token = self._extract_token(request)
             if not token:
@@ -807,7 +807,7 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
     keyword = "Bearer"
     activity_credential_type = "export_renderer"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         if request.method not in ("GET", "HEAD"):
             return None
         if "authorization" not in request.headers:
@@ -842,7 +842,7 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=user_id, is_active=True)
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
@@ -878,7 +878,7 @@ class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.B
     activity_credential_type = "sharing_access_token"
     sharing_configuration: SharingConfiguration
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[SharedLinkUser, None]]:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
@@ -915,7 +915,7 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
     sharing_configuration: SharingConfiguration
     share_password: "SharePassword"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[SharedLinkUser, None]]:
         if request.method != "GET":
             return None
 
@@ -1010,7 +1010,7 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     activity_credential_type = "oauth"
     access_token: OAuthAccessToken
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         with tracer.start_as_current_span("posthog.auth.oauth"):
             authorization_token = self._extract_token(request)
 
@@ -1038,7 +1038,7 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
     def _authenticate_access_token(
         self, request: Union[HttpRequest, Request], access_token: OAuthAccessToken
-    ) -> tuple[Any, None]:
+    ) -> tuple[User, None]:
         self._enforce_toolbar_access(access_token)
 
         self.access_token = access_token
@@ -1177,7 +1177,7 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     activity_credential_type = "personal_api_key"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
             return None
@@ -1210,7 +1210,7 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
     activity_credential_type = "oauth"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[User, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
             return None
@@ -1316,7 +1316,7 @@ class InternalAPIAuthentication(ActivityCredentialMixin, authentication.BaseAuth
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
 
-    def authenticate(self, request: Request) -> tuple[Any, Any]:
+    def authenticate(self, request: Request) -> tuple[InternalAPIUser, None]:
         provided_secret = (
             request.headers.get(self.HEADER_NAME)
             or request.headers.get(self.HEADER_NAME.lower())
@@ -1384,7 +1384,7 @@ class ScopedServiceJWTAuthentication(ActivityCredentialMixin, authentication.Bas
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
-    def authenticate(self, request: Request) -> Optional[tuple[Any, dict[str, Any]]]:
+    def authenticate(self, request: Request) -> Optional[tuple[InternalAPIUser, dict[str, Any]]]:
         header = authentication.get_authorization_header(request).split()
         # No bearer header: return None (not raise) so the view's other authenticators,
         # if any, still get their turn.
@@ -1419,7 +1419,7 @@ class ScopedServiceJWTAuthentication(ActivityCredentialMixin, authentication.Bas
         self.record_activity_actor(None, self.purpose.audience.value)
         return principal, verified_claims
 
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[InternalAPIUser, dict[str, Any]]:
         claim_team_id = claims.get("team_id")
 
         if claim_team_id is None:

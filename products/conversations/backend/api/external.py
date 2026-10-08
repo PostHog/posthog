@@ -10,7 +10,7 @@ route, api/internal.py). Both routes share the handlers in api/ticket_actions.py
 """
 
 import hashlib
-from typing import Any, cast
+from typing import cast
 
 from django.db.models import Q
 from django.http import HttpRequest
@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 
@@ -63,7 +63,7 @@ class ExternalTicketProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthent
     # but refuses PSAKs, and the legacy-usage counters would otherwise go silent.
     defer_migrated_team_tokens = True
 
-    def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
+    def authenticate(self, request: HttpRequest | Request) -> tuple[ProjectSecretAPIKeyUser, None] | None:
         result = super().authenticate(request)
         if result is None:
             return None
