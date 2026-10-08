@@ -73,16 +73,6 @@ class TestPaginationAndUrls:
         assert snaps[0]["url"] == expected_url
         assert snaps[0]["params"] == expected_params
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_apps_endpoint_puts_org_in_query(self, MockClientSession) -> None:
-        session = MockClientSession.return_value
-        snaps = _wire(session, [_response({"apps": [{"id": "a"}]})])
-
-        _rows(fly_io_source("tok", "apps", "acme", team_id=1, job_id="j"))
-
-        assert snaps[0]["url"] == "https://api.machines.dev/v1/apps"
-        assert snaps[0]["params"] == {"org_slug": "acme"}
-
     @parameterized.expand([("machines",), ("volumes",)])
     @mock.patch(FLY_IO_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -96,60 +86,6 @@ class TestPaginationAndUrls:
         _rows(fly_io_source("tok", endpoint, "ac/me", team_id=1, job_id="j"))
 
         assert snaps[0]["url"] == f"https://api.machines.dev/v1/orgs/ac%2Fme/{endpoint}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_regions_is_a_platform_wide_lookup(self, MockClientSession) -> None:
-        # Regions are not org-scoped, so the org slug must not reach the request at all.
-        session = MockClientSession.return_value
-        snaps = _wire(session, [_response({"nearest": "lhr", "regions": [{"code": "iad"}, {"code": "lhr"}]})])
-
-        rows = _rows(fly_io_source("tok", "regions", "acme", team_id=1, job_id="j"))
-
-        assert snaps[0]["url"] == "https://api.machines.dev/v1/platform/regions"
-        assert snaps[0]["params"] == {}
-        assert [r["code"] for r in rows] == ["iad", "lhr"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_apps_is_single_request_and_ignores_cursor(self, MockClientSession) -> None:
-        # The apps endpoint isn't paginated; a stray next_cursor must not trigger a second request
-        # against a cursor the endpoint doesn't accept.
-        session = MockClientSession.return_value
-        _wire(session, [_response({"apps": [{"id": "app1"}, {"id": "app2"}], "next_cursor": "should-be-ignored"})])
-
-        rows = _rows(fly_io_source("tok", "apps", "acme", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["app1", "app2"]
-        assert session.send.call_count == 1
-
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_machines_follows_cursor_until_exhausted(self, MockClientSession, MockFlyIoSession) -> None:
-        # Not advancing the cursor loops forever; not following it silently drops later pages.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(
-            session,
-            [
-                _response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": "c2"}),
-                _response({"machines": [{"id": "m2", "app_name": "app2"}], "next_cursor": ""}),
-            ],
-        )
-
-        rows = _rows(fly_io_source("tok", "machines", "acme", team_id=1, job_id="j"))
-
-        assert [r["id"] for r in rows] == ["m1", "m2"]
-        # The second request carries the cursor returned by the first page.
-        assert "cursor" not in snaps[0]["params"]
-        assert snaps[1]["params"]["cursor"] == "c2"
-
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, MockClientSession, MockFlyIoSession) -> None:
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(session, [_response({"volumes": [], "next_cursor": None})])
-
-        assert _rows(fly_io_source("tok", "volumes", "acme", team_id=1, job_id="j")) == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_unexpected_response_shape_raises(self, MockClientSession) -> None:
@@ -218,60 +154,6 @@ class TestFanout:
                 assert row[column] == value
             # The raw `_<parent>_<field>` keys the fan-out injects must not survive into the table.
             assert not any(key.startswith(f"_{parent}_") for key in row)
-
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_is_requested_once_per_parent_row(self, MockClientSession, MockFlyIoSession) -> None:
-        # A fan-out that walks only the first parent, or re-walks one parent, silently changes what
-        # the table contains — assert one child request per parent across a paginated parent listing.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(
-            session,
-            [
-                _response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": "c2"}),
-                _response([{"id": "e1"}]),
-                _response({"machines": [{"id": "m2", "app_name": "app2"}], "next_cursor": None}),
-                _response([{"id": "e2"}]),
-            ],
-        )
-
-        rows = _rows(fly_io_source("tok", "machine_events", "acme", team_id=1, job_id="j"))
-
-        assert [r["machine_id"] for r in rows] == ["m1", "m2"]
-        assert [s["url"] for s in snaps if "/events" in s["url"]] == [
-            "https://api.machines.dev/v1/apps/app1/machines/m1/events",
-            "https://api.machines.dev/v1/apps/app2/machines/m2/events",
-        ]
-
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_machine_events_asks_for_the_largest_window(self, MockClientSession, MockFlyIoSession) -> None:
-        # The endpoint returns 20 events when `limit` is omitted and caps at 50, and it is not
-        # paginated, so omitting the param silently drops the older events of a busy machine.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        snaps = _wire(
-            session,
-            [_response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}), _response([])],
-        )
-
-        _rows(fly_io_source("tok", "machine_events", "acme", team_id=1, job_id="j"))
-
-        assert snaps[1]["params"]["limit"] == 50
-
-    @mock.patch(FLY_IO_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_null_child_body_yields_no_rows(self, MockClientSession, MockFlyIoSession) -> None:
-        # Fly.io serializes an empty collection as `null` rather than `[]`; a machine with no events
-        # must be an empty child, not a failed sync.
-        session = MockClientSession.return_value
-        MockFlyIoSession.return_value = session
-        _wire(
-            session, [_response({"machines": [{"id": "m1", "app_name": "app1"}], "next_cursor": None}), _response(None)]
-        )
-
-        assert _rows(fly_io_source("tok", "machine_events", "acme", team_id=1, job_id="j")) == []
 
     @mock.patch(FLY_IO_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)

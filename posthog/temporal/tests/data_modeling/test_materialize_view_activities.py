@@ -13,12 +13,14 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseError
@@ -42,12 +44,15 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    _describe_columns,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowEligibilityInputs,
     ManagedWarehouseShadowInputs,
+    check_managed_warehouse_shadow_eligibility_activity,
     materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
@@ -55,7 +60,7 @@ from posthog.temporal.data_modeling.activities.notify_materialization_failure im
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
-from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -112,11 +117,38 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
+    @pytest.mark.parametrize("flag_enabled,target_ready", [(False, True), (True, False), (True, True)])
+    async def test_shadow_eligibility_does_not_require_translation(
+        self, activity_environment, ateam, anode, adag, flag_enabled: bool, target_ready: bool
+    ) -> None:
+        inputs = ManagedWarehouseShadowEligibilityInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse._is_managed_warehouse_shadow_flag_enabled",
+                return_value=flag_enabled,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.is_data_modeling_shadow_ready",
+                return_value=target_ready,
+            ) as is_ready,
+        ):
+            assert await activity_environment.run(check_managed_warehouse_shadow_eligibility_activity, inputs) is (
+                flag_enabled and target_ready
+            )
+        if flag_enabled:
+            is_ready.assert_called_once_with(organization_id=ateam.organization_id)
+        else:
+            is_ready.assert_not_called()
+
     @pytest.mark.parametrize(
-        "stale,alias_dispatch_fails",
+        "compile_fails,alias_dispatch_fails",
         [(False, False), (True, False), (False, True)],
     )
-    async def test_trino_shadow_records_result_without_recompiling(
+    async def test_trino_shadow_records_execution_or_compilation_result(
         self,
         activity_environment,
         ateam,
@@ -124,7 +156,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         ajob,
         adag,
         asaved_query,
-        stale: bool,
+        compile_fails: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -146,7 +178,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_model",
                 return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
-                side_effect=ValueError("No current Trino conversion") if stale else None,
+                side_effect=ValueError("Trino compilation failed") if compile_fails else None,
             ) as execute,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
@@ -166,9 +198,9 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
-        if stale:
+        if compile_fails:
             reconcile_aliases.assert_not_awaited()
-            assert result.error == "No current Trino conversion"
+            assert result.error == "Trino compilation failed"
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
@@ -1392,8 +1424,11 @@ class TestMaterializeViewActivity:
     async def test_materializes_view_to_delta_table(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
+        materialized_saved_query_ids: list[str | None] = []
+
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
+            materialized_saved_query_ids.append(get_query_tags().materialized_saved_query_id)
             data = cast(
                 Collection[pa.Array],
                 [pa.array([1, 2, 3], type=pa.int64()), pa.array(["a", "b", "c"], type=pa.string())],
@@ -1429,6 +1464,7 @@ class TestMaterializeViewActivity:
             assert result.saved_query_id == str(asaved_query.id)
             assert f"team_{ateam.pk}_model_{asaved_query.id.hex}" in result.table_uri
             assert len(result.file_uris) > 0
+            assert materialized_saved_query_ids == [str(asaved_query.id)]
 
     async def test_updates_job_progress_during_materialization(
         self, activity_environment, ateam, anode, ajob, bucket_name, adag
@@ -1697,6 +1733,7 @@ class _EmptyArrowClient:
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         on_schema: Callable[[pa.Schema], None] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
@@ -1713,6 +1750,7 @@ class _EmptyArrowClient:
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
@@ -1814,6 +1852,128 @@ class TestHogqlTableModifiers:
 
         assert len(batches) == 1
         assert client.arrow_query is not None
+
+    async def test_only_the_refresh_data_query_is_tagged_with_the_views_it_reads(self, ateam: Team) -> None:
+        upstream = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="upstream_orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "Int64"},
+        )
+        read_tags_by_query: list[tuple[str, list[str] | None, list[str] | None]] = []
+
+        def record_read_tags(query_kind: str) -> None:
+            tags = get_query_tags()
+            read_tags_by_query.append((query_kind, tags.saved_query_ids, tags.directly_read_ids))
+
+        async def describe_columns(*args: Any, **kwargs: Any) -> Any:
+            record_read_tags("describe")
+            return await _describe_columns(*args, **kwargs)
+
+        async def fake_astream_query_as_arrow(*args: Any, **kwargs: Any) -> AsyncIterator[pa.RecordBatch]:
+            record_read_tags("data")
+            no_batches: list[pa.RecordBatch] = []
+            for batch in no_batches:
+                yield batch
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view._describe_columns", describe_columns
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+                fake_astream_query_as_arrow,
+            ),
+            contextlib.suppress(EmptyHogQLResponseColumnsError),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT id FROM upstream_orders", ateam, LOGGER.bind())]
+        record_read_tags("after")
+
+        upstream_ids = [str(upstream.id)]
+        assert read_tags_by_query == [
+            ("describe", None, None),
+            ("data", upstream_ids, upstream_ids),
+            ("after", None, None),
+        ]
+
+
+def _jev_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
+    answers: dict[str, dict[str, Any]] = {}
+    for name, question in json["questions"].items():
+        refund = "refund" in json["state"][name]
+        if question["type"] == "noul":
+            answers[name] = {"type": "noul", "noul": 0.9 if refund else 0.1}
+        else:
+            choice = "billing" if refund else "other"
+            answers[name] = {
+                "type": "choice",
+                "choice": choice,
+                "confidence": 0.9,
+                "probabilities": {label: 0.9 if label == choice else 0.1 for label in question["criteria"]},
+            }
+    return httpx.Response(200, json={"model": "jevk5-0.2", "answers": answers, "usage": {"input_tokens": 10}})
+
+
+class TestMaterializeViewPromptJev:
+    async def test_materializes_jev_results_to_delta(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        asaved_query.query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT text, is_refund, routed.choice AS team FROM ("
+                "SELECT text, jev(text, 'Is this a refund request?') AS is_refund, "
+                "jev(text, 'Which team should answer?', choice := ['billing', 'other']) AS routed "
+                "FROM (SELECT arrayJoin(['please refund me', 'hello there']) AS text) LIMIT 10)"
+            ),
+        }
+        await database_sync_to_async(asaved_query.save)()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+                AI_GATEWAY_URL="https://gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="test-key",
+            ),
+            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+            unittest.mock.patch("httpx.AsyncClient.post", side_effect=_jev_gateway_response),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+            )
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            materialized = await asyncio.to_thread(
+                lambda: deltalake.DeltaTable(
+                    result.table_uri, storage_options=get_aws_storage_options()
+                ).to_pyarrow_table()
+            )
+
+        rows = sorted(materialized.to_pylist(), key=lambda row: row["text"])
+        assert rows == [
+            {"text": "hello there", "is_refund": pytest.approx(0.1), "team": "other"},
+            {"text": "please refund me", "is_refund": pytest.approx(0.9), "team": "billing"},
+        ]
+
+    async def test_a_self_referencing_model_hits_the_resolution_bounds(self, ateam, auser):
+        # planning types the query before any model call, so a cycle must raise there instead of
+        # recursing until the worker's stack runs out
+        query = "SELECT jev(text, 'Is this a refund request?') AS is_refund FROM jev_cycle"
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="jev_cycle",
+            query={"kind": "HogQLQuery", "query": query},
+            created_by=auser,
+        )
+
+        with (
+            override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
+            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+            pytest.raises(ResolutionCycleError),
+        ):
+            [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]
 
 
 class TestHogqlTableEmptyResults:
@@ -1939,10 +2099,16 @@ class _SlowDescribeClient(_EmptyArrowClient):
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[Any]:
         await asyncio.sleep(self.describe_seconds)
         async with super().apost_query(
-            query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
+            query,
+            *data,
+            query_parameters=query_parameters,
+            query_id=query_id,
+            settings=settings,
+            external_tables=external_tables,
         ) as response:
             yield response
 

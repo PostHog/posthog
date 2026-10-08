@@ -5,7 +5,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.conf import settings
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -124,6 +123,7 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert len(judgment.probabilities) == 6
         # An unavailable decision service is not the batch's fault, so no retry budget is charged.
         assert judgment.batch_failed_ids == ()
+        assert judgment.chunk_error_types == {"DecisionsDisabledError": 1}
 
     def test_an_invalid_probability_fails_the_whole_chunk(self) -> None:
         rows = [_prose_row(uuid4(), "summary")]
@@ -134,6 +134,7 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.failed_chunks == 1
         # An invalid answer is the batch's own fault, so its rows are charged a retry attempt.
         assert judgment.batch_failed_ids == (str(rows[0]["id"]),)
+        assert judgment.chunk_error_types == {"ValueError": 1}
 
     @parameterized.expand(
         [
@@ -164,6 +165,7 @@ class TestJudgeScannerWindow(SimpleTestCase):
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.failed_chunks == 1
         assert judgment.batch_failed_ids == ()
+        assert judgment.chunk_error_types == {"GatewayNotConfiguredError": 1}
 
     def test_rows_without_prose_are_reported_instead_of_sent(self) -> None:
         no_output, no_result = uuid4(), uuid4()
@@ -333,7 +335,7 @@ class TestWatchRankCache(SimpleTestCase):
         # with their scores lost forever.
         team_id = 990_002
         scanner_id = uuid4()
-        inner = get_client(settings.REPLAY_VISION_REDIS_URL)
+        inner = get_client()
 
         class _JudgedWritesFail:
             def setex(self, key: str, ttl: Any, value: str) -> None:
@@ -429,7 +431,7 @@ class TestJevWatchRankSweep(BaseTest):
             patch(flag, side_effect=self._flag_arm("jev-shadow")),
             patch(region, return_value=True),
             patch(_API) as api,
-            patch("posthoganalytics.capture"),
+            patch("posthoganalytics.capture") as captured,
         ):
             api.decide_when_available.side_effect = _answer_every_question(0.7)
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
@@ -437,6 +439,16 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.scanners_judged == 1
         assert result.observations_judged == 2
         assert load_watch_ranks(self.team.id, [scanner.id]) == {str(first.id): 0.7, str(second.id): 0.7}
+        # Sub-threshold scores are cached nowhere, so the judged event must carry the score sample
+        # the threshold is calibrated from.
+        judged = [
+            call for call in captured.call_args_list if call.kwargs["event"] == "replay_vision_jev_watch_rank_judged"
+        ]
+        payload = judged[0].kwargs["properties"]
+        assert payload["watchable_count"] == 2
+        assert payload["watchability_max"] == 0.7
+        assert sorted(entry["id"] for entry in payload["top_scored"]) == sorted([str(first.id), str(second.id)])
+        assert all(entry["p"] == 0.7 for entry in payload["top_scored"])
 
         with (
             patch(flag, side_effect=self._flag_arm("jev-shadow")),
@@ -530,12 +542,18 @@ class TestJevWatchRankSweep(BaseTest):
             patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
             patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
             patch(_API) as api,
-            patch("posthoganalytics.capture"),
+            patch("posthoganalytics.capture") as captured,
         ):
             api.decide_when_available.side_effect = DecisionsDisabledError(self.team.id)
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         assert result.failed_chunks == 1
         assert result.observations_given_up == 0
+        # The judged event names the failure class, so a broken sweep is diagnosable from the
+        # product alone — worker logs and Prometheus never leave the cluster.
+        judged = [
+            call for call in captured.call_args_list if call.kwargs["event"] == "replay_vision_jev_watch_rank_judged"
+        ]
+        assert judged[0].kwargs["properties"]["chunk_error_types"] == {"DecisionsDisabledError": 1}
 
         for attempt in range(1, MAX_JUDGE_ATTEMPTS + 1):
             with (

@@ -9,7 +9,7 @@ from rest_framework import serializers
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField
+from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
@@ -79,9 +79,27 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
     return value
 
 
+VOLUME_RESOLUTION_MAX = 200
+VOLUME_RESOLUTION_HELP = (
+    f"Integer count of equal-width time buckets across dateRange, from 0 to {VOLUME_RESOLUTION_MAX}. "
+    "Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets."
+)
+
+
+class VolumeResolutionField(serializers.IntegerField):
+    default_error_messages = {
+        "invalid": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}, not a time unit such as 'day'. Example: 7 with a 7-day dateRange gives daily buckets.",
+        "min_value": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}.",
+        "max_value": f"Must be an integer bucket count from 0 to {VOLUME_RESOLUTION_MAX}.",
+    }
+
+    def __init__(self, *, help_text: str) -> None:
+        super().__init__(required=False, default=0, min_value=0, max_value=VOLUME_RESOLUTION_MAX, help_text=help_text)
+
+
 class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     id = StringOrIntegerField(help_text="User ID or role UUID to filter by.")
-    type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
+    type = serializers.ChoiceField(choices=AssigneeType.choices, help_text="Assignee target type: user or role.")
 
 
 class ErrorTrackingIssueOrderBy(models.TextChoices):
@@ -141,12 +159,8 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         help_text="Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.",
     )
     offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
-    volumeResolution = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=200,
-        default=0,
-        help_text="Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
+    volumeResolution = VolumeResolutionField(
+        help_text=f"{VOLUME_RESOLUTION_HELP} Defaults to 0, which returns only aggregate counts without volume buckets.",
     )
     library = StringOrStringListField(
         required=False, help_text="Filter by SDK/library value from event $lib, for example posthog-js."
@@ -181,8 +195,8 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
         default=True,
         help_text="When true, exclude internal/test account data from results. Defaults to true.",
     )
-    volumeResolution = serializers.IntegerField(
-        required=False, min_value=0, max_value=200, default=0, help_text="Volume buckets. Maximum 200."
+    volumeResolution = VolumeResolutionField(
+        help_text=f"{VOLUME_RESOLUTION_HELP} Defaults to 0, or to 12 when includeSparkline is true.",
     )
     includeSparkline = serializers.BooleanField(
         required=False,

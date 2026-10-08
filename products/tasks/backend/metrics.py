@@ -429,6 +429,7 @@ DesktopAccessOutcome = Literal[
     "allowed",
     "startup_plan",
     "prepaid_credits",
+    "signups_paused",
     "override",
     "resolution_failure",
 ]
@@ -749,6 +750,7 @@ _SANDBOX_DEADLINE_REASONS = {
     "no_sandbox",
     "flag_disabled",
     "agent_active",
+    "turn_open",
     "followup_in_flight",
     "run_completed",
     "snapshot_missing",

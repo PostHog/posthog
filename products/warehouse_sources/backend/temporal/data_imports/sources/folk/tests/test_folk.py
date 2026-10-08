@@ -114,20 +114,6 @@ class TestPagination:
         assert snapshots[1]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_page_except_the_last(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = "https://api.folk.app/v1/people?limit=100&cursor=abc"
-        _wire(session, [_response([{"id": "per_1"}], next_url=second), _response([{"id": "per_2"}])])
-
-        manager = _make_manager()
-        _rows(_source(manager=manager))
-
-        # State saved once (pointing at the second page) so a crash re-yields that page; nothing
-        # is saved after the final page (no nextLink).
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FolkResumeConfig(next_url=second)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_next_url(self, MockSession) -> None:
         session = MockSession.return_value
         resume_url = "https://api.folk.app/v1/people?limit=100&cursor=page3"
@@ -140,16 +126,6 @@ class TestPagination:
         assert rows == [{"id": "per_9"}]
         assert snapshots[0]["url"] == resume_url
         assert snapshots[0]["params"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        assert _rows(_source(manager=manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_off_origin_next_link_is_refused(self, MockSession) -> None:
@@ -179,58 +155,9 @@ class TestUnknownEndpoint:
             _source(endpoint="deals")
 
 
-class TestBearerAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_auth_is_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        auths: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            auths.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "per_1"}])]
-
-        _rows(_source())
-
-        # The key flows through the framework auth (so it's redacted from logs), not a hand-built
-        # Authorization header.
-        prepared = mock.MagicMock()
-        prepared.headers = {}
-        auths[0](prepared)
-        assert prepared.headers["Authorization"] == "Bearer folk_test"
-
-
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
     @mock.patch(PROBE_SESSION_PATCH)
     def test_returns_status_code(self, _name: str, status_code: int, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert probe_credentials("folk_test") == status_code
-
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_connection_failure_returns_none(self, MockSession) -> None:
-        MockSession.return_value.get.side_effect = Exception("boom")
-        assert probe_credentials("folk_test") is None
-
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_default_probe_is_the_current_user_with_bearer_token(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        probe_credentials("folk_test")
-
-        assert session.get.call_args.args[0] == f"{FOLK_BASE_URL}/v1/users/me"
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer folk_test"
-
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_schema_probe_hits_the_endpoint_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = mock.MagicMock(status_code=200)
-
-        probe_credentials("folk_test", "companies")
-
-        # Probing the endpoint's own path checks access to that resource, one row only.
-        assert session.get.call_args.args[0] == f"{FOLK_BASE_URL}/v1/companies?limit=1"

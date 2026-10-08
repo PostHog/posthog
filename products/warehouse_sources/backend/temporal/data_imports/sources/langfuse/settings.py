@@ -61,6 +61,9 @@ class LangfuseEndpointConfig:
     # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
     # ascending on the field the from-filter applies to, so a later page never holds an earlier row.
     keyset_pagination: bool = False
+    # Fan-out child: `path` holds a `{parent_id}` placeholder, filled with the `id` of every row of
+    # this parent endpoint.
+    parent: Optional[str] = None
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -73,7 +76,8 @@ _OBSERVATION_FIELDS = "core,basic,time,io,metadata,model,usage,prompt,metrics,tr
 _SCORE_FIELDS = "details,subject,annotation"
 
 # Endpoints cover the resources a user most commonly wants to analyze from an LLM observability
-# platform: traces, observations, scores, sessions, prompts, datasets, and model pricing.
+# platform: traces, observations, scores, sessions, prompts, datasets, model pricing, score
+# configs, and annotation queues.
 # Incremental support is only declared where the API documents a server-side timestamp filter.
 LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
     "traces": LangfuseEndpointConfig(
@@ -168,6 +172,32 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         pagination="page",
         page_size=50,
         # No server-side timestamp filter -> full refresh only.
+    ),
+    "score_configs": LangfuseEndpointConfig(
+        name="score_configs",
+        path="/api/public/score-configs",
+        pagination="page",
+        page_size=50,
+        # No server-side timestamp filter -> full refresh only.
+        partition_key="createdAt",
+    ),
+    "annotation_queues": LangfuseEndpointConfig(
+        name="annotation_queues",
+        path="/api/public/annotation-queues",
+        pagination="page",
+        page_size=50,
+        # No server-side timestamp filter -> full refresh only.
+        partition_key="createdAt",
+    ),
+    "annotation_queue_items": LangfuseEndpointConfig(
+        name="annotation_queue_items",
+        path="/api/public/annotation-queues/{parent_id}/items",
+        pagination="page",
+        page_size=50,
+        parent="annotation_queues",
+        # Only filterable by status, not by time -> full refresh only.
+        primary_keys=["queueId", "id"],
+        partition_key="createdAt",
     ),
 }
 

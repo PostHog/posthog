@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import {
     appendToolCallChunk,
     describeError,
@@ -109,6 +109,38 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
+    it('normalizes a display-name provider to its enum value in the completion payload', async () => {
+        useMocks({
+            get: {
+                '/api/llm_proxy/models/': [
+                    {
+                        id: 'my-gpt4-deployment',
+                        name: 'my-gpt4-deployment',
+                        provider: 'Azure OpenAI',
+                        description: '',
+                    },
+                ],
+            },
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('my-gpt4-deployment')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({ provider: 'azure_openai' })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
     it('sends variable-substituted content while the editor keeps the raw template', async () => {
         const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
 
@@ -120,6 +152,11 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundPromptsLogic.actions.setSystemPrompt('You answer questions about {{topic}}.')
         llmPlaygroundPromptsLogic.actions.setMessages([
             { role: 'user', content: 'Tell me about {{topic}} and {{missing}}' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{ id: 'call_1', name: 'search', arguments: '{"query": "{{topic}}"}' }],
+            },
         ])
         llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
         llmPlaygroundRunLogic.actions.submitPrompt()
@@ -130,14 +167,70 @@ describe('llmPlaygroundRunLogic', () => {
         // Filled variables resolve, unfilled ones stay in place (same as SDK compile)
         expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
             system: 'You answer questions about penguins.',
-            messages: [{ role: 'user', content: 'Tell me about penguins and {{missing}}' }],
+            messages: [
+                { role: 'user', content: 'Tell me about penguins and {{missing}}' },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: { query: 'penguins' } }],
+                },
+            ],
         })
         // Substitution must not write back into the editor state
         expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You answer questions about {{topic}}.')
         expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Tell me about {{topic}} and {{missing}}')
+        expect(llmPlaygroundPromptsLogic.values.messages[1].toolCalls?.[0].arguments).toBe('{"query": "{{topic}}"}')
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
+        // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
+        // a warning that names a skipped panel's variable, or keeps firing after the
+        // values are filled, misreports what was sent.
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+        const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The second panel has no messages, so it is skipped: {{ghost}} is never sent
+        llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+            createPromptConfig({
+                model: 'gpt-5-mini',
+                messages: [{ role: 'user', content: '{{topic}} in a {{tone}} tone' }],
+            }),
+            createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{topic}}, {{tone}}. The placeholders are sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 2 })
+        )
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+        captureSpy.mockRestore()
     })
 
     it('does not run a completion without editor access to the playground and explains why', async () => {

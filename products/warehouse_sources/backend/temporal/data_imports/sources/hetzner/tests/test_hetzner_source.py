@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
     HetznerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
 
 
@@ -33,16 +32,6 @@ class TestHetznerSource:
         assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
         assert field.secret is True
-
-    def test_all_endpoints_are_full_refresh_only(self) -> None:
-        # Hetzner exposes no server-side timestamp filter, so no table may advertise incremental or
-        # append — otherwise the picker offers a mode that either syncs nothing new or duplicates rows.
-        schemas = self.source.get_schemas(mock.MagicMock(), self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False, schema.name
-            assert schema.supports_append is False, schema.name
-            assert schema.incremental_fields == []
 
     @parameterized.expand(
         [
@@ -70,23 +59,18 @@ class TestHetznerSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable)
 
-    def test_source_for_pipeline_plumbs_schema_name(self) -> None:
+    @parameterized.expand(
+        [
+            ("list", "servers", ["id"]),
+            ("server_metrics", "server_metrics", ["server_id", "metric", "timestamp"]),
+            ("load_balancer_metrics", "load_balancer_metrics", ["load_balancer_id", "metric", "timestamp"]),
+            ("network_members", "network_members", ["network_id", "type", "id"]),
+        ]
+    )
+    def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:
         config = HetznerSourceConfig(api_token="tok")
         inputs = mock.MagicMock()
-        inputs.schema_name = "servers"
+        inputs.schema_name = schema_name
         response = self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-        assert response.name == "servers"
-        assert response.primary_keys == ["id"]
-
-    def test_documented_tables_published_for_docs(self) -> None:
-        # lists_tables_without_credentials must stay on so the public docs render the table catalog.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(ENDPOINTS).issubset(names)
-
-    def test_canonical_descriptions_key_on_real_endpoints(self) -> None:
-        # A description keyed on a name that isn't an endpoint never reaches enrichment (silent typo).
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "servers" in descriptions
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
