@@ -122,8 +122,6 @@ class ExternalAccountListTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrott
     rate = ExternalAccountSustainedThrottle.rate
 
 
-# Customer analytics stays behind the customer-analytics-csp flag, so these routes are not a public
-# REST contract yet. They stay in codegen for the generated types.
 _INTERNAL_SCHEMA_EXTENSIONS = {"x-internal": True}
 
 
