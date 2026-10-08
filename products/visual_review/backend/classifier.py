@@ -10,9 +10,18 @@ unchanged snapshots hits ~5 queries instead of ~8400.
 
 from django.db.models import Case, CharField, F, Value, When
 
+from posthog.dataclasses import frozen
+
 from .db import WRITER_DB
 from .facade.enums import ClassificationReason, ReviewState, SnapshotResult
 from .models import Artifact, Run, RunSnapshot, ToleratedHash
+
+
+@frozen
+class ToleratedKey:
+    identifier: str
+    baseline_hash: str
+    current_hash: str
 
 
 class SnapshotClassifier:
@@ -20,7 +29,7 @@ class SnapshotClassifier:
         self,
         run: Run,
         baseline: dict[str, str],
-        tolerated_lookup: dict[tuple[str, str, str], ToleratedHash],
+        tolerated_lookup: dict[ToleratedKey, ToleratedHash],
         is_partial: bool = False,
     ):
         self.run = run
@@ -108,7 +117,13 @@ class SnapshotClassifier:
             if not baseline_hash:
                 result = SnapshotResult.NEW
             else:
-                match = self.tolerated_lookup.get((snapshot.identifier, baseline_hash, snapshot.current_hash))
+                match = self.tolerated_lookup.get(
+                    ToleratedKey(
+                        identifier=snapshot.identifier,
+                        baseline_hash=baseline_hash,
+                        current_hash=snapshot.current_hash,
+                    )
+                )
                 if match is not None:
                     result = SnapshotResult.UNCHANGED
                     classification_reason = ClassificationReason.TOLERATED_HASH

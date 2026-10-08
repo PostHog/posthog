@@ -4,7 +4,7 @@ import pytest
 
 from django.utils import timezone
 
-from products.visual_review.backend.classifier import SnapshotClassifier
+from products.visual_review.backend.classifier import SnapshotClassifier, ToleratedKey
 from products.visual_review.backend.facade.enums import (
     ClassificationReason,
     ReviewState,
@@ -240,7 +240,7 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
 
-        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        lookup = {ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="current_h"): tolerated}
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].result == SnapshotResult.UNCHANGED
@@ -252,7 +252,7 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h", diff_percentage=0.42)
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
 
-        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        lookup = {ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="current_h"): tolerated}
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].diff_percentage == 0.42
@@ -261,7 +261,7 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
 
-        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        lookup = {ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="current_h"): tolerated}
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].diff_percentage is None
@@ -270,7 +270,9 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "OtherButton", "baseline_h", "current_h")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
 
-        lookup = {("OtherButton", "baseline_h", "current_h"): tolerated}
+        lookup = {
+            ToleratedKey(identifier="OtherButton", baseline_hash="baseline_h", current_hash="current_h"): tolerated
+        }
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].result == SnapshotResult.CHANGED
@@ -279,7 +281,9 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "Button", "different_baseline", "current_h")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
 
-        lookup = {("Button", "different_baseline", "current_h"): tolerated}
+        lookup = {
+            ToleratedKey(identifier="Button", baseline_hash="different_baseline", current_hash="current_h"): tolerated
+        }
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].result == SnapshotResult.CHANGED
@@ -288,7 +292,9 @@ class TestToleratedHashClassification:
         tolerated = _make_tolerated(repo, "Button", "baseline_h", "expected_current")
         run = _make_run(repo, [{"identifier": "Button", "current_hash": "actual_current"}])
 
-        lookup = {("Button", "baseline_h", "expected_current"): tolerated}
+        lookup = {
+            ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="expected_current"): tolerated
+        }
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
         assert result["Button"].result == SnapshotResult.CHANGED
@@ -303,7 +309,7 @@ class TestToleratedHashClassification:
 
 def _build_tolerated_lookup(
     repo: Repo, identifiers: set[str], baseline_hashes: set[str]
-) -> dict[tuple[str, str, str], ToleratedHash]:
+) -> dict[ToleratedKey, ToleratedHash]:
     return toleration.build_tolerated_lookup(repo.id, identifiers, baseline_hashes, now=timezone.now())
 
 
@@ -337,7 +343,9 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Button"}, {"baseline_h"})
 
-        assert lookup[("Button", "baseline_h", "current_h")] == tolerated
+        assert (
+            lookup[ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="current_h")] == tolerated
+        )
 
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
@@ -350,7 +358,9 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Button"}, {"baseline_h"})
 
-        assert lookup[("Button", "baseline_h", "current_h")] == tolerated
+        assert (
+            lookup[ToleratedKey(identifier="Button", baseline_hash="baseline_h", current_hash="current_h")] == tolerated
+        )
 
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
@@ -371,7 +381,7 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Expired", "Active"}, {"base_e", "base_a"})
 
-        assert {identifier for identifier, _, _ in lookup} == {"Active"}
+        assert {key.identifier for key in lookup} == {"Active"}
 
         result = _classify(run, {"Expired": "base_e", "Active": "base_a"}, lookup)
 
@@ -515,7 +525,7 @@ class TestMixedClassification:
             ],
         )
 
-        lookup = {("Tolerated", "tol_base", "tol_curr"): tolerated}
+        lookup = {ToleratedKey(identifier="Tolerated", baseline_hash="tol_base", current_hash="tol_curr"): tolerated}
         result = _classify(run, {"Exact": "exact_h", "Tolerated": "tol_base", "Changed": "old_h"}, lookup)
 
         assert result["Exact"].result == SnapshotResult.UNCHANGED
