@@ -303,6 +303,7 @@ class TestVercelIntegration(TestCase):
 
         new_org = new_installation.organization
         assert new_org.name == self.payload["account"]["name"]
+        assert (new_org.provisioning_source, new_org.provisioning_application_id) == ("vercel", None)
 
         membership = OrganizationMembership.objects.get(user=new_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
@@ -341,6 +342,7 @@ class TestVercelIntegration(TestCase):
         new_org = new_installation.organization
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
+        assert (new_org.provisioning_source, new_org.provisioning_application_id) == ("vercel", None)
 
         mock_report.assert_not_called()
 

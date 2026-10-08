@@ -330,7 +330,8 @@ class VercelIntegration:
             # Through Vercel we can only create new organizations, not use existing ones.
             # Note: We won't create a team here, that's done during Vercel resource creation.
             organization = Organization.objects.create(
-                name=config.account.name or f"Vercel Installation {installation_id}"
+                name=config.account.name or f"Vercel Installation {installation_id}",
+                provisioning_source=Organization.ProvisioningSource.VERCEL,
             )
 
             existing_user = User.objects.filter(email=config.account.contact.email).first()
