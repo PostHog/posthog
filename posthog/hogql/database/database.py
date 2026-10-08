@@ -10,7 +10,7 @@ import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
-from functools import cache
+from functools import cache, lru_cache
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -2934,7 +2934,7 @@ class Database(BaseModel):
                         continue
                     saved_expression_field = ExpressionField(
                         name=saved_expression.field_name,
-                        expr=parse_expr(saved_expression.expression),
+                        expr=copy.deepcopy(_cached_saved_expression(saved_expression.expression)),
                         isolate_scope=True,
                     )
                     expression_table.fields[saved_expression.field_name] = saved_expression_field
@@ -2982,6 +2982,12 @@ def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name:
 
 def _use_person_properties_from_events(database: Database) -> None:
     database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
+
+
+@lru_cache(maxsize=4096)
+def _cached_saved_expression(expression: str) -> ast.Expr:
+    """Parse each stored expression once. Callers copy the result because query resolution can modify the AST."""
+    return parse_expr(expression)
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
