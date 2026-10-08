@@ -78,7 +78,7 @@ class QueryEventsExtractor:
         Returns:
             list[str]: A list of events
         """
-        if not query:
+        if not query or not isinstance(query, dict | BaseModel):
             return []
 
         try:

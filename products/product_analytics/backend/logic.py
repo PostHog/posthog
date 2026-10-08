@@ -178,6 +178,8 @@ def get_or_create_saved_insight(
     query: dict[str, object] | None,
     revive_deleted: bool = True,
 ) -> tuple[int, bool]:
+    if query is not None and not isinstance(query, dict):
+        raise TypeError(f"Insight query must be a dict or None, got {type(query).__name__}")
     insight, created = Insight.objects_including_soft_deleted.get_or_create(
         team_id=team_id,
         short_id=short_id,
