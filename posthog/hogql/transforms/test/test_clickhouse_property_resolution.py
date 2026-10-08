@@ -14,14 +14,18 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.printer.utils import prepare_ast_for_printing
 from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.clickhouse_property_resolution import (
     MAX_MATERIALIZED_LIKE_PATTERN_LENGTH,
     _is_json_verbatim,
     clickhouse_property_resolution,
 )
+from posthog.hogql.transforms.property_types import PropertySwapper
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -93,6 +97,52 @@ class TestMaterializedLikePatternLimit(SimpleTestCase):
 
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNativeJSONPropertyComparisons(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (field, property_type)
+            for field in ("properties", "person_properties")
+            for property_type in ("Numeric", "DateTime")
+        ]
+    )
+    def test_string_comparisons_preserve_property_types(self, field: str, property_type: str) -> None:
+        metadata = PropertyMetadata(
+            event_properties={"value": {"type": property_type if field == "properties" else "String"}},
+            person_properties={"value": {"type": property_type if field == "person_properties" else "String"}},
+        )
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=metadata,
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper(
+            "UTC", metadata.event_properties, metadata.person_properties, {}, context, False
+        )
+        prop = "properties.value" if field == "properties" else "poe.properties.value"
+        matching: list[object]
+        if property_type == "Numeric":
+            matching = [7, 7.0, "7", "7.0", "07"]
+            constant = "7.0"
+            different: object = 8
+        else:
+            matching = ["2024-04-06 07:08:09", "2024-04-06T07:08:09Z", "2024-04-06T09:08:09+02:00"]
+            constant = "2024-04-06 07:08:09"
+            different = "2024-04-07 07:08:09"
+        query = parse_select(
+            f"SELECT tuple({prop} = {{value}}, {{value}} = {prop}, {prop} != {{value}}, "
+            f"{prop} IN ({{value}}), {prop} NOT IN ({{value}}), NOT ({prop} IN ({{value}}))) FROM events",
+            placeholders={"value": ast.Constant(value=constant)},
+        )
+        prepared = prepare_ast_for_printing(query, context, "clickhouse")
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), 'JSON') AS {field}) AS events",
+            {**context.values, "documents": [json.dumps({"value": item}) for item in [*matching, different, None]]},
+            settings={"transform_null_in": 1},
+        )
+        assert [row[0] for row in rows] == [(1, 1, 0, 1, 0, 0)] * len(matching) + [(0, 0, 1, 0, 1, 1)] * 2
+
     @parameterized.expand(
         [
             ("event", "properties", "value", "properties", "JSON", False),

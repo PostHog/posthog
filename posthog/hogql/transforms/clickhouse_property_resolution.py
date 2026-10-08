@@ -1967,9 +1967,9 @@ class ClickHousePropertyResolver(CloningVisitor):
     ) -> _OptimizableProperty | None:
         """A single-key string property backed by an individually materialized column, or None.
 
-        Unwraps a `toString(properties.x)` wrapper, requires a single key, skips properties whose resolved type isn't a
-        string unless a dynamic JSON value is being compared as a string, and requires a materialized column (not a
-        property group). The plain and `toString(...)` forms both resolve to the same lowered property.
+        Unwraps a `toString(properties.x)` wrapper, requires a single key with string semantics, and requires a
+        materialized column or JSON subcolumn (not a property group). The plain and `toString(...)` forms both resolve
+        to the same lowered property.
         """
         single = self._single_key_property(expr)
         if single is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
@@ -1984,14 +1984,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         is_dynamic_json_string_comparison = allow_dynamic_json and _is_dynamic_json_source(source)
-        if self.context.property_metadata is not None:
-            prop_info = self.context.property_metadata.event_properties.get(property_name)
-            if (
-                prop_info is not None
-                and prop_info.get("type") not in (None, "String")
-                and not is_dynamic_json_string_comparison
-            ):
-                return None
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        if not isinstance(property_type.resolve_constant_type(self.context), ast.StringType):
+            return None
 
         if not _is_string_column(source) and not is_dynamic_json_string_comparison:
             return None
