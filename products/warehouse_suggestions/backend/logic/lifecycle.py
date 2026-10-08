@@ -52,7 +52,7 @@ class Reopened:
 def apply_run(
     context: CandidateContext, team: "Team", drafts: Sequence[SuggestionDraft], now: datetime, *, surface: bool
 ) -> LifecycleResult:
-    """Apply one run's drafts to the stored suggestions, then show new ones when `surface` is set."""
+    """Apply one run's drafts, show new suggestions when `surface` is set, and recheck accepted assets."""
     fingerprints = {draft.fingerprint for draft in drafts}
     reopened = _reopen(context, drafts)
     created = _upsert(context.team_id, drafts)

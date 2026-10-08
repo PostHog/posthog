@@ -236,7 +236,7 @@ class TestApplyRun(BaseTest):
         )
         later = context(
             team_reads({view_subject(view_id): busy_reads(last_read_at=last_read_at)} if last_read_at else {}),
-            views=[view(view_id, is_materialized=materialized)],
+            views=[view(view_id, materializes=materialized)],
             team_id=self.team.pk,
         )
 

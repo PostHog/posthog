@@ -164,8 +164,11 @@ class TestAcceptSuggestion(APIBaseTest):
 
         self.view.refresh_from_db()
         assert accepted["http_status"] == status.HTTP_200_OK, accepted
-        assert (self.view.is_materialized, accepted["created_asset"]["refresh_interval_seconds"]) == (
-            True,
+        assert (
+            Node.objects.get(team=self.team, saved_query=self.view).type,
+            accepted["created_asset"]["refresh_interval_seconds"],
+        ) == (
+            NodeType.MAT_VIEW,
             12 * 60 * 60,
         )
 
@@ -213,4 +216,7 @@ class TestAcceptOutsideATransaction(NonAtomicAPIBaseTest):
         suggestion.refresh_from_db()
         self.view.refresh_from_db()
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.json()
-        assert (suggestion.status, self.view.is_materialized) == (WarehouseSuggestionStatus.PROPOSED, False)
+        assert (suggestion.status, Node.objects.get(team=self.team, saved_query=self.view).type) == (
+            WarehouseSuggestionStatus.PROPOSED,
+            NodeType.VIEW,
+        )

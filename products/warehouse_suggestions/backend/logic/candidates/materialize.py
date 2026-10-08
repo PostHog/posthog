@@ -77,7 +77,7 @@ class MaterializeCandidate(Candidate):
         self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
     ) -> WarehouseSuggestionAssetOutcome:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        if saved_query is None or not saved_query.is_materialized:
+        if saved_query is None or not saved_query.materializes:
             return WarehouseSuggestionAssetOutcome.DELETED
         reads = context.reads.reads_of(subject)
         if reads is not None and (accepted_at is None or reads.last_read_at > accepted_at):
