@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -312,6 +312,19 @@ describe('MessageInput simplified replies', () => {
 
         screen.getByLabelText('Sidebar field').focus()
         await userEvent.keyboard(keys)
+        expect(onSendMessage).not.toHaveBeenCalled()
+    })
+
+    test.each<[string, string]>([
+        ['an Enter that confirms', 'Enter'],
+        ['a digit that picks a candidate in', '2'],
+    ])('%s an IME composition does not send', async (_name, key) => {
+        const onSendMessage = renderSimplified()
+
+        await userEvent.click(screen.getByTestId('support-editor'))
+        expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
+
+        fireEvent.keyDown(screen.getByTestId('support-editor'), { key, isComposing: true, keyCode: 229 })
         expect(onSendMessage).not.toHaveBeenCalled()
     })
 

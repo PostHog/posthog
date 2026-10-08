@@ -96,7 +96,8 @@ export function SendMenu({
             return
         }
         const onKeyDown = (e: KeyboardEvent): void => {
-            if (e.metaKey || e.ctrlKey || e.altKey) {
+            // Keys confirm or move inside an IME composition, so leave them to the editor. Safari reports 229.
+            if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.keyCode === 229) {
                 return
             }
             const target = e.target as HTMLElement
