@@ -413,7 +413,7 @@ class TestResetLoadWritesTheQueuedScheme:
                     table=None,
                 ),
             )
-        return mock_producer_cls.call_args.kwargs
+        return dict(mock_producer_cls.call_args.kwargs)
 
     @pytest.mark.parametrize(
         "sync_type, config, run, expected_count",
