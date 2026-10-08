@@ -10,6 +10,6 @@ class ChangeDispatchInputs:
 @dataclasses.dataclass(frozen=True)
 class ChangeDispatchResult:
     dispatched: int
-    emitted: int
-    failed: int
+    delivered: int
+    undelivered: int
     dropped: int
