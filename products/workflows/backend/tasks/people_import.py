@@ -29,20 +29,23 @@ WAIT_MAX_DELAY_SECONDS = 300
 
 @shared_task(bind=True, ignore_result=True, queue=CeleryQueue.DEFAULT.value, max_retries=CAPTURE_MAX_RETRIES)
 @skip_team_scope_audit
-def capture_people_import(self, *, team_id: int, cohort_id: int, storage_key: str) -> None:
+def capture_people_import(
+    self, *, team_id: int, cohort_id: int, storage_key: str, pending_distinct_ids: list[str] | None = None
+) -> None:
     """Sends one $set event per row, so ingestion creates or updates each person with the row's columns."""
     try:
         people = read_people(storage_key)
+        if pending_distinct_ids is not None:
+            pending = set(pending_distinct_ids)
+            people = [person for person in people if person["distinct_id"] in pending]
         team = Team.objects.get(id=team_id)
+        events = _set_events(people, storage_key)
         result = capture_batch_internal(
-            events=_set_events(people, storage_key),
-            token=team.api_token,
-            event_source=EVENT_SOURCE,
-            process_person_profile=True,
+            events=events, token=team.api_token, event_source=EVENT_SOURCE, process_person_profile=True
         )
     except Exception as error:
         logger.warning("people_import_capture_failed", team_id=team_id, cohort_id=cohort_id, error=str(error))
-        _retry_or_fail(self, team_id, cohort_id, storage_key)
+        _retry_or_fail(self, team_id, cohort_id, storage_key, pending_distinct_ids)
         return
     if not result.succeeded():
         logger.warning(
@@ -54,8 +57,14 @@ def capture_people_import(self, *, team_id: int, cohort_id: int, storage_key: st
             unaccounted=len(result.unaccounted),
             error=result.error,
         )
-        _retry_or_fail(self, team_id, cohort_id, storage_key)
+    # Capture can ack part of a batch, and it ingests a resent acked event twice, so a retry sends only the rest.
+    unacknowledged = {*result.retried, *result.unaccounted}
+    if unacknowledged:
+        retry = [str(event["distinct_id"]) for event in events if event["event_uuid"] in unacknowledged]
+        everything_again = pending_distinct_ids is None and len(retry) == len(events)
+        _retry_or_fail(self, team_id, cohort_id, storage_key, None if everything_again else retry)
         return
+    # A retry can't deliver a dropped event. The cohort import reports those people as unmatched.
     _schedule_fill(team_id, cohort_id, storage_key, attempt=0)
 
 
@@ -91,7 +100,7 @@ def _set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, 
             "event": "$set",
             "distinct_id": person["distinct_id"],
             "properties": {"$set": person["properties"]},
-            # A retried task resends the same uuids, so capture drops the copies it already has.
+            # A stable uuid per person lets a retry find which events capture didn't acknowledge.
             "event_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{storage_key}/{person['distinct_id']}")),
         }
         for person in people
@@ -105,7 +114,17 @@ def _schedule_fill(team_id: int, cohort_id: int, storage_key: str, *, attempt: i
     )
 
 
-def _retry_or_fail(task: Task, team_id: int, cohort_id: int, storage_key: str) -> None:
+def _retry_or_fail(
+    task: Task, team_id: int, cohort_id: int, storage_key: str, pending_distinct_ids: list[str] | None
+) -> None:
     if task.request.retries < CAPTURE_MAX_RETRIES:
-        raise task.retry(countdown=30 * (task.request.retries + 1))
+        raise task.retry(
+            kwargs={
+                "team_id": team_id,
+                "cohort_id": cohort_id,
+                "storage_key": storage_key,
+                "pending_distinct_ids": pending_distinct_ids,
+            },
+            countdown=30 * (task.request.retries + 1),
+        )
     fail_people_import(team_id, cohort_id, storage_key)

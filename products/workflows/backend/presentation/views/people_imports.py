@@ -52,6 +52,9 @@ class WorkflowPeopleImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         summary="Create or update people from rows and add them to a new static cohort",
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
+        # Session users skip API scopes, and access control checks only the cohort scope_object.
+        if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+            raise exceptions.PermissionDenied("You need edit access to persons to import people.")
         serializer = PeopleImportCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
