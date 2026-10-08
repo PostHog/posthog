@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import replace
 
@@ -15,7 +16,6 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     ReviewArm,
     review_arm_for_mode,
@@ -28,12 +28,15 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
+    LensReviewInput,
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
     single_agent_review_activity,
@@ -446,17 +449,65 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert mock_load.called is False
 
 
+def _single_agent_stage(**extra: object) -> dict:
+    return {
+        "team_id": 1,
+        "user_id": 2,
+        "report_id": "rep-1",
+        "head_sha": "sha1",
+        "repository": "o/r",
+        "branch": "feat",
+        "run_index": 1,
+        "review_mode": REVIEW_MODE_FLASH,
+        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
+        **extra,
+    }
+
+
 @pytest.mark.asyncio
-async def test_single_agent_review_persists_mapped_findings_under_the_arm_dedup_reads() -> None:
+@pytest.mark.parametrize(
+    "activity_fn,activity_input,expected_key,expected_source",
+    [
+        pytest.param(
+            single_agent_review_activity,
+            SandboxStageInput(**_single_agent_stage()),
+            (2000, 1),
+            "flash-single-agent",
+            id="main_session",
+        ),
+        pytest.param(
+            lens_review_activity,
+            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            (2002, 2),
+            "flash-lens-contracts-security",
+            id="lens_session",
+        ),
+    ],
+)
+async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup_reads(
+    activity_fn: Callable[..., Awaitable[None]],
+    activity_input: SandboxStageInput,
+    expected_key: tuple[int, int],
+    expected_source: str,
+) -> None:
     # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
-    # dedup asks for drops every single-agent finding without an error.
+    # dedup asks for drops every finding of that session without an error.
     review = SingleAgentReview(
         findings=[
+            SingleAgentFinding(
+                title="Rename the counter", priority="P3", file="a.py", line_start=9, line_end=9, body="b"
+            ),
             SingleAgentFinding(
                 title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b", suggestion_code="x"
             ),
             SingleAgentFinding(
-                title="Rename the counter", priority="P3", file="a.py", line_start=9, line_end=9, body="b"
+                title="Close the file",
+                priority="P2",
+                file="a.py",
+                line_start=12,
+                line_end=7,
+                body="b",
+                suggestion_code="y",
             ),
         ]
     )
@@ -470,29 +521,22 @@ async def test_single_agent_review_persists_mapped_findings_under_the_arm_dedup_
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
-        await env.run(
-            single_agent_review_activity,
-            SandboxStageInput(
-                team_id=1,
-                user_id=2,
-                report_id="rep-1",
-                head_sha="sha1",
-                repository="o/r",
-                branch="feat",
-                run_index=1,
-                review_mode=REVIEW_MODE_FLASH,
-                review_design=REVIEW_DESIGN_SINGLE_AGENT,
-            ),
-        )
+        await env.run(activity_fn, activity_input)
 
     dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
     assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
     assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
-        "gpt-6-luna",
-        ReasoningEffort.XHIGH,
+        "gpt-6.1-sol",
+        ReasoningEffort.MEDIUM,
     )
-    persisted = next(iter(mock_persist.call_args.kwargs["results"].values())).issues
-    assert [(i.priority, i.lines, i.suggestion_code) for i in persisted] == [
-        (IssuePriority.MUST_FIX, [LineRange(start=4)], "x"),
-        (IssuePriority.CONSIDER, [LineRange(start=9)], None),
+    [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
+    assert key == expected_key
+    # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost. GitHub
+    # rejects a reversed line range, so that finding keeps its start line and loses its suggestion.
+    assert [
+        (i.priority, i.reported_priority, i.lines, i.suggestion_code, i.source_perspective) for i in persisted.issues
+    ] == [
+        (IssuePriority.MUST_FIX, "P1", [LineRange(start=4)], "x", expected_source),
+        (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
+        (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]

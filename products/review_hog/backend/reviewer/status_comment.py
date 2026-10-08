@@ -28,19 +28,14 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
     published_priorities_for,
-    review_priorities_for,
 )
-from products.review_hog.backend.reviewer.diff_position import format_line_ranges
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
@@ -52,13 +47,13 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
 )
-from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +71,9 @@ _STAGE_LABELS = {
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
+    "single_agent_preparing": "Step 1/3 · Preparing the diff",
+    "single_agent_reviewing": "Step 2/3 · Reviewing the pull request",
+    "single_agent_finalizing": "Step 3/3 · Finalizing the review",
 }
 
 # The UI's urgency-threshold labels (`URGENCY_STOPS`), for the held-back explanation.
@@ -184,20 +182,21 @@ def render_in_progress_body(
     review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> str:
     """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
-    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        # One session has no stages to count, so the body only says the review is running.
-        return "\n".join(
-            [
-                f"### \U0001f994 {_product_name(review_mode)} is reviewing this pull request",
-                "",
-                "One reviewer reads the whole pull request and publishes its findings back to it.",
-                "",
-                "<sub>This comment updates when the review finishes.</sub>",
-                "",
-                status_marker(report_id),
-            ]
-        )
-    label = _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS["fetching"]
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
+    # The kickoff body has no progress yet. A single-agent turn starts its sessions right after the
+    # kickoff and the next refresh waits for the first session result, so the kickoff shows the
+    # reviewing step instead of the preparing step.
+    kickoff_stage = "single_agent_reviewing" if single_agent else "fetching"
+    label = (
+        _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS[kickoff_stage]
+    )
+    explainer = (
+        "A main reviewer and two focused reviewers read the pull request in parallel. "
+        "The most important findings are published back to it."
+        if single_agent
+        else "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
+        "catches what they missed, and only validated findings are published back to this pull request."
+    )
     done = progress.get("done") if progress else None
     total = progress.get("total") if progress else None
     counter = f" · {done}/{total}" if done is not None and total else ""
@@ -207,8 +206,7 @@ def render_in_progress_body(
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
-            "catches what they missed, and only validated findings are published back to this pull request.",
+            explainer,
             "",
             "<sub>This comment updates as the review progresses.</sub>",
             "",
@@ -230,7 +228,7 @@ def render_final_body(
     review_mode: str = REVIEW_MODE_FULL,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
-    summary_findings: list[ReviewIssueFinding] | None = None,
+    capped_lens_parts: int | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -239,7 +237,8 @@ def render_final_body(
     sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
-    `summary_findings` are published here instead of inline: the single-agent design's P3 findings.
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
+    note goes here and not in the review body, because a clean turn posts no review.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
@@ -279,26 +278,17 @@ def render_final_body(
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
-        lines.extend(_render_summary_findings(summary_findings or []))
+    if capped_lens_parts is not None:
+        lines.extend(
+            [
+                "",
+                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
+            ]
+        )
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
     return "\n".join(lines)
-
-
-def _render_summary_findings(findings: list[ReviewIssueFinding]) -> list[str]:
-    """Low-priority findings listed in the status comment, collapsed so they stay out of the way."""
-    if not findings:
-        return []
-    lines = ["", "<details>", f"<summary>{_plural(len(findings), 'low-priority finding')}</summary>", ""]
-    for finding in findings:
-        lines.extend([f"- **{finding.title}** (`{finding.file}:{format_line_ranges(finding.lines)}`)", ""])
-        lines.extend(["  " + line if line else "" for line in finding.body.splitlines()])
-        lines.append("")
-    lines.append("</details>")
-    # The review sandbox holds live tokens, so its text gets the same scrub as the posted review.
-    scrubbed, _count = redact_secrets("\n".join(lines))
-    return scrubbed.split("\n")
 
 
 def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
@@ -592,7 +582,7 @@ class FinalizeStatusCommentInput:
     review_mode: str = REVIEW_MODE_FULL
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
-    review_design: str = REVIEW_DESIGN_PIPELINE
+    capped_lens_parts: int | None = None
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -602,18 +592,13 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
         counts = dict.fromkeys(IssuePriority, 0)
-        threshold = IssuePriority(input.urgency_threshold)
-        published = published_priorities_for(threshold)
-        in_review = review_priorities_for(threshold, input.review_design)
-        summary_findings: list[ReviewIssueFinding] = []
         for finding, verdict in load_valid_findings(
             team_id=input.team_id, report_id=input.report_id, run_index=input.run_index
         ):
-            priority = effective_priority(finding.priority, verdict.adjusted_priority)
-            counts[priority] += 1
-            if priority in published and priority not in in_review:
-                summary_findings.append(finding)
-        published_count = sum(count for priority, count in counts.items() if priority in in_review)
+            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        threshold = IssuePriority(input.urgency_threshold)
+        published = published_priorities_for(threshold)
+        published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
         body = render_final_body(
             input.report_id,
@@ -627,7 +612,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_mode=input.review_mode,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
-            summary_findings=summary_findings,
+            capped_lens_parts=input.capped_lens_parts,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

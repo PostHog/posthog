@@ -3,12 +3,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from products.review_hog.backend.reviewer.models.issues_review import ReportedPriority
+
 
 class SingleAgentFinding(BaseModel):
     """One finding of the single-agent Flash review, in the shape the reviewer writes it."""
 
     title: str = Field(description="At most 80 characters, imperative, without a [P#] tag.")
-    priority: Literal["P0", "P1", "P2", "P3"] = Field(
+    priority: ReportedPriority = Field(
         description=(
             "P0: drop everything to fix, blocks release or major usage. P1: urgent, fix in the next cycle."
             " P2: normal, fix eventually. P3: low, nice to have."
@@ -45,9 +47,8 @@ class SingleAgentFinding(BaseModel):
 class SingleAgentReview(BaseModel):
     """The single-agent Flash review's whole answer for one PR."""
 
-    findings: list[SingleAgentFinding] = Field(
-        default_factory=list, description="Every qualifying finding. Empty when nothing qualifies."
-    )
+    # Required, so a reply without the list fails validation and retries instead of reading as a clean review.
+    findings: list[SingleAgentFinding] = Field(description="Every qualifying finding. Empty when nothing qualifies.")
     overall_correctness: Literal["patch is correct", "patch is incorrect"] | None = Field(
         default=None, description="Whether the patch is free of bugs and other blocking issues."
     )

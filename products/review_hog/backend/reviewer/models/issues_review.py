@@ -1,8 +1,11 @@
 import logging
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
+
+from posthog.dataclasses import frozen
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +17,10 @@ class IssuePriority(Enum):
     MUST_FIX = "must_fix"  # Critical issues that should block merge
     SHOULD_FIX = "should_fix"  # Significant improvements needed
     CONSIDER = "consider"  # Nice-to-have improvements
+
+
+# The single-agent reviewer's own scale. Storage folds P0 and P1 into `IssuePriority.MUST_FIX`.
+ReportedPriority = Literal["P0", "P1", "P2", "P3"]
 
 
 class LineRange(BaseModel):
@@ -61,6 +68,40 @@ class Issue(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    # Single-agent only, like `suggestion_code`: the reviewer's P0-P3, so P0 and P1 stay apart after
+    # `priority` folds them into one level.
+    reported_priority: SkipJsonSchema[ReportedPriority | None] = Field(
+        description="The reviewer's own P0-P3 priority",
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
+# Why a single-agent turn drops a finding. A `dedup_*` drop repeats an earlier turn's finding, a PR
+# comment, a main finding (anchor), or a finding of its own session or lens (sibling). `cap` is the cut
+# in `compose_flash_findings`.
+DropDisposition = Literal[
+    "dedup_prior",
+    "dedup_comment",
+    "dedup_anchor",
+    "dedup_sibling",
+    "cap",
+]
+
+
+@frozen
+class DroppedIssue:
+    """A finding a single-agent turn does not keep, and why."""
+
+    issue: Issue
+    disposition: DropDisposition
+    # What a dedup drop repeats: a finding of this turn, or the issue key of an earlier turn's finding,
+    # or `comment:<id>`.
+    duplicate_of: Issue | str | None = None
+    # The 1-based position in the turn's ranked findings, for a finding the cap cut.
+    rank: int | None = None
+    # The dedup LLM call failed, so the positional pre-filter alone decided this drop.
+    dedup_fallback: bool = False
 
 
 class IssuesReview(BaseModel):

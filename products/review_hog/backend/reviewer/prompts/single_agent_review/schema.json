@@ -113,6 +113,9 @@
       "title": "Overall Explanation"
     }
   },
+  "required": [
+    "findings"
+  ],
   "title": "SingleAgentReview",
   "type": "object"
 }

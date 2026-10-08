@@ -5,19 +5,18 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
-    FLASH_SINGLE_AGENT_MAX_CHANGED_LINES,
-    FLASH_SINGLE_AGENT_MAX_FILES,
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_REASON_KILL_SWITCH,
-    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     published_priorities_for,
-    review_priorities_for,
     reviewhog_version_for_mode,
     select_review_design,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 
 
 class TestPublishedPrioritiesFor:
@@ -52,40 +51,21 @@ class TestPublishedPrioritiesFor:
 class TestSelectReviewDesign:
     @parameterized.expand(
         [
-            ("flash_small_pr", REVIEW_MODE_FLASH, 100, 3, REVIEW_DESIGN_SINGLE_AGENT),
-            (
-                "flash_at_both_limits",
-                REVIEW_MODE_FLASH,
-                FLASH_SINGLE_AGENT_MAX_CHANGED_LINES,
-                FLASH_SINGLE_AGENT_MAX_FILES,
-                REVIEW_DESIGN_SINGLE_AGENT,
-            ),
-            (
-                "flash_too_many_lines",
-                REVIEW_MODE_FLASH,
-                FLASH_SINGLE_AGENT_MAX_CHANGED_LINES + 1,
-                3,
-                REVIEW_DESIGN_PIPELINE,
-            ),
-            ("flash_too_many_files", REVIEW_MODE_FLASH, 100, FLASH_SINGLE_AGENT_MAX_FILES + 1, REVIEW_DESIGN_PIPELINE),
-            ("full_never_single_agent", REVIEW_MODE_FULL, 100, 3, REVIEW_DESIGN_PIPELINE),
+            ("flash", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT),
+            ("full_never_single_agent", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE),
         ]
     )
-    def test_single_agent_runs_only_flash_turns_that_fit_one_prompt(
-        self, _name: str, review_mode: str, changed_lines: int, changed_files: int, expected: str
-    ) -> None:
-        choice = select_review_design(
-            review_mode, changed_lines=changed_lines, changed_files=changed_files, kill_switch_on=False
-        )
+    def test_single_agent_runs_only_flash_turns(self, _name: str, review_mode: str, expected: str) -> None:
+        choice = select_review_design(review_mode, kill_switch_on=False)
         assert choice.design == expected
 
     def test_the_kill_switch_flag_moves_a_fitting_flash_turn_back_to_the_pipeline(self) -> None:
-        choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=True)
+        choice = select_review_design(REVIEW_MODE_FLASH, kill_switch_on=True)
         assert (choice.design, choice.reason) == (REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_REASON_KILL_SWITCH)
 
     def test_the_code_default_moves_every_flash_turn_back_to_the_pipeline(self) -> None:
         with patch("products.review_hog.backend.reviewer.constants.FLASH_DESIGN_DEFAULT", REVIEW_DESIGN_PIPELINE):
-            choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=False)
+            choice = select_review_design(REVIEW_MODE_FLASH, kill_switch_on=False)
             assert choice.design == REVIEW_DESIGN_PIPELINE
 
     @parameterized.expand(
@@ -100,23 +80,3 @@ class TestSelectReviewDesign:
         self, _name: str, review_mode: str, review_design: str, expected: str
     ) -> None:
         assert reviewhog_version_for_mode(review_mode, review_design) == expected
-
-
-class TestReviewPrioritiesFor:
-    @parameterized.expand(
-        [
-            # The single agent's P3 findings go to the status comment, so they must never post inline.
-            (
-                "single_agent_all_issues",
-                REVIEW_DESIGN_SINGLE_AGENT,
-                IssuePriority.CONSIDER,
-                {IssuePriority.SHOULD_FIX, IssuePriority.MUST_FIX},
-            ),
-            ("single_agent_must_fix", REVIEW_DESIGN_SINGLE_AGENT, IssuePriority.MUST_FIX, {IssuePriority.MUST_FIX}),
-            ("pipeline_all_issues", REVIEW_DESIGN_PIPELINE, IssuePriority.CONSIDER, set(IssuePriority)),
-        ]
-    )
-    def test_single_agent_keeps_consider_findings_out_of_the_review(
-        self, _name: str, review_design: str, threshold: IssuePriority, expected: set[IssuePriority]
-    ) -> None:
-        assert review_priorities_for(threshold, review_design) == expected

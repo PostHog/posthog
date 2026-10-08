@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,7 @@ from posthog.models import Team
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
-    REVIEW_DESIGN_PIPELINE,
-    REVIEW_DESIGN_SINGLE_AGENT,
+    FLASH_LENSES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     reviewhog_version_for_mode,
@@ -21,8 +21,9 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
-from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -76,22 +77,59 @@ class TestRecordTurnMarker(BaseTest):
     def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
         return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
 
-    def _edit_core_prompt(self) -> None:
+    def _edit_single_agent_prompt(self, prompt_file: str) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        edited = Path(directory.name) / "core.md"
-        edited.write_text(SINGLE_AGENT_CORE_FILE.read_text() + "\nFlag missing tests.\n")
-        patcher = patch("products.review_hog.backend.reviewer.fingerprint.SINGLE_AGENT_CORE_FILE", edited)
+        edited_dir = Path(directory.name) / "single_agent_review"
+        shutil.copytree(SINGLE_AGENT_PROMPT_PATH, edited_dir)
+        edited = edited_dir / prompt_file
+        edited.write_text(edited.read_text() + "\nFlag missing tests.\n")
+        patcher = patch("products.review_hog.backend.reviewer.fingerprint.SINGLE_AGENT_PROMPT_PATH", edited_dir)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_a_core_prompt_edit_changes_the_single_agent_fingerprint(self) -> None:
+    @parameterized.expand(
+        [
+            ("core",),
+            ("lens_priority",),
+            *[(Path(lens.prompt_file).stem,) for lens in FLASH_LENSES.values()],
+        ]
+    )
+    def test_a_prompt_file_edit_changes_the_single_agent_fingerprint(self, prompt_name: str) -> None:
         original = self._record_single_agent(run_index=1)
-        self._edit_core_prompt()
+        self._edit_single_agent_prompt(f"{prompt_name}.md")
         changed = self._record_single_agent(run_index=2)
 
         assert original.version == "reviewhog-flash-2-0"
         assert changed.fingerprint != original.fingerprint
+
+    @parameterized.expand(
+        [
+            (
+                "chunking_pin_leaves_single_agent",
+                "CHUNKING_MODEL",
+                REVIEW_MODE_FLASH,
+                REVIEW_DESIGN_SINGLE_AGENT,
+                False,
+            ),
+            ("chunking_pin_moves_pipeline", "CHUNKING_MODEL", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE, True),
+            (
+                "flash_dedup_pin_moves_single_agent",
+                "FLASH_DEDUP_MODEL",
+                REVIEW_MODE_FLASH,
+                REVIEW_DESIGN_SINGLE_AGENT,
+                True,
+            ),
+        ]
+    )
+    def test_a_pin_change_moves_only_the_designs_that_use_it(
+        self, _name: str, pin: str, review_mode: str, review_design: str, moves: bool
+    ) -> None:
+        original = self._record(run_index=1, review_mode=review_mode, review_design=review_design)
+        with patch(f"products.review_hog.backend.reviewer.fingerprint.{pin}", "another-model"):
+            changed = self._record(run_index=2, review_mode=review_mode, review_design=review_design)
+
+        assert (changed.fingerprint != original.fingerprint) is moves
 
     def _publish_validation_body(self, body: str, base_version: int) -> None:
         publish_skill_version(

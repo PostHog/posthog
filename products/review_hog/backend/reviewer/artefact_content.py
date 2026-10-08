@@ -18,9 +18,16 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+    ReportedPriority,
+)
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,
@@ -69,6 +76,10 @@ class ReviewIssueFinding(BaseModel):
         default=None, description="Replacement code for the finding's line range, posted as a GitHub suggestion."
     )
     priority: IssuePriority = Field(description="Priority level of the finding.")
+    reported_priority: ReportedPriority | None = Field(
+        default=None,
+        description="The single-agent reviewer's own P0-P3 priority, which tells P0 and P1 apart. Null for the pipeline.",
+    )
     source_perspective: str | None = Field(default=None, description="Which review perspective produced this finding.")
     is_directly_related_to_changes: bool = Field(
         default=False, description="Whether the finding is caused by the PR's changes, not just the same file."
@@ -80,6 +91,34 @@ class ReviewIssueFinding(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+
+class DroppedFindingArtefact(BaseModel):
+    """Content for a `dropped_finding` artefact: a single-agent finding the turn found but did not keep.
+
+    Analysis data only. Publishing, the status comment, outcome classification, `load_prior_findings`,
+    and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor keep a
+    later turn from raising the same problem. A retried turn replaces its rows by `finding.run_index`.
+    """
+
+    head_sha: str = Field(description="PR head commit the turn reviewed.")
+    finding: ReviewIssueFinding = Field(description="The full finding, as it would have persisted had it been kept.")
+    pass_number: int = Field(description="The session's reserved pass: 2000 for the main session, 2001+ for a lens.")
+    chunk_id: int = Field(description="The lens part the session reviewed (1 for the main session).")
+    disposition: DropDisposition = Field(description="Why the turn dropped the finding.")
+    duplicate_of: str | None = Field(
+        default=None,
+        description="For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment.",
+    )
+    rank: int | None = Field(
+        default=None, description="For a finding the cap cut, its 1-based position in the turn's ranked findings."
+    )
+    dedup_fallback: bool = Field(
+        default=False,
+        description="The dedup LLM call failed, so the positional pre-filter alone decided this drop.",
+    )
+    cap: int = Field(description="The turn's finding cap, which must-fix findings can exceed.")
+    lens_part_count: int = Field(description="How many parts the lens sessions split the PR into.")
 
 
 class ValidationVerdict(BaseModel):
@@ -282,6 +321,14 @@ class PRSnapshotArtefact(BaseModel):
     pr_metadata: PRMetadata = Field(description="The PR's metadata (title/body/branches/labels/…).")
     pr_comments: list[PRComment] = Field(default_factory=list, description="The PR's reviewable inline comments.")
     pr_files: list[PRFile] = Field(default_factory=list, description="The PR's reviewable files with code context.")
+    review_design: str = Field(
+        default=REVIEW_DESIGN_PIPELINE,
+        description="The design the turn runs on (pipeline or single_agent), chosen at fetch.",
+    )
+    merge_base_sha: str | None = Field(
+        default=None,
+        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):
@@ -311,6 +358,7 @@ ReviewWorkingStateContent = (
 )
 ReviewArtefactContent = (
     ReviewIssueFinding
+    | DroppedFindingArtefact
     | ValidationVerdict
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
@@ -323,6 +371,7 @@ ReviewArtefactContent = (
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
+    "dropped_finding": DroppedFindingArtefact,
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
     "thread_verdict": ThreadVerdictArtefact,

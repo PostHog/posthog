@@ -9,16 +9,13 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import (
-    REVIEW_DESIGN_SINGLE_AGENT,
-    REVIEW_MODE_FLASH,
-    REVIEW_MODE_FULL,
-)
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,
@@ -50,11 +47,21 @@ _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 
+_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
+    (None, "Step 2/3 · Reviewing the pull request"),
+    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
+]
+
 
 class TestRenderInProgressBody:
-    @parameterized.expand(_STAGE_LINE_CASES)
-    def test_renders_the_stage_line_and_marker(self, progress: dict[str, Any] | None, expected_line: str) -> None:
-        body = render_in_progress_body("rid", progress)
+    @parameterized.expand(
+        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
+        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
+    )
+    def test_renders_the_stage_line_and_marker(
+        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
+    ) -> None:
+        body = render_in_progress_body("rid", progress, review_design=review_design)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
 
@@ -231,6 +238,31 @@ class TestRenderFinalBody:
             mock_choice.assert_not_called()
         if review_mode == REVIEW_MODE_FLASH:
             assert "Nothing worth raising." in body
+
+    @parameterized.expand(
+        [
+            # A clean turn posts no review, so the status comment is the only place the note can appear.
+            ("clean_large_pr", 0, 4, True),
+            ("large_pr_with_findings", 2, 4, True),
+            ("normal_pr", 2, None, False),
+        ]
+    )
+    def test_large_pr_note_shows_whether_or_not_a_review_posts(
+        self, _name: str, must_fix: int, capped_lens_parts: int | None, expect_note: bool
+    ) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=must_fix,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            review_mode=REVIEW_MODE_FLASH,
+            capped_lens_parts=capped_lens_parts,
+        )
+
+        note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        assert (note in body) is expect_note
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -431,49 +463,6 @@ class TestFinalizeStatusComment(BaseTest):
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
         # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
         assert f"/project/{self.team.id}/code-review?review={report_id})" in body
-
-    def test_single_agent_lists_its_consider_findings_in_the_comment(
-        self, mock_request: MagicMock, mock_integration: MagicMock
-    ) -> None:
-        # The single agent's P3 findings never post inline, so the status comment is the only place
-        # they reach the PR. They must neither vanish nor count as published or held back.
-        _wire_auth(mock_integration)
-        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
-        report.status_comment_id = 555
-        report.save(update_fields=["status_comment_id"])
-        must_fix = self._issue("2000-1-1", IssuePriority.MUST_FIX)
-        consider = self._issue("2000-1-2", IssuePriority.CONSIDER).model_copy(
-            update={"title": "Rename the retry counter", "issue": "The name hides that it counts attempts."}
-        )
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[must_fix, consider], run_index=1)
-        for issue in (must_fix, consider):
-            persist_verdict(
-                team_id=self.team.id,
-                report_id=report_id,
-                issue=issue,
-                validation=IssueValidation(is_valid=True, argumentation="a"),
-                run_index=1,
-            )
-
-        finalize_status_comment(
-            FinalizeStatusCommentInput(
-                team_id=self.team.id,
-                report_id=report_id,
-                run_index=1,
-                urgency_threshold=IssuePriority.CONSIDER.value,
-                review_mode=REVIEW_MODE_FLASH,
-                review_design=REVIEW_DESIGN_SINGLE_AGENT,
-            )
-        )
-
-        body = mock_request.call_args.kwargs["json"]["body"]
-        assert "Found **1 must fix**, **0 should fix**, **1 consider**" in body
-        assert "Published 1 finding." in body
-        assert "<summary>1 low-priority finding</summary>" in body
-        assert "**Rename the retry counter** (`a.py:10`)" in body
-        assert "The name hides that it counts attempts." in body
-        assert "urgency threshold" not in body
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock

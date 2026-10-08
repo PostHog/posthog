@@ -1,10 +1,19 @@
 import logging
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_DEFAULT,
+    REVIEW_DESIGN_REASON_FULL_MODE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
@@ -12,6 +21,9 @@ from products.tasks.backend.facade.run_config import (
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
+
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
 
 logger = logging.getLogger(__name__)
 
@@ -68,25 +80,10 @@ REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
 # REVIEW DESIGN
-# How a turn finds its issues, decided per turn at fetch. Plain strings, like the review mode.
-REVIEW_DESIGN_PIPELINE = "pipeline"
-REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
-
 # The design a Flash turn runs on by default. Full turns always run on the pipeline. The
 # `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
 # (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
-
-# A Flash PR above either limit falls back to the pipeline, because the single agent receives the
-# whole diff in one prompt. Both count only the reviewable files that fetch keeps.
-FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
-FLASH_SINGLE_AGENT_MAX_FILES = 40
-
-# Why a turn runs on its design. The review-started event reports it next to the design.
-REVIEW_DESIGN_REASON_FULL_MODE = "full_mode"
-REVIEW_DESIGN_REASON_DEFAULT = "default"
-REVIEW_DESIGN_REASON_KILL_SWITCH = "kill_switch"
-REVIEW_DESIGN_REASON_SIZE_FALLBACK = "size_fallback"
 
 
 @frozen
@@ -95,18 +92,18 @@ class ReviewDesignChoice:
     reason: str
 
 
-def select_review_design(
-    review_mode: str, *, changed_lines: int, changed_files: int, kill_switch_on: bool
-) -> ReviewDesignChoice:
-    """The design one turn runs on: the single agent for a Flash turn that fits in one prompt."""
+def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn of any size, the pipeline otherwise.
+
+    The single agent reviews a large PR in larger lens parts with a trimmed main diff, so PR size never
+    sends a Flash turn to the pipeline.
+    """
     if review_mode != REVIEW_MODE_FLASH:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
     if kill_switch_on:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
     if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
-    if changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES:
-        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_SIZE_FALLBACK)
     return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
 
 
@@ -139,13 +136,75 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-# Fixed at xhigh, whatever the user's Flash effort setting, because no validator runs after it.
-SINGLE_AGENT_FLASH_ARM = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+SINGLE_AGENT_FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6.1-sol",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
 
 # Reserved so the single agent's persisted result never collides with a pipeline pass.
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
+# PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
+FLASH_MAX_FINDINGS_BASE = 4
+FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
+FLASH_MAX_FINDINGS_CEILING = 10
+# Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
+# marks everything P0 or P1 cannot flood the PR.
+FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+
+
+def flash_max_findings(lens_part_count: int) -> int:
+    extra_parts = max(lens_part_count - 1, 0)
+    return min(FLASH_MAX_FINDINGS_BASE + FLASH_MAX_FINDINGS_PER_EXTRA_PART * extra_parts, FLASH_MAX_FINDINGS_CEILING)
+
+
+# Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
+FLASH_LENS_CHUNK_MAX_LINES = 600
+FLASH_LENS_MAX_CHUNKS = 4
+# Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
+FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
+
+# About 200K tokens at 4 characters per token.
+FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
+
+
+@frozen
+class FlashLens:
+    """One focused review that runs next to the main single-agent session, once per lens part."""
+
+    # Reserved like SINGLE_AGENT_PASS_NUMBER, so a lens result never collides with another session's.
+    pass_number: int
+    prompt_file: str
+    source: str
+
+
+FLASH_LENSES: dict[str, FlashLens] = {
+    "performance-reliability": FlashLens(
+        pass_number=2001,
+        prompt_file="lens_performance_reliability.md",
+        source="flash-lens-performance-reliability",
+    ),
+    "contracts-security": FlashLens(
+        pass_number=2002,
+        prompt_file="lens_contracts_security.md",
+        source="flash-lens-contracts-security",
+    ),
+}
+
+
+def is_single_agent_pass(pass_number: int) -> bool:
+    """Whether a persisted review result came from a single-agent session, the main one or a lens.
+
+    A Full turn can run on the same arm as the single-agent sessions, so the arm stamp alone cannot keep
+    the two designs' results apart at one head. The reserved passes can.
+    """
+    return pass_number >= SINGLE_AGENT_PASS_NUMBER
 
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
@@ -350,6 +409,10 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+# Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
+# the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
+FLASH_DEDUP_MODEL = "gpt-6-luna"
+FLASH_DEDUP_REASONING_EFFORT: Final["OpenAIReasoningEffort"] = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
@@ -391,18 +454,6 @@ def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
     findings below the threshold are dropped everywhere; placement (inline vs body) is unchanged.
     """
     return {priority for priority, rank in _PRIORITY_RANK.items() if rank >= _PRIORITY_RANK[threshold]}
-
-
-def review_priorities_for(threshold: IssuePriority, review_design: str) -> set[IssuePriority]:
-    """Priorities the PR review itself carries: its tally, its inline comments, its off-diff section.
-
-    The single-agent design lists its `consider` (P3) findings in the status comment instead, so only
-    P0-P2 findings reach the review. The pipeline posts everything at or above the threshold.
-    """
-    published = published_priorities_for(threshold)
-    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return published - {IssuePriority.CONSIDER}
-    return published
 
 
 def priority_rank(priority: IssuePriority) -> int:
