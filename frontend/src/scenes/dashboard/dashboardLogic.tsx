@@ -1698,6 +1698,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     let metadataReceived = false
+                    cache.disposables.dispose('dashboardStream')
+                    cache.dashboardStreamActive = true
 
                     const disposeStream = await api.dashboards.streamTiles(
                         props.id,
@@ -1719,6 +1721,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onComplete callback
                         () => {
+                            cache.dashboardStreamActive = false
                             if (metadataReceived) {
                                 actions.tileStreamingComplete()
                             } else {
@@ -1728,12 +1731,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         },
                         // onError callback
-                        (error) => {
+                        (error, willRetry = false) => {
+                            cache.dashboardStreamActive = willRetry
                             console.error('❌ Tile streaming error:', error)
                             actions.tileStreamingFailure(error)
                         }
                     )
-                    cache.disposables.add(() => disposeStream, 'dashboardStream', { pauseOnPageHidden: false })
+                    cache.disposables.add(
+                        () => () => {
+                            cache.dashboardStreamActive = false
+                            disposeStream()
+                        },
+                        'dashboardStream',
+                        { pauseOnPageHidden: false }
+                    )
 
                     // Return null - metadata will update the dashboard
                     return null
@@ -3573,14 +3584,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.disposables.add(
                 () => {
                     const onOnline = (): void => {
-                        if (!values.dashboardFailedToLoad) {
+                        if (cache.dashboardStreamActive) {
                             return
                         }
                         if (values.dashboardLoading || values.dashboardStreaming) {
                             cache.onlineRecoveryPending = true
                             return
                         }
-                        actions.retryDashboardLoad()
+                        if (values.dashboardFailedToLoad) {
+                            actions.retryDashboardLoad()
+                        }
                     }
                     window.addEventListener('online', onOnline)
                     return () => window.removeEventListener('online', onOnline)
@@ -3756,6 +3769,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         setDashboardStreamFailed: () => {
+            if (cache.dashboardStreamActive) {
+                return
+            }
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
                 cache.onlineRecoveryPending = false
                 cache.connectionRecoveryPending = false
@@ -3771,7 +3787,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         [apiStatusLogic.actionTypes.setInternetConnectionIssue]: ({ issue }: { issue: boolean }) => {
             cache.connectionRecoveryPending = false
-            if (issue || !values.dashboardFailedToLoad) {
+            if (issue || cache.dashboardStreamActive) {
                 return
             }
             if (values.dashboardLoading || values.dashboardStreaming) {
@@ -3779,7 +3795,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.connectionRecoveryPending = true
                 return
             }
-            actions.retryDashboardLoad()
+            if (values.dashboardFailedToLoad) {
+                actions.retryDashboardLoad()
+            }
         },
         tileStreamingFailure: ({ error }) => {
             // Only a genuine 404 response means the dashboard is missing. Stream errors can contain

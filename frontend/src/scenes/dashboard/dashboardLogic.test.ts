@@ -2334,14 +2334,20 @@ describe('dashboardLogic', () => {
             }).toNotHaveDispatchedActions(['retryDashboardLoad'])
         })
 
-        it.each(['request', 'online'])(
-            'retries once when %s signals recovery during a load that then fails',
-            async (trigger) => {
-                await expectLogic(logic).toFinishAllListeners()
+        it.each(
+            ['request', 'online'].flatMap((trigger) => [true, false].map((initialLoad) => ({ trigger, initialLoad })))
+        )(
+            'retries once when $trigger signals recovery during a failed load (initial=$initialLoad)',
+            async ({ trigger, initialLoad }) => {
+                if (!initialLoad) {
+                    await expectLogic(logic).toFinishAllListeners()
+                }
                 apiStatusLogic.actions.setInternetConnectionIssue(true)
 
                 await expectLogic(logic, () => {
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    if (!initialLoad) {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }
                     if (trigger === 'online') {
                         window.dispatchEvent(new Event('online'))
                         apiStatusLogic.actions.setInternetConnectionIssue(true)
@@ -2600,6 +2606,57 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
         })
+
+        it.each(['request', 'online'])(
+            'keeps an auto-retrying stream on %s recovery but replaces an ended one',
+            async (trigger) => {
+                const globals = globalThis as { EventSource?: unknown }
+                const originalEventSource = globals.EventSource
+                globals.EventSource = class {}
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.dashboardNotFound()
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                        [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                    })
+                    const disposeStream = jest.fn()
+                    const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(disposeStream)
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                    }).toFinishAllListeners()
+                    const recover = (): void => {
+                        if (trigger === 'online') {
+                            window.dispatchEvent(new Event('online'))
+                        } else {
+                            apiStatusLogic.actions.setInternetConnectionIssue(false)
+                        }
+                    }
+                    const onError = streamTilesSpy.mock.calls[0][4]
+                    await expectLogic(logic, () =>
+                        onError(new TypeError('Failed to fetch'), true)
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(1)
+                    expect(disposeStream).not.toHaveBeenCalled()
+
+                    await expectLogic(logic, () => onError(new Error('Stream ended'))).toFinishAllListeners()
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(2)
+                    expect(disposeStream).toHaveBeenCalledTimes(1)
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[1][3]()
+                    }).toFinishAllListeners()
+                    expect(logic.values.dashboard?.id).toBe(5)
+                    expect(logic.values.dashboardFailedToLoad).toBe(false)
+                } finally {
+                    globals.EventSource = originalEventSource
+                }
+            }
+        )
 
         it('keeps the stream that recovered while a connection retry waited', async () => {
             const globals = globalThis as { EventSource?: unknown }

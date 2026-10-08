@@ -145,7 +145,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, true)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -166,7 +166,8 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                false
             )
             fetchEventSourceSpy.mockRestore()
         })

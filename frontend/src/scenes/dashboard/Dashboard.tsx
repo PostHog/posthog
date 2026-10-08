@@ -205,7 +205,7 @@ function DashboardScene({
                 <InsightErrorState
                     title={
                         internetConnectionIssue
-                            ? "We can't connect to PostHog. This dashboard reloads when your connection is back."
+                            ? "We couldn't connect to PostHog. Check your connection and try again."
                             : 'There was an error loading this dashboard'
                     }
                     onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}

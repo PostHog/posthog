@@ -3431,7 +3431,7 @@ const api = {
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
-            onError: (error: any) => void
+            onError: (error: any, willRetry?: boolean) => void
         ): Promise<() => void> {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
@@ -3447,12 +3447,12 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
-            const handleConnectionError = (error: any): void => {
-                if (isAbortError(error)) {
+            const handleConnectionError = (error: any, willRetry = false): void => {
+                if (abortController.signal.aborted || isAbortError(error)) {
                     return
                 }
                 apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
-                onError(error)
+                onError(error, willRetry)
             }
 
             fetchEventSource(url, {
@@ -3477,16 +3477,17 @@ const api = {
                             onComplete()
                         } else if (data.type === 'error') {
                             streamFinished = true
+                            abortController.abort()
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
                         }
                     } catch (error) {
-                        onError(error)
+                        onError(error, true)
                     }
                 },
                 onerror: (error) => {
-                    handleConnectionError(error)
+                    handleConnectionError(error, true)
                 },
             }).then(() => {
                 if (!abortController.signal.aborted && !streamFinished) {
