@@ -445,6 +445,9 @@ class TestHasRealFacade:
                 [],
                 id="only_contracts_enums_testing",
             ),
+            pytest.param(
+                {"contracts/widgets.py": "def build_widget() -> None:\n    pass\n"}, [], id="contracts_package"
+            ),
             pytest.param({"test_api.py": "def test_it() -> None:\n    pass\n"}, [], id="test_module_ignored"),
         ],
     )
@@ -455,6 +458,22 @@ class TestHasRealFacade:
 
         assert facade_function_names(backend_dir) == expected_names
         assert has_real_facade(backend_dir) is bool(expected_names)
+
+    @pytest.mark.parametrize(
+        "api_source",
+        [
+            pytest.param("from ..logic import run as run\n", id="relative_logic_reexport"),
+            pytest.param("from products.my_product.backend.logic import run as run\n", id="absolute_logic_reexport"),
+        ],
+    )
+    def test_logic_reexport_api_is_a_shim_despite_sibling_helpers(self, tmp_path: Path, api_source: str) -> None:
+        _, backend_dir = _write_facade_product(
+            tmp_path,
+            facade_files={"api.py": api_source, "activity.py": "def model_activity() -> None:\n    pass\n"},
+            sources={"logic.py": "def run() -> None:\n    pass\n"},
+        )
+
+        assert has_real_facade(backend_dir) is False
 
 
 class TestIsolationRung:

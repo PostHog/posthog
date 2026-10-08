@@ -724,8 +724,12 @@ def iter_facade_logic_modules(backend_dir: Path) -> Iterator[Path]:
     Products split their facade across submodules, so the walk is recursive. The three names are
     skipped at any depth: they hold types and test helpers, never the facade surface."""
     for path in _iter_facade_modules(backend_dir):
-        if path.name not in _NON_LOGIC_FACADE_MODULES:
-            yield path
+        if path.name in _NON_LOGIC_FACADE_MODULES:
+            continue
+        # A contracts/ package holds types like contracts.py does.
+        if "contracts" in path.relative_to(backend_dir / "facade").parts[:-1]:
+            continue
+        yield path
 
 
 def facade_function_names(backend_dir: Path) -> list[str]:
@@ -736,10 +740,33 @@ def facade_function_names(backend_dir: Path) -> list[str]:
     return names
 
 
+def _api_reexports_internals(api_path: Path) -> bool:
+    """`api.py` defines nothing and re-exports from outside the facade package, e.g. `from ..logic import x`."""
+    if has_any_function_defs(api_path):
+        return False
+    tree = ast_parse_safe(api_path)
+    if tree is None:
+        return False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level >= 2:
+            return True
+        module = node.module or ""
+        if node.level == 0 and ".backend." in module and ".backend.facade" not in module:
+            return True
+    return False
+
+
 def has_real_facade(backend_dir: Path) -> bool:
     """A real facade defines functions in any of its modules; a re-export shim from logic does not count.
 
-    Private functions count here, so a facade that only has helpers is not read as a shim."""
+    An `api.py` that only re-exports internals marks the whole facade as a shim, so one helper in a
+    sibling module does not promote it. Private functions count, so a facade with only helpers is not
+    read as a shim."""
+    api_path = backend_dir / "facade" / "api.py"
+    if api_path.exists() and _api_reexports_internals(api_path):
+        return False
     return any(has_any_function_defs(path) for path in iter_facade_logic_modules(backend_dir))
 
 
