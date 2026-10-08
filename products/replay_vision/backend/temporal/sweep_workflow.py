@@ -7,7 +7,7 @@ from uuid import UUID
 import temporalio.workflow as wf
 from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import (
@@ -25,7 +25,6 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
     check_scanner_budget_activity,
-    count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
 )
@@ -35,8 +34,6 @@ from products.replay_vision.backend.temporal.constants import (
     CHECK_SCANNER_BUDGET_TIMEOUT,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
-    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
-    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     in_flight_headroom,
@@ -58,72 +55,38 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: SweepScannerInputs) -> None:
-        # Declared until no history carrying the marker can replay.
-        wf.deprecate_patch("drop-vision-action-dispatch-2026-09")
-
-        # Histories recorded before the prompt-suggestion refresh was removed still carry its activity, so
-        # they replay it by name. The worker no longer registers it, so a live attempt fails and is swallowed.
-        if not wf.patched("drop-prompt-suggestion-refresh-2026-10") and wf.patched("prompt-suggestion-refresh"):
-            try:
-                await wf.execute_activity(
-                    "refresh_prompt_suggestion_activity",
-                    {"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id},
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
-                )
-            except ActivityError:
-                pass
-
-        # A capped scanner scans no sessions this tick. Fails open (admissions stay gated at the persistence
-        # boundary); patched so in-flight sweeps replay unchanged across the deploy.
-        if wf.patched("replay-vision-scanner-credit-limit"):
-            try:
-                budget = await wf.execute_activity(
-                    check_scanner_budget_activity,
-                    CheckScannerBudgetInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-                    start_to_close_timeout=CHECK_SCANNER_BUDGET_TIMEOUT,
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
-                )
-                if budget.capped:
-                    return
-            except Exception:
-                if not wf.unsafe.is_replaying():
-                    record_sweep_outcome("scanner_budget_check_failed")
-                wf.logger.warning(
-                    "replay_vision.scanner_budget_check_failed", extra={"scanner_id": str(inputs.scanner_id)}
-                )
+        # A capped scanner scans no sessions this tick. Fails open because admissions stay gated at the
+        # persistence boundary.
+        wf.deprecate_patch("drop-prompt-suggestion-refresh-2026-10")
+        wf.deprecate_patch("replay-vision-scanner-credit-limit")
+        try:
+            budget = await wf.execute_activity(
+                check_scanner_budget_activity,
+                CheckScannerBudgetInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+                start_to_close_timeout=CHECK_SCANNER_BUDGET_TIMEOUT,
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
+            )
+            if budget.capped:
+                return
+        except Exception:
+            if not wf.unsafe.is_replaying():
+                record_sweep_outcome("scanner_budget_check_failed")
+            wf.logger.warning("replay_vision.scanner_budget_check_failed", extra={"scanner_id": str(inputs.scanner_id)})
 
         # Hard concurrency caps: per scanner (one bad config) and per team (many scanners), enforced as the
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
         # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
         # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
-        count_inputs = CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
-        if wf.patched("replay-vision-team-in-flight-caps"):
-            in_flight = await wf.execute_activity(
-                count_in_flight_by_team_activity,
-                count_inputs,
-                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-            scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
-        else:
-            # Pre-deploy sweeps replay the legacy scanner-only counter's recorded int; no team cap for them.
-            scanner_in_flight = await wf.execute_activity(
-                count_in_flight_applies_activity,
-                count_inputs,
-                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-            team_in_flight = 0
-        # Patched: a history recorded without the reserve must replay the un-reserved arithmetic it ran,
-        # or the tick can flip between dispatching and returning early mid-replay.
-        if wf.patched("replay-vision-on-demand-reserved-headroom"):
-            headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
-        else:
-            headroom = min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
-            )
+        wf.deprecate_patch("replay-vision-team-in-flight-caps")
+        in_flight = await wf.execute_activity(
+            count_in_flight_by_team_activity,
+            CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+            start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        )
+        scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
+        wf.deprecate_patch("replay-vision-on-demand-reserved-headroom")
+        headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(
@@ -169,10 +132,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
             # Always carried: the keyset compares the whole tuple, so keeping the tiebreaker cannot
             # skip anything, while dropping it hides any session tied at that exact end_time.
             last_seen_session_id = find_result.keyset_session_id
-        elif find_result.candidates:
-            # Activity results recorded before this deploy carry no keyset.
-            last = find_result.candidates[-1]
-            swept_at, last_seen_session_id = last.session_end, (last.session_id if find_result.saturated else "")
         elif find_result.swept_through is not None:
             # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
             # instead of freezing on low-yield scanners.

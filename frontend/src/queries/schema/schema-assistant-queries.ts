@@ -462,8 +462,12 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
     breakdown_path_cleaning?: boolean
 }
 
-// Remove deprecated display types.
-export type AssistantTrendsDisplayType = Exclude<TrendsFilterLegacy['display'], 'ActionsStackedBar'>
+// Remove deprecated display types, and the proportion bar while the `proportion-bar-chart` flag gates it in the
+// pickers, so agents cannot create one for people who cannot see the option.
+export type AssistantTrendsDisplayType = Exclude<
+    TrendsFilterLegacy['display'],
+    'ActionsStackedBar' | 'ActionsProportionBar'
+>
 
 export interface AssistantTrendsFilter {
     /**

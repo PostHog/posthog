@@ -27,6 +27,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MAX_ATTEMPTS,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
@@ -36,6 +37,7 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
+    GatePushInput,
     GenerateSchemasInput,
     LensReviewInput,
     LoadBlindSpotsInput,
@@ -149,6 +151,9 @@ async def _run_full_review_pr_workflow(
     lens_chunks_capped: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
+    automatic_reviewed_head_sha: str | None = None,
+    gate_skips: bool = False,
+    fail_gate: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -222,6 +227,18 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            automatic_reviewed_head_sha=automatic_reviewed_head_sha,
+        )
+
+    gate_calls: list[str] = []
+
+    @activity.defn(name="gate_push_activity")
+    async def gate_push(input: GatePushInput) -> PushGateDecision:
+        gate_calls.append(input.previous_head_sha)
+        if fail_gate:
+            raise ApplicationError("compare exploded", non_retryable=True)
+        return PushGateDecision(
+            skip=gate_skips, would_skip=gate_skips, reason="merge_only" if gate_skips else "system_one_above_threshold"
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -354,9 +371,12 @@ async def _run_full_review_pr_workflow(
         receipt_calls.append((input.outcome, input.review_url))
         return None
 
+    status_posts: list[str] = []
+
     @activity.defn(name="post_status_comment_activity")
     async def post_status(input: StatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
+        status_posts.append(input.report_id)
         return None
 
     @activity.defn(name="finalize_status_comment_activity")
@@ -418,6 +438,7 @@ async def _run_full_review_pr_workflow(
             activities=[
                 validate_integration,
                 fetch,
+                gate_push,
                 resolve_acting_user,
                 sync_skills,
                 gen_schemas,
@@ -505,6 +526,8 @@ async def _run_full_review_pr_workflow(
         "single_agent": single_agent_calls,
         "lens": lens_calls,
         "lens_timeouts": lens_timeouts,
+        "gate": gate_calls,
+        "status_posts": status_posts,
     }
 
 
@@ -745,6 +768,46 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger_source,reviewed_head,gate_skips,fail_gate,review_design,expected_gate,expected_review",
+    [
+        ("automatic", None, True, False, "pipeline", [], True),
+        ("label", "sha0", True, False, "pipeline", [], True),
+        ("manual", "sha0", True, False, "pipeline", [], True),
+        ("automatic", "sha0", True, False, "pipeline", ["sha0"], False),
+        ("automatic", "sha0", False, False, "pipeline", ["sha0"], True),
+        # A broken gate must not silence automatic reviews.
+        ("automatic", "sha0", True, True, "pipeline", ["sha0"], True),
+        ("automatic", "sha0", True, False, "single_agent", ["sha0"], False),
+        ("automatic", "sha0", False, False, "single_agent", ["sha0"], True),
+    ],
+)
+async def test_push_gate_judges_only_automatic_follow_ups(
+    trigger_source: str,
+    reviewed_head: str | None,
+    gate_skips: bool,
+    fail_gate: bool,
+    review_design: str,
+    expected_gate: list[str],
+    expected_review: bool,
+) -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source=trigger_source,
+        review_mode="flash",
+        review_authored_prs=True,
+        automatic_reviewed_head_sha=reviewed_head,
+        gate_skips=gate_skips,
+        fail_gate=fail_gate,
+        review_design=review_design,
+    )
+    assert recorded["gate"] == expected_gate
+    assert bool(recorded["review"] or recorded["single_agent"]) is expected_review
+    assert bool(recorded["status_posts"]) is expected_review
+    assert bool(recorded["track_started"]) is expected_review
 
 
 @pytest.mark.asyncio

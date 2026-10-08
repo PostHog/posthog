@@ -70,6 +70,7 @@ class TestFetchDecidesTheTier(BaseTest):
 
         assert meta.already_completed is complete
         assert meta.pr_open is (state == "open")
+        assert meta.automatic_reviewed_head_sha == automatic_head
         expected_status = "closed" if state == "closed" else "idle" if complete else "active"
         assert report.status == expected_status
 

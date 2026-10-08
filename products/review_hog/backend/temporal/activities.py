@@ -19,6 +19,7 @@ import datetime
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from uuid import NAMESPACE_URL, uuid5
 
 import posthoganalytics
 from temporalio import activity
@@ -97,6 +98,7 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_dropped_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
 from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import (
@@ -244,6 +246,8 @@ class ReviewMeta:
     lens_chunk_count: int = 0
     # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
     lens_chunks_capped: bool = False
+    # None means no automatic review has run on the PR, so the push gate stays off for this turn.
+    automatic_reviewed_head_sha: str | None = None
 
 
 @dataclass
@@ -548,6 +552,19 @@ class TrackReviewFailedInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
 
 
+@frozen
+class GatePushInput:
+    """An automatic follow-up turn for the push gate to judge."""
+
+    team_id: int
+    report_id: str
+    repository: str
+    previous_head_sha: str
+    head_sha: str
+    run_index: int
+    review_mode: str
+
+
 @dataclass(frozen=False)
 class StatusCommentInput:
     """Kickoff / failure edits of the PR's status comment; owner/repo/pr come off the report row."""
@@ -762,6 +779,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
+        automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
     )
 
 
@@ -1844,6 +1862,66 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     dashboard sees that lift. Best-effort: any failure is logged, not raised.
     """
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
+
+
+def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_push_gate_decided",
+        # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
+        # pushes in a row share one.
+        uuid=str(
+            uuid5(NAMESPACE_URL, f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}")
+        ),
+        properties={
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
+            "review_mode": input.review_mode,
+            "head_sha": input.head_sha,
+            "previous_head_sha": input.previous_head_sha,
+            "skipped": decision.skip,
+            "would_skip": decision.would_skip,
+            "reason": decision.reason,
+            "system_one_probability": decision.probability,
+            "system_one_model": decision.model,
+            "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
+            "own_commits": decision.own_commits,
+        },
+        groups=groups(team=report.team),
+    )
+
+
+def _gate_push(input: GatePushInput) -> PushGateDecision:
+    current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    if current is None:
+        decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
+    else:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+        decision = PushGate(
+            team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
+        ).decide(
+            previous_head_sha=input.previous_head_sha,
+            head_sha=input.head_sha,
+            base_branch=current.pr_metadata.base_branch,
+        )
+    if decision.skip:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    try:
+        _track_push_gate_decided(input, decision)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
+    return decision
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def gate_push_activity(input: GatePushInput) -> PushGateDecision:
+    """Decide whether an automatic follow-up turn reviews this push (see `reviewer/push_gate.py`).
+
+    A skip returns the report to rest, because the turn ends before any stage that would.
+    """
+    return await database_sync_to_async(_gate_push, thread_sensitive=False)(input)
 
 
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:

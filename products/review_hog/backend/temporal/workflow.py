@@ -49,6 +49,7 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
+    GatePushInput,
     GenerateSchemasInput,
     LensReviewInput,
     LoadBlindSpotsInput,
@@ -80,6 +81,7 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    gate_push_activity,
     generate_schemas_activity,
     lens_review_activity,
     load_blind_spots_skill_activity,
@@ -532,6 +534,35 @@ class ReviewPRWorkflow:
             workflow.logger.info("Automatic reviews are disabled for the author; skipping review")
             return report_id
         acting_user_id = acting.acting_user_id
+
+        # Only an automatic follow-up is gated. The first automatic review of a PR and every human
+        # trigger always run. The gate fails open: an activity failure reviews the push.
+        if (
+            workflow.patched("reviewhog-push-gate-2026-10")
+            and inputs.trigger_source == TRIGGER_AUTOMATIC
+            and meta.automatic_reviewed_head_sha is not None
+        ):
+            try:
+                gate = await workflow.execute_activity(
+                    gate_push_activity,
+                    GatePushInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        repository=repository,
+                        previous_head_sha=meta.automatic_reviewed_head_sha,
+                        head_sha=head_sha,
+                        run_index=meta.run_index,
+                        review_mode=inputs.review_mode,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+                if gate.skip:
+                    workflow.logger.info(f"Automatic review skipped by the push gate ({gate.reason})")
+                    return report_id
+            except ActivityError:
+                workflow.logger.warning("The push gate failed; reviewing the push")
+
         # The design comes off the recorded fetch result. The patch keeps a history that reached this
         # point before the single-agent design existed on the pipeline when it replays.
         review_design = (
