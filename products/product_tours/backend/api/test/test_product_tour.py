@@ -19,11 +19,12 @@ from products.surveys.backend.models import Survey
 
 
 class TestProductTour(APIBaseTest):
+    @parameterized.expand([("sibling_environment", True, False), ("archived", False, True)])
     @override_settings(DEBUG=True, GEMINI_API_KEY="test-key")
     @patch("products.product_tours.backend.api.product_tour.generate_with_gemini")
-    def test_generate_returns_404_for_a_tour_in_a_sibling_environment(self, mock_generate):
-        sibling = self.create_sibling_environment()
-        tour = ProductTour.objects.create(team=sibling, name="Sibling tour", content={"steps": []})
+    def test_generate_returns_404_for_a_tour_it_cannot_serve(self, _name, in_sibling, archived, mock_generate):
+        team = self.create_sibling_environment() if in_sibling else self.team
+        tour = ProductTour.objects.create(team=team, name="Tour", content={"steps": []}, archived=archived)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/product_tours/{tour.id}/generate/",

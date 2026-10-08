@@ -913,6 +913,9 @@ class ProductTourViewSet(
 
         tour_id = kwargs["pk"]
         tour = self.get_object()
+        # The viewset queryset includes archived tours, which generation never served.
+        if tour.archived:
+            raise exceptions.NotFound()
 
         user = cast(User, self.request.user)
 
