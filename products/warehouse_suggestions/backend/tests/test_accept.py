@@ -17,9 +17,12 @@ from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializePayload,
+    SuggestionAlreadyDecidedError,
     SuggestionPayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
+from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
 from .test_api import ingest_surfaced
@@ -183,6 +186,35 @@ class TestAcceptSuggestion(APIBaseTest):
         suggestion.refresh_from_db()
         assert (refused["http_status"], refused["attr"]) == (status.HTTP_400_BAD_REQUEST, "refresh_interval_seconds")
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+
+    def test_a_dismiss_that_arrives_while_the_acceptor_runs_loses(self) -> None:
+        suggestion = self._suggest(WarehouseSuggestionKind.CERTIFY)
+        apply_certification = CertificationAcceptor.accept
+        dismissals: list[Exception] = []
+
+        def dismiss_then_apply(acceptor, row, payload, request):
+            try:
+                transition_to(
+                    row.id,
+                    self.team.id,
+                    WarehouseSuggestionStatus.DISMISSED,
+                    user_id=self.user.id,
+                    transitions=HUMAN_TRANSITIONS,
+                )
+            except SuggestionAlreadyDecidedError as error:
+                dismissals.append(error)
+            return apply_certification(acceptor, row, payload, request)
+
+        with patch.object(CertificationAcceptor, "accept", autospec=True, side_effect=dismiss_then_apply):
+            accepted = self._accept(suggestion.id)
+
+        suggestion.refresh_from_db()
+        assert accepted["http_status"] == status.HTTP_200_OK, accepted
+        assert (suggestion.status, len(dismissals), self._certification_status()) == (
+            WarehouseSuggestionStatus.ACCEPTED,
+            1,
+            CertificationStatus.CERTIFIED,
+        )
 
     def test_a_view_deleted_after_the_suggestion_was_loaded_is_auto_resolved(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.CERTIFY)

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
+from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -35,7 +36,7 @@ from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, W
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
 from .payloads import payload_from_json
-from .suggestions import HUMAN_TRANSITIONS, transition_to
+from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -133,6 +134,9 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
 }
 
 
+RELEASE_TRANSITIONS: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
+
+
 @frozen
 class AcceptOutcome:
     suggestion: WarehouseSuggestion
@@ -167,14 +171,12 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind(suggestion.subject_kind))
     kind = WarehouseSuggestionKind(suggestion.kind)
     payload = payload_from_json(kind, suggestion.payload_version, suggestion.payload)
-    created_asset = ACCEPTORS[kind].accept(suggestion, payload, request)
     try:
-        accepted = transition_to(
+        claimed = transition_to(
             suggestion.id,
             team_id,
             WarehouseSuggestionStatus.ACCEPTED,
             user_id=request.user.id,
-            created_asset=created_asset,
             transitions=HUMAN_TRANSITIONS,
         )
     except SuggestionAlreadyDecidedError:
@@ -182,7 +184,16 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         if current.status != WarehouseSuggestionStatus.ACCEPTED:
             raise
         return AcceptOutcome(suggestion=current, newly_accepted=False)
-    return AcceptOutcome(suggestion=accepted, newly_accepted=True)
+    try:
+        created_asset = ACCEPTORS[kind].accept(claimed, payload, request)
+    except Exception:
+        transition_to(
+            suggestion.id, team_id, WarehouseSuggestionStatus.PROPOSED, user_id=None, transitions=RELEASE_TRANSITIONS
+        )
+        raise
+    claimed.created_asset = asdict(created_asset)
+    claimed.save(update_fields=["created_asset"])
+    return AcceptOutcome(suggestion=claimed, newly_accepted=True)
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:
