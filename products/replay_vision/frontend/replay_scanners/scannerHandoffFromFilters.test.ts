@@ -56,11 +56,13 @@ describe('scannerHandoffFromFilters', () => {
     // The API rejects exposure inside `query`, so leaving it there opens a wizard that can't be
     // saved. It has to travel as the experiment deep link the wizard access-checks instead.
     it('sends experiment exposure as targeting params, never inside the query', () => {
-        const { searchParams } = scannerHandoffFromFilters(
+        const { searchParams, experimentId } = scannerHandoffFromFilters(
             filters({ values: [PAGEVIEW], experiment_exposure: { experiment_id: 42, variant: 'test' } })
         )
 
         expect(searchParams).toMatchObject({ experiment: '42', variant: 'test' })
+        // The filter panel names the button for an experiment scanner off this id.
+        expect(experimentId).toBe(42)
         expect(JSON.parse(searchParams.filters)).not.toHaveProperty('experiment_exposure')
     })
 

@@ -20,6 +20,8 @@ export interface ScannerHandoffFromFilters {
      * aimed at every session.
      */
     narrowsSessions: boolean
+    /** The experiment whose exposure the filters carry, so the hand-off builds an experiment scanner. */
+    experimentId: number | null
 }
 
 /**
@@ -60,5 +62,6 @@ export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): S
             // counts as narrowing.
             (filters.duration ?? []).some((predicate) => !objectsEqual(predicate, defaultRecordingDurationFilter)) ||
             !!exposure,
+        experimentId: exposure ? exposure.experiment_id : null,
     }
 }

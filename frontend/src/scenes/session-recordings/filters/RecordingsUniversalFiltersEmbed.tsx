@@ -730,10 +730,14 @@ export const ReplayFiltersTab = ({
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
+    const replayFiltersScannerEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
+    const experimentScannerEnabled = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     // A scanner keeps less of the filter set than this panel does, so what it would actually watch
     // decides both the destination and whether the button is worth offering.
     const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
+    // Filters on an experiment's exposure hand off to an experiment scanner, which has its own flag.
+    const offersExperimentScanner = experimentScannerEnabled && scannerHandoff.experimentId !== null
+    const scannerCrossSellEnabled = replayFiltersScannerEnabled || offersExperimentScanner
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -1040,7 +1044,11 @@ export const ReplayFiltersTab = ({
                                         size="small"
                                         icon={<IconSparkles className="text-ai" />}
                                         data-attr="replay-save-filters-as-scanner"
-                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
+                                        tooltip={
+                                            offersExperimentScanner
+                                                ? "Create an experiment scanner. It uses Replay vision to summarize the recordings of the experiment's exposed users and shows each variant side by side."
+                                                : 'Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on.'
+                                        }
                                         disabledReason={
                                             scannerHandoff.narrowsSessions
                                                 ? undefined
@@ -1061,7 +1069,7 @@ export const ReplayFiltersTab = ({
                                             )
                                         }}
                                     >
-                                        Create scanner
+                                        {offersExperimentScanner ? 'Create experiment scanner' : 'Create scanner'}
                                     </LemonButton>
                                     {/* Grouped away from the buttons that act on the filters themselves:
                                         this one leaves for another product. */}

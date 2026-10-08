@@ -92,6 +92,22 @@ export const ScannerCrossSell: Story = {
     },
 }
 
+// Filters on an experiment's exposure offer an experiment scanner, under the experiment scanner flag
+// alone, so the button keeps its experiment wording in visual review.
+export const ExperimentScannerCrossSell: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
+        pageUrl: combineUrl(urls.replay(), {
+            showFilters: true,
+            filters: {
+                experiment_exposure: { experiment_id: 15 },
+                filter_group: { type: 'AND', values: [{ type: 'AND', values: [] }] },
+            },
+        }).url,
+        testOptions: { waitForSelector: '[data-attr="replay-save-filters-as-scanner"]' },
+    },
+}
+
 const withPageFilter = (values: Record<string, any>[]): Record<string, any> => ({
     pageUrl: combineUrl(urls.replay(), {
         showFilters: true,
