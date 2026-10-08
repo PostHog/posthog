@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.dags.personhog_shadow_lane import (
     GROUP_ID_NOT_FOUND,
     NON_EMPTY_GROUP,
+    SHADOW_CONSUMER_GROUP,
     SHADOW_KAFKA_BOOTSTRAP_ENV_VAR,
     ShadowLaneStartConfig,
     _reset_consumer_offsets,
@@ -189,10 +190,10 @@ def test_offset_reset_deletes_the_consumer_group(
     stopped_lane: _FakeAppsApi, error_code: int | None, expected: bool
 ) -> None:
     admin = _FakeKafkaAdmin(error_code)
-    config = ShadowLaneStartConfig(reset_offsets=True, consumer_group="shadow-group")
+    config = ShadowLaneStartConfig(reset_offsets=True)
     deleted = _reset_consumer_offsets(dagster.build_op_context(), config, stopped_lane, lambda: admin)
     assert deleted == expected
-    assert admin.deleted == (["shadow-group"] if expected else [])
+    assert admin.deleted == ([SHADOW_CONSUMER_GROUP] if expected else [])
 
 
 def test_offset_reset_fails_while_the_group_has_members(stopped_lane: _FakeAppsApi) -> None:

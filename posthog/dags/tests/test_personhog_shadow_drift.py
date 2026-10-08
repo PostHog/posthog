@@ -9,7 +9,6 @@ from prometheus_client import CollectorRegistry
 from posthog.dags.personhog_shadow_drift import (
     DriftCategoryReport,
     PropertyKeyDrift,
-    _configure_session,
     compute_shadow_drift,
     record_drift_gauges,
     sample_property_drift,
@@ -33,6 +32,12 @@ def _insert_person(
 
 @pytest.mark.persons_db_direct
 @pytest.mark.django_db(transaction=True)
+def _session_statement_timeout(connection: psycopg2.extensions.connection) -> str:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        return cursor.fetchone()["statement_timeout"]
+
+
 def test_compute_shadow_drift_counts_each_category() -> None:
     connection = psycopg2.connect(persons_db_url(writer=True), cursor_factory=psycopg2.extras.RealDictCursor)
     connection.autocommit = True
@@ -79,10 +84,19 @@ def test_compute_shadow_drift_counts_each_category() -> None:
                 (ph_matched, TEAM_ID, ph_matched, TEAM_ID, ph_tombstoned, TEAM_ID),
             )
 
-        reports = {report.category: report for report in compute_shadow_drift(connection, sample_size=10)}
-        property_drift = sample_property_drift(connection, persons_limit=500, detail_limit=10)
+        reports = {
+            report.category: report
+            for report in compute_shadow_drift(connection, sample_size=10, statement_timeout_minutes=239)
+        }
+        compute_timeout = _session_statement_timeout(connection)
+        property_drift = sample_property_drift(
+            connection, persons_limit=500, detail_limit=10, statement_timeout_minutes=241
+        )
+        sample_timeout = _session_statement_timeout(connection)
     finally:
         connection.close()
+
+    assert (compute_timeout, sample_timeout) == ("239min", "241min")
 
     persons = reports["persons"]
     assert (persons.legacy_total, persons.personhog_total) == (3, 3)
@@ -181,17 +195,3 @@ def test_drift_gauges_keep_each_count_under_its_own_name_and_category() -> None:
     assert sample("field_mismatched_rows", category="persons", field="properties") == 7
     assert sample("ratio", category="distinct_ids") == 0
     assert sample("last_success_timestamp_seconds") == 1_700_000_000.0
-
-
-class _RecordingCursor:
-    def __init__(self) -> None:
-        self.statements: list[tuple[str, tuple | None]] = []
-
-    def execute(self, sql: str, params: tuple | None = None) -> None:
-        self.statements.append((sql, params))
-
-
-def test_session_applies_the_configured_statement_timeout() -> None:
-    cursor = _RecordingCursor()
-    _configure_session(cursor, statement_timeout_minutes=240)
-    assert ("SET statement_timeout = %s", ("240min",)) in cursor.statements

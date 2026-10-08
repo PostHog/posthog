@@ -274,9 +274,8 @@ class ShadowLaneStartConfig(dagster.Config):
     reset_state: bool = False
     # Deletes the lane's consumer group, so the lane starts at the end of its topic instead of its committed offsets.
     reset_offsets: bool = False
-    consumer_group: str = SHADOW_CONSUMER_GROUP
-    consumer_replicas: int = Field(default=4, gt=0)
-    processor_replicas: int = Field(default=8, gt=0)
+    consumer_replicas: int = Field(default=4, gt=0, le=512)
+    processor_replicas: int = Field(default=8, gt=0, le=512)
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
@@ -383,23 +382,23 @@ def _reset_consumer_offsets(
     """
     _require_lane_stopped(config, apps, "reset_offsets", "Kafka refuses to delete a consumer group with members.")
     admin = admin_factory()
-    future = admin.delete_consumer_groups([config.consumer_group], request_timeout=30)[config.consumer_group]
+    future = admin.delete_consumer_groups([SHADOW_CONSUMER_GROUP], request_timeout=30)[SHADOW_CONSUMER_GROUP]
     try:
         future.result()
     except KafkaException as exception:
         error = exception.args[0]
         if error.code() == GROUP_ID_NOT_FOUND:
-            context.log.info(f"Consumer group {config.consumer_group} does not exist, nothing to reset")
+            context.log.info(f"Consumer group {SHADOW_CONSUMER_GROUP} does not exist, nothing to reset")
             return False
         if error.code() == NON_EMPTY_GROUP:
             raise dagster.Failure(
                 description=(
-                    f"Consumer group {config.consumer_group} still has members, so Kafka refused to delete it. "
+                    f"Consumer group {SHADOW_CONSUMER_GROUP} still has members, so Kafka refused to delete it. "
                     "Wait for the lane's consumers to leave the group, then retry."
                 )
             ) from exception
         raise
-    context.log.info(f"Deleted consumer group {config.consumer_group}; the lane starts from the latest offsets")
+    context.log.info(f"Deleted consumer group {SHADOW_CONSUMER_GROUP}; the lane starts from the latest offsets")
     return True
 
 
