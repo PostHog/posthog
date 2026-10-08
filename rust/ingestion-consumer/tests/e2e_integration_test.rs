@@ -3112,7 +3112,12 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"));
     let usurper_task = tokio::spawn(async move {
         let mut stream = usurper.stream();
-        let _ = tokio::time::timeout(Duration::from_secs(30), stream.next()).await;
+        // A transient connect error is an item too; stopping at it would drop
+        // the usurper before it joins.
+        let _ = tokio::time::timeout(Duration::from_secs(30), async {
+            while stream.next().await.is_some() {}
+        })
+        .await;
     });
 
     let exited = tokio::time::timeout(Duration::from_secs(30), task)
