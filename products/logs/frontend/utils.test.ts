@@ -6,6 +6,7 @@ import {
     getSessionIdFromLogAttributes,
     isDistinctIdKey,
     isSessionIdKey,
+    parseJsonFields,
 } from './utils'
 
 jest.mock('lib/components/DateFilter/DateRangePicker/utils', () => ({
@@ -353,5 +354,23 @@ describe('logs utils', () => {
         })
         expect(lines).toHaveLength(4)
         expect(lines.map((l) => l.label)).toEqual(['Date range', 'Severity', 'Service', 'Search'])
+    })
+
+    describe('parseJsonFields', () => {
+        it.each([
+            ['plain strings and scalar-like strings', { body: 'hello', status: '200', ok: 'true' }, 0],
+            ['a JSON object string', { body: '{"a":1}' }, 1],
+            ['a JSON array string inside an array', { tags: ['["x"]', 'y'] }, 1],
+            ['a JSON string nested inside a JSON string', { body: '{"inner":"{\\"b\\":2}"}' }, 2],
+        ])('counts parsed fields for %s', (_, input, expectedCount) => {
+            expect(parseJsonFields(input).parsedFieldCount).toBe(expectedCount)
+        })
+
+        it('replaces JSON strings with parsed values', () => {
+            expect(parseJsonFields({ body: '{"a":[1,"2"]}', msg: 'hi' }).value).toEqual({
+                body: { a: [1, 2] },
+                msg: 'hi',
+            })
+        })
     })
 })

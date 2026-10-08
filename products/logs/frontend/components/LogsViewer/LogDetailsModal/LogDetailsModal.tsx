@@ -30,35 +30,13 @@ const SEVERITY_COLORS: Record<string, string> = {
     fatal: 'bg-danger-dark',
 }
 
-// Deep parse all string fields that look like JSON
-function parseJsonFields(obj: unknown): unknown {
-    if (typeof obj === 'string') {
-        try {
-            const parsed = JSON.parse(obj)
-            return parseJsonFields(parsed)
-        } catch {
-            return obj
-        }
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(parseJsonFields)
-    }
-    if (obj !== null && typeof obj === 'object') {
-        const result: Record<string, unknown> = {}
-        for (const [key, value] of Object.entries(obj)) {
-            result[key] = parseJsonFields(value)
-        }
-        return result
-    }
-    return obj
-}
-
 interface LogDetailsModalProps {
     timezone: string
 }
 
 export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element | null {
-    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, activeTab, sessionId } = useValues(logDetailsModalLogic)
+    const { isLogDetailsOpen, selectedLog, jsonParseAllFields, jsonParsedLog, activeTab, sessionId } =
+        useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
 
@@ -74,9 +52,8 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
     }
 
     const severityColor = SEVERITY_COLORS[selectedLog.severity_text] ?? 'bg-muted-3000'
-    const displayData = jsonParseAllFields
-        ? (parseJsonFields(selectedLog.originalLog) as object)
-        : selectedLog.originalLog
+    const canJsonParse = jsonParsedLog.parsedFieldCount > 0
+    const displayData = jsonParseAllFields && canJsonParse ? (jsonParsedLog.value as object) : selectedLog.originalLog
 
     return (
         <LemonDrawer
@@ -173,9 +150,14 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between">
                                             <LemonCheckbox
-                                                checked={jsonParseAllFields}
+                                                checked={jsonParseAllFields && canJsonParse}
                                                 onChange={setJsonParseAllFields}
-                                                label="JSON parse all fields"
+                                                label={
+                                                    canJsonParse
+                                                        ? `JSON parse all fields (${jsonParsedLog.parsedFieldCount})`
+                                                        : 'JSON parse all fields'
+                                                }
+                                                disabledReason={canJsonParse ? null : 'No fields contain JSON'}
                                                 size="small"
                                             />
                                             <LemonButton
