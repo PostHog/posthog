@@ -133,6 +133,7 @@ from products.workflows.backend.facade.contracts import (
     StaffPausedError,
     Workflow,
     WorkflowAccessDenied,
+    WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -205,7 +206,6 @@ from products.workflows.backend.facade.secrets import (
     rehydrate_flow_secrets,
     secret_keys_for_action,
     strip_content_secrets,
-    strip_secrets_from_content,
 )
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
@@ -232,6 +232,7 @@ from products.workflows.backend.facade.writes import (
     edit_workflow_content,
     publish_confirm_value,
     publish_draft,
+    save_validated_workflow,
     trigger_has_audience,
     update_workflow,
 )
@@ -2474,8 +2475,28 @@ class HogFlowLastRunSerializer(serializers.Serializer):
     )
 
 
-class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
+    # The fields the model used to supply. Each is read-only here; the full serializer declares the
+    # writable ones again, so those are typed as any field.
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True, allow_null=True)
+    description = serializers.CharField(read_only=True)
+    version = serializers.IntegerField(read_only=True)
+    status = serializers.ChoiceField(choices=HogFlow.State.choices, read_only=True)
+    origin_product = serializers.ChoiceField(choices=HogFlow.OriginProduct.choices, read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+    trigger = serializers.JSONField(read_only=True)
+    trigger_masking: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    conversion: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    exit_condition = serializers.ChoiceField(choices=HogFlow.ExitCondition.choices, read_only=True)
+    email_sending_rate_limit: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    edges: serializers.Field = serializers.JSONField(read_only=True)
+    actions: serializers.Field = serializers.JSONField(read_only=True)
+    abort_action = serializers.CharField(read_only=True, allow_null=True)
+    variables: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    billable_action_types = serializers.JSONField(read_only=True, allow_null=True)
     last_run = serializers.SerializerMethodField(
         help_text="Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run."
     )
@@ -2495,7 +2516,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
     )
 
     class Meta:
-        model = HogFlow
+        # The fields each serializer returns, in this order. get_fields applies it.
         fields = [
             "id",
             "name",
@@ -2525,6 +2546,10 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "suggestions_enabled",
         ]
         read_only_fields = fields
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        return {name: fields[name] for name in self.Meta.fields}
 
     @extend_schema_field(HogFlowLastRunSerializer(allow_null=True))
     def get_last_run(self, instance: HogFlow) -> dict | None:
@@ -2851,7 +2876,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         return super().to_internal_value(data)
 
     class Meta:
-        model = HogFlow
         fields = [
             "id",
             "name",
@@ -3056,28 +3080,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         return data
 
-    def _strip_secret_inputs(self, validated_data: dict) -> None:
-        # Move secret function inputs out of the live `actions` (and the derived `trigger`) into the
-        # encrypted_inputs column before persisting. Only runs when this write carries actions - a
-        # metadata-only update must not touch stored secrets. The map is rebuilt from the incoming
-        # action set, so deleted actions' secrets drop out.
-        if "actions" not in validated_data:
-            return
-        validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
-
-    def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
-        request = self.context["request"]
-        team_id = self.context["team_id"]
-        validated_data["created_by"] = request.user
-        validated_data["team_id"] = team_id
-        self._strip_secret_inputs(validated_data)
-
-        return super().create(validated_data=validated_data)
-
-    def update(self, instance, validated_data):
-        self._strip_secret_inputs(validated_data)
-        return super().update(instance, validated_data)
-
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
     origin_product = serializers.ChoiceField(
@@ -3097,6 +3099,40 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
         ):
             raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
         return super().validate(data)
+
+
+def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UUID, enabled: bool) -> str:
+    """Flip a workflow between ``active`` and ``draft`` as ``user_id`` and return the new status.
+
+    The same transition the lifecycle API tools make (enable is ``active``, disable is
+    ``draft``); the scheduler fires only active workflows, so a disabled one stops at its
+    next occurrence and keeps its schedule for when it is enabled again. Archived workflows
+    are left alone. The user must hold editor access to the workflow, as in the API.
+    Enabling validates the whole workflow the way an API activation does, so it lives with
+    the serializer rather than behind the facade.
+    """
+    hog_flow = HogFlow.objects.select_related("team").filter(team_id=team_id, id=workflow_id).first()
+    if hog_flow is None:
+        raise WorkflowNotFound()
+    if hog_flow.status == HogFlow.State.ARCHIVED:
+        raise WorkflowArchived()
+    user = User.objects.get(id=user_id)
+    if not UserAccessControl(user=user, team=hog_flow.team).check_access_level_for_object(hog_flow, "editor"):
+        raise WorkflowAccessDenied("editor")
+    target = HogFlow.State.ACTIVE if enabled else HogFlow.State.DRAFT
+    if hog_flow.status != target:
+        validated_data: dict[str, Any] = {"status": target}
+        if enabled:
+            serializer = HogFlowSerializer(
+                hog_flow,
+                data={"status": target},
+                partial=True,
+                context={"team_id": team_id, "get_team": lambda: hog_flow.team},
+            )
+            serializer.is_valid(raise_exception=True)
+            validated_data = dict(serializer.validated_data)
+        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
+    return str(target)
 
 
 GRAPH_OPERATION_TYPES = [

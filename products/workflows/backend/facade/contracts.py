@@ -434,6 +434,10 @@ class WorkflowNotFound(Exception):
     pass
 
 
+class WorkflowArchived(Exception):
+    """An archived workflow cannot be enabled or disabled."""
+
+
 @frozen
 class WorkflowListQuery:
     """What a workflow list asks for. The view validates each value before it builds one.

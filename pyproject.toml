@@ -864,7 +864,6 @@ ignore_imports = [
     "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
-    "products.workflows.backend.facade.api -> products.workflows.backend.presentation.views.hog_flow",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
     "products.experiments.backend.facade.api -> rest_framework",
