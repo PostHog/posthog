@@ -18,7 +18,9 @@ evaluation supplies only the organization's ID. State transitions retain remote 
 A monitoring report automatically resolves once every applicable, non-cancelled check passes all its
 remaining runs. Failed, errored, inconclusive, expired, or partially completed checks leave the report
 in monitoring for review. Approval is a quality signal and does not gate verification. A report without
-checks needs explicit resolution. Failures during monitoring stay on that report rather than creating
+checks needs explicit resolution. Monitoring reports show a primary **Resolve** toolbar button,
+including in narrow layouts and when the rollout flag is disabled. It opens the existing resolution
+dialog. Failures during monitoring stay on that report rather than creating
 a follow-up report. New signals continue to attach without restarting implementation.
 The `verifying` inbox view displays monitoring reports; the existing `monitoring` view still means PR
 review. The legacy `inbox` view includes both reports awaiting a decision and monitoring reports.

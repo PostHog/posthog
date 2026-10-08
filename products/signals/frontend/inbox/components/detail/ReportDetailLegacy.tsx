@@ -330,12 +330,14 @@ function InboxDetailFrameLegacy({
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
     const reportActions = useReportDetailActions(report)
-    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
-        label: action.label,
-        icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : action.disabledReason,
-        onClick: action.onClick,
-    }))
+    const overflowMenuItems: LemonMenuItem[] = reportActions
+        .filter((action) => !action.primary)
+        .map((action) => ({
+            label: action.label,
+            icon: action.icon,
+            disabledReason: action.loading ? 'Working…' : action.disabledReason,
+            onClick: action.onClick,
+        }))
 
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
@@ -459,29 +461,28 @@ function InboxDetailFrameLegacy({
                             />
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 @2xl:shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
                         {canCreateImplementationPr(report) && <ImplementButton report={report} />}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />
-                        {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
-                        <div className="hidden @4xl:flex items-center gap-2">
-                            {reportActions.map((action) => (
-                                <LemonButton
-                                    key={action.key}
-                                    type="secondary"
-                                    size="small"
-                                    icon={action.icon}
-                                    loading={action.loading}
-                                    // A disabled action explains only why it's unavailable — not what it would do.
-                                    tooltip={action.disabledReason ? undefined : action.tooltip}
-                                    disabledReason={action.disabledReason}
-                                    onClick={action.onClick}
-                                >
-                                    {action.label}
-                                </LemonButton>
-                            ))}
-                        </div>
+                        {reportActions.map((action) => (
+                            <LemonButton
+                                key={action.key}
+                                type={action.primary ? 'primary' : 'secondary'}
+                                className={action.primary ? undefined : 'hidden @4xl:inline-flex'}
+                                data-attr={`inbox-report-${action.key}`}
+                                size="small"
+                                icon={action.icon}
+                                loading={action.loading}
+                                // A disabled action explains only why it's unavailable — not what it would do.
+                                tooltip={action.disabledReason ? undefined : action.tooltip}
+                                disabledReason={action.disabledReason}
+                                onClick={action.onClick}
+                            >
+                                {action.label}
+                            </LemonButton>
+                        ))}
                         {/* A resolved report past its refund window has no secondary actions at all. */}
                         {overflowMenuItems.length > 0 && (
                             <LemonMenu items={overflowMenuItems} placement="bottom-end">

@@ -166,9 +166,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         icon: <IconCheckCircle />,
         loading: isResolving,
         tooltip: 'Mark this report as done',
-        // The judge found the fix already in flight, so Create PR is withheld and closing the
-        // report is the step it waits on.
-        primary: report.already_addressed === true,
+        primary: report.status === SignalReportStatus.MONITORING || report.already_addressed === true,
         onClick: onResolveClick,
     }
 
