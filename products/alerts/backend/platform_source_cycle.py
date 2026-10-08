@@ -75,10 +75,11 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
-# Real-time and 15-minute alerts are the most expensive cadences and the ones production holds to a
-# tighter budget, so the parallel run leaves them out until it agrees with production elsewhere.
+# Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
+# parallel run leaves it out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
     {
+        AlertCalculationInterval.EVERY_15_MINUTES,
         AlertCalculationInterval.HOURLY,
         AlertCalculationInterval.DAILY,
         AlertCalculationInterval.WEEKLY,
@@ -88,7 +89,7 @@ EVALUATED_INTERVALS = frozenset(
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold alerts on an hourly or slower cadence. A detector alert makes its own decision,
+    """Threshold alerts on a 15-minute or slower cadence. A detector alert makes its own decision,
     and the LLM detector makes a charged model call, so evaluating either in parallel costs twice."""
     return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
 

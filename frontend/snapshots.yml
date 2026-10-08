@@ -6316,8 +6316,14 @@ snapshots:
         hash: v1.k794b7964.2c12f9bc885c2159d88852c4ac472f681cc3dcb01e38e9291bfbd4184071044b.UEn1UxsfTw73_Dw6BSg5MGn9UsF3gk8BhG4y2SMb4HU
     mcp-apps-trends--bar-value-many-breakdowns--light:
         hash: v1.k794b7964.22187bb708adf85f40ea196df123bc4f11384eeef88ab0ec4d8e5fde8cd07165.IDxL-VRfm6bgHZPh_Z9MVj3g0ssz3su3PHGzNaTf-Vk
+    mcp-apps-trends--donut--light:
+        hash: v1.k794b7964.2ecaef94116d43c67f8eb8b41f6df93f350896e36be23dabf15d17ed794f894e.ZtobinT9oCgMvwrL2sfTGim519QmGqoi8xB_Pu4HObQ
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.590c3b62c9f76c72da6ee2ee2a4cf22c27881b373690f0dd05039b3276674e2d.-MNk8IwYc1MD_AJwE11zBCWPKHS311soE8tuEewecRc
+    mcp-apps-trends--pie--light:
+        hash: v1.k794b7964.71bf9a67abbc8af67484c4ba46db9846533f0817a6c9431dbe86671f8c0c0657.gI8aNPSnINceu0ufFOIk1eB34bjlf7nWah24hc8EZRA
+    mcp-apps-trends--pie-percentages--light:
+        hash: v1.k794b7964.6333bf4d729ec9ca4bfd598fcf1fa09a528f1599ce8f520e0ac0dd4e090d0664.15Ipmr89-9dldfy4jSeYJzGj68hsOmPmhgafAhHmwko
     mcp-apps-trends--single-series--light:
         hash: v1.k794b7964.1b5decab0f76ab924d787808679c22a9d7e29d3b908dc4efa02492eb5a5975ec.v1FGWBy1MIcdGPJmdIHHBHAD0lgjDTnH067dbcZqZGw
     mcp-apps-trends--time-series-bar--light:
@@ -11046,6 +11052,10 @@ snapshots:
         hash: v1.k794b7964.4a72fd69c80a076b8f6040c0473d1a42aa0e574e51cd9ac16c16ce74f5434d4b.UJFgWCDdVPiMssuUXnf6Px4wj9tZljS4fKvI_6WmIqI
     scenes-app-inbox-report-metrics--wide--light:
         hash: v1.k794b7964.3465b8cd1a9bf286b7ae698d78dba847138201548b8a3c56978fae74b431da53.2bz4A6FW49b2OIDhumSwnnmW8eVEaLSHMmBLZx_eFOg
+    scenes-app-inbox-reportsourcesuggestion--logs--dark:
+        hash: v1.k794b7964.7a1690934454b93121e9bf56db6e5b731bae66bb941e705ef3d27855458e01d9.p0wpMpu1OEWo_e2f7WnYoNgV9Pmy9PFaXsx8wFZg-aA
+    scenes-app-inbox-reportsourcesuggestion--logs--light:
+        hash: v1.k794b7964.d5d1040cc778c947be775229c9b6158b5f836a533ed705da42df816071be1cdb.BhUT6qPcyyC9BegwxP3rKg3OcahAzfe1WffSJEOcd-s
     scenes-app-inbox-scene--empty--dark:
         hash: v1.k794b7964.d1f94cecb2a36f2308212dc28ef1e83d8153b45578c4f390c4596dc308d5eb93.Cxai09kW1P5oCqveaca9r04fxOsysv7d9ggUQDV7hB4
     scenes-app-inbox-scene--empty--light:

@@ -313,6 +313,8 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
         (artefact) =>
             artefact.type !== 'implementation_dispatch' &&
             artefact.type !== 'impact_measurement_plan' &&
+            // The report shows its product suggestion under the evidence, so the log would only repeat it.
+            artefact.type !== 'source_suggestion' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )
