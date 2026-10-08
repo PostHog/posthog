@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
+from posthog.models import Team
 from posthog.storage import object_storage
 
 from products.actions.backend.models import Action, ActionSelectorMatchChange
@@ -68,9 +69,17 @@ class Command(BaseCommand):
             f"selector steps across {affected_teams} of them"
         )
 
+        # A team deleted after the audit ran has no rows left to clear, because its
+        # rows cascade with it, and the fail-closed manager refuses to scope to it.
+        existing_team_ids = set(Team.objects.filter(id__in=rows_by_team.keys()).values_list("id", flat=True))
+        deleted_teams = 0
+
         imported = 0
         stale = 0
         for team_id, rows in sorted(rows_by_team.items()):
+            if team_id not in existing_team_ids:
+                deleted_teams += 1
+                continue
             actions = {
                 action.id: action
                 for action in Action.objects.filter(team_id=team_id, id__in={row["action_id"] for row in rows})
@@ -107,6 +116,14 @@ class Command(BaseCommand):
                 ActionSelectorMatchChange.objects.for_team(team_id).bulk_create(changes)
 
         if options["live_run"]:
-            log(self.style.SUCCESS(f"imported {imported} selector match changes, skipped {stale} stale rows"))
+            log(
+                self.style.SUCCESS(
+                    f"imported {imported} selector match changes, skipped {stale} stale rows "
+                    f"and {deleted_teams} deleted teams"
+                )
+            )
         else:
-            log(f"dry-run: would import {imported} selector match changes, skipping {stale} stale rows")
+            log(
+                f"dry-run: would import {imported} selector match changes, skipping {stale} stale rows "
+                f"and {deleted_teams} deleted teams"
+            )
