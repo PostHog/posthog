@@ -24,7 +24,8 @@ changed, where it happens, and whether a replay shows the cause.
 | `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates)                    |
 | `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`                         |
 | `posthog:execute-sql`                       | Breakdowns, release / flag correlations, surrounding events + console logs around the error |
-| `posthog:query-logs`                        | OTEL log entries around the error timestamp for server-side issues                          |
+| `posthog:logs-count`                        | Size a server log filter before pulling rows                                                |
+| `posthog:query-logs`                        | OTEL log entries that share an ID or the exception text with the error                      |
 | `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)                             |
 | `posthog:read-data-schema`                  | Confirm property keys before filtering on them                                              |
 
@@ -283,11 +284,31 @@ than treating it as a failure.
 
 #### 5c. Server logs around the error (OTEL via `query-logs`)
 
-For server-side exceptions, correlate the exception timestamp with OTEL log
-entries the customer ingests. Many projects don't ingest logs at all — if
-`query-logs` returns nothing or errors, say so and move on. Discover available
-services first with `logs-attribute-values-list` when you don't know which
-service produced the error.
+For server-side exceptions, look for OTEL log entries that belong to the same
+failure. Many projects don't ingest logs at all — if the logs tools return
+nothing or error, say so and move on.
+
+A busy service writes thousands of errors and warnings in a few minutes, so a
+timestamp and service window alone matches mostly unrelated failures. Only a
+log that shares an identifier or the exception text with the sample event is
+evidence for the cause. Follow this order:
+
+1. **Find the service.** Read the service from the stack, the sample event
+   properties, or a known identifier. Otherwise call `logs-attribute-values-list`
+   with `key: "service.name"` and `attribute_type: "resource"`.
+2. **Pick the strongest correlation key**, in this order:
+   - A trace, span, or request ID from the sample event. Discover the matching
+     log key with `logs-attributes-list`, then filter on it in `filterGroup`.
+   - A session or distinct ID from the sample event, when the service stamps
+     it on its logs.
+   - The exact exception message, or a distinctive fragment of it (an
+     identifier, a variable name, a unique phrase), as `searchTerm`. Use a
+     stack frame (file or function name) when the message is generic.
+3. **Size the result with `logs-count`** before you pull rows. Use the same
+   filters and window as the planned `query-logs` call. A count in the
+   thousands means the filter is not specific to this failure. Narrow it
+   before you read rows or draw conclusions.
+4. **Pull rows with `query-logs`** only when the count is small.
 
 ```json
 posthog:query-logs
@@ -297,13 +318,24 @@ posthog:query-logs
       "date_from": "<error_timestamp minus 5 minutes>",
       "date_to":   "<error_timestamp plus 5 minutes>"
     },
-    "severityLevels": ["error", "warn"],
-    "serviceNames": ["<service.name if known>"],
+    "serviceNames": ["<service.name>"],
+    "searchTerm": "<exact exception message or distinctive fragment>",
     "limit": 50,
     "orderBy": "earliest"
   }
 }
 ```
+
+Label the evidence in the synthesis:
+
+- **Correlated** — the log shares a trace, request, or session ID with the
+  sample event, or contains the same exception message or stack. These logs
+  can support a cause hypothesis.
+- **Uncorrelated** — the log matched only on service, severity, and time. Do
+  not use these logs as evidence for the cause. Mention them only as context,
+  for example "the service also logged many unrelated errors in this window".
+
+If no exact match exists, say that no correlated server logs were found.
 
 Caveats worth knowing before relying on this output:
 
@@ -312,8 +344,11 @@ Caveats worth knowing before relying on this output:
 - `trace_id` / `span_id` come back zero-padded (`"00000000..."`) when not set.
   Trace-based correlation only works for explicitly instrumented requests, not
   for every event.
-- `service.name` is a resource attribute. Narrow with `serviceNames` rather
-  than a free-text `searchTerm` when you know the producer.
+- `service.name` is a resource attribute. Scope with `serviceNames`, and add
+  `searchTerm` for the exception text, not as a replacement for the service.
+- `severityLevels` is an exact match on lowercase `severity_text`. Leave it off
+  when you filter on an identifier or the exception text, so a matching log at
+  an unexpected level still shows.
 
 #### 5d. Find a representative replay
 
@@ -340,7 +375,8 @@ Present in this order:
    stood out
 3. **When it started** — `first_seen`, plus the release / version that
    introduced it if a breakdown found one
-4. **Likely cause** — one or two hypotheses backed by the breakdowns above
+4. **Likely cause** — one or two hypotheses backed by the breakdowns above.
+   Cite server logs only when step 5c labels them correlated.
 5. **Next step** — a concrete action: investigate the suspected release, watch
    the linked replay, ping the assignee, or escalate
 
