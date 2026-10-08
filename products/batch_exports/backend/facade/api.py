@@ -21,7 +21,7 @@ those may be imported from here.
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -147,15 +147,6 @@ def _to_destination_test_step(
     if step.result is not None:
         result = contracts.DestinationTestStepResult(status=str(step.result.status), message=step.result.message)
     return contracts.DestinationTestStep(name=step.name, description=step.description, result=result)
-
-
-def _get_destination_test(destination_type: str) -> destination_tests.base.DestinationTest:
-    try:
-        return destination_tests.get_destination_test(destination=destination_type)
-    except ValueError as e:
-        raise contracts.UnsupportedDestinationTestError(
-            f"No connection test for destination {destination_type!r}"
-        ) from e
 
 
 def _to_backfill_summary(backfill: BatchExportBackfill) -> contracts.BatchExportBackfillSummary:
@@ -441,7 +432,7 @@ def list_supported_intervals() -> tuple[str, ...]:
 
 def describe_destination_test(destination_type: str) -> contracts.DestinationTest:
     """Return the steps of a destination's connection test, with no step run."""
-    destination_test = _get_destination_test(destination_type)
+    destination_test = destination_tests.get_destination_test(destination=destination_type)
     return contracts.DestinationTest(steps=tuple(_to_destination_test_step(step) for step in destination_test.steps))
 
 
@@ -449,7 +440,7 @@ def run_destination_test_step(
     team_id: int,
     *,
     destination_type: str,
-    config: Mapping[str, Any],
+    config: Mapping[str, object],
     integration_id: int | None,
     step: int,
 ) -> contracts.DestinationTestStep:
@@ -459,7 +450,7 @@ def run_destination_test_step(
     destination over the network. When the destination authenticates through an integration,
     the integration's config and secrets override any key of the same name in ``config``.
     """
-    destination_test = _get_destination_test(destination_type)
+    destination_test = destination_tests.get_destination_test(destination=destination_type)
 
     test_configuration = dict(config)
     if integration_id is not None:

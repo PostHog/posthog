@@ -1,4 +1,5 @@
 from products.batch_exports.backend.destination_tests.base import DestinationTest
+from products.batch_exports.backend.facade.contracts import UnsupportedDestinationTestError
 
 
 def get_destination_test(
@@ -39,4 +40,4 @@ def get_destination_test(
 
         return AzureBlobDestinationTest()
     else:
-        raise ValueError(f"Unsupported destination: {destination}")
+        raise UnsupportedDestinationTestError(f"No connection test for destination {destination!r}")
