@@ -122,6 +122,9 @@ class ExternalAccountListTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrott
     rate = ExternalAccountSustainedThrottle.rate
 
 
+_INTERNAL_SCHEMA_EXTENSIONS = {"x-internal": True}
+
+
 def _customer_analytics_enabled(team: Team) -> bool:
     organization_id = str(team.organization_id)
     return bool(
@@ -320,6 +323,7 @@ class ExternalAccountView(APIView):
     scope_object = "account"
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         parameters=[
             OpenApiParameter(
                 "external_id",
@@ -365,6 +369,7 @@ class ExternalAccountView(APIView):
         return handle_account_get(team, external_id)
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         request=ExternalAccountCreateSerializer,
         responses={
             200: OpenApiResponse(response=ExternalAccountSerializer, description="The account already existed."),
@@ -557,6 +562,7 @@ class ExternalAccountListView(APIView):
     scope_object = "account"
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         parameters=[ExternalAccountListQuerySerializer],
         responses={
             200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
