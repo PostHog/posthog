@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
+import { topicVocabularyLogic } from 'products/workflows/frontend/OptOuts/topicVocabularyLogic'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -42,6 +43,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
+    const { words } = useValues(topicVocabularyLogic)
     const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
         useValues(hogFlowOutputMappingLogic(logicProps))
     const {
@@ -107,7 +109,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                     <LemonDivider className="my-0" />
                     <div className="flex flex-col px-2 py-1">
                         <LemonLabel htmlFor="Message category" className="flex gap-2 justify-between items-center">
-                            <span>Message category</span>
+                            <span>{words.topicSelect.label}</span>
                             <div className="flex gap-2">
                                 {!categoriesLoading && !categories.length && (
                                     <LemonButton

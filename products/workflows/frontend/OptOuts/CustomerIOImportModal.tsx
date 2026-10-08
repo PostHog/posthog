@@ -22,6 +22,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { CSVImportProgress, customerIOImportLogic } from './customerIOImportLogic'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 
 function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.Element | null {
     if (status === 'completed') {
@@ -37,6 +38,7 @@ function Step1Content(): JSX.Element {
     const { isImporting, importProgress, importError, importForm, syncConfig, isRemovingAppConfig } =
         useValues(customerIOImportLogic)
     const { submitImportForm, rerunImport, removeAppConfig } = useActions(customerIOImportLogic)
+    const { words } = useValues(topicVocabularyLogic)
 
     const hasStoredKey = syncConfig?.app_integration_id != null || importProgress?.status === 'completed'
     const result = syncConfig?.app_import_result
@@ -82,13 +84,13 @@ function Step1Content(): JSX.Element {
                             </div>
                         )}
                         <div className="flex items-center justify-between">
-                            <span>Categories imported:</span>
+                            <span>{words.customerIOImport.topicsImported}</span>
                             <LemonTag>
                                 {displayResult?.categories_created ?? persistedResult?.categories_created ?? 0}
                             </LemonTag>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>Globally unsubscribed users:</span>
+                            <span>{words.customerIOImport.unsubscribedFromAllMarketing}</span>
                             <LemonTag>
                                 {(
                                     displayResult?.globally_unsubscribed_count ??
@@ -122,7 +124,7 @@ function Step1Content(): JSX.Element {
                             }
                         />
                     </div>
-                    <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
+                    <p className="text-sm text-muted">{words.customerIOImport.rerunIsSafe}</p>
                 </>
             ) : (
                 <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
@@ -170,6 +172,7 @@ function Step1Content(): JSX.Element {
 
 function Step2Content(): JSX.Element {
     const { csvFile, csvProgress, isUploadingCSV, syncConfig } = useValues(customerIOImportLogic)
+    const { words } = useValues(topicVocabularyLogic)
     const { setCSVFile, uploadCSV } = useActions(customerIOImportLogic)
     const persistedCSVResult = !csvProgress ? syncConfig?.csv_import_result : null
 
@@ -225,11 +228,11 @@ function Step2Content(): JSX.Element {
                         <LemonTag>{csvProgress.total_rows.toLocaleString()}</LemonTag>
                     </div>
                     <div className="flex items-center justify-between">
-                        <span>Users with opt-outs:</span>
+                        <span>{words.customerIOImport.recipientsWithUnsubscribes}</span>
                         <LemonTag>{csvProgress.users_with_optouts.toLocaleString()}</LemonTag>
                     </div>
                     <div className="flex items-center justify-between">
-                        <span>Users skipped (no opt-outs):</span>
+                        <span>{words.customerIOImport.recipientsSkipped}</span>
                         <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
                     </div>
                     {csvProgress.parse_errors > 0 && (
@@ -256,8 +259,7 @@ function Step2Content(): JSX.Element {
     return (
         <div className="space-y-4">
             <p className="text-sm text-muted">
-                Export a CSV from Customer.io containing users with subscription preferences. This is not supported via
-                the API. You can upload multiple times to update existing users.
+                {words.customerIOImport.csvExportHelp}
                 <br />
                 <Link
                     to="https://posthog.com/docs/workflows/import-customerio-optouts"
@@ -317,16 +319,14 @@ function Step3Content(): JSX.Element {
         useValues(customerIOImportLogic)
     const { setWebhookSigningSecret, saveWebhookConfig, toggleWebhook, removeWebhookConfig } =
         useActions(customerIOImportLogic)
+    const { words } = useValues(topicVocabularyLogic)
 
     const webhookEnabled = syncConfig?.webhook_enabled ?? false
     const hasSecret = syncConfig?.has_webhook_secret ?? false
 
     return (
         <div className="space-y-4">
-            <p className="text-sm text-muted">
-                Configure Customer.io to send a webhook when a user unsubscribes, so PostHog automatically records the
-                opt-out.
-            </p>
+            <p className="text-sm text-muted">{words.customerIOImport.webhookDescription}</p>
 
             {/* Webhook URL */}
             <div className="space-y-2">
@@ -439,15 +439,13 @@ function Step4Content(): JSX.Element {
         trackEnabled,
         hasTrackCredentials,
     } = useValues(customerIOImportLogic)
+    const { words } = useValues(topicVocabularyLogic)
     const { setTrackSiteId, setTrackApiKey, setTrackRegion, saveTrackConfig, toggleTrackSync, removeTrackConfig } =
         useActions(customerIOImportLogic)
 
     return (
         <div className="space-y-4">
-            <p className="text-sm text-muted">
-                When users change their preferences on the PostHog-managed page, automatically sync those changes back
-                to Customer.io. Only categories imported from Customer.io are synced.
-            </p>
+            <p className="text-sm text-muted">{words.customerIOImport.outboundSyncDescription}</p>
 
             {trackError && (
                 <LemonBanner type="error" className="text-sm">
@@ -548,13 +546,14 @@ function Step4Content(): JSX.Element {
 
 export function CustomerIOImportModal(): JSX.Element {
     const { isImportModalOpen, stepCompletion, syncConfigLoading } = useValues(customerIOImportLogic)
+    const { words } = useValues(topicVocabularyLogic)
     const { closeImportModal } = useActions(customerIOImportLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
 
     return (
         <LemonModal
             title="Customer.io integration"
-            description="Import categories and unsubscribed users from Customer.io."
+            description={words.customerIOImport.description}
             isOpen={isImportModalOpen}
             onClose={closeImportModal}
             width={640}
@@ -585,7 +584,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 key: 'step1',
                                 header: (
                                     <div className="flex items-center justify-between w-full">
-                                        <span>1. Import categories & global opt-outs</span>
+                                        <span>{words.customerIOImport.importStep}</span>
                                         <StepBadge status={stepCompletion.step1} />
                                     </div>
                                 ),
@@ -595,7 +594,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 key: 'step2',
                                 header: (
                                     <div className="flex items-center justify-between w-full">
-                                        <span>2. Upload opt-out preferences CSV</span>
+                                        <span>{words.customerIOImport.csvStep}</span>
                                         <StepBadge status={stepCompletion.step2} />
                                     </div>
                                 ),

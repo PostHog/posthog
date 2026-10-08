@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -201,6 +202,8 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                         identifier,
                     })
                     lemonToast.success(`${identifier} added to suppression list`)
+                    // pinned: analytics event name
+                    posthog.capture('messaging suppression added')
                     actions.loadSuppressions()
                     return result
                 } catch (e) {
@@ -218,6 +221,8 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                 try {
                     await messagingSuppressionsRemoveSuppressionCreate(String(values.currentProjectId), { identifier })
                     lemonToast.success(`${identifier} removed from suppression list`)
+                    // pinned: analytics event name
+                    posthog.capture('messaging suppression removed')
                     actions.loadSuppressions()
                     return identifier
                 } catch (e) {

@@ -7,6 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { newCategoryLogic } from './newCategoryLogic'
 import type { MessageCategory } from './optOutCategoriesLogic'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 
 interface NewCategoryModalProps {
     isOpen: boolean
@@ -18,6 +19,7 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
     const logic = newCategoryLogic({ category, onSuccess: onClose })
     const { isCategoryFormSubmitting } = useValues(logic)
     const { submitCategoryForm, resetCategoryForm } = useActions(logic)
+    const { words } = useValues(topicVocabularyLogic)
 
     const handleClose = (): void => {
         resetCategoryForm()
@@ -28,7 +30,7 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
         <LemonModal
             isOpen={isOpen}
             onClose={handleClose}
-            title={category ? 'Edit message category' : 'New message category'}
+            title={category ? words.topicForm.editTitle : words.topicForm.newTitle}
             footer={
                 <div className="flex gap-2 justify-end">
                     <LemonButton type="secondary" onClick={handleClose}>
@@ -50,9 +52,9 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
                     <LemonInput placeholder="e.g., Product updates" />
                 </LemonField>
 
-                <LemonField name="key" label="Key" info="This is the unique identifier for the category">
+                <LemonField name="key" label="Key" info={words.topicForm.keyInfo}>
                     <LemonInput
-                        placeholder="e.g., product_updates"
+                        placeholder={words.topicForm.keyPlaceholder}
                         disabledReason={category ? 'Key cannot be changed after creation' : undefined}
                     />
                 </LemonField>
@@ -60,7 +62,7 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
                 <LemonField
                     name="category_type"
                     label="Message type"
-                    info="Marketing messages can be opted out of by users. Transactional messages are not affected by recipient preferences"
+                    info={words.topicForm.messageTypeInfo}
                     help={
                         <p>
                             Be sure to comply with local regulations regarding marketing communications (
@@ -94,7 +96,7 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
                 <LemonField
                     name="public_description"
                     label="Public description"
-                    help="This description will be shown to users in the email preferences page."
+                    help={words.topicForm.publicDescriptionHelp}
                 >
                     <LemonTextArea
                         placeholder="e.g., Latest updates on feature launches, product improvements, and more."

@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { PreflightStatus } from '../../../../frontend/src/types'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { captureTopicsUsage } from './topicsUsage'
 
 export interface ImportFormValues {
     app_api_key: string
@@ -563,6 +564,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
                 lemonToast.success('Customer.io API import completed!')
+                captureTopicsUsage('messaging customer.io import completed', { source: 'api' })
                 optOutCategoriesLogic.findMounted()?.actions.loadCategories()
             } else if (importProgress.status === 'failed') {
                 const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
@@ -606,6 +608,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
 
                 if (data.status === 'completed') {
                     lemonToast.success('CSV import completed.')
+                    captureTopicsUsage('messaging customer.io import completed', { source: 'csv' })
                     actions.loadSyncConfig()
                     optOutCategoriesLogic.findMounted()?.actions.loadCategories()
                 } else if (data.status === 'failed') {

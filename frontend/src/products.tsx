@@ -45,6 +45,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
+import type { AudienceTab } from '../../products/workflows/frontend/Audience/audienceSceneLogic'
 import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
@@ -332,6 +333,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
+    '/audience': ['Audience', 'audience'],
+    '/audience/recipients/:email': ['Audience', 'audience'],
+    '/audience/:tab': ['Audience', 'audience'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1221,6 +1225,12 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
+    Audience: {
+        name: 'Audience',
+        iconType: 'cohort',
+        projectBased: true,
+        description: 'The email addresses you can send to, their topic preferences, and how they engage',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1859,6 +1869,8 @@ export const productUrls = {
     broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
+    audience: (tab?: AudienceTab): string => `/audience${tab ? `/${tab}` : ''}`,
+    audienceRecipient: (email: string): string => `/audience/recipients/${encodeURIComponent(email)}`,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2184,6 +2196,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Audience'
     | 'Autoresearch'
     | 'Broadcasts'
     | 'Business intelligence'
@@ -2261,6 +2274,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
     },
     {
+        path: 'Audience',
+        intents: [],
+        href: urls.audience(),
+        type: 'audience',
+        category: ProductItemCategory.MESSAGING,
+        iconType: 'cohort',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        sceneKey: 'Audience',
+        flag: FEATURE_FLAGS.WORKFLOWS_AUDIENCE,
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast', 'Audience'],
+    },
+    {
         path: 'Autoresearch',
         intents: [ProductKey.AUTORESEARCH],
         category: ProductItemCategory.TOOLS,
@@ -2281,7 +2306,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'broadcasts',
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
         sceneKey: 'Broadcasts',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast', 'Audience'],
     },
     {
         path: 'Business intelligence',
@@ -3041,7 +3066,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast', 'Audience'],
     },
 ]
 

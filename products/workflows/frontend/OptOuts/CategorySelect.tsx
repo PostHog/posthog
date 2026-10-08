@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 
 export const CategorySelect = ({
     onChange,
@@ -12,6 +13,7 @@ export const CategorySelect = ({
     value?: string
 }): JSX.Element => {
     const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
+    const { words } = useValues(topicVocabularyLogic)
 
     return (
         <LemonSelect
@@ -20,9 +22,7 @@ export const CategorySelect = ({
             onChange={onChange}
             value={value}
             loading={categoriesLoading}
-            disabledReason={
-                !categoriesLoading && !categories.length && 'Configure message categories in the opt-outs section'
-            }
+            disabledReason={!categoriesLoading && !categories.length && words.topicSelect.noTopics}
             options={[
                 {
                     title: 'Marketing',
@@ -43,7 +43,7 @@ export const CategorySelect = ({
                         })),
                 },
             ]}
-            placeholder="Select message type"
+            placeholder={words.topicSelect.placeholder}
         />
     )
 }

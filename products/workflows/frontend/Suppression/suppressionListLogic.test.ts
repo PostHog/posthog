@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -107,6 +108,38 @@ describe('suppressionListLogic', () => {
 
             expect(logic.values.suppressions).toEqual(freshResult)
             expect(logic.values.currentPage).toBe(1)
+        })
+    })
+
+    describe('usage tracking', () => {
+        it.each([
+            {
+                change: 'addSuppression' as const,
+                endpoint: 'messagingSuppressionsAddSuppressionCreate' as const,
+                event: 'messaging suppression added',
+            },
+            {
+                change: 'removeSuppression' as const,
+                endpoint: 'messagingSuppressionsRemoveSuppressionCreate' as const,
+                event: 'messaging suppression removed',
+            },
+        ])('captures "$event" once $change succeeds', async ({ change, endpoint, event }) => {
+            jest.spyOn(messagingApi, 'messagingSuppressionsSuppressionsRetrieve').mockResolvedValue({
+                count: 0,
+                next: null,
+                previous: null,
+                results: [],
+            })
+            jest.spyOn(messagingApi, endpoint).mockResolvedValue(suppressionRow('jamie@example.com'))
+            const capture = jest.spyOn(posthog, 'capture')
+            const logic = suppressionListLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions[change]('jamie@example.com')
+            }).toDispatchActions([`${change}Success`])
+
+            expect(capture).toHaveBeenCalledWith(event)
         })
     })
 })
