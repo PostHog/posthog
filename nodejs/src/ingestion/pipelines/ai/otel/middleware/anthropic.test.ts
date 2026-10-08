@@ -203,6 +203,19 @@ describe('anthropic middleware', () => {
         expect(props['anthropic.tool_result.content']).toBeUndefined()
     })
 
+    it('keeps input and output state the integration already set on a tool span', () => {
+        const props = convert('$ai_span', {
+            $ai_parent_id: 'parent-span',
+            'gen_ai.operation.name': 'execute_tool',
+            'gen_ai.tool.name': 'lookup_part',
+            'gen_ai.tool.call.arguments': '{"part_number":"P-100"}',
+            'anthropic.tool_result.content': '[{"type":"text","text":"7 in stock"}]',
+            $ai_input_state: 'explicit input',
+            $ai_output_state: 'explicit output',
+        })
+        expect(props).toMatchObject({ $ai_input_state: 'explicit input', $ai_output_state: 'explicit output' })
+    })
+
     it('keeps a tool result that is not JSON as a string', () => {
         const props = convert('$ai_span', {
             $ai_parent_id: 'parent-span',
@@ -213,20 +226,44 @@ describe('anthropic middleware', () => {
         expect(props['$ai_output_state']).toBe('plain text result')
     })
 
+    const searchResults = [{ type: 'web_search_result', title: 'Example', url: 'https://example.com' }]
+    const refusedSearch = { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' }
+
     it.each([
         [
-            'counts server-side web searches and ignores other tool calls',
+            'counts server-side web searches that returned results and ignores other tool calls',
             [
                 { type: 'tool_call', id: 'srvtoolu_example1', name: 'web_search', arguments: { query: 'a' } },
+                { type: 'tool_call_response', id: 'srvtoolu_example1', response: searchResults },
                 { type: 'server_tool_call', id: 'srvtoolu_example2', name: 'web_search', arguments: { query: 'b' } },
+                { type: 'server_tool_call_response', id: 'srvtoolu_example2', response: searchResults },
                 { type: 'tool_call', id: 'srvtoolu_example3', name: 'code_execution', arguments: {} },
+                { type: 'tool_call_response', id: 'srvtoolu_example3', response: [{ type: 'text', text: 'ok' }] },
                 { type: 'text', content: 'done' },
             ],
             2,
         ],
         [
+            'does not count searches the provider refused',
+            [
+                { type: 'tool_call', id: 'srvtoolu_example1', name: 'web_search', arguments: { query: 'a' } },
+                { type: 'tool_call', id: 'srvtoolu_example2', name: 'web_search', arguments: { query: 'b' } },
+                { type: 'tool_call_response', id: 'srvtoolu_example1', response: searchResults },
+                { type: 'tool_call_response', id: 'srvtoolu_example2', response: refusedSearch },
+            ],
+            1,
+        ],
+        [
+            'does not count a search that has no result in the same response',
+            [{ type: 'tool_call', id: 'srvtoolu_example1', name: 'web_search', arguments: { query: 'a' } }],
+            undefined,
+        ],
+        [
             'ignores a client tool that is also named web_search',
-            [{ type: 'tool_call', id: 'toolu_example', name: 'web_search', arguments: { query: 'a' } }],
+            [
+                { type: 'tool_call', id: 'toolu_example', name: 'web_search', arguments: { query: 'a' } },
+                { type: 'tool_call_response', id: 'toolu_example', response: searchResults },
+            ],
             undefined,
         ],
         ['sets no count when there were no searches', [{ type: 'text', content: 'done' }], undefined],
@@ -243,7 +280,13 @@ describe('anthropic middleware', () => {
             'anthropic.request.id': 'req_example',
             $ai_web_search_count: 5,
             'gen_ai.output.messages': JSON.stringify([
-                { role: 'assistant', parts: [{ type: 'tool_call', id: 'srvtoolu_example', name: 'web_search' }] },
+                {
+                    role: 'assistant',
+                    parts: [
+                        { type: 'tool_call', id: 'srvtoolu_example', name: 'web_search' },
+                        { type: 'tool_call_response', id: 'srvtoolu_example', response: searchResults },
+                    ],
+                },
             ]),
         })
         expect(props['$ai_web_search_count']).toBe(5)

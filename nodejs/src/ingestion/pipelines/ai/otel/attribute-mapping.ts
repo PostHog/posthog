@@ -111,7 +111,6 @@ export function mapOtelAttributes(event: PluginEvent): void {
         delete event.properties[otelKey]
     }
 
-    setSessionIdFromConversationId(event)
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
     normalizeGroups(event)
@@ -122,16 +121,6 @@ export function mapOtelAttributes(event: PluginEvent): void {
 
     for (const key of STRIP_ATTRIBUTES) {
         delete event.properties[key]
-    }
-}
-
-// The conversation id stays on the event as well: a producer that also has a wider session
-// grouping overrides $ai_session_id, and the conversation id then still separates the threads.
-function setSessionIdFromConversationId(event: PluginEvent): void {
-    const props = event.properties!
-    const conversationId = props['gen_ai.conversation.id']
-    if (props['$ai_session_id'] === undefined && typeof conversationId === 'string' && conversationId !== '') {
-        props['$ai_session_id'] = conversationId
     }
 }
 

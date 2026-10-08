@@ -39,21 +39,6 @@ describe('mapOtelAttributes', () => {
         expect(event.properties![otelKey]).toBeUndefined()
     })
 
-    it.each([
-        ['uses the conversation id', { 'gen_ai.conversation.id': 'conversation-1' }, 'conversation-1'],
-        [
-            'keeps an explicit session id',
-            { 'gen_ai.conversation.id': 'conversation-1', $ai_session_id: 'explicit' },
-            'explicit',
-        ],
-        ['ignores an empty conversation id', { 'gen_ai.conversation.id': '' }, undefined],
-    ])('%s as $ai_session_id', (_label, properties, expected) => {
-        const event = createEvent('$ai_generation', properties)
-        mapOtelAttributes(event)
-        expect(event.properties!.$ai_session_id).toBe(expected)
-        expect(event.properties!['gen_ai.conversation.id']).toBe(properties['gen_ai.conversation.id'])
-    })
-
     it('JSON-parses string values for $ai_input and $ai_output_choices', () => {
         const event = createEvent('$ai_generation', {
             'gen_ai.input.messages': '[{"role": "user", "content": "Hello"}]',
@@ -746,6 +731,32 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
             expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Hi there!' }])
             expect(event.properties!.events).toBeUndefined()
+        })
+    })
+
+    describe('gen_ai.conversation.id as the session id fallback', () => {
+        it.each([
+            ['uses the conversation id', { 'gen_ai.conversation.id': 'conversation-1' }, 'conversation-1'],
+            [
+                'keeps an explicit session id',
+                { 'gen_ai.conversation.id': 'conversation-1', $ai_session_id: 'explicit' },
+                'explicit',
+            ],
+            [
+                'keeps a session id a middleware resolves from its own attributes',
+                {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    'ai.telemetry.metadata.$ai_session_id': 'from-metadata',
+                    'gen_ai.conversation.id': 'conversation-1',
+                },
+                'from-metadata',
+            ],
+            ['ignores an empty conversation id', { 'gen_ai.conversation.id': '' }, undefined],
+        ])('%s', (_label, properties, expected) => {
+            const event = createEvent('$ai_generation', properties)
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_session_id).toBe(expected)
+            expect(event.properties!['gen_ai.conversation.id']).toBe(properties['gen_ai.conversation.id'])
         })
     })
 

@@ -147,6 +147,7 @@ pub fn expand_into_events(
 
                 let fallback_distinct_id = span_fallback_distinct_id(
                     &span.attributes,
+                    rs.resource.as_ref(),
                     &span.trace_id,
                     request_fallback_distinct_id,
                 );
