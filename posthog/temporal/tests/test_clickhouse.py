@@ -5,8 +5,9 @@ import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pyarrow as pa
 
 from posthog.clickhouse.query_tagging import QueryTags
@@ -631,6 +632,58 @@ async def test_astream_query_as_arrow_raises_error_appended_to_stream(
     if expected_message is not None:
         assert str(exc_info.value) == expected_message
         assert exc_info.value.query_id == "test-query"
+
+
+class _TruncatedStreamReader(_FakeStreamReader):
+    async def readchunk(self) -> tuple[bytes, bool]:
+        if self._chunks:
+            return await super().readchunk()
+        raise aiohttp.ClientPayloadError("Response payload is not completed")
+
+
+_TIMEOUT_ERROR = (
+    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600001 ms, maximum: 600000 ms. "
+    "(TIMEOUT_EXCEEDED) (version x.x.x.x (official build))"
+)
+
+
+@pytest.mark.parametrize(
+    "query_log_rows,expected_exception",
+    [
+        ([{"type": "ExceptionWhileProcessing", "exception": _TIMEOUT_ERROR}], ClickHouseQueryTimeoutError),
+        ([], aiohttp.ClientPayloadError),
+    ],
+    ids=["query_log_has_the_error", "query_log_has_no_row"],
+)
+async def test_astream_query_as_arrow_reads_query_log_when_the_response_is_cut(
+    clickhouse_client, query_log_rows, expected_exception
+):
+    batch = pa.RecordBatch.from_pylist([{"id": i} for i in range(10)])
+    sink = pa.BufferOutputStream()
+    writer = pa.ipc.new_stream(sink, batch.schema)
+    writer.write_batch(batch)
+
+    mock_response = MagicMock()
+    mock_response.content = _TruncatedStreamReader(sink.getvalue().to_pybytes())
+    posted_query_ids = []
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, query_id=None, **kwargs):
+        posted_query_ids.append(query_id)
+        yield mock_response
+
+    read_query_log = AsyncMock(return_value=query_log_rows)
+    with (
+        patch.object(clickhouse_client, "apost_query", mock_post),
+        patch.object(clickhouse_client, "read_query_as_jsonl", read_query_log),
+        patch("posthog.temporal.common.clickhouse.QUERY_LOG_LOOKUP_INTERVAL_SECONDS", 0),
+    ):
+        with pytest.raises(expected_exception):
+            async for _ in clickhouse_client.astream_query_as_arrow("SELECT 1"):
+                pass
+
+    assert posted_query_ids[0] is not None
+    assert read_query_log.call_args.kwargs["query_parameters"]["query_id"] == posted_query_ids[0]
 
 
 async def test_apost_query_sends_external_tables(clickhouse_client, django_db_setup):

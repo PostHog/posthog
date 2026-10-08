@@ -174,6 +174,9 @@ _CLICKHOUSE_ERROR_START = re.compile(r"Code: \d+\. ")
 # ClickHouse 25+ wraps the error in "__exception__" lines and closes it with "<size> <tag>".
 _CLICKHOUSE_ERROR_TRAILER = re.compile(r"(\r?\n\d+ \w+)?\r?\n__exception__\s*$")
 
+QUERY_LOG_LOOKUP_ATTEMPTS = 5
+QUERY_LOG_LOOKUP_INTERVAL_SECONDS = 3
+
 
 def extract_clickhouse_error(payload: bytes) -> str | None:
     """Find a ClickHouse error message in bytes that ClickHouse appended to a response."""
@@ -490,6 +493,25 @@ class ClickHouseClient:
             cls.raise_clickhouse_error(error_message, query=query, query_id=query_id)
         except ClickHouseError as clickhouse_error:
             raise clickhouse_error from error
+
+    async def araise_cut_stream_error(
+        self, error: aiohttp.ClientPayloadError, query: str | None, query_id: str
+    ) -> typing.NoReturn:
+        """Raise the query's error from the query log when the response ended early, or the original error."""
+        for attempt in range(QUERY_LOG_LOOKUP_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(QUERY_LOG_LOOKUP_INTERVAL_SECONDS)
+            try:
+                status = await self.acheck_query_in_query_log(query_id)
+            except ClickHouseQueryNotFound:
+                continue
+            except ClickHouseCheckQueryStatusError:
+                break
+            except ClickHouseError as clickhouse_error:
+                raise clickhouse_error from error
+            if status != ClickHouseQueryStatus.RUNNING:
+                break
+        raise error
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -1017,6 +1039,7 @@ class ClickHouseClient:
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
+        query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(
             query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
         ) as response:
@@ -1028,6 +1051,8 @@ class ClickHouseClient:
                     yield batch
             except asyncpa.InvalidMessageFormat as error:
                 self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def aproduce_query_as_arrow_record_batches(
         self,
@@ -1043,12 +1068,15 @@ class ClickHouseClient:
         This method is intended to be ran as a background task, producing record batches continuously, while other
         downstream consumer tasks process them from the queue.
         """
+        query_id = query_id or str(uuid.uuid4())
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
             try:
                 await reader.produce(queue=queue)
             except asyncpa.InvalidMessageFormat as error:
                 self.raise_stream_error(error, query=query, query_id=query_id)
+            except aiohttp.ClientPayloadError as error:
+                await self.araise_cut_stream_error(error, query=query, query_id=query_id)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
