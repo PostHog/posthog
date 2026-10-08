@@ -426,6 +426,10 @@ MAX_CONCURRENT_SANDBOXES = 10
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
 
+NON_RETRYABLE_UNIT_FAILURE_CATEGORIES = frozenset(
+    {"upstream_request_rejected", "task_spend_limit", "subscription_usage_limit", "content_block_rejection"}
+)
+
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.
 VALIDATION_MAX_ATTEMPTS = 2
