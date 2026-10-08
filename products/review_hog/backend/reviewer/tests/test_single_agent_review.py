@@ -211,7 +211,6 @@ class TestDedupeFlashFindings:
         kept = (await self._dedupe(pr_metadata, [main, lens], mock_llm)).kept
 
         assert [issue.id for issue in kept] == expected_ids
-        assert mock_llm.call_count == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

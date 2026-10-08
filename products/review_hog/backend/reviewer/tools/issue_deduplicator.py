@@ -220,9 +220,11 @@ async def deduplicate_issues(
 ) -> DedupOutcome:
     """Deduplicate the in-scope issues into the survivors (the canonical post-dedup set) and the duplicates.
 
-    A deterministic positional pre-filter keeps positionally-isolated findings without an LLM call;
-    only file+line colliders (vs another finding, any prior inline comment, or an earlier turn's
-    finding) reach the single LLM dedupe call. That call drops findings a prior inline comment
+    For the pipeline, a deterministic positional pre-filter keeps positionally-isolated findings without
+    an LLM call; only file+line colliders (vs another finding, any prior inline comment, or an earlier
+    turn's finding) reach the single LLM dedupe call. A Flash call sends every finding, because a lens
+    finding often states a main finding's root cause on other lines or in another file, and a missed
+    duplicate there can take a real finding's slot under the cap. That call drops findings a prior inline comment
     already raised — from any reviewer, bot or human, ReviewHog's own included — and findings the
     previous turn already found and ruled on (`prior_findings`, each with its validator verdict),
     so a still-present dismissed/below-threshold issue doesn't burn another validation turn. The
@@ -241,17 +243,20 @@ async def deduplicate_issues(
         logger.info("No issues found to deduplicate.")
         return DedupOutcome(kept=[], duplicates=[])
 
-    prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
-    prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
-    prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
     if pr_comments:
         authors = sorted({c.user for c in pr_comments})
         logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
     if prior_findings:
         logger.info(f"Deduping against {len(prior_findings)} prior-turn finding(s)")
-    candidates, unique = _select_dedup_candidates(issues, prior_ranges)
+    candidates: list[Issue] = issues
+    unique: list[Issue] = []
+    if not for_flash:
+        prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
+        prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
+        prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
+        candidates, unique = _select_dedup_candidates(issues, prior_ranges)
     logger.info(
-        f"Deduplication: {len(candidates)} positional candidate(s); "
+        f"Deduplication: {len(candidates)} candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
     )
     if not candidates:

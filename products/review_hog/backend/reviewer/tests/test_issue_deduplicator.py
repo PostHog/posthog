@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import (
     DuplicateIssue,
+    FlashDuplicateIssue,
     FlashIssueDeduplication,
     IssueDeduplication,
 )
@@ -181,17 +182,23 @@ async def test_deduplicate_empty_issues_returns_empty_without_llm(pr_metadata: P
 
 
 @pytest.mark.asyncio
-async def test_deduplicate_no_positional_collision_keeps_all_without_llm(pr_metadata: PRMetadata) -> None:
-    # Distinct files/lines and no prior bot comments -> nothing collides -> LLM dedupe skipped.
+@pytest.mark.parametrize("for_flash", [False, True])
+async def test_deduplicate_no_positional_collision_reaches_only_the_flash_llm_call(
+    pr_metadata: PRMetadata, for_flash: bool
+) -> None:
+    # Distinct files/lines and no prior comments: the pipeline skips its LLM dedupe, while a Flash
+    # dedup still sends every finding, because a restated root cause often sits on other lines.
     issues = [
         _issue("1-1", "src/a.py", 10, 20),
         _issue("1-2", "src/b.py", 30, 40),
         _issue("1-3", "src/c.py", 50, 60),
     ]
+    flash_drops_one = FlashIssueDeduplication(duplicates=[FlashDuplicateIssue(id="1-2", duplicate_of="1-1")])
 
     with (
         patch(f"{_MODULE}.run_oneshot_review") as mock_oneshot,
         patch(f"{_MODULE}.run_sandbox_review") as mock_sandbox,
+        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=flash_drops_one)) as mock_openai,
     ):
         result = await deduplicate_issues(
             team_id=1,
@@ -202,11 +209,13 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_llm(pr_meta
             prior_findings=[],
             branch="test-branch",
             repository="test/repo",
+            for_flash=for_flash,
         )
 
     mock_oneshot.assert_not_called()
     mock_sandbox.assert_not_called()
-    assert {i.id for i in result.kept} == {"1-1", "1-2", "1-3"}
+    assert mock_openai.called == for_flash
+    assert [i.id for i in result.kept] == (["1-1", "1-3"] if for_flash else ["1-1", "1-2", "1-3"])
 
 
 @pytest.mark.asyncio

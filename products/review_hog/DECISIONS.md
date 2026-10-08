@@ -227,8 +227,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   falls inside the same window and a slow lens cannot hold the turn for the full sandbox timeout.
 - **Dedup and merge.** Two dedup calls run in parallel, both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna`
   at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
-  The lens findings also dedup against the main findings as anchors: an anchor makes a colliding lens finding a
-  candidate, and only candidates can drop, so a main finding never loses to a lens finding. `compose_flash_findings`
+  The lens findings also dedup against the main findings as anchors, and an anchor is never removed, so a main finding
+  never loses to a lens finding. A Flash dedup sends every finding to the LLM, not only the positional colliders the
+  pipeline sends: a lens finding often states a main finding's root cause on other lines or in another file, and a
+  missed duplicate can take a real finding's slot under the cap. The positional pre-filter stays as the fallback when
+  the call fails. `compose_flash_findings`
   then ranks the findings highest first, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
   lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A larger PR gets a few more comments because each
   extra part covers more code.

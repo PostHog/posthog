@@ -286,6 +286,7 @@ and 2002) and its part. Step 7 then runs as two dedup calls in parallel (`dedupe
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
 `run_oneshot_openai_review`): the main findings against PR comments and earlier turns, and the lens findings against
 the same plus the main findings as anchors, so a lens finding can lose to a main finding but never the reverse.
+Both calls send every finding to the LLM; the pipeline's positional pre-filter does not apply to Flash.
 The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate repeats (`duplicate_of`: the finding kept
 in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
