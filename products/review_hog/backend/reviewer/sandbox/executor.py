@@ -77,7 +77,6 @@ async def run_sandbox_review(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
-    github_read_access: bool = False,
 ) -> _ModelT:
     """Run one review step in a sandbox and return its validated output.
 
@@ -95,8 +94,7 @@ async def run_sandbox_review(
     default (Claude). ``model_to_validate`` is the output *schema*, unrelated to ``model``.
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
-    not auto-approve MCP tool calls). ``github_read_access`` gives the sandbox a read-only GitHub token
-    instead of the write-capable one, for a step that only reads the repository.
+    not auto-approve MCP tool calls).
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
     context = CustomPromptSandboxContext(
@@ -109,7 +107,6 @@ async def run_sandbox_review(
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
-        github_read_access=github_read_access,
     )
     return await _run_prompt(
         full_prompt,

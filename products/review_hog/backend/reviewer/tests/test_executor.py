@@ -85,13 +85,13 @@ class TestRunSandboxReview:
 
     @parameterized.expand(
         [
-            ("codex_pinned", "codex", "gpt-5.5", "xhigh", "full-access", True),
-            ("server_default", None, None, None, None, False),
+            ("codex_pinned", "codex", "gpt-5.5", "xhigh", "full-access"),
+            ("server_default", None, None, None, None),
         ]
     )
     @pytest.mark.asyncio
     async def test_model_pins_thread_into_context(
-        self, _name, runtime_adapter, model, reasoning_effort, initial_permission_mode, github_read_access
+        self, _name, runtime_adapter, model, reasoning_effort, initial_permission_mode
     ) -> None:
         # The perspective review pins Codex + full-access on the sandbox context; a refactor that drops
         # one silently reverts the step to the agent server's default (Claude / prompting "auto"). The
@@ -111,7 +111,6 @@ class TestRunSandboxReview:
                 model=model,
                 reasoning_effort=reasoning_effort,
                 initial_permission_mode=initial_permission_mode,
-                github_read_access=github_read_access,
             )
 
         context = mock_start.call_args.kwargs["context"]
@@ -121,7 +120,6 @@ class TestRunSandboxReview:
             reasoning_effort,
             initial_permission_mode,
         )
-        assert context.github_read_access is github_read_access
 
     @pytest.mark.asyncio
     async def test_warm_session_carries_the_same_spawn_attribution(self) -> None:

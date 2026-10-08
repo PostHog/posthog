@@ -273,9 +273,6 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
-- Every session gets a read-only GitHub token (`run_sandbox_review(github_read_access=True)`) instead of the
-  write-capable one, because it reads untrusted PR text and only reads the repository. The Tasks runner then clones
-  fresh instead of restoring a repository snapshot.
 
 The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier

@@ -1322,8 +1322,6 @@ async def _run_single_agent_session(
             model=arm.model,
             reasoning_effort=arm.reasoning_effort,
             initial_permission_mode=arm.initial_permission_mode,
-            # The session reads untrusted PR text and only reads the repository, so it gets no GitHub write access.
-            github_read_access=True,
         )
     logger.info("%s returned %s finding(s); overall: %s", step_name, len(review.findings), review.overall_correctness)
     issues = issues_from_review(review, pass_number=pass_number, chunk_id=chunk_id, source=source)
