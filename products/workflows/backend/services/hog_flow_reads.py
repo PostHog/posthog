@@ -17,17 +17,16 @@ if TYPE_CHECKING:
 
 def get_workflow(
     *,
-    project_id: int,
+    team_id: int,
     workflow_id: UUID | str,
     user_access_control: "UserAccessControl | None",
     required_level: str | None,
 ) -> Workflow:
-    """The project's workflow, or WorkflowNotFound, or WorkflowAccessDenied when the reader's level for
+    """The team's workflow, or WorkflowNotFound, or WorkflowAccessDenied when the reader's level for
     it is below `required_level`. Pass None for both access arguments to skip the check, as a
     service credential does."""
     try:
-        # Scoped by project, like the parent lookup of the project-nested API routes.
-        flow = HogFlow.objects.select_related("created_by").get(team__project_id=project_id, pk=workflow_id)
+        flow = HogFlow.objects.select_related("created_by").get(team_id=team_id, pk=workflow_id)
     except (HogFlow.DoesNotExist, ValidationError, ValueError):
         # ValidationError and ValueError fire when the id is not a parseable UUID.
         raise WorkflowNotFound()
