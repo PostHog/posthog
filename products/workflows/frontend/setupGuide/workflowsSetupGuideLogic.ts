@@ -162,7 +162,7 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
         updateTeamState: (teamId: string, update: Partial<TeamSetupGuideState>) => ({ teamId, update }),
     }),
     reducers({
-        // Keyed by project, so the choice and the hidden guide in one project do not carry over to another.
+        // Keyed by team ID, so the choice and the hidden guide in one project do not carry over to another.
         stateByTeam: [
             {} as Record<string, TeamSetupGuideState>,
             { persist: true },
