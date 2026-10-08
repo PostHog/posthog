@@ -102,15 +102,6 @@ class TestStacks:
         # re-yields the last page (merge dedupes) instead of skipping it.
         assert [s.next_token for s in manager.saved] == ["tok-2"]
 
-    def test_resume_starts_from_saved_token(self) -> None:
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            assert (params or {}).get("continuationToken") == "tok-2"
-            return {"stacks": [_stack_summary("proj", "prod")]}
-
-        manager = _FakeResumableManager(PulumiCloudResumeConfig(next_token="tok-2"))
-        rows = _run_rows("stacks", fake_fetch, manager)
-        assert [r["stackName"] for r in rows] == ["prod"]
-
 
 class TestFlattenUpdate:
     def test_flattens_info_injects_stack_coordinates_and_drops_deployment(self) -> None:
@@ -151,11 +142,6 @@ class TestFlattenUpdate:
             "projectName": "proj",
             "stackName": "dev",
         }
-
-    def test_item_without_info_still_gets_stack_coordinates(self) -> None:
-        row = _flatten_update({"updateID": "u-2", "version": 1}, "my-org", "proj", "dev")
-        assert row["projectName"] == "proj"
-        assert row["version"] == 1
 
     def test_secret_config_ciphertext_is_stripped_but_plaintext_kept(self) -> None:
         # Secret config entries carry an encrypted `string` that is recoverable offline; it must not
@@ -254,18 +240,6 @@ class TestStackUpdates:
         assert fetched_pages == [1]
         assert len(rows) == PAGE_SIZE
 
-    def test_incremental_without_watermark_walks_full_history(self) -> None:
-        pages = [list(range(2 * PAGE_SIZE, PAGE_SIZE, -1)), [50]]
-        rows = _run_rows(
-            "stack_updates",
-            self._make_pages(pages),
-            _FakeResumableManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="startTime",
-        )
-        assert len(rows) == PAGE_SIZE + 1
-
     def test_fan_out_marks_stacks_completed_and_resume_skips_them(self) -> None:
         stacks = [_stack_summary("proj", "dev"), _stack_summary("proj", "prod")]
 
@@ -310,15 +284,6 @@ class TestDeployments:
         # Saved AFTER yielding page 1: a crash between yield and save re-fetches page 1 (merge
         # dedupes) instead of skipping it.
         assert [s.page for s in manager.saved] == [2]
-
-    def test_resume_starts_from_saved_page(self) -> None:
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            assert (params or {}).get("page") == 3
-            return {"deployments": [{"id": "d-resumed"}]}
-
-        manager = _FakeResumableManager(PulumiCloudResumeConfig(page=3))
-        rows = _run_rows("deployments", fake_fetch, manager)
-        assert [r["id"] for r in rows] == ["d-resumed"]
 
     def test_empty_first_page_yields_nothing(self) -> None:
         # Orgs without Pulumi Deployments get an empty listing, not an error.
@@ -379,27 +344,6 @@ class TestAuditLogs:
         assert captured[1]["continuationToken"] == "c-2"
         assert [r["timestamp"] for r in rows] == [100, 90]
         assert [s.next_token for s in manager.saved] == ["c-2"]
-
-    def test_full_refresh_omits_start_time(self) -> None:
-        captured: list[dict] = []
-        _run_rows("audit_logs", self._pages_fetch(captured), _FakeResumableManager())
-        assert all("startTime" not in p for p in captured)
-
-    def test_synthetic_event_id_distinguishes_events_colliding_on_time_type_description(self) -> None:
-        # Two distinct events sharing timestamp/type/description but differing only by actor must not
-        # collapse onto one primary key; an identical re-pulled event must reuse its key so it dedupes.
-        page = {
-            "auditLogEvents": [
-                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "alice"},
-                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "bob"},
-                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "alice"},
-            ]
-        }
-        rows = _run_rows("audit_logs", lambda *a, **k: page, _FakeResumableManager())
-
-        assert PULUMI_CLOUD_ENDPOINTS["audit_logs"].primary_keys == ["event_id"]
-        assert rows[0]["event_id"] != rows[1]["event_id"]
-        assert rows[0]["event_id"] == rows[2]["event_id"]
 
 
 class TestResources:

@@ -1,8 +1,11 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -30,6 +33,47 @@ def account_view_content(*components: str) -> dict:
 
 
 class TestAccountViewContentValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_native_key", {"properties": [{"kind": "account", "key": "arbitrary_key"}]}),
+            ("account_name", {"properties": [{"kind": "account", "key": "name"}]}),
+            ("invalid_id", {"properties": [{"kind": "custom_property", "id": "not-a-uuid"}]}),
+            (
+                "unhyphenated_id",
+                {"properties": [{"kind": "custom_property", "id": "11111111111141118111111111111111"}]},
+            ),
+            (
+                "unsupported_uuid_version",
+                {"properties": [{"kind": "relationship", "id": "11111111-1111-9111-8111-111111111111"}]},
+            ),
+            ("unknown_source", {"properties": [{"kind": "sidebar", "id": "11111111-1111-4111-8111-111111111111"}]}),
+            ("duplicate", {"properties": [{"kind": "account", "key": "known_emails"}] * 2}),
+            ("wrong_shape", {"properties": "website_domain"}),
+            ("extra_reference_field", {"properties": [{"kind": "account", "key": "billing_id", "value": "ignored"}]}),
+            ("extra_config_field", {"sidebar_pins": []}),
+        ]
+    )
+    def test_rejects_invalid_properties_config(self, _name: str, config: dict) -> None:
+        with self.assertRaises(InvalidAccountViewContent):
+            validate_account_view_content(
+                account_view_content(f'<Properties nodeId="properties-one" config={{{json.dumps(config)}}} />')
+            )
+
+    @parameterized.expand([(50, None), (51, "Properties config must contain a list of up to 50 properties.")])
+    def test_properties_selection_limit(self, count: int, expected_error: str | None) -> None:
+        config = {
+            "properties": [
+                {"kind": "custom_property", "id": f"00000000-0000-4000-8000-{index:012x}"} for index in range(count)
+            ]
+        }
+        content = account_view_content(f'<Properties nodeId="properties-one" config={{{json.dumps(config)}}} />')
+        if expected_error is None:
+            assert validate_account_view_content(content) == (content, "Properties")
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as context:
+                validate_account_view_content(content)
+            assert context.exception.errors == [f"Component 1: {expected_error}"]
+
     def test_accepts_replay_tile_with_date_config(self) -> None:
         content = account_view_content(
             '<SessionReplays nodeId="replay-one" title="Recent recordings" config={{"dateRange":{"date_from":"-7d","date_to":null}}} />'
@@ -103,6 +147,42 @@ class TestAccountViews(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
+
+    def test_properties_widgets_roundtrip_independent_ordered_selections_with_stale_references(self) -> None:
+        first = {
+            "properties": [
+                {"kind": "account", "key": "website_domain"},
+                {"kind": "custom_property", "id": "11111111-1111-4111-8111-111111111111"},
+            ]
+        }
+        second = {
+            "properties": [
+                {"kind": "relationship", "id": "22222222-2222-4222-8222-222222222222"},
+                {"kind": "account", "key": "known_emails"},
+            ]
+        }
+        content = account_view_content(
+            f'<Properties nodeId="properties-one" config={{{json.dumps(first)}}} />',
+            '<Notes nodeId="notes-one" />',
+            f'<Properties nodeId="properties-two" config={{{json.dumps(second)}}} />',
+        )
+        response = self.client.post(self.endpoint, {"name": "Account properties", "content": content}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        view = response.json()
+        self.assertEqual(view["content"], content)
+        self.assertEqual(view["text_content"], "Properties\nNotes\nProperties")
+        reloaded = self.client.get(f"{self.endpoint}{view['id']}/").json()
+        self.assertEqual(reloaded["content"], content)
+        updated_content = account_view_content(
+            f'<Properties nodeId="properties-one" config={{{json.dumps(second)}}} />',
+            f'<Properties nodeId="properties-two" config={{{json.dumps(first)}}} />',
+        )
+        updated = self.client.patch(
+            f"{self.endpoint}{view['id']}/", {"version": view["version"], "content": updated_content}, format="json"
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
+        self.assertEqual(updated.json()["content"], updated_content)
+        self.assertEqual(self.client.get(f"{self.endpoint}{view['id']}/").json()["content"], updated_content)
 
     def test_private_view_is_not_visible_to_other_users(self) -> None:
         view = self._create()
@@ -302,12 +382,18 @@ class TestAccountViews(APIBaseTest):
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(AccountView.objects.for_team(self.team.id).get(id=view["id"]).name, "First save")
 
-    def test_invalid_content_changes_no_state(self) -> None:
+    @parameterized.expand(
+        [
+            ('<Usage nodeId="same" accountId="customer-1" />',),
+            ('<Properties nodeId="properties" config={{"properties":[{"kind":"account","key":"name"}]}} />',),
+        ]
+    )
+    def test_invalid_content_changes_no_state(self, component: str) -> None:
         response = self.client.post(
             self.endpoint,
             {
                 "name": "Invalid",
-                "content": account_view_content('<Usage nodeId="same" accountId="customer-1" />'),
+                "content": account_view_content(component),
             },
             format="json",
         )

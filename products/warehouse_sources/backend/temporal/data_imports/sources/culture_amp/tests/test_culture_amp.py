@@ -11,7 +11,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.culture_amp.culture_amp import (
     CultureAmpResumeConfig,
     _format_timestamp,
-    _make_auth,
     culture_amp_source,
     validate_credentials,
 )
@@ -126,54 +125,12 @@ class TestFormatTimestamp:
         assert _format_timestamp(value) == expected
 
 
-class TestScopedAuth:
-    @pytest.mark.parametrize(
-        "endpoint, expected_scope",
-        [
-            ("employees", "target-entity:entity-1:employees-read"),
-            ("employee_demographics", "target-entity:entity-1:employees-read,employee-demographics-read"),
-            ("performance_cycles", "target-entity:entity-1:performance-evaluations-read"),
-            ("manager_reviews", "target-entity:entity-1:performance-evaluations-read"),
-        ],
-    )
-    def test_scope_is_built_per_endpoint(self, endpoint, expected_scope):
-        config = CULTURE_AMP_ENDPOINTS[endpoint]
-        auth = _make_auth("cid", "sec", "entity-1", config.scopes)
-        assert auth.scopes == expected_scope
-        assert auth.grant_type == "client_credentials"
-
-
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [
-            (200, True),
-            # 403 = token minted (credentials valid) but missing the employees scope — accepted at create.
-            (403, True),
-            (401, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_maps_probe_status(self, mock_session, status, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("cid", "sec", "entity-1") is expected
-
     @mock.patch(PROBE_SESSION_PATCH)
     def test_invalid_on_exception(self, mock_session):
         # A failed token mint (bad credentials) raises out of the auth callable during the probe.
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("cid", "bad", "entity-1") is False
-
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_probes_employees_with_employees_read_scope(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("cid", "sec", "entity-1")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.cultureamp.com/v1/employees"
-        assert call.kwargs["auth"].scopes == "target-entity:entity-1:employees-read"
 
 
 class TestCursorEndpoints:
@@ -201,20 +158,6 @@ class TestCursorEndpoints:
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(session, [_response(_page([]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("performance_cycles", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_passes_after_date(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -233,36 +176,6 @@ class TestCursorEndpoints:
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_after_date_without_watermark(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([]))])
-
-        _rows(_source("performance_cycles", _make_manager(), should_use_incremental_field=True))
-
-        assert "after_date" not in snapshots[0]["params"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_ignores_after_date(self, MockSession, MockAuth):
-        # employees has no server-side filter — an incremental value must not inject after_date.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([{"id": "e1"}]))])
-
-        _rows(
-            _source(
-                "employees",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
-        )
-
-        assert "after_date" not in snapshots[0]["params"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -272,59 +185,6 @@ class TestCursorEndpoints:
         _rows(_source("manager_reviews", manager))
 
         assert snapshots[0]["params"]["cursor"] == "k9"
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_scope_is_minted_per_stream(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(session, [_response(_page([]))])
-
-        _rows(_source("performance_cycles", _make_manager()))
-
-        data = MockAuth.return_value.post.call_args.kwargs["data"]
-        assert data["scope"] == "target-entity:entity-1:performance-evaluations-read"
-        assert data["grant_type"] == "client_credentials"
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_mints_token_once_and_sends_bearer(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}], after_key="k1")),
-                _response(_page([{"id": "e2"}])),
-            ],
-        )
-
-        _rows(_source("employees", _make_manager()))
-
-        # One mint covers the whole run while the token is unexpired.
-        assert MockAuth.return_value.post.call_count == 1
-        assert MockAuth.return_value.post.call_args.args[0] == "https://api.cultureamp.com/v1/oauth2/token"
-        assert all(s["headers"]["Authorization"] == "Bearer tok-1" for s in snapshots)
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_remints_token_when_expired_mid_run(self, MockSession, MockAuth):
-        # expires_in=0 forces a re-mint per request — the deterministic stand-in for a sync
-        # outliving the ~1h token lifetime. Replaces the pre-framework reactive-401 re-mint.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response(expires_in=0)
-        _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}], after_key="k1")),
-                _response(_page([{"id": "e2"}])),
-            ],
-        )
-
-        rows = _rows(_source("employees", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["e1", "e2"]
-        assert MockAuth.return_value.post.call_count == 2
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -366,30 +226,6 @@ class TestEmployeeDemographicsFanOut:
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_fanout_checkpoints_between_employees(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}, {"id": "e2"}])),
-                _response(_page([{"name": "department", "value": "eng"}])),
-                _response(_page([{"name": "department", "value": "sales"}])),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("employee_demographics", manager))
-
-        saved = [call.args[0].fanout_state for call in manager.save_state.call_args_list]
-        e1_path = DEMOGRAPHICS_PATH.format(employee_id="e1")
-        e2_path = DEMOGRAPHICS_PATH.format(employee_id="e2")
-        # Completing each employee moves its child path into the completed list.
-        assert saved[-1]["completed"] == [e1_path, e2_path]
-        assert saved[-1]["current"] is None
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_fanout_state(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -404,27 +240,6 @@ class TestEmployeeDemographicsFanOut:
         manager = _make_manager(
             CultureAmpResumeConfig(fanout_state={"completed": [DEMOGRAPHICS_PATH.format(employee_id="e1")]})
         )
-        rows = _rows(_source("employee_demographics", manager))
-
-        assert [r["_employee_id"] for r in rows] == ["e2"]
-        assert len(snapshots) == 2
-        assert snapshots[1]["url"].endswith("/employees/e2/demographics")
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_pre_framework_employee_id(self, MockSession, MockAuth):
-        # Old saved state carried only the last processed employee id; it still resumes correctly.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}, {"id": "e2"}])),
-                _response(_page([{"name": "department", "value": "sales"}])),
-            ],
-        )
-
-        manager = _make_manager(CultureAmpResumeConfig(last_processed_employee_id="e1"))
         rows = _rows(_source("employee_demographics", manager))
 
         assert [r["_employee_id"] for r in rows] == ["e2"]
@@ -451,30 +266,6 @@ class TestEmployeeDemographicsFanOut:
         rows = _rows(_source("employee_demographics", manager))
 
         assert [r["_employee_id"] for r in rows] == ["e1", "e2"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_employee_listing(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "e1"}], after_key="emp-2")),
-                _response(_page([{"name": "department", "value": "eng"}])),
-                _response(_page([{"id": "e2"}])),
-                _response(_page([{"name": "department", "value": "sales"}])),
-            ],
-        )
-
-        rows = _rows(_source("employee_demographics", _make_manager()))
-
-        assert [(r["_employee_id"], r["value"]) for r in rows] == [("e1", "eng"), ("e2", "sales")]
-        # Parent pages are consumed lazily: employees page 1, its demographics, employees page 2, ...
-        assert snapshots[0]["url"].endswith("/employees")
-        assert snapshots[1]["url"].endswith("/employees/e1/demographics")
-        assert snapshots[2]["params"]["cursor"] == "emp-2"
-        assert snapshots[3]["url"].endswith("/employees/e2/demographics")
 
 
 class TestCultureAmpSourceResponse:

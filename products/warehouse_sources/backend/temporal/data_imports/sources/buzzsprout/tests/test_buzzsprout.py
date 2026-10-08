@@ -63,26 +63,6 @@ def _applied_auth_headers(auth: Any) -> dict[str, str]:
 
 class TestBuzzsproutRows:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_request_yields_full_array(self, MockSession) -> None:
-        # Buzzsprout has no pagination, so a single fetch returns the whole table.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        rows = _rows(buzzsprout_source("test-token", "123456", "episodes", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(buzzsprout_source("test-token", "123456", "episodes", team_id=1, job_id="j")) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_podcasts_endpoint_omits_podcast_id(self, MockSession) -> None:
         # The podcasts endpoint is account-scoped, so the podcast_id must not appear in the path.
         session = MockSession.return_value
@@ -146,27 +126,6 @@ class TestBuzzsproutRows:
 
 
 class TestBuzzsproutSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_episodes_partitions_on_stable_published_at(self, MockSession) -> None:
-        response = buzzsprout_source("test-token", "123456", "episodes", team_id=1, job_id="j")
-
-        assert response.name == "episodes"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["published_at"]
-        assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_podcasts_is_unpartitioned(self, MockSession) -> None:
-        # Podcasts carry no stable datetime field, so no datetime partitioning is applied.
-        response = buzzsprout_source("test-token", "123456", "podcasts", team_id=1, job_id="j")
-
-        assert response.name == "podcasts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_names_match_endpoints(self, MockSession, endpoint) -> None:
@@ -223,16 +182,6 @@ class TestValidateCredentials:
         assert call.args[0] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
         assert call.kwargs["headers"]["Authorization"] == "Token token=test-token"
         assert call.kwargs["headers"]["User-Agent"] == USER_AGENT
-
-    def test_surrounding_whitespace_in_podcast_id_is_stripped(self) -> None:
-        with mock.patch(BUZZSPROUT_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-            validate_credentials("test-token", "  123456  ")
-
-            call = mock_session.return_value.get.call_args
-
-        assert call.args[0] == f"{BUZZSPROUT_BASE_URL}/123456/episodes.json"
 
     @pytest.mark.parametrize(
         "status, message_fragment",

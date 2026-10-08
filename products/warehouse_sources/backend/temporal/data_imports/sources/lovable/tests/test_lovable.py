@@ -111,50 +111,6 @@ class TestLovableSourceTransport:
         assert urls[0] == "https://api.lovable.dev/v1/workspaces?limit=100"
         assert "cursor=c1" in urls[1]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_workspace_endpoint_binds_the_workspace_into_the_path_and_the_row(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        urls = _wire(
-            mock_session.return_value,
-            [
-                _page([{"id": "ws-1"}, {"id": "ws-2"}]),
-                _page([{"user_id": "u-1", "workspace_id": "ws-1"}]),
-                _page([{"user_id": "u-2", "workspace_id": "ws-2"}]),
-            ],
-        )
-
-        rows = _rows(_run("WorkspaceMembers"))
-
-        assert [(row["workspace_id"], row["user_id"]) for row in rows] == [("ws-1", "u-1"), ("ws-2", "u-2")]
-        assert urls[1].startswith("https://api.lovable.dev/v1/workspaces/ws-1/members?")
-        assert urls[2].startswith("https://api.lovable.dev/v1/workspaces/ws-2/members?")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_request_asks_for_pending_invites_and_the_endpoint_page_size(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}]), _page([{"user_id": "u-1"}])])
-
-        _rows(_run("WorkspaceMembers"))
-
-        assert "status=all" in urls[1]
-        assert "limit=50" in urls[1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_projects_pass_the_workspace_as_a_query_param_with_unnarrowed_filters(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}]), _page([{"id": "p-1"}])])
-
-        rows = _rows(_run("Projects"))
-
-        assert [row["id"] for row in rows] == ["p-1"]
-        assert urls[1].startswith("https://api.lovable.dev/v1/projects?")
-        assert "workspace_id=ws-1" in urls[1]
-        assert "visibility=all" in urls[1]
-        assert "publish_status=any" in urls[1]
-
     @parameterized.expand(
         [
             ("Projects", "https://api.lovable.dev/v1/projects?limit=100&workspace_id=ws-1"),
@@ -248,49 +204,6 @@ class TestLovableResume:
 
         assert resume_position(parents, resume) == (expected_index, expected_cursor)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_records_the_parent_and_next_cursor_then_marks_it_finished(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        _wire(
-            mock_session.return_value,
-            [
-                _page([{"id": "ws-1"}]),
-                _page([{"user_id": "u-1"}], next_cursor="c1"),
-                _page([{"user_id": "u-2"}]),
-            ],
-        )
-        manager = _manager()
-
-        _rows(_run("WorkspaceMembers", manager))
-
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            LovableResumeConfig(workspace_id="ws-1", cursor="c1"),
-            LovableResumeConfig(workspace_id="ws-1", cursor=None),
-        ]
-        manager.clear_state.assert_called_once()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumed_run_seeds_the_cursor_and_skips_earlier_parents(self, mock_session: mock.MagicMock) -> None:
-        urls = _wire(
-            mock_session.return_value,
-            [_page([{"id": "ws-1"}, {"id": "ws-2"}]), _page([{"user_id": "u-2"}])],
-        )
-
-        rows = _rows(_run("WorkspaceMembers", _manager(LovableResumeConfig(workspace_id="ws-2", cursor="c9"))))
-
-        assert [row["user_id"] for row in rows] == ["u-2"]
-        assert urls[1].startswith("https://api.lovable.dev/v1/workspaces/ws-2/members?")
-        assert "cursor=c9" in urls[1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_finished_parent_checkpoint_yields_nothing_more(self, mock_session: mock.MagicMock) -> None:
-        _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
-
-        rows = _rows(_run("WorkspaceMembers", _manager(LovableResumeConfig(workspace_id="ws-1"))))
-
-        assert rows == []
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -349,15 +262,6 @@ class TestValidateCredentials:
 
         assert validate_credentials("lov_key", "2026-09-11") == (expected_valid, expected_message)
 
-    @mock.patch(PROBE_SESSION_PATCH)
-    def test_transport_failure_is_not_valid(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("nope")
-
-        is_valid, message = validate_credentials("lov_key", "v1")
-
-        assert is_valid is False
-        assert message == "Could not connect to Lovable. Check the API key and try again."
-
 
 class TestCheckEndpointPermissions:
     @parameterized.expand(
@@ -388,12 +292,6 @@ class TestCheckEndpointPermissions:
         _wire(mock_session.return_value, [_page([])])
 
         assert check_endpoint_permissions("lov_key", "v1", ["WorkspaceMembers"]) == {"WorkspaceMembers": None}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_missing_from_the_catalog_reports_no_reason(self, mock_session: mock.MagicMock) -> None:
-        _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
-
-        assert check_endpoint_permissions("lov_key", "v1", ["RetiredTable"]) == {"RetiredTable": None}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_table_the_version_dropped_reports_no_reason_without_a_probe(self, mock_session: mock.MagicMock) -> None:

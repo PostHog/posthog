@@ -21,7 +21,6 @@ import {
     todayReportsPageRetrieve,
 } from 'products/today/frontend/generated/api'
 import type {
-    BriefingItemStateEnumApi,
     CodeFileApi,
     FigureMarkApi,
     FigureTextEnumApi,
@@ -35,6 +34,7 @@ import {
     todayExcerptChoiceCreateBodyFindingMax,
 } from 'products/today/frontend/generated/api.zod'
 
+import type { BriefingItemStateEnumApi } from '../../../../../products/today/frontend/generated/api.schemas'
 import { reportItemState } from './todayBriefingItems'
 import { type TodaySignalDestination } from './todayEvidence'
 import { type TodayMarkedFigure, markedFigures, staleEvidenceDate } from './todayFigureSources'

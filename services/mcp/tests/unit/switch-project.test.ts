@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import setActiveProjectTool from '@/tools/projects/setActive'
-import type { Context } from '@/tools/types'
+import type { Context, PinnedActiveContext } from '@/tools/types'
 
 const ACTIVE_ORG = 'org-active'
 const OTHER_ORG = 'org-other'
@@ -10,6 +10,7 @@ function createMockContext(overrides: {
     projectGet: ReturnType<typeof vi.fn>
     getOrgID?: ReturnType<typeof vi.fn>
     getCachedOrFetchOrg?: ReturnType<typeof vi.fn>
+    pinnedContext?: PinnedActiveContext
 }): {
     context: Context
     cache: Map<string, unknown>
@@ -34,6 +35,15 @@ function createMockContext(overrides: {
             getOrgID: overrides.getOrgID ?? vi.fn().mockResolvedValue(ACTIVE_ORG),
             getCachedOrFetchOrg,
             getOrFetchIntegrationKinds: vi.fn().mockResolvedValue(undefined),
+            pinnedContext: overrides.pinnedContext,
+            setActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
+                if (updates.orgId) {
+                    cache.set('orgId', updates.orgId)
+                }
+                if (updates.projectId) {
+                    cache.set('projectId', updates.projectId)
+                }
+            },
         },
         env: {},
         sessionManager: {},
@@ -132,5 +142,22 @@ describe('switch-project', () => {
         expect(result.content[0]!.text).toContain('Switched to project 55')
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('orgId')).toBe(OTHER_ORG)
+    })
+
+    it.each<[string, PinnedActiveContext['pin'], number, string]>([
+        ['a project pin', { projectId: '1' }, 42, ACTIVE_ORG],
+        ['an org pin, to a project in another org', { organizationId: ACTIVE_ORG }, 77, OTHER_ORG],
+    ])('refuses a switch that %s would revert when there is no MCP session', async (_label, pin, projectId, org) => {
+        const projectGet = vi.fn().mockResolvedValue({
+            success: true,
+            data: { id: projectId, name: 'Project', organization: org },
+        })
+        const { context, cache } = createMockContext({
+            projectGet,
+            pinnedContext: { pin, sessionScoped: false, orgId: pin.organizationId, projectId: pin.projectId },
+        })
+
+        await expect(tool.handler(context, { projectId })).rejects.toThrow(/sends no MCP session id/)
+        expect(cache.get('projectId')).toBeUndefined()
     })
 })

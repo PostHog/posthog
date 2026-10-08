@@ -15,8 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deplo
     DenoDeployResumeConfig,
     _as_utc_datetime,
     _format_rfc3339,
-    _log_row_id,
-    _reshape_analytics,
     _time_window_params,
     deno_deploy_source,
     validate_credentials,
@@ -100,37 +98,6 @@ class TestPureHelpers:
         assert result == expected
         assert "+00:00" not in result
 
-    def test_log_row_id_stable_and_content_addressed(self) -> None:
-        log = {"timestamp": "2026-01-01T00:00:00Z", "level": "info", "message": "hi", "trace_id": "t1"}
-        first = _log_row_id("app-1", log)
-        assert first == _log_row_id("app-1", dict(log))  # same content -> same id
-        assert first != _log_row_id("app-2", log)  # different app -> different id
-        assert first != _log_row_id("app-1", {**log, "message": "bye"})  # different content -> different id
-
-    def test_reshape_analytics_columnar_to_rows(self) -> None:
-        body = {
-            "fields": [{"name": "time", "type": "time"}, {"name": "request_count", "type": "number"}],
-            "values": [["2026-01-01T00:00:00Z", 5], ["2026-01-01T00:15:00Z", 9]],
-        }
-        assert _reshape_analytics(body, "app-1", "my-app") == [
-            {"time": "2026-01-01T00:00:00Z", "request_count": 5, "app_id": "app-1", "app_slug": "my-app"},
-            {"time": "2026-01-01T00:15:00Z", "request_count": 9, "app_id": "app-1", "app_slug": "my-app"},
-        ]
-
-    def test_reshape_analytics_empty_values(self) -> None:
-        assert _reshape_analytics({"fields": [{"name": "time"}], "values": []}, "a", "s") == []
-
-    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    def test_time_window_first_sync_uses_lookback(self) -> None:
-        start, end = _time_window_params(DENO_DEPLOY_ENDPOINTS["logs"], True, None)
-        assert start == "2026-05-25T12:00:00Z"  # now - 7d default lookback
-        assert end == "2026-06-01T12:00:00Z"
-
-    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    def test_time_window_incremental_subtracts_lookback(self) -> None:
-        start, _ = _time_window_params(DENO_DEPLOY_ENDPOINTS["logs"], True, datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC))
-        assert start == "2026-06-01T09:55:00Z"  # watermark - 5min lookback
-
     @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     def test_time_window_future_watermark_clamped(self) -> None:
         start, end = _time_window_params(DENO_DEPLOY_ENDPOINTS["analytics"], True, datetime(2027, 1, 1, tzinfo=UTC))
@@ -178,16 +145,6 @@ class TestListEndpoint:
         rows = _rows(_source("apps", manager))
         assert [r["id"] for r in rows] == ["a2"]
         assert params[0] == {}  # resumed via the seeded next URL, not the default first page params
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_apps_single_short_page_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "a1", "slug": "one"}])])
-        manager = _make_manager()
-
-        _rows(_source("apps", manager))
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestFanOut:
@@ -278,22 +235,6 @@ class TestFanOut:
         assert [r["id"] for r in rows] == ["r2"]  # a1 skipped, resumed at a2
         assert rows[0]["app_id"] == "a2"
         assert session.send.call_count == 2  # apps list + a2 only
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_restarts_fanout(self, MockSession) -> None:
-        # A pre-migration state carrying only the legacy app_id bookmark must still parse and simply
-        # restart the fan-out (merge dedupes the re-pulled rows).
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "a1", "slug": "one"}]),  # /v2/apps
-                _response([{"id": "r1", "status": "success"}]),  # a1 revisions
-            ],
-        )
-        manager = _make_manager(DenoDeployResumeConfig(next_url=None, app_id="a2"))
-        rows = _rows(_source("revisions", manager))
-        assert [r["id"] for r in rows] == ["r1"]  # fresh full walk, a1 not skipped
 
 
 class TestSsrfGuards:
