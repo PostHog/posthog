@@ -22,7 +22,7 @@ from posthog.cdp.validation import (
 )
 from posthog.models.integration import Integration
 
-from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.facade.api import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 

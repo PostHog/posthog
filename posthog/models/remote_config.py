@@ -213,7 +213,7 @@ class RemoteConfig(UUIDTModel):
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
-        from products.messaging.backend.remote_config import build_push_config
+        from products.messaging.backend.facade.api import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
         from products.web_analytics.backend.remote_config import build_heatmaps_config
 
@@ -251,7 +251,7 @@ class RemoteConfig(UUIDTModel):
         config["errorTracking"] = build_error_tracking_config(team)
 
         # MARK: Push notifications
-        config["push"] = build_push_config(team)
+        config["push"] = build_push_config(team.id)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -619,12 +619,12 @@ def organization_subscription_saved(sender, instance, created, **kwargs):
 @receiver(post_save, sender="posthog.Integration")
 @receiver(post_delete, sender="posthog.Integration")
 def push_integration_changed(sender, instance, **kwargs):
-    from products.messaging.backend.remote_config import PUSH_APP_ID_CONFIG_KEYS
+    from products.messaging.backend.facade.api import is_push_integration_kind
 
     # Integrations cover every kind we support, and most of them have nothing to do with the SDK
     # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
     # integration doesn't enqueue a rebuild for every team that has one.
-    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+    if not is_push_integration_kind(instance.kind):
         return
     # The app_ids live in config, and integration code saves errors and created_by on their own —
     # apns_integration alone does three saves per creation. Only config can change the payload.

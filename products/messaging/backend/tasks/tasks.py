@@ -6,7 +6,7 @@ from products.messaging.backend.models.message_preferences import MessageRecipie
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, name="products.messaging.backend.tasks.sync_preferences_to_customerio_task")
 @skip_team_scope_audit  # MessageRecipientPreference is still on the default manager
 def sync_preferences_to_customerio_task(team_id: int, identifier: str) -> None:
     """Push a recipient's current preference state to Customer.io off the request path.
