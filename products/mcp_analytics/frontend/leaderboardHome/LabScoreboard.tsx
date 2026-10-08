@@ -3,6 +3,7 @@ import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@post
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type LabShare, type ScoreboardMetric } from './leaderboardShares'
+import { LoadErrorMessage } from './LoadErrorMessage'
 
 const PODIUM_SIZE = 3
 
@@ -14,18 +15,20 @@ const METRICS: { value: ScoreboardMetric; label: string; caption: string }[] = [
 export function LabScoreboard({
     shares,
     loading,
+    failed,
     metric,
     onMetricChange,
 }: {
     shares: LabShare[]
     loading: boolean
+    failed: boolean
     metric: ScoreboardMetric
     onMetricChange: (metric: ScoreboardMetric) => void
 }): JSX.Element | null {
     if (loading && shares.length === 0) {
         return <Skeleton className="h-20 w-full" />
     }
-    if (shares.length === 0) {
+    if (shares.length === 0 && !failed) {
         return null
     }
     const caption = METRICS.find(({ value }) => value === metric)?.caption
@@ -59,19 +62,23 @@ export function LabScoreboard({
                     ))}
                 </ToggleGroup>
             </div>
-            <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
-                {shares.slice(0, PODIUM_SIZE).map(({ lab, share }) => (
-                    <Card key={lab} size="sm" data-attr="mcp-leaderboard-lab-tile">
-                        <CardContent className="flex flex-col gap-1">
-                            <span className="text-sm text-secondary">{lab}</span>
-                            <span className="text-3xl font-semibold tabular-nums text-primary">
-                                {formatPercentage(share, { compact: true })}
-                            </span>
-                            <span className="text-xs text-secondary">{caption}</span>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
+            {shares.length === 0 ? (
+                <LoadErrorMessage />
+            ) : (
+                <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
+                    {shares.slice(0, PODIUM_SIZE).map(({ lab, share }) => (
+                        <Card key={lab} size="sm" data-attr="mcp-leaderboard-lab-tile">
+                            <CardContent className="flex flex-col gap-1">
+                                <span className="text-sm text-secondary">{lab}</span>
+                                <span className="text-3xl font-semibold tabular-nums text-primary">
+                                    {formatPercentage(share, { compact: true })}
+                                </span>
+                                <span className="text-xs text-secondary">{caption}</span>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

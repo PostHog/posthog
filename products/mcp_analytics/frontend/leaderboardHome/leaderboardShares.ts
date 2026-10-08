@@ -33,6 +33,21 @@ export interface LabUsersRow {
 
 export type ScoreboardMetric = 'calls' | 'users'
 
+export interface ReliabilityRow {
+    bucket: string
+    calls: number
+    errors: number
+    p50: number
+    p95: number
+}
+
+export interface ReliabilitySeries {
+    labels: string[]
+    errorRatePct: number[]
+    p50: number[]
+    p95: number[]
+}
+
 const UNKNOWN = 'Unknown'
 const OTHER = 'Other'
 
@@ -159,4 +174,19 @@ export function topFacetRows(rows: WindowFacetRow[], limit: number): WindowFacet
         })
     }
     return [...result, ...rows.filter((row) => row.label === UNKNOWN)]
+}
+
+// A bucket with no calls has no row, so it becomes a NaN gap that the line charts skip.
+export function buildReliabilitySeries(rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries {
+    const byBucket = new Map(rows.map((row) => [row.bucket, row]))
+    const valueFor = (key: string, valueOf: (row: ReliabilityRow) => number): number => {
+        const row = byBucket.get(key)
+        return row ? valueOf(row) : NaN
+    }
+    return {
+        labels: bucketKeys,
+        errorRatePct: bucketKeys.map((key) => valueFor(key, (row) => (row.errors / row.calls) * 100)),
+        p50: bucketKeys.map((key) => valueFor(key, (row) => row.p50)),
+        p95: bucketKeys.map((key) => valueFor(key, (row) => row.p95)),
+    }
 }

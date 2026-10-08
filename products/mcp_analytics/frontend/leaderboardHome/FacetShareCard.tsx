@@ -10,6 +10,7 @@ import { ChartTooltip } from '../dashboard/ChartTooltip'
 import { formatNumber } from '../dashboard/formatters'
 import { ShareBarChart, type ShareBarRow } from '../dashboard/ShareBarChart'
 import { hasKnownLabels, topFacetRows, type WindowFacetRow } from './leaderboardShares'
+import { LoadErrorMessage } from './LoadErrorMessage'
 import { NoDataMessage } from './NoDataMessage'
 
 const MAX_ROWS = 8
@@ -35,11 +36,13 @@ export function FacetShareCard({
     title,
     rows,
     loading,
+    failed,
     theme,
 }: {
     title: string
     rows: WindowFacetRow[]
     loading: boolean
+    failed: boolean
     theme: ChartTheme
 }): JSX.Element | null {
     const shownRows = useMemo(() => topFacetRows(rows, MAX_ROWS), [rows])
@@ -59,7 +62,7 @@ export function FacetShareCard({
         [shownRows, theme]
     )
 
-    if (!loading && !hasKnownLabels(rows)) {
+    if (!loading && !failed && !hasKnownLabels(rows)) {
         return null
     }
     return (
@@ -68,7 +71,7 @@ export function FacetShareCard({
                 loading={loading}
                 isEmpty={rows.length === 0}
                 skeleton={<Skeleton className="h-48 w-full" />}
-                empty={<NoDataMessage />}
+                empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <ShareBarChart
                     rows={chartRows}

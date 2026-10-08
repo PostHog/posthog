@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import posthog from 'lib/posthog-typed'
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -12,11 +13,14 @@ import {
     type BucketedFacetRow,
     buildLabShares,
     buildLabUserShares,
+    buildReliabilitySeries,
     buildShareSeries,
     type LabShare,
     type LabUsersRow,
     labSqlExpression,
     modelLab,
+    type ReliabilityRow,
+    type ReliabilitySeries,
     type ScoreboardMetric,
     type ShareSeries,
     type WindowFacetRow,
@@ -114,22 +118,10 @@ export interface LeaderboardFacets {
     modelSource: WindowFacetRow[]
     labUsers: LabUsersRow[]
     namedModelUsers: number
+    failedFacets: FacetKey[]
 }
 
-export interface ReliabilityRow {
-    bucket: string
-    calls: number
-    errors: number
-    p50: number
-    p95: number
-}
-
-export interface ReliabilitySeries {
-    labels: string[]
-    errorRatePct: number[]
-    p50: number[]
-    p95: number[]
-}
+export type FacetKey = Exclude<keyof LeaderboardFacets, 'failedFacets'>
 
 const EMPTY_FACETS: LeaderboardFacets = {
     model: [],
@@ -142,6 +134,7 @@ const EMPTY_FACETS: LeaderboardFacets = {
     modelSource: [],
     labUsers: [],
     namedModelUsers: 0,
+    failedFacets: [],
 }
 
 type Row = unknown[]
@@ -162,9 +155,6 @@ const toReliabilityRows = (rows: Row[]): ReliabilityRow[] =>
         p50: Number(r[3]),
         p95: Number(r[4]),
     }))
-
-// A failed facet shows as empty rather than failing the other facets.
-const orEmpty = (query: Promise<Row[]>): Promise<Row[]> => query.catch(() => [])
 
 const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
     rows.map((r) => ({ label: String(r[0]), calls: Number(r[1]), users: Number(r[2]), errors: Number(r[3]) }))
@@ -275,6 +265,17 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             {
                 loadFacets: async (_: void, breakpoint): Promise<LeaderboardFacets> => {
                     const { queryFilters, interval } = values
+                    const failedFacets: FacetKey[] = []
+                    // A failed facet is reported and left out, so the other facets still render.
+                    const run = async (facet: FacetKey, query: string): Promise<Row[]> => {
+                        try {
+                            return await runQuery(query, queryFilters)
+                        } catch (error) {
+                            failedFacets.push(facet)
+                            posthog.captureException(error, { action: 'load-mcp-leaderboard-facet', facet })
+                            return []
+                        }
+                    }
                     const [
                         model,
                         protocolVersion,
@@ -287,16 +288,16 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                         labUsers,
                         namedModelUsers,
                     ] = await Promise.all([
-                        orEmpty(runQuery(bucketedFacetQuery(MODEL_LABEL, interval), queryFilters)),
-                        orEmpty(runQuery(bucketedFacetQuery(PROTOCOL_VERSION_LABEL, interval), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_tool_category')), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(TOOL_LABEL), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_intent_source')), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_error_type'), true), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_auth_method')), queryFilters)),
-                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_llm_model_source')), queryFilters)),
-                        orEmpty(runQuery(labUsersQuery, queryFilters)),
-                        orEmpty(runQuery(namedModelUsersQuery, queryFilters)),
+                        run('model', bucketedFacetQuery(MODEL_LABEL, interval)),
+                        run('protocolVersion', bucketedFacetQuery(PROTOCOL_VERSION_LABEL, interval)),
+                        run('toolCategory', windowFacetQuery(propertyLabel('$mcp_tool_category'))),
+                        run('tool', windowFacetQuery(TOOL_LABEL)),
+                        run('intentSource', windowFacetQuery(propertyLabel('$mcp_intent_source'))),
+                        run('errorType', windowFacetQuery(propertyLabel('$mcp_error_type'), true)),
+                        run('authMethod', windowFacetQuery(propertyLabel('$mcp_auth_method'))),
+                        run('modelSource', windowFacetQuery(propertyLabel('$mcp_llm_model_source'))),
+                        run('labUsers', labUsersQuery),
+                        run('namedModelUsers', namedModelUsersQuery),
                     ])
                     breakpoint()
                     return {
@@ -310,6 +311,7 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                         modelSource: toWindowRows(modelSource),
                         labUsers: labUsers.map((r) => ({ lab: String(r[0]), users: Number(r[1]) })),
                         namedModelUsers: Number(namedModelUsers[0]?.[0] ?? 0),
+                        failedFacets,
                     }
                 },
             },
@@ -364,19 +366,8 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
         ],
         reliabilitySeries: [
             (s) => [s.reliabilityRows, s.bucketKeys],
-            (rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries => {
-                const byBucket = new Map(rows.map((row) => [row.bucket, row]))
-                const valueFor = (key: string, valueOf: (row: ReliabilityRow) => number): number => {
-                    const row = byBucket.get(key)
-                    return row ? valueOf(row) : NaN
-                }
-                return {
-                    labels: bucketKeys,
-                    errorRatePct: bucketKeys.map((key) => valueFor(key, (row) => (row.errors / row.calls) * 100)),
-                    p50: bucketKeys.map((key) => valueFor(key, (row) => row.p50)),
-                    p95: bucketKeys.map((key) => valueFor(key, (row) => row.p95)),
-                }
-            },
+            (rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries =>
+                buildReliabilitySeries(rows, bucketKeys),
         ],
     }),
     listeners(({ actions }) => ({

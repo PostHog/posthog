@@ -14,6 +14,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { type ShareSeries } from './leaderboardShares'
+import { LoadErrorMessage } from './LoadErrorMessage'
 import { NoDataMessage } from './NoDataMessage'
 
 export function ShareOverTimeChart({
@@ -21,6 +22,7 @@ export function ShareOverTimeChart({
     labels,
     series,
     loading,
+    failed,
     theme,
     timezone,
     interval,
@@ -30,6 +32,7 @@ export function ShareOverTimeChart({
     labels: string[]
     series: ShareSeries[]
     loading: boolean
+    failed: boolean
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -69,7 +72,7 @@ export function ShareOverTimeChart({
                 loading={loading}
                 isEmpty={series.every((s) => s.data.every((value) => value === 0))}
                 skeleton={<Skeleton className="min-h-[300px] flex-1" />}
-                empty={<NoDataMessage />}
+                empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
                     <TimeSeriesBarChart series={chartSeries} labels={labels} config={config} theme={theme} />

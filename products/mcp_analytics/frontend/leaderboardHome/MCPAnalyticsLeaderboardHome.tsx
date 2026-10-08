@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { Skeleton } from '@posthog/quill-primitives'
+
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
+import { Card } from '../dashboard/Card'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
@@ -21,7 +24,7 @@ import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
-import { mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
+import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
 import { Section } from './Section'
 import { ShareOverTimeChart } from './ShareOverTimeChart'
 import { TrendLineCard } from './TrendLineCard'
@@ -72,6 +75,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const theme = useChartTheme()
+
+    const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
 
     const modelColorOf = useCallback((label: string) => modelColor(theme, label), [theme])
     const paletteColorOf = useCallback(
@@ -149,6 +154,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <LabScoreboard
                     shares={scoreboardShares}
                     loading={facetsLoading}
+                    failed={
+                        scoreboardMetric === 'calls' ? failedFacet('model') : failedFacet('labUsers', 'namedModelUsers')
+                    }
                     metric={scoreboardMetric}
                     onMetricChange={setScoreboardMetric}
                 />
@@ -158,12 +166,19 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         labels={dailyActivity.labels}
                         series={modelSeries}
                         loading={facetsLoading}
+                        failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />
+                    {modelRowsLoading && modelRows.length === 0 ? (
+                        <Card title="Share of calls by model" className="min-w-0">
+                            <Skeleton className="h-48 w-full" />
+                        </Card>
+                    ) : (
+                        <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} />
+                    )}
                 </TwoColumns>
                 <TwoColumns>
                     <ShareOverTimeChart
@@ -171,6 +186,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         labels={dailyActivity.labels}
                         series={labSeries}
                         loading={facetsLoading}
+                        failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
@@ -186,6 +202,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     labels={dailyActivity.labels}
                     series={protocolVersionSeries}
                     loading={facetsLoading}
+                    failed={failedFacet('protocolVersion')}
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
@@ -196,12 +213,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="How agents sign in"
                         rows={facets.authMethod}
                         loading={facetsLoading}
+                        failed={failedFacet('authMethod')}
                         theme={theme}
                     />
                     <FacetShareCard
                         title="How we know the model"
                         rows={facets.modelSource}
                         loading={facetsLoading}
+                        failed={failedFacet('modelSource')}
                         theme={theme}
                     />
                 </TwoColumns>
@@ -213,12 +232,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Tool categories"
                         rows={facets.toolCategory}
                         loading={facetsLoading}
+                        failed={failedFacet('toolCategory')}
                         theme={theme}
                     />
                     <FacetShareCard
                         title="Most called tools"
                         rows={facets.tool}
                         loading={facetsLoading}
+                        failed={failedFacet('tool')}
                         theme={theme}
                     />
                 </TwoColumns>
@@ -226,6 +247,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     title="Where intent comes from"
                     rows={facets.intentSource}
                     loading={facetsLoading}
+                    failed={failedFacet('intentSource')}
                     theme={theme}
                 />
             </Section>
@@ -260,6 +282,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Why calls fail"
                         rows={facets.errorType}
                         loading={facetsLoading}
+                        failed={failedFacet('errorType')}
                         theme={theme}
                     />
                     <ToolErrorRateChart
