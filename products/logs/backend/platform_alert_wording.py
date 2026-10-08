@@ -18,10 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceDescription,
 )
-from products.logs.backend.logs_url_params import build_logs_url_params
-
-# Where the platform keeps the bound inside `source_config`. Every other key is a logs filter.
-_CONDITION_KEY = "condition"
+from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
 # only moves a paging incident, can be either, so it gets a neutral label.
@@ -32,23 +29,23 @@ _LABELS = {
 
 
 def describe_logs_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
-    filters = {key: value for key, value in transition.source_config.items() if key != _CONDITION_KEY}
-    window_minutes: int = transition.condition["window_minutes"]
+    # `source_config` holds the alert's filters beside the platform's `condition` key, which none
+    # of the readers below look at.
     return SourceDescription(
-        details=_details(transition, window_minutes),
-        context=_context(filters),
-        data_link=MessageLink(label="View logs", url=_logs_url(project_id, filters, transition, window_minutes)),
+        details=_details(transition),
+        context=_context(transition.source_config),
+        data_link=MessageLink(label="View logs", url=_logs_url(project_id, transition)),
     )
 
 
-def _details(transition: AnnouncedTransition, window_minutes: int) -> tuple[MessageDetail, ...]:
+def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
     if transition.value is None:
         return ()
     condition = transition.condition
     count = f"{transition.value:g}"
     noun = "log" if count == "1" else "logs"
     summary = (
-        f"{count} {noun} in {window_minutes}m "
+        f"{count} {noun} in {condition['window_minutes']}m "
         f"(threshold: {condition['threshold_operator']} {condition['threshold_count']})"
     )
     return (MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary),)
@@ -58,16 +55,19 @@ def _context(filters: dict[str, Any]) -> tuple[str, ...]:
     lines: list[str] = []
     severity_levels = filters.get("severityLevels") or []
     service_names = filters.get("serviceNames") or []
+    filter_group = filters.get("filterGroup")
     if severity_levels:
         lines.append("Severity: " + ", ".join(severity_levels))
     if service_names:
         lines.append("Services: " + ", ".join(service_names))
+    if filter_group and has_filter_values(filter_group):
+        lines.append("Property filters applied")
     return tuple(lines) or ("All log levels and services",)
 
 
-def _logs_url(project_id: int, filters: dict[str, Any], transition: AnnouncedTransition, window_minutes: int) -> str:
+def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     # The window the check counted, so the link opens on the logs that decided it.
     date_to = transition.occurred_at
-    date_from = date_to - timedelta(minutes=window_minutes)
-    params = build_logs_url_params(filters, date_from=date_from, date_to=date_to)
+    date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
+    params = build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
     return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))

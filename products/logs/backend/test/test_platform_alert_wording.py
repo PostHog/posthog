@@ -58,6 +58,11 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
                 ("Severity: error, fatal", "Services: api"),
             ),
             ("services_only", {"serviceNames": ["api", "worker"]}, ("Services: api, worker",)),
+            (
+                "property_filters_only",
+                {"filterGroup": {"type": "AND", "values": [{"type": "AND", "values": [{"key": "status"}]}]}},
+                ("Property filters applied",),
+            ),
             ("no_filters", {}, ("All log levels and services",)),
         ]
     )
@@ -81,4 +86,3 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
             "date_from": "2026-10-08T17:55:00+00:00",
             "date_to": "2026-10-08T18:05:00+00:00",
         }
-        assert "condition" not in params
