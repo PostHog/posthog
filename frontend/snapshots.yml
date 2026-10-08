@@ -4852,6 +4852,10 @@ snapshots:
         hash: v1.k794b7964.62e3a38915252a5f243b51fa86a3298c538f623d6d56c1f6769f5e89ceb4902e.S_1ANdKJQ-ZnVEdbNDu-WFvJCMeF-snDCnnQ2QyxJ1E
     lemon-ui-lemon-checkbox--disabled-with-reason--light:
         hash: v1.k794b7964.b0a2fccfb07a4f727e3715e9c41f2ebf99a7c073931632d1f4ebb1d1fb51d520.AZRkAIA6PvBi1hVyYg_9CHGjIoojkHgaZO-Qhb5nn3Q
+    lemon-ui-lemon-checkbox--inside-quill--dark:
+        hash: v1.k794b7964.af0fb67405f1beab2c155f88360b8234089eddc44bc490fc33f9c40b03fdf7f1.soHolFJuF5cydtTvlDdsBOMUCeXl6n63wLo2jvtykW8
+    lemon-ui-lemon-checkbox--inside-quill--light:
+        hash: v1.k794b7964.057c6e2b56973991884ede4faa292fce642c4ff0bb8524a895f5c30831b6e22e.LkWNIOrTq6xQ3NAKyVuM9vRJc3u6Er_ay7R4MhSNrHk
     lemon-ui-lemon-checkbox--no-label--dark:
         hash: v1.k794b7964.8fcd40cc0e10a313b751b5883629c3a079aac8bbcf0e35491af7423969d6bf77.byEK2MKk55Xrp2g0YsVZ96xDOgXWYV6MJHsG4C6J238
     lemon-ui-lemon-checkbox--no-label--light:
@@ -9951,7 +9955,7 @@ snapshots:
     scenes-app-errortracking--group-page-breakdown-loading--light:
         hash: v1.k794b7964.08b5e33662e0b5cb3c443afa5cc5e72950b0c5457d3c8f4aa3e3f7ed8481125c.Qdd9x1WK84uVtOPXctI5q6duXEibFcuFpYrFK_hoqrA
     scenes-app-errortracking--group-page-breakdown-modal--dark:
-        hash: v1.k794b7964.ed3b3948ba6dacd684118a2b0435cc256d562832e9c6c48714fb63c6ccc03fb5.hvoGqWd072_Djnsi6KCgl27r_EE07Lc1kXWimIzJ2aM
+        hash: v1.k794b7964.170fa9fd6b187e63c0994f57165ee6a52f3f4dafef69a59795ee253e1f99f32c.MGzJp6H3dNk9edhiTYGZ9XlrRJnth9WFEuPJP0sSuCo
     scenes-app-errortracking--group-page-breakdown-modal--light:
         hash: v1.k794b7964.591008ca5806639db31343147de6fa7b5b9b2e3b76b6801ea0c1ffef2118bf59.HmdNhAcZTI60EqNfqRbd8B70NkmZ8LzSFqpNCzeG7K4
     scenes-app-errortracking--group-page-breakdown-modal-loading--dark:
