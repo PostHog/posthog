@@ -9,6 +9,8 @@ export interface EventPipelineRunnerOptions {
     PERSON_PROPERTIES_UPDATE_ALL: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams held back from the personless default even when the allowlist is '*': '' for none, '*' to disable the default for every team, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: string
     /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 }

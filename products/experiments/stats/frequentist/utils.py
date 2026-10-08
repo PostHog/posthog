@@ -4,7 +4,7 @@ from scipy import stats
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance
 
-from ..shared.statistics import AnyStatistic, ProportionStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, StatisticError
 
 
 def calculate_point_estimate(
@@ -160,17 +160,13 @@ def calculate_p_value(t_statistic: float, degrees_of_freedom: float, test_type: 
     Args:
         t_statistic: Calculated t-statistic
         degrees_of_freedom: Degrees of freedom
-        test_type: Type of test ("two_sided", "greater", "less")
+        test_type: Type of test (only "two_sided" is supported)
 
     Returns:
         P-value
     """
     if test_type == "two_sided":
         return float(2 * (1 - stats.t.cdf(abs(t_statistic), degrees_of_freedom)))
-    elif test_type == "greater":
-        return float(1 - stats.t.cdf(t_statistic, degrees_of_freedom))
-    elif test_type == "less":
-        return float(stats.t.cdf(t_statistic, degrees_of_freedom))
     else:
         raise StatisticError(f"Unknown test type: {test_type}")
 
@@ -348,25 +344,3 @@ def sequential_p_value(
     if log_evalue <= 0:
         return 1.0
     return float(min(np.exp(-log_evalue), 1.0))
-
-
-def check_normal_approximation_validity(statistic: AnyStatistic) -> bool:
-    """
-    Check if normal approximation is valid for the given statistic.
-
-    For proportions: requires np > 5 and n(1-p) > 5
-    For other statistics: requires n >= 30 (rule of thumb)
-
-    Args:
-        statistic: Statistic to check
-
-    Returns:
-        True if normal approximation is likely valid
-    """
-    n = get_sample_size(statistic)
-
-    if isinstance(statistic, ProportionStatistic):
-        p = statistic.proportion
-        return n * p >= 5 and n * (1 - p) >= 5
-    else:
-        return n >= 30

@@ -85,7 +85,7 @@ describe("ToolCallBlock routing", () => {
 
     // The MCP branch renders the title in its header; assert it lands somewhere
     // (i.e. the call did not blow up unbound) without an MCP block present.
-    expect(screen.getByText("exec")).toBeInTheDocument();
+    expect(screen.getByText("posthog - Exec")).toBeInTheDocument();
   });
 
   it("renders a directory listing as a list, not a read", () => {

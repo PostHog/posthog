@@ -1103,8 +1103,21 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand(
+        [
+            ("organization", "/api/organizations/{organization_id}/"),
+            ("organization_members", "/api/organizations/{organization_id}/members/"),
+        ]
+    )
+    def test_denies_access_to_org_resources_with_project_token_param(self, _name: str, url: str):
+        url = url.format(organization_id=self.organization.id)
+
+        response = self._do_request(f"{url}?token={self.team.api_token}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_allows_user_me_read_access(self):
         # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works

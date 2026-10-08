@@ -31,13 +31,13 @@ const MERGE_TO_DEPLOY_COPY: LegCopy = {
     label: 'Merge to production',
     sub: 'Waiting for the deploy that ships it',
     tooltip:
-        'From the merge to the first successful production deploy that contains it, resolved through the deploy head commit. The same measure as the Health tab.',
+        'From the merge to the first successful production deploy that contains it, resolved through the deploy head commit. The same measure as the Deploys tab.',
 }
 
 export interface MergeToDeployLeg {
     medianSeconds: number | null
     prCount: number
-    /** The Health tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
+    /** The Deploys tab's environment and team scope, shown beside the count because the legs above are repo-wide. */
     scopeLabel: string
 }
 
@@ -59,8 +59,11 @@ export function DeliveryPipeline({
     /** The post-merge leg, read from the DORA endpoint. Null while loading or when deploy data is not synced. */
     mergeToDeploy: MergeToDeployLeg | null
     loading?: boolean
-}): JSX.Element {
-    if (!pipeline) {
+}): JSX.Element | null {
+    if (!pipeline && mergeToDeploy?.medianSeconds == null) {
+        if (!loading) {
+            return null
+        }
         return (
             <LemonCard hoverEffect={false} className="flex h-full flex-col gap-3 p-3">
                 {[0, 1, 2].map((row) => (
@@ -69,7 +72,7 @@ export function DeliveryPipeline({
             </LemonCard>
         )
     }
-    const legs: RenderedLeg[] = pipeline.stages
+    const legs: RenderedLeg[] = (pipeline?.stages ?? [])
         .filter((leg) => leg.median_seconds != null)
         .map((leg) => ({
             key: leg.stage,
@@ -91,7 +94,7 @@ export function DeliveryPipeline({
     if (legs.length === 0) {
         return (
             <LemonCard hoverEffect={false} className="flex h-full items-center p-4 text-xs text-secondary">
-                {pipeline.merged_pr_count === 0
+                {pipeline?.merged_pr_count === 0
                     ? 'Nothing merged in the window.'
                     : 'No merged PR in the window has a measurable step yet.'}
             </LemonCard>

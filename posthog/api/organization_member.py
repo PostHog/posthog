@@ -42,13 +42,21 @@ from posthog.permissions import TimeSensitiveActionPermission, extract_organizat
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
+from products.access_control.backend.presentation.access_control_organization_members import (
+    OrganizationMemberProjectAccessViewSetMixin,
+)
 
 tracer = trace.get_tracer(__name__)
 
 # Only index-backed orderings are allowed. `-joined_at` is served by the
 # `(organization, -joined_at)` composite index; other fields would force a
 # full scan + sort and can time out for large organizations.
-ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
+# `joined_at` is not unique, so it cannot page on its own. Members who joined at
+# the same time can repeat on one page and go missing from another.
+ALLOWED_ORDERINGS: dict[str, tuple[str, str]] = {
+    "joined_at": ("joined_at", "id"),
+    "-joined_at": ("-joined_at", "-id"),
+}
 DEFAULT_ORDERING = "-joined_at"
 
 
@@ -181,6 +189,7 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
 )
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
+    OrganizationMemberProjectAccessViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
@@ -236,7 +245,7 @@ class OrganizationMemberViewSet(
                 TrigramSearchField("user__last_name"),
                 TrigramSearchField("user__email"),
             ),
-            tiebreakers=("user__first_name",),
+            tiebreakers=("user__first_name", "id"),
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -288,11 +297,8 @@ class OrganizationMemberViewSet(
             if normalize_search_term(search):
                 queryset = self._apply_search(queryset, search)
             else:
-                order = self.request.GET.get("order")
-                if order in ALLOWED_ORDERINGS:
-                    queryset = queryset.order_by(order)
-                else:
-                    queryset = queryset.order_by(DEFAULT_ORDERING)
+                order = self.request.GET.get("order") or DEFAULT_ORDERING
+                queryset = queryset.order_by(*ALLOWED_ORDERINGS.get(order, ALLOWED_ORDERINGS[DEFAULT_ORDERING]))
 
         return queryset
 

@@ -2,6 +2,7 @@ from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
     COHERE_ENDPOINTS,
+    RETIRED_ENDPOINTS,
     CohereEndpointConfig,
     CoherePagination,
 )
@@ -59,6 +60,10 @@ def cohere_source(
     team_id: int,
     job_id: str,
 ) -> SourceResponse:
+    retired_reason = RETIRED_ENDPOINTS.get(endpoint)
+    if retired_reason is not None:
+        raise ValueError(retired_reason)
+
     config = COHERE_ENDPOINTS[endpoint]
     partitioned = config.partition_key is not None
 

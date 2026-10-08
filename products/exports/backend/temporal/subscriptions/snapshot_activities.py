@@ -16,7 +16,11 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.llm_change_summary import generate_change_summary
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
-from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+from products.exports.backend.temporal.subscriptions.types import (
+    MISSING_QUERY_ERROR_TYPE,
+    SnapshotInsightsInputs,
+    SnapshotInsightsResult,
+)
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
 
@@ -127,7 +131,14 @@ def _build_states_from_content_snapshot(
             )
             fallback_reason: str | None = None
         elif query_error:
-            results_summary = "Query failed"
+            # An insight that stores no query has nothing to run, which is not a failure. The
+            # remaining legacy filters-only insights reach this branch on every delivery, so a
+            # "Query failed" line here makes the generated summary report an outage that did not
+            # happen.
+            if query_error.get("type") == MISSING_QUERY_ERROR_TYPE:
+                results_summary = "No query to run"
+            else:
+                results_summary = "Query failed"
             fallback_reason = "query_error"
         else:
             results_summary = "No results"

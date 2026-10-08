@@ -5,9 +5,9 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class CustomPropertySource(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     definition = models.OneToOneField(

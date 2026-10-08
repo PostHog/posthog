@@ -1,9 +1,9 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { FUNNEL_STEP_COUNT_LIMIT } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-
 import { ExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, StepOrderValue } from '~/types'
+
+import { FUNNEL_STEP_COUNT_LIMIT } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
 
 export function MetricBreakdownAttribution({
     metric,

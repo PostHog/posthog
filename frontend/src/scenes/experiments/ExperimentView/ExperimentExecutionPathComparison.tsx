@@ -22,9 +22,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
-import { experimentLogic, ExperimentSavedMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { type ExperimentSavedMetric, sharedMetricsToExperimentMetrics } from '../utils'
 
 const COMPARISON_CONCURRENCY_LIMIT = 10
 
@@ -293,15 +294,9 @@ function ExperimentExecutionPathComparison({ experimentId }: { experimentId: num
     const [results, setResults] = useState<Record<string, { direct: PathResult; precomputed: PathResult }>>({})
     const [runAllInProgress, setRunAllInProgress] = useState(false)
 
-    const sharedPrimaryMetrics: ExperimentMetric[] =
-        (experiment.saved_metrics as ExperimentSavedMetric[] | undefined)
-            ?.filter(({ metadata }) => metadata.type === 'primary')
-            .map(({ query }) => query) ?? []
-
-    const sharedSecondaryMetrics: ExperimentMetric[] =
-        (experiment.saved_metrics as ExperimentSavedMetric[] | undefined)
-            ?.filter(({ metadata }) => metadata.type === 'secondary')
-            .map(({ query }) => query) ?? []
+    const savedMetrics = experiment.saved_metrics as ExperimentSavedMetric[] | undefined
+    const sharedPrimaryMetrics = sharedMetricsToExperimentMetrics(savedMetrics, 'primary')
+    const sharedSecondaryMetrics = sharedMetricsToExperimentMetrics(savedMetrics, 'secondary')
 
     const primaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics].filter(
         (m): m is ExperimentMetric => m.kind === NodeKind.ExperimentMetric

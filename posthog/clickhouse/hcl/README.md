@@ -106,7 +106,7 @@ posthog-cloud-infra composes its cloud envs (dev, prod-us, prod-eu) from base la
 Editing a vendored layer therefore changes compositions in another repo.
 Two consequences:
 
-- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
+- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR's merge commit, which is what the PR lands as; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
 - A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
 
 The events family is the canonical example: `roles/shared/event_base.hcl` declares `_event_base` once, `roles/data/shared/` declares the `sharded_events` and `events` extenders, `roles/sessions/shared/` the sessions replica of the proxy; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
@@ -130,6 +130,12 @@ The image tag is pinned in `bin/image.txt` — the one place to bump when upgrad
 The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a native binary always
 wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
 build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
+
+**Pass `-ignore-column-order` to every `hclexp diff` and `hclexp plan`.**
+`check.sh`, `check-live.sh`, `diff.sh` and `check-cloud.sh` all do.
+Column order carries no meaning here, and the layers cannot express it anyway: a patch cannot reorder the columns it inherits ([chschema#240](https://github.com/PostHog/chschema/issues/240)), so an object whose order differs between two compositions could otherwise only be written out in full.
+Without the flag, two identical schemas whose columns sit in a different order report a column change, which reads as real drift and is expensive to disprove.
+On our three cloud envs the flag removes 10 of the 26 `unsafe` rows the reconcile used to report.
 
 1. **Edit the right layer** for what you're changing.
    Placement = which node stacks compose the layer, declared in `manifest.hcl`; find an existing object's single declaration with `hclexp locate` (or grep) rather than assuming:

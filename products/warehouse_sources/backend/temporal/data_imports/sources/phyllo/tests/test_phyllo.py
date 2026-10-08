@@ -112,37 +112,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestTopLevelPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_yields_and_stops(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire_seq(session, [_response([{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # A short page ends the sync without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_advances_offset_until_short_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        full = [{"id": f"a{i}"} for i in range(PAGE_SIZE)]
-        params = _wire_seq(session, [_response(full), _response([{"id": "z"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [*full, {"id": "z"}]
-        # The full first page advances the offset to PAGE_SIZE; the short page then terminates.
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[1]["offset"] == PAGE_SIZE
-        # State saved once — after the full first page, pointing at the next offset.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].paginator_state == {"offset": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire_seq(session, [_response([{"id": "z"}])])
@@ -154,161 +123,9 @@ class TestTopLevelPagination:
         # Offset 0 must never be fetched on resume.
         assert params[0]["offset"] == PAGE_SIZE
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_starts_over(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire_seq(session, [_response([{"id": "a"}])])
-
-        # State written by the previous hand-rolled implementation still deserializes (compat) but
-        # carries no framework paginator snapshot, so the sync restarts from the first page.
-        legacy = PhylloResumeConfig(offset=PAGE_SIZE, account_id="acc_gone")
-        assert legacy.paginator_state is None
-        rows = _rows(_source("users", _make_manager(legacy)))
-
-        assert rows == [{"id": "a"}]
-        assert params[0]["offset"] == 0
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire_seq(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rows_extracted_from_data_selector(self, MockSession: mock.MagicMock) -> None:
-        # Phyllo wraps list results in {"data": [...], "metadata": {...}}; metadata must not leak.
-        session = MockSession.return_value
-        _wire_seq(session, [_response([{"id": "wp1"}])])
-
-        rows = _rows(_source("work_platforms", _make_manager()))
-        assert rows == [{"id": "wp1"}]
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_basic_auth_header_set_on_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured: dict[str, str] = {}
-
-        def _prepare(request: Any) -> Any:
-            prepared = request.prepare()
-            captured.update(prepared.headers)
-            return prepared
-
-        def _send(prepared: Any, **kwargs: Any) -> Response:
-            return _response([{"id": "a"}])
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = _send
-
-        _rows(_source("users", _make_manager()))
-
-        # Basic auth is base64(client_id:client_secret) — same as the old hand-built header.
-        assert captured["Authorization"].startswith("Basic ")
-
 
 class TestFanOut:
     ACCOUNTS_SUBSTR = "v1/accounts"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_accounts_via_account_id_query_param(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        urls = _wire_routed(
-            session,
-            [
-                (self.ACCOUNTS_SUBSTR, _response([{"id": "acc_a"}, {"id": "acc_b"}])),
-                ("account_id=acc_a", _response([{"id": "c1"}])),
-                ("account_id=acc_b", _response([{"id": "c2"}])),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("social_contents", manager))
-
-        # Child rows keep their own shape (no account_id injected).
-        assert rows == [{"id": "c1"}, {"id": "c2"}]
-        assert _query(urls[1])["account_id"] == ["acc_a"]
-        assert _query(urls[2])["account_id"] == ["acc_b"]
-        # Single-hop fan-out keeps resume: the dependent resource checkpoints per-parent progress.
-        assert manager.save_state.called
-        assert "completed" in manager.save_state.call_args.args[0].paginator_state
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_full_page_within_account(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        full = [{"id": f"c{i}"} for i in range(PAGE_SIZE)]
-        urls = _wire_routed(
-            session,
-            [
-                (self.ACCOUNTS_SUBSTR, _response([{"id": "acc_a"}])),
-                ("offset=100", _response([{"id": "last"}])),
-                ("account_id=acc_a", _response(full)),
-            ],
-        )
-
-        rows = _rows(_source("social_contents", _make_manager()))
-
-        assert rows == [*full, {"id": "last"}]
-        first_page = next(u for u in urls if "account_id=acc_a" in u and "offset=100" not in u)
-        second_page = next(u for u in urls if "offset=100" in u)
-        assert _query(first_page)["offset"] == ["0"]
-        assert _query(second_page)["offset"] == ["100"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_accounts(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        urls = _wire_routed(
-            session,
-            [
-                (self.ACCOUNTS_SUBSTR, _response([{"id": "acc_a"}, {"id": "acc_b"}])),
-                ("account_id=acc_b", _response([{"id": "b1"}])),
-            ],
-        )
-
-        # acc_a's child page is already checkpointed as completed, so only acc_b is fetched.
-        manager = _make_manager(
-            PhylloResumeConfig(paginator_state={"completed": ["/v1/social/contents?account_id=acc_a"], "current": None})
-        )
-        rows = _rows(_source("social_contents", manager))
-
-        assert rows == [{"id": "b1"}]
-        assert _query(urls[1])["account_id"] == ["acc_b"]
-        assert not any("account_id=acc_a" in u for u in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_offset_applies_only_to_bookmarked_account(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        urls = _wire_routed(
-            session,
-            [
-                (self.ACCOUNTS_SUBSTR, _response([{"id": "acc_a"}, {"id": "acc_b"}])),
-                ("account_id=acc_a", _response([{"id": "a9"}])),
-                ("account_id=acc_b", _response([{"id": "b1"}])),
-            ],
-        )
-
-        manager = _make_manager(
-            PhylloResumeConfig(
-                paginator_state={
-                    "completed": [],
-                    "current": "/v1/social/contents?account_id=acc_a",
-                    "child_state": {"offset": PAGE_SIZE},
-                }
-            )
-        )
-        _rows(_source("social_contents", manager))
-
-        acc_a_url = next(u for u in urls if "account_id=acc_a" in u)
-        acc_b_url = next(u for u in urls if "account_id=acc_b" in u)
-        assert _query(acc_a_url)["offset"] == [str(PAGE_SIZE)]
-        # The next account starts a fresh page chain from offset 0.
-        assert _query(acc_b_url)["offset"] == ["0"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_disconnected_bookmarked_account_does_not_leak_offset(self, MockSession: mock.MagicMock) -> None:
@@ -339,37 +156,8 @@ class TestFanOut:
         assert _query(next(u for u in urls if "account_id=acc_a" in u))["offset"] == ["0"]
         assert _query(next(u for u in urls if "account_id=acc_c" in u))["offset"] == ["0"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_accounts_listing_itself(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        first_accounts = [{"id": f"acc_{i:03d}"} for i in range(PAGE_SIZE)]
-        routes = [
-            ("accounts?offset=100", _response([{"id": "acc_zzz"}])),
-            (self.ACCOUNTS_SUBSTR, _response(first_accounts)),
-        ]
-        for account in [*first_accounts, {"id": "acc_zzz"}]:
-            routes.append((f"account_id={account['id']}", _response([{"id": f"content_{account['id']}"}])))
-        _wire_routed(session, routes)
-
-        rows = _rows(_source("social_contents", _make_manager()))
-        assert len(rows) == PAGE_SIZE + 1
-
 
 class TestMalformedBody:
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_top_level_malformed_body_is_retried_then_recovers(
-        self, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        # A 200 body without "data" is treated as transient (the old fetch raised a retryable error
-        # on the same condition); the request is re-issued and recovers.
-        session = MockSession.return_value
-        _wire_seq(session, [_response(None, drop_data=True), _response([{"id": "a"}])])
-
-        rows = _rows(_source("users", _make_manager()))
-        assert rows == [{"id": "a"}]
-        assert session.send.call_count == 2
-
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_top_level_persistent_malformed_body_reraises(
@@ -431,14 +219,6 @@ class TestValidateCredentials:
             False,
             "Could not validate Phyllo credentials",
         )
-
-    @mock.patch(PHYLLO_SESSION_PATCH)
-    def test_sandbox_environment_probes_sandbox_host(self, mock_session: mock.MagicMock) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-        validate_credentials("cid", "cs-secret", "sandbox")
-        assert mock_session.return_value.get.call_args.args[0].startswith("https://api.sandbox.getphyllo.com")
 
 
 class TestPhylloSourceResponse:

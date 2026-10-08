@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
 from dateutil.parser import isoparse
@@ -55,7 +55,7 @@ class SessionReplaySummaryQuery:
 
 class TestReceiveSummarizedSessionReplays(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
-    @freeze_time("2023-01-04T12:34")
+    @time_machine.travel("2023-01-04T12:34", tick=False)
     def test_session_replay_summaries_can_be_queried(self):
         session_id = "test_session_replay_summaries_can_be_queried-session-id"
 

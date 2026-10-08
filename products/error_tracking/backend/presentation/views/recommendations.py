@@ -1,4 +1,5 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -31,6 +32,17 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
     scope_object_write_actions = ["refresh", "dismiss", "restore"]
     serializer_class = ErrorTrackingRecommendationSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="poll",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="True reads the current state without scheduling a refresh.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # When the frontend is polling for status updates we skip the kick
         # so each poll is a cheap read of the current state.
@@ -43,7 +55,19 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             return self.get_paginated_response(self.get_serializer(page, many=True).data)
         return Response(self.get_serializer(recommendations, many=True).data)
 
-    @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
+    @extend_schema(
+        request=None,
+        responses=ErrorTrackingRecommendationSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="force",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="False skips the recompute when the current result is still fresh. Defaults to true.",
+            )
+        ],
+    )
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, *args, pk=None, **kwargs) -> Response:
         force = request.query_params.get("force", "true").lower() != "false"

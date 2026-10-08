@@ -14,7 +14,7 @@ function addon(): typeof import('@posthog/replay-anonymizer') {
         if (
             typeof loaded.politenessKey !== 'function' ||
             typeof loaded.isPublicHost !== 'function' ||
-            typeof loaded.canonicalizeUrl !== 'function'
+            typeof loaded.tryCanonicalizeUrl !== 'function'
         ) {
             throw new Error('the replay-anonymizer addon is missing the url policy: rebuild index.node')
         }
@@ -24,12 +24,15 @@ function addon(): typeof import('@posthog/replay-anonymizer') {
 }
 
 /**
- * Load the addon now, so a stale `index.node` stops the pod at startup.
+ * Load the addon now and run one URL through it, so a stale `index.node` stops the pod at startup.
  *
  * The parser calls into it for every URL. A stale addon must stop the pod before it reads a batch.
  */
 export function assertUrlPolicyLoaded(): void {
-    addon()
+    const verdict = addon().tryCanonicalizeUrl('https://example.com/probe.png')
+    if (!verdict.ok) {
+        throw new Error(`the replay-anonymizer addon refused a plain URL (${verdict.decline}): rebuild index.node`)
+    }
 }
 
 export function politenessKey(host: string): string {
@@ -49,4 +52,8 @@ export function isPublicHost(host: string): boolean {
 
 export function canonicalizeUrl(url: string): import('@posthog/replay-anonymizer').CanonicalUrl | null {
     return addon().canonicalizeUrl(url)
+}
+
+export function tryCanonicalizeUrl(url: string): import('@posthog/replay-anonymizer').UrlPolicyVerdict {
+    return addon().tryCanonicalizeUrl(url)
 }

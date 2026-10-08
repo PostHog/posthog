@@ -16,6 +16,13 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-kmp': 'Kotlin Multiplatform',
     'posthog-dotnet': '.NET',
     'posthog-elixir': 'Elixir',
+    'posthog-unity': 'Unity',
+    'posthog-node-mcp': 'Node.js MCP',
+    'posthog-python-mcp': 'Python MCP',
+    'posthog-edge': 'Edge',
+    'posthog-convex': 'Convex',
+    'posthog-rails': 'Ruby on Rails',
+    'posthog-aspnetcore': 'ASP.NET Core',
 }
 
 export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
@@ -36,7 +43,7 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
         docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-server': {
-        releases: 'https://github.com/PostHog/posthog-android/releases?q=server-v',
+        releases: 'https://github.com/PostHog/posthog-android/releases',
         docs: 'https://posthog.com/docs/libraries/java',
     },
     'posthog-node': {
@@ -69,7 +76,7 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     },
     'posthog-kmp': {
         releases: 'https://github.com/PostHog/posthog-kmp/releases',
-        docs: 'https://github.com/PostHog/posthog-kmp',
+        docs: 'https://posthog.com/docs/libraries/kmp',
     },
     'posthog-dotnet': {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
@@ -78,5 +85,33 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-elixir': {
         releases: 'https://github.com/PostHog/posthog-elixir/releases',
         docs: 'https://posthog.com/docs/libraries/elixir',
+    },
+    'posthog-unity': {
+        releases: 'https://github.com/PostHog/posthog-unity/releases',
+        docs: 'https://posthog.com/docs/libraries/unity',
+    },
+    'posthog-node-mcp': {
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/mcp/CHANGELOG.md',
+        docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-python-mcp': {
+        releases: 'https://github.com/PostHog/posthog-python/releases',
+        docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-edge': {
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/node/CHANGELOG.md',
+        docs: 'https://posthog.com/docs/libraries/node',
+    },
+    'posthog-convex': {
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/convex/CHANGELOG.md',
+        docs: 'https://posthog.com/docs/libraries/convex',
+    },
+    'posthog-rails': {
+        releases: 'https://github.com/PostHog/posthog-ruby/releases',
+        docs: 'https://posthog.com/docs/libraries/ruby-on-rails',
+    },
+    'posthog-aspnetcore': {
+        releases: 'https://github.com/PostHog/posthog-dotnet/releases',
+        docs: 'https://posthog.com/docs/libraries/dotnet',
     },
 }

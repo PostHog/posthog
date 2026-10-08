@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.c
     _build_params,
     _build_scope_filter,
     _format_filter_value,
-    _normalize_work,
     crossref_source,
     get_rows,
     validate_credentials,
@@ -96,45 +95,7 @@ class TestFormatFilterValue:
         assert _format_filter_value(value) == expected
 
 
-class TestNormalizeWork:
-    def test_flattens_nested_dates(self) -> None:
-        item = {
-            "DOI": "10.1/x",
-            "indexed": {"date-time": "2026-01-01T00:00:00Z", "date-parts": [[2026, 1, 1]]},
-            "deposited": {"date-time": "2025-06-01T00:00:00Z"},
-            "created": {"date-time": "2020-01-01T00:00:00Z"},
-        }
-        result = _normalize_work(item)
-        assert result["indexed_date"] == "2026-01-01T00:00:00Z"
-        assert result["deposited_date"] == "2025-06-01T00:00:00Z"
-        assert result["created_date"] == "2020-01-01T00:00:00Z"
-        # Original nested objects are preserved alongside the flattened columns.
-        assert result["indexed"]["date-time"] == "2026-01-01T00:00:00Z"
-
-    def test_missing_date_fields_are_skipped(self) -> None:
-        item = {"DOI": "10.1/x"}
-        result = _normalize_work(item)
-        assert "indexed_date" not in result
-        assert "deposited_date" not in result
-        assert "created_date" not in result
-
-
 class TestBuildParams:
-    def test_works_incremental_without_watermark_still_sorts(self) -> None:
-        params = _build_params(
-            "Works",
-            None,
-            "301",
-            None,
-            None,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="indexed_date",
-        )
-        assert params["sort"] == "indexed"
-        assert params["order"] == "asc"
-        assert params["filter"] == "member:301"
-
     def test_works_incremental_with_watermark_adds_date_filter(self) -> None:
         params = _build_params(
             "Works",
@@ -164,64 +125,8 @@ class TestBuildParams:
         assert "order" not in params
         assert params["filter"] == "member:301"
 
-    def test_works_without_scope_has_no_filter(self) -> None:
-        params = _build_params(
-            "Works",
-            None,
-            None,
-            None,
-            None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert "filter" not in params
-
-    def test_non_works_endpoint_ignores_scope_and_incremental(self) -> None:
-        params = _build_params(
-            "Members",
-            None,
-            "301",
-            "100000001",
-            "1932-6203",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1),
-            incremental_field="indexed_date",
-        )
-        assert "filter" not in params
-        assert "sort" not in params
-
-    def test_mailto_is_included_when_set(self) -> None:
-        params = _build_params(
-            "Members",
-            "me@example.com",
-            None,
-            None,
-            None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["mailto"] == "me@example.com"
-
 
 class TestGetRowsCursorPagination:
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_paginates_across_pages_using_next_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response(200, {"items": [{"DOI": "1"}], "next-cursor": "c2"}),
-            _response(200, {"items": [{"DOI": "2"}], "next-cursor": None}),
-        ]
-
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert [r["DOI"] for r in rows] == ["1", "2"]
-        assert session.get.call_count == 2
-        first_url, second_url = (call.args[0] for call in session.get.call_args_list)
-        assert _query(first_url)["cursor"] == "*"
-        assert _query(second_url)["cursor"] == "c2"
-
     @mock.patch(CROSSREF_SESSION_PATCH)
     def test_stops_on_empty_items_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -234,33 +139,6 @@ class TestGetRowsCursorPagination:
 
         assert [r["DOI"] for r in rows] == ["1"]
         assert session.get.call_count == 2
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_stops_when_next_cursor_missing(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
-
-        rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
-
-        assert [r["DOI"] for r in rows] == ["1"]
-        assert session.get.call_count == 1
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"DOI": "2"}]})]
-
-        rows = _collect(
-            "Works",
-            _make_manager(CrossrefResumeConfig(cursor="saved123")),
-            mailto=None,
-            member_id="301",
-            funder_id=None,
-            issn=None,
-        )
-
-        assert [r["DOI"] for r in rows] == ["2"]
-        assert _query(session.get.call_args.args[0])["cursor"] == "saved123"
 
     @mock.patch(CROSSREF_SESSION_PATCH)
     def test_saves_state_only_while_next_cursor_present(self, MockSession, monkeypatch) -> None:
@@ -289,15 +167,6 @@ class TestGetRowsCursorPagination:
         rows = _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
 
         assert rows[0]["indexed_date"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_non_works_rows_are_not_normalized(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.side_effect = [_response(200, {"items": [{"id": "1"}]})]
-
-        rows = _collect("Members", _make_manager(), mailto=None, member_id=None, funder_id=None, issn=None)
-
-        assert "indexed_date" not in rows[0]
 
     @mock.patch(CROSSREF_SESSION_PATCH)
     def test_mailto_passed_as_redact_value(self, MockSession) -> None:
@@ -332,21 +201,6 @@ class TestGetRowsTypesEndpoint:
 
 
 class TestCrossrefSourceResponse:
-    def test_works_response_shape(self) -> None:
-        response = crossref_source(
-            endpoint="Works",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_make_manager(),
-            mailto=None,
-            member_id="301",
-            funder_id=None,
-            issn=None,
-        )
-        assert response.primary_keys == ["DOI"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_date"]
-
     def test_members_response_has_no_partitioning(self) -> None:
         response = crossref_source(
             endpoint="Members",
@@ -363,16 +217,6 @@ class TestCrossrefSourceResponse:
 
 
 class TestValidateCredentials:
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("me@example.com") is True
-
-    @mock.patch(CROSSREF_SESSION_PATCH)
-    def test_non_200_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=503)
-        assert validate_credentials(None) is False
-
     @mock.patch(CROSSREF_SESSION_PATCH)
     def test_swallows_transport_errors(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")

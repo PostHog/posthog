@@ -173,20 +173,28 @@ def open_sandbox_session(
 
 
 def _elapsed_seconds(start: datetime | None, end: datetime) -> float | None:
-    return None if start is None else round((end - start).total_seconds(), 1)
+    return None if start is None else round(max((end - start).total_seconds(), 0.0), 1)
+
+
+def _effective_session_end(sandbox_session: SandboxSession, ended_at: datetime) -> datetime:
+    if sandbox_session.sandbox_backend == "hogland":
+        return ended_at
+    return min(ended_at, sandbox_session.ttl_expires_at)
 
 
 def _capture_sandbox_session_closed(
     task_run: TaskRun, sandbox_session: SandboxSession, *, reason: str, ended_at: datetime
 ) -> None:
+    effective_end = _effective_session_end(sandbox_session, ended_at)
     task_run.capture_event(
         "sandbox_session_closed",
         {
             "sandbox_id": sandbox_session.sandbox_id,
             "ended_reason": reason,
-            "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, ended_at),
-            "attributed_seconds": _elapsed_seconds(sandbox_session.user_attributed_at, ended_at),
-            "idle_seconds": _elapsed_seconds(sandbox_session.last_user_activity_at, ended_at),
+            "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, effective_end),
+            "attributed_seconds": _elapsed_seconds(sandbox_session.user_attributed_at, effective_end),
+            "idle_seconds": _elapsed_seconds(sandbox_session.last_user_activity_at, effective_end),
+            "close_stamp_lag_seconds": round((ended_at - effective_end).total_seconds(), 1),
             "prewarmed": sandbox_session.prewarmed,
             "vm_runtime": sandbox_session.vm_runtime,
         },

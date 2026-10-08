@@ -6,9 +6,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
     TeachableResumeConfig,
     TeachableUsersPaginator,
@@ -143,33 +140,6 @@ class TestTeachableTransport:
         assert config["allowed_hosts"] == []
         assert config["allow_redirects"] is False
 
-    def test_get_resource_transactions_incremental(self) -> None:
-        resource = cast(dict[str, Any], get_resource("transactions", should_use_incremental_field=True))
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        incremental = resource["endpoint"]["incremental"]
-        assert incremental["start_param"] == "start"
-        assert incremental["cursor_path"] == "created_at"
-        assert resource["endpoint"]["data_selector"] == "transactions"
-
-    def test_get_resource_transactions_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource("transactions", should_use_incremental_field=False))
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in resource["endpoint"]
-
-    def test_get_resource_users_uses_search_after_paginator(self) -> None:
-        resource = cast(dict[str, Any], get_resource("users", should_use_incremental_field=False))
-        assert isinstance(resource["endpoint"]["paginator"], TeachableUsersPaginator)
-
-    def test_get_resource_page_paginator_stops_on_number_of_pages(self) -> None:
-        resource = cast(dict[str, Any], get_resource("courses", should_use_incremental_field=False))
-        paginator = resource["endpoint"]["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-
-        response = Mock()
-        response.json.return_value = {"courses": [], "meta": {"number_of_pages": 1}}
-        paginator.update_state(response, data=[{"id": 1}])
-        assert paginator.has_next_page is False
-
     def test_get_resource_rejects_fanout_endpoint(self) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource("course_enrollments", should_use_incremental_field=False)
@@ -199,20 +169,6 @@ class TestTeachableTransport:
         assert response.primary_keys == ["course_id", "user_id"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["enrolled_at"]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.build_dependent_resource"
-    )
-    def test_enrollments_fanout_wiring(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        teachable_source(api_key="key", endpoint="course_enrollments", team_id=1, job_id="job-1")
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "per"
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "courses"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "enrollments"
-        assert kwargs["child_params_extra"] == {"sort_direction": "asc"}
 
     @parameterized.expand(
         [

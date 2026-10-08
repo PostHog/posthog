@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from products.managed_warehouse.backend import client
 from products.managed_warehouse.backend.facade.contracts import (
@@ -47,8 +48,10 @@ if TYPE_CHECKING:
         TrinoCompiledQuery,
     )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
+    from products.managed_warehouse.backend.trino_compiler import PreparedTrinoCompiler
 
 __all__ = [
+    "request_model_alias_reconciliation",
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
@@ -57,8 +60,11 @@ __all__ = [
     "connect_managed_warehouse_trino",
     "execute_ducklake_create_table",
     "execute_ducklake_query",
+    "execute_trino_shadow_materialization",
+    "execute_trino_model",
     "make_duckgres_conninfo",
     "mint_service_credential",
+    "prepare_hogql_to_trino_compiler",
     "refresh_service_credential",
     "resolve_managed_warehouse_trino_connection",
 ]
@@ -78,6 +84,25 @@ def connect_managed_warehouse_trino(organization_id: str) -> AbstractContextMana
     )
 
     return _connect_managed_warehouse_trino(organization_id)
+
+
+def execute_trino_shadow_materialization(
+    *,
+    organization_id: str,
+    team_id: int,
+    saved_query_id: str | UUID,
+    source_query: object,
+) -> DuckLakeTableResult:
+    from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
+        execute_trino_shadow_materialization as execute_shadow,
+    )
+
+    return execute_shadow(
+        organization_id=organization_id,
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        source_query=source_query,
+    )
 
 
 def compile_hogql_to_trino_sql(
@@ -103,6 +128,23 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         include_hogql=include_hogql,
         expansion_mode=expansion_mode,
+        catalog_manifest=catalog_manifest,
+    )
+
+
+def prepare_hogql_to_trino_compiler(
+    team_id: int,
+    *,
+    team: Team | None = None,
+    catalog_manifest: TrinoCatalogManifest | None = None,
+) -> PreparedTrinoCompiler:
+    from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keep the optional compiler off startup paths
+        prepare_hogql_to_trino_compiler as _prepare_hogql_to_trino_compiler,
+    )
+
+    return _prepare_hogql_to_trino_compiler(
+        team_id,
+        team=team,
         catalog_manifest=catalog_manifest,
     )
 
@@ -178,4 +220,31 @@ def execute_ducklake_create_table(
         values,
         organization_id=organization_id,
         s3_secrets=s3_secrets,
+    )
+
+
+async def request_model_alias_reconciliation(team_id: int, saved_query_id: str | None = None) -> None:
+    from products.managed_warehouse.backend.model_alias_dispatch import request_model_alias_reconciliation as request
+
+    await request(team_id, saved_query_id)
+
+
+async def execute_trino_model(
+    *, organization_id: str, team_id: int, saved_query_id: str | UUID, source_query: object
+) -> DuckLakeTableResult:
+    from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
+        run_trino_model,
+    )
+    from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
+        execute_trino_shadow_materialization,
+    )
+
+    return await run_trino_model(
+        lambda control: execute_trino_shadow_materialization(
+            organization_id=organization_id,
+            team_id=team_id,
+            saved_query_id=saved_query_id,
+            source_query=source_query,
+            control=control,
+        ),
     )

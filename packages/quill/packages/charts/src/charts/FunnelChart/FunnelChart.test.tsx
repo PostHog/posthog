@@ -130,6 +130,47 @@ describe('FunnelChart', () => {
         expect(chart.xTicks()).toHaveLength(0)
     })
 
+    it('never asks for a step footer past the current step count when a shorter funnel replaces a longer one', async () => {
+        const THREE_STEPS = ['Exposure', 'Add to cart', 'Purchase']
+        const requested: number[] = []
+        const { rerender } = renderHogChart(
+            <FunnelChart
+                steps={THREE_STEPS}
+                series={[{ key: 'all', label: 'All', data: [100, 60, 20] }]}
+                theme={THEME}
+                stepFooter={(stepIndex) => {
+                    requested.push(stepIndex)
+                    return <span>{stepIndex}</span>
+                }}
+            />
+        )
+        await waitFor(() => {
+            expect(document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')).toHaveLength(
+                THREE_STEPS.length
+            )
+        })
+
+        requested.length = 0
+        rerender(
+            <FunnelChart
+                steps={STEPS}
+                series={SERIES}
+                theme={THEME}
+                stepFooter={(stepIndex) => {
+                    requested.push(stepIndex)
+                    return <span>{stepIndex}</span>
+                }}
+            />
+        )
+        await waitFor(() => {
+            expect(document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')).toHaveLength(STEPS.length)
+        })
+
+        // The measured bands arrive a render late, so without clamping the first commit after this
+        // rerender asks for index 2 while the consumer only holds data for two steps.
+        expect(Math.max(...requested)).toBeLessThan(STEPS.length)
+    })
+
     it('floors the chart region height with chartMinHeight so a tall footer cannot collapse the canvas', async () => {
         renderHogChart(
             <FunnelChart

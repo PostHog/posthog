@@ -54,9 +54,11 @@ services:
     objectstorage-azure:
         profiles: [azure]
 
-    # Coordination - etcd for PersonHog and Kafka partition assignment
+    # Coordination - etcd for PersonHog and Kafka partition assignment.
+    # Also in the ingestion profile: the personhog services there depend on
+    # it as service_healthy, so an ingestion-profile run must bring it up.
     etcd:
-        profiles: [etcd]
+        profiles: [etcd, ingestion]
 
     # DuckDB query server
     duckgres:

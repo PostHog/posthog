@@ -9,7 +9,8 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # - "single": one request, the whole collection comes back in a wrapper object.
 # - "folders_tree": single request returning a nested folder tree we flatten into rows.
 # - "events_window": audit log capped at 7-day windows, walked one week at a time.
-PaginationStyle = Literal["page", "offset", "single", "folders_tree", "events_window"]
+# - "agreement_fanout": one request per agreement, walking the agreements list as the parent.
+PaginationStyle = Literal["page", "offset", "single", "folders_tree", "events_window", "agreement_fanout"]
 
 # Concord returns the full agreement list only when at least one stage filter is supplied, so we
 # request every documented stage. Keeping this explicit (rather than relying on a default) means a
@@ -33,7 +34,7 @@ AGREEMENT_STATUSES = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ConcordEndpointConfig:
     name: str
     path: str  # may contain a `{organization_id}` placeholder
@@ -65,6 +66,12 @@ class ConcordEndpointConfig:
     requires_admin: bool = False
     # Limit the first sync of an unbounded append-only resource to the last N days.
     default_lookback_days: Optional[int] = None
+    # Extra query params a per-agreement child request always needs (e.g. the required `type` on
+    # /activities). Only read by "agreement_fanout" endpoints.
+    fanout_params: dict[str, str] = field(default_factory=dict)
+    # A per-agreement endpoint answering with one object describing the agreement rather than a
+    # collection, so it yields a single row keyed on the parent agreement.
+    single_object_child: bool = False
     description: Optional[str] = None
 
 
@@ -185,6 +192,100 @@ CONCORD_ENDPOINTS: dict[str, ConcordEndpointConfig] = {
         requires_admin=True,
         default_lookback_days=365,
         description="Organization audit log. Requires the Administrator role. Append only.",
+    ),
+    "agreement_activities": ConcordEndpointConfig(
+        name="agreement_activities",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/activities",
+        pagination="agreement_fanout",
+        data_selector="activities",
+        # Activity ids are only documented as unique within their agreement, so key on the parent too.
+        primary_keys=["agreement_uuid", "id"],
+        partition_key="createdAt",
+        # `type` is a required query param. AUDIT is the action timeline (viewed, signed, approved);
+        # CHAT is the negotiation message thread, which is a different resource.
+        fanout_params={"type": "AUDIT"},
+        should_sync_default=False,
+        description="Per-agreement audit timeline (viewed, signed, approved). One request per agreement, so it is off by default.",
+    ),
+    "agreement_members": ConcordEndpointConfig(
+        name="agreement_members",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/members",
+        pagination="agreement_fanout",
+        # The response body is itself the array, with no wrapper key.
+        data_selector=None,
+        # Rows mix active users with pending and delayed invitations; `status` separates the id
+        # spaces `member_id` draws from, so all three parts are needed to stay unique.
+        primary_keys=["agreement_uuid", "status", "member_id"],
+        should_sync_default=False,
+        description="Who has access to each agreement, with their permission and signer status. One request per agreement, so it is off by default.",
+    ),
+    "agreement_fields": ConcordEndpointConfig(
+        name="agreement_fields",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/summary/fields",
+        pagination="agreement_fanout",
+        data_selector="fields",
+        primary_keys=["agreement_uuid", "id"],
+        should_sync_default=False,
+        description="Smart fields captured on each agreement, such as contract value or renewal date. One request per agreement, so it is off by default.",
+    ),
+    "agreement_clauses": ConcordEndpointConfig(
+        name="agreement_clauses",
+        # Concord has no GET for /summary/clauses — the clause instances are only listed inside the
+        # agreement summary, so both clause tables read it and select a different array.
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/summary",
+        pagination="agreement_fanout",
+        data_selector="clauses",
+        primary_keys=["agreement_uuid", "id"],
+        should_sync_default=False,
+        description="Clause instances on each agreement, joining agreements to the organization clause library. One request per agreement, so it is off by default.",
+    ),
+    "agreement_endclauses": ConcordEndpointConfig(
+        name="agreement_endclauses",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/summary",
+        pagination="agreement_fanout",
+        data_selector="endclauses",
+        primary_keys=["agreement_uuid", "id"],
+        should_sync_default=False,
+        description="Renewal and termination clauses on each agreement, with notice periods and auto-renewal terms. One request per agreement, so it is off by default.",
+    ),
+    "agreement_approval": ConcordEndpointConfig(
+        name="agreement_approval",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/approval",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Approval workflow on each agreement, with its rules and current status. Joins agreements to the organization approvals library. One request per agreement, so it is off by default.",
+    ),
+    "agreement_signature": ConcordEndpointConfig(
+        name="agreement_signature",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/signature",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Signature setup and slots on each agreement, including who signed and when. One request per agreement, so it is off by default.",
+    ),
+    "agreement_versions": ConcordEndpointConfig(
+        name="agreement_versions",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/versions",
+        pagination="agreement_fanout",
+        # The response body is itself the array, with no wrapper key.
+        data_selector=None,
+        # Version ids are document ids, only documented as unique within their agreement.
+        primary_keys=["agreement_uuid", "id"],
+        partition_key="date",
+        should_sync_default=False,
+        description="Version history of each agreement, for redline and negotiation cycle analysis. One request per agreement, so it is off by default.",
+    ),
+    "agreement_metadata": ConcordEndpointConfig(
+        name="agreement_metadata",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/metadata",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Metadata on each agreement, such as its tags, track-changes setting and negotiation origin. One request per agreement, so it is off by default.",
     ),
 }
 

@@ -36,14 +36,16 @@ import {
     type LogRecordsTransform,
     bufferProcessingMode,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
-import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
@@ -83,7 +85,7 @@ export interface LogsIngestionConsumerDeps {
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+/** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 /** Retention day counts that get their own per-tier usage metric. */
@@ -347,6 +349,14 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    // Record source this consumer tallies metric rules for. `appSource` is the
+    // billing/telemetry identity ('logs' | 'traces'); metric rules are tagged with the
+    // record source ('logs' | 'spans') instead, so map between the two explicitly
+    // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
+    protected metricRuleSource: MetricRuleSource = 'logs'
+    // Record source this consumer evaluates retention rules for. Same vocabulary as
+    // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
+    protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -362,6 +372,8 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly jsonAttributeParsingEnabledTeamsRaw: string
+    private readonly jsonAttributeExtractionEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -413,6 +425,8 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
+        this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -428,6 +442,14 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * The team's default retention period, applied to records no rule matches and sent as the
+     * batch `retention-days` Kafka header. Traces override this to read their own setting.
+     */
+    protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
+        return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -521,7 +543,7 @@ export class LogsIngestionConsumer {
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
         if (retentionCache && retentionEvalEnabled) {
-            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
@@ -537,7 +559,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            const defaultRetentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         }
 
@@ -812,7 +834,10 @@ export class LogsIngestionConsumer {
         if (!state) {
             let rules: CompiledMetricRule[]
             try {
-                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                // Each consumer tallies only its own record source: the logs consumer runs
+                // `logs` rules, the traces consumer runs `spans` rules.
+                rules = all.filter((r) => r.source === this.metricRuleSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —
@@ -898,7 +923,9 @@ export class LogsIngestionConsumer {
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
                         // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
@@ -912,10 +939,27 @@ export class LogsIngestionConsumer {
                         }
 
                         const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
-                        const onRecordsDecoded = metricRuleState
-                            ? (records: LogRecord[]) =>
-                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
-                            : undefined
+                        const jsonAttributeKey =
+                            this.appSource === 'logs' &&
+                            teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
+                                ? logsSettings.json_parse_logs_attribute_key
+                                : undefined
+                        const onRecordsDecoded =
+                            metricRuleState || jsonAttributeKey
+                                ? (records: LogRecord[]) => {
+                                      if (metricRuleState) {
+                                          tallyRecords(
+                                              metricRuleState.rules,
+                                              records,
+                                              metricRuleState.tallies,
+                                              Date.now()
+                                          )
+                                      }
+                                      if (jsonAttributeKey) {
+                                          sniffJsonLogAttributes(records, jsonAttributeKey, message.teamId)
+                                      }
+                                  }
+                                : undefined
 
                         const resolved = await instrumentFn(
                             {
@@ -930,7 +974,17 @@ export class LogsIngestionConsumer {
                             async () =>
                                 this.resolveLogMessageBufferWithOptionalSampling(
                                     message,
-                                    logsSettings,
+                                    {
+                                        ...logsSettings,
+                                        json_parse_logs_attribute_key:
+                                            this.appSource === 'logs' &&
+                                            teamIdMatchesCsv(
+                                                this.jsonAttributeExtractionEnabledTeamsRaw,
+                                                message.teamId
+                                            )
+                                                ? logsSettings.json_parse_logs_attribute_key
+                                                : undefined,
+                                    },
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )
@@ -1032,6 +1086,10 @@ export class LogsIngestionConsumer {
                                         team_id: message.teamId.toString(),
                                         'json-parse': jsonParse.toString(),
                                         'retention-days': retentionDays.toString(),
+                                        // The ingestion lag checkpoint needs the source partition, because
+                                        // both topics use random partitioning.
+                                        source_topic: message.message.topic,
+                                        source_partition: message.message.partition.toString(),
                                         ...(bytesUncompressedHeaderOverride !== undefined
                                             ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
                                             : {}),
@@ -1167,11 +1225,14 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by retention days. Summed over a period it is total
-            // storage-duration and scales to any retention day count (average retention =
-            // retention_byte_days / bytes_ingested). Uses credit-adjusted `bytesAllowed` to reconcile
-            // with `bytes_ingested`. Runs beside the per-tier metric above until billing leaves fixed tiers.
-            this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
+            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
+            // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
+            // leaves fixed tiers.
+            if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
+                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+            }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing

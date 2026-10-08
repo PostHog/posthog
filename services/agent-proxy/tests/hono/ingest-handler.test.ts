@@ -74,7 +74,8 @@ class FakeRedis {
         return entry.value
     }
 
-    async set(key: string, value: string, ...args: (string | number)[]): Promise<'OK'> {
+    async set(key: string, value: string, ...args: (string | number)[]): Promise<string | null> {
+        const previous = await this.get(key)
         let ttl: number | null = null
         let nx = false
         for (let i = 0; i < args.length; i++) {
@@ -99,7 +100,7 @@ class FakeRedis {
             value,
             expireAt: ttl !== null ? Date.now() + ttl * 1000 : null,
         })
-        return 'OK'
+        return args.includes('GET') ? previous : 'OK'
     }
 
     // Real ioredis returns null when SET NX fails. Override for that contract.
@@ -196,7 +197,7 @@ FakeRedis.prototype.set = async function (
     key: string,
     value: string,
     ...args: (string | number)[]
-): Promise<'OK' | null> {
+): Promise<string | null> {
     let nx = false
     for (const arg of args) {
         if (typeof arg === 'string' && arg.toUpperCase() === 'NX') {
@@ -579,6 +580,154 @@ describe('ingest-handler', () => {
         expect(body.accepted).toBe(0)
         expect(body.duplicate).toBe(1)
         expect(body.last_accepted_seq).toBe(1)
+    })
+
+    it('sends budget steers through the authenticated callback on accepted and replayed events', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({
+                djangoCallbackBaseUrl: 'http://django.example.com',
+                agentProxyCallbackSecret: 'proxy-secret',
+            })
+            const event = {
+                type: 'notification',
+                timestamp: '2026-01-01T00:00:06.000Z',
+                notification: {
+                    method: '_posthog/budget_steer',
+                    params: {
+                        stage: 'critical',
+                        mode: 'publish',
+                        delivered: true,
+                        spent_usd: 7,
+                        cap_usd: 10,
+                        threshold_spent_usd: 6.5,
+                        threshold_at: '2026-01-01T00:00:00.000Z',
+                        delivered_at: '2026-01-01T00:00:05.000Z',
+                        team_id: 999,
+                        secret: 'not-for-analytics',
+                    },
+                },
+            }
+            const body = makeStringBody(JSON.stringify({ seq: 1, event }) + '\n')
+            const first = await handleIngest(
+                makeContext({ body }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+            expect(first.status).toBe(200)
+            const retry = await handleIngest(
+                makeContext({ body: makeStringBody(JSON.stringify({ seq: 1, event }) + '\n') }),
+                fakeRedis as unknown as Redis,
+                config,
+                [] as CryptoKey[]
+            )
+            expect(await decodeJson(retry)).toMatchObject({ accepted: 0, duplicate: 1 })
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2))
+            const [url, request] = callback.mock.calls[0]!
+            expect(url).toBe('http://django.example.com/internal/tasks/runs/run-123/agent-proxy-callback/')
+            expect(request?.headers).toMatchObject({
+                Authorization: 'Bearer test-token',
+                'X-Agent-Proxy-Secret': 'proxy-secret',
+            })
+            expect(JSON.parse(String(request?.body))).toMatchObject({
+                kind: 'budget_steer',
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                timestamp: '2026-01-01T00:00:06.000Z',
+                stage: 'critical',
+                mode: 'publish',
+                delivered: true,
+                threshold_spent_usd: 6.5,
+                threshold_at: '2026-01-01T00:00:00.000Z',
+                delivered_at: '2026-01-01T00:00:05.000Z',
+            })
+            expect(String(request?.body)).not.toContain('not-for-analytics')
+            expect(callback.mock.calls[1]![1]?.body).toBe(request?.body)
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('forwards a process kill once, without the command line', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' })
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: '_posthog/process_killed',
+                    params: {
+                        pid: 443,
+                        comm: 'bash',
+                        signal: 'SIGTERM',
+                        treeRssBytes: 12_884_901_888,
+                        memoryCurrentBytes: 14_698_577_920,
+                        memoryLimitBytes: 17_179_869_184,
+                        cmdline: ['bash', '-c', 'deploy --token not-for-analytics'],
+                    },
+                },
+            }
+            const line = JSON.stringify({ seq: 1, event }) + '\n'
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const response = await handleIngest(
+                    makeContext({ body: makeStringBody(line) }),
+                    fakeRedis as unknown as Redis,
+                    config,
+                    [] as CryptoKey[]
+                )
+                expect(response.status).toBe(200)
+            }
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1))
+            const request = callback.mock.calls[0]![1]
+            expect(JSON.parse(String(request?.body))).toMatchObject({
+                kind: 'process_killed',
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                process_killed: {
+                    comm: 'bash',
+                    signal: 'SIGTERM',
+                    tree_rss_bytes: 12_884_901_888,
+                    memory_current_bytes: 14_698_577_920,
+                    memory_limit_bytes: 17_179_869_184,
+                },
+            })
+            expect(String(request?.body)).not.toContain('not-for-analytics')
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('retries a budget steer callback after a temporary capture failure', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(new Response('', { status: 503 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: '_posthog/budget_steer',
+                    params: { stage: 'warn', mode: 'publish', delivered: true, spent_usd: 5, cap_usd: 10 },
+                },
+            }
+            const response = await handleIngest(
+                makeContext({ body: makeStringBody(JSON.stringify({ seq: 1, event }) + '\n') }),
+                fakeRedis as unknown as Redis,
+                makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' }),
+                [] as CryptoKey[]
+            )
+            expect(response.status).toBe(200)
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2), { timeout: 3000 })
+        } finally {
+            callback.mockRestore()
+        }
     })
 
     it('mixes accepted and duplicate when some events are re-sent', async () => {
@@ -1065,7 +1214,11 @@ describe('ingest-handler', () => {
     // Side effects: turn-complete
     // -----------------------------------------------------------------------
 
-    it('sets agent inactive and fires awaiting_input callback on turn-complete event', async () => {
+    it.each([
+        ['omitted', {}, true],
+        ['completed', { stopReason: 'end_turn' }, true],
+        ['idle_resume', { stopReason: 'idle_resume' }, false],
+    ])('sets agent inactive and reports completion for %s turn-complete', async (_name, params, turnCompleted) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1078,8 +1231,9 @@ describe('ingest-handler', () => {
 
         const turnCompleteEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/turn_complete', params },
         }
+        await redisStream.setAgentActive(true)
         const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
@@ -1094,7 +1248,11 @@ describe('ingest-handler', () => {
 
         const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
         expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'awaiting_input', agent_active: false })
+        expect(callbackCall?.body).toMatchObject({
+            kind: 'awaiting_input',
+            agent_active: false,
+            turn_completed: turnCompleted,
+        })
 
         global.fetch = originalFetch
     })
@@ -1329,7 +1487,46 @@ describe('ingest-handler', () => {
     // -----------------------------------------------------------------------
 
     describe('heartbeatWorkflowIfNeeded', () => {
-        it('sets agent inactive and fires awaiting_input for a turn-complete event', async () => {
+        it.each([
+            [
+                'an end_turn turn-complete event',
+                {
+                    type: 'notification',
+                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
+                },
+                true,
+            ],
+            [
+                'a turn-complete event without end_turn',
+                { type: 'notification', notification: { method: '_posthog/turn_complete' } },
+                false,
+            ],
+        ])('sets agent inactive and fires awaiting_input for %s', async (_label, event, expectedSucceeded) => {
+            const fired: { kind: string; turn_succeeded?: boolean }[] = []
+            const originalFetch = global.fetch
+            global.fetch = vi.fn(async (_, init) => {
+                fired.push(JSON.parse(String((init as RequestInit).body)))
+                return new Response('', { status: 200 })
+            }) as typeof fetch
+
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await new Promise((r) => setTimeout(r, 0))
+            expect(fired.find((f) => f.kind === 'awaiting_input')?.turn_succeeded).toBe(expectedSucceeded)
+
+            global.fetch = originalFetch
+        })
+
+        it.each([
+            ['a normal pi turn_completed', { type: 'pi_event', event: { type: 'turn_completed' } }, 'awaiting_input'],
+            [
+                'a pi turn_completed with stopReason "error"',
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                'turn_failed',
+            ],
+        ])('fires %s as %s', async (_label, event, expectedKind) => {
             const fired: { kind: string }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
@@ -1338,17 +1535,17 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
 
             expect(await redisStream.getAgentActive()).toBe(false)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'awaiting_input')).toBe(true)
+            expect(fired.some((f) => f.kind === expectedKind)).toBe(true)
 
             global.fetch = originalFetch
         })
 
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
+        const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
         const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
@@ -1356,6 +1553,8 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, 'network failure', networkFailure, 2],
             ['awaiting_input', turnComplete, '503', new Response('', { status: 503 }), 2],
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
+            ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
+            ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(
@@ -1383,8 +1582,13 @@ describe('ingest-handler', () => {
             }
         )
 
-        it('sets agent active and fires heartbeat for a session/update event', async () => {
-            const fired: { kind: string }[] = []
+        it.each([
+            { type: 'notification', notification: { method: 'session/update' } },
+            ...['assistant_message_chunk', 'assistant_thought_chunk', 'tool_call_started', 'tool_call_updated'].map(
+                (type) => ({ type: 'pi_event', event: { type } })
+            ),
+        ])('reports new activity across consecutive turns for %j', async (event) => {
+            const fired: { kind: string; activity_started?: boolean }[] = []
             const originalFetch = global.fetch
             global.fetch = vi.fn(async (_, init) => {
                 fired.push(JSON.parse(String((init as RequestInit).body)))
@@ -1392,12 +1596,23 @@ describe('ingest-handler', () => {
             }) as typeof fetch
 
             const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
-            const event = { type: 'notification', notification: { method: 'session/update' } }
             await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
-
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+            expect(await redisStream.getAgentActive()).toBe(true)
+            await heartbeatWorkflowIfNeeded(
+                redisStream,
+                RUN_ID,
+                { type: 'pi_event', event: { type: 'turn_completed' } },
+                TASK_ID,
+                TEAM_ID,
+                'tok',
+                config
+            )
+            expect(await redisStream.getAgentActive()).toBe(false)
+            await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
             expect(await redisStream.getAgentActive()).toBe(true)
             await new Promise((r) => setTimeout(r, 0))
-            expect(fired.some((f) => f.kind === 'heartbeat')).toBe(true)
+            expect(fired.filter((f) => f.kind === 'heartbeat').map((f) => f.activity_started)).toEqual([true, true])
 
             global.fetch = originalFetch
         })

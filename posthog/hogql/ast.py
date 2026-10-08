@@ -424,10 +424,11 @@ class SelectSetQueryType(Type):
         return self.types[0].resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectViewType(BaseTableType):
     view_name: str
     alias: str
+    table: Table | None = None
     select_query_type: SelectQueryType | SelectSetQueryType
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
@@ -438,6 +439,8 @@ class SelectViewType(BaseTableType):
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
+        if self.table is not None:
+            return self.table
         if context.database is None:
             raise ResolutionError("Database must be set for queries with views")
         return context.database.get_table(self.view_name)

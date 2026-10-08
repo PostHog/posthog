@@ -6,10 +6,12 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     ProviderMismatchError,
     QuotaExceededError,
@@ -134,6 +136,8 @@ class TestUserFacingErrorMessage(SimpleTestCase):
             (QuotaExceededError("insufficient_quota"),),
             (RateLimitError("429"),),
             (ContextWindowExceededError("too long"),),
+            (OutputTokenLimitError("output limit was reached"),),
+            (ContentFilteredError("rejected by the content filter"),),
             (ProviderConnectionError("reset by peer"),),
             (StructuredOutputParseError("bad json"),),
         ]

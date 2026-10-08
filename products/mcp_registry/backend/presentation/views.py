@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_registry.backend.facade import api as registry_api
@@ -46,13 +47,24 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     serializer_class = MCPRegistryServerListSerializer
-    scope_object = "INTERNAL"
+    # A real scope rather than INTERNAL: agents reach this over the MCP server, which
+    # authenticates with a personal API key or an OAuth token, and INTERNAL refuses both.
+    # The feature flag stays the boundary that keeps the index internal.
+    scope_object = "mcp_registry"
+    scope_object_read_actions = ["list", "retrieve", "discover", "versions", "compare", "measured_projects"]
+    scope_object_write_actions: list[str] = []
     posthog_feature_flag = MCP_REGISTRY_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPRegistryPagination
 
     def _caller_is_staff(self) -> bool:
-        return bool(getattr(self.request.user, "is_staff", False))
+        # The staff tier reports across every project, so it must not ride a grantable
+        # credential: a self-registered OAuth client that consents a staff user would
+        # otherwise inherit fleet-wide visibility. Session auth and personal API keys
+        # keep it, because the user mints those themselves.
+        if not getattr(self.request.user, "is_staff", False):
+            return False
+        return not isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication)
 
     def _caller_context(self) -> dict[str, Any]:
         return {"team_id": self.team.id, "caller_is_staff": self._caller_is_staff()}

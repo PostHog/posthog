@@ -118,6 +118,10 @@ Assert skip-index use with `get_index_from_explain` / `get_indexes_from_explain`
 
 Joining `events` (or any large table) to itself doubles the work and loses primary-key ordering. Rewrite to one pass plus conditional aggregation: `sumIf(amount, event='purchase')`, `uniqIf(distinct_id, event='pageview')`, `uniqMapIf(...)`. For correlated rows ("first event before a conversion"), `arrayFilter` / `arrayFirst` / window functions over an ordered `groupArray` beat a self-join. Missing aggregation function? Add it to [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py).
 
+### Filtering rows in Python after the query
+
+Dropping, deduplicating, or re-checking rows in Python after ClickHouse returns them, then over-fetching (or paging again) to refill the page, is not an optimization. It moves the predicate to the slowest layer, makes latency scale with the miss rate instead of the page size, and makes `LIMIT`/`has_next` approximate. The session replay recordings list did this and it became a performance problem. Express the predicate in the query: as a `WHERE`/`HAVING` on the same row, a set-membership `IN` on a key the row carries, or a conditional aggregate. If the query cannot express it without a join the table cannot afford, say so and pick a different design; do not fall back to a Python pass.
+
 ### CTEs
 
 ClickHouse `WITH name AS (SELECT ...)` CTEs are **inlined, not materialized**: referenced twice means executed twice, and nesting multiplies out. Most common cause of "the planner is doing something weird." Until `WITH ... AS MATERIALIZED` ships (check CH release notes), rewrite to a single pass with conditional aggregation, or force one execution via a `FROM` subquery.

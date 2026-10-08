@@ -23,15 +23,27 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
     # Flowlu's API keeps the legacy `lead` entity name for CRM opportunities.
     "leads": FlowluEndpointConfig(name="leads", path="/crm/lead/list"),
     "pipelines": FlowluEndpointConfig(name="pipelines", path="/crm/pipeline/list"),
+    "pipeline_stages": FlowluEndpointConfig(name="pipeline_stages", path="/crm/pipeline_stage/list"),
+    "lead_sources": FlowluEndpointConfig(name="lead_sources", path="/crm/source/list"),
+    # Resolves `closing_status_id` on closed-lost opportunities.
+    "loss_reasons": FlowluEndpointConfig(name="loss_reasons", path="/crm/loss_reason/list"),
     "tasks": FlowluEndpointConfig(name="tasks", path="/task/tasks/list"),
     "projects": FlowluEndpointConfig(name="projects", path="/st/projects/list"),
+    # Flowlu has three separate stage entities; this one is the project stage (`/st/`).
+    "project_stages": FlowluEndpointConfig(name="project_stages", path="/st/stages/list"),
     "invoices": FlowluEndpointConfig(name="invoices", path="/fin/invoice/list"),
+    "invoice_items": FlowluEndpointConfig(name="invoice_items", path="/fin/invoice_item/list"),
     "estimates": FlowluEndpointConfig(name="estimates", path="/fin/estimate/list"),
     "customer_payments": FlowluEndpointConfig(name="customer_payments", path="/fin/customer_payment/list"),
     "transactions": FlowluEndpointConfig(name="transactions", path="/fin/transaction/list"),
+    # The account's own billing entities, resolving `org_id` on invoices, estimates, and transactions.
+    "billing_organizations": FlowluEndpointConfig(name="billing_organizations", path="/fin/organization/list"),
     "agile_issues": FlowluEndpointConfig(name="agile_issues", path="/agile/issues/list"),
     "agile_sprints": FlowluEndpointConfig(name="agile_sprints", path="/agile/sprints/list"),
+    # The agile workflow stage, resolving `workflow_stage_id` on agile issues.
+    "agile_stages": FlowluEndpointConfig(name="agile_stages", path="/agile/stages/list"),
     "timesheets": FlowluEndpointConfig(name="timesheets", path="/timetracker/timesheets/list"),
+    "timelogs": FlowluEndpointConfig(name="timelogs", path="/timetracker/timelogs/list"),
     "products": FlowluEndpointConfig(name="products", path="/products/product/list"),
 }
 

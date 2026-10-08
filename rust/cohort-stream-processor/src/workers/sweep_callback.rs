@@ -41,7 +41,7 @@ pub(crate) struct EvictionResult {
     pub reschedule: Option<i64>,
 }
 
-/// Why the sweep dropped a popped key instead of evicting it.
+/// Why the sweep dropped a claimed key instead of evicting it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SweepDropReason {
     TeamDrift,

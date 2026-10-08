@@ -38,6 +38,7 @@ describe('log-pattern-mask', () => {
             ['ctime without a zone', 'booted Mon Jan 12 03:04:05 2026 ok', 'booted <TIMESTAMP> ok'],
             ['httpdate', 'expires Mon, 02 Jan 2026 03:04:05 GMT now', 'expires <TIMESTAMP> now'],
             ['syslogtime', 'Jan  2 03:04:05 host sshd: accepted', '<TIMESTAMP> host sshd: accepted'],
+            ['id', 'charging cus_Qz4WmTb7Kx9pLr now', 'charging <ID> now'],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
@@ -54,7 +55,13 @@ describe('log-pattern-mask', () => {
             ['ip octets are not eaten by num', 'peer 192.168.0.1:8080 up', 'peer <IP>:<N> up'],
             ['email starting with digits is not mangled by num', '99bottles@example.com sent', '<EMAIL> sent'],
             ['email domain is not claimed by host', 'user@example.com sent', '<EMAIL> sent'],
+            ['email with an id-shaped local part is not split by id', 'john_D2oe@example.com sent', '<EMAIL> sent'],
             ['hex-looking labels are claimed by host, not hex', 'from deadbeefdeadbeef.com now', 'from <HOST> now'],
+            [
+                'a lowercase uuid behind a prefix stays a uuid, because the id rule needs an uppercase letter',
+                'job_0f2d6faf-07e3-4cff-bf47-7efa1024aee2 queued',
+                'job_<UUID> queued',
+            ],
             ['dotted quad stays an ip, not a host', 'from 10.0.0.1 now', 'from <IP> now'],
             ['host in a url masks whole', 'GET https://api.example.io/v2/users', 'GET https://<HOST>/v2/users'],
             [
@@ -128,6 +135,38 @@ describe('log-pattern-mask', () => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
+        it.each([
+            ['a ulid-shaped id', 'claimed org_01ABCDEF23GHJK45MNPQRS67 lease', 'claimed <ID> lease'],
+            [
+                'an id inside a url path',
+                'GET /v1/customers/cus_Vn8QjTz3Rw6Kp2/payment_methods',
+                'GET /v1/customers/<ID>/payment_methods',
+            ],
+            ['a hyphenated id whole', 'span sess_3Ih3uQk-9Xz2 closed', 'span <ID> closed'],
+            [
+                'an uppercase uuid behind a prefix whole, tail included',
+                'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
+                '<ID> started',
+            ],
+        ])('id masks %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        it.each([
+            ['a snake_case word', 'listing push_subscriptions for team', 'listing push_subscriptions for team'],
+            [
+                'a snake_case url path segment',
+                'GET /v1/entitlements/active_entitlements?limit=100',
+                'GET /v1/entitlements/active_entitlements?limit=<N>',
+            ],
+            ['a body of digits only', 'folder team_123456 ready', 'folder team_123456 ready'],
+            ['a body of lowercase and digits', 'repo repo_0a1b2c3d synced', 'repo repo_0a1b2c3d synced'],
+            ['a body of letters but no digit', 'saw ref_QzWmTbKx once', 'saw ref_QzWmTbKx once'],
+            ['a prefix past the cap', 'saw verylongprefix_Zq8xTv2wPn once', 'saw verylongprefix_Zq8xTv2wPn once'],
+        ])('id does not claim %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
         // The hex rule needs a letter, which is what keeps its 8-char floor off plain numbers. Without
         // the letter, every id, epoch, and byte count of 8 or more digits would read as `<HEX>`.
         it.each([
@@ -185,6 +224,7 @@ describe('log-pattern-mask', () => {
                 ctime: 0,
                 httpdate: 0,
                 syslogtime: 0,
+                id: 0,
                 uuid: 0,
                 email: 2,
                 host: 1,
@@ -328,6 +368,7 @@ describe('log-pattern-mask', () => {
             'mail ops@example.com via api.example.com at 10.0.0.7 slot 0xdeadbeef',
             'checksum deadbeefdeadbeef00 verified',
             'built sha a3f9c1d2 from 1724495000',
+            'charging cus_Qz4WmTb7Kx9pLr for org_01ABCDEF23GHJK45MNPQRS67',
             '{"10.0.0.1":1,"10.0.0.2":2}',
             ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
             '{"msg":"loses 2","message":"wins 1"}',
@@ -361,6 +402,7 @@ describe('log-pattern-mask', () => {
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
             4: '357baaab19f622df',
+            5: '130ce70d5eeff09e',
         }
 
         /**
@@ -459,6 +501,11 @@ describe('log-pattern-mask', () => {
             '10.0.0.1 - - [02/Jan/2026:03:04:05 +0000] "GET /v0/export" 200 35',
             'Jan  2 03:04:05 host sshd: accepted from 10.0.0.1',
             'built sha a3f9c1d2 at 1724495000 into deadbeefdeadbeef00',
+            'charging cus_Qz4WmTb7Kx9pLr for user_2KpXr8ZmTq5NvBw7Ld3Cjs',
+            // An uppercase UUID behind a prefix: `id` and `uuid` both match, so the chain must run `id` first.
+            'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
+            // An id-shaped local part: `id` and `email` match at one offset, so the chain must run `email` first.
+            'john_D2oe@example.com sent',
         ]
 
         it.each(corpus.map((line) => [line] as const))('%s', (line) => {

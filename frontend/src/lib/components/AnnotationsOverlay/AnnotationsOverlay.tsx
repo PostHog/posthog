@@ -16,12 +16,13 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
-import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
+
+import { AnnotationModal } from 'products/annotations/frontend/components/AnnotationModal'
+import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
@@ -114,7 +115,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         kind,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
-    const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations } = useValues(logic)
+    const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations, readOnly } = useValues(logic)
     const { closePopover } = useActions(logic)
     const { closeModal } = useActions(annotationModalLogic)
 
@@ -190,7 +191,8 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 }
                 ref={overlayRef}
             >
-                {tickDates.map((date, index) => {
+                {/* Tick badges are only targets for adding an annotation. */}
+                {(readOnly ? [] : tickDates).map((date, index) => {
                     const leftPx = index * tickIntervalPx + firstTickLeftPx - chartAreaLeft
                     // Strict `<` on both sides mirrors the cluster merge criterion so the
                     // suppression zone matches the merge zone exactly (no boundary gap).
@@ -347,7 +349,7 @@ function AnnotationsPopover({
     badgeElement: HTMLButtonElement | null
     cluster: AnnotationBadgeCluster | undefined
 }): JSX.Element {
-    const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps } =
+    const { activeDate, groupingUnit, isDateLocked, insightId, isPopoverShown, annotationsOverlayProps, readOnly } =
         useValues(annotationsOverlayLogic)
     const { closePopover } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -395,15 +397,21 @@ function AnnotationsPopover({
                     inline
                     title={`${pluralize(popoverAnnotations.length, 'annotation')} • ${titleDate}`}
                     footer={
-                        <LemonButton
-                            type="primary"
-                            onClick={() =>
-                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
-                            }
-                            disabled={!isDateLocked}
-                        >
-                            Add annotation
-                        </LemonButton>
+                        readOnly ? undefined : (
+                            <LemonButton
+                                type="primary"
+                                onClick={() =>
+                                    openModalToCreateAnnotation(
+                                        activeDate,
+                                        insightId,
+                                        annotationsOverlayProps.dashboardId
+                                    )
+                                }
+                                disabled={!isDateLocked}
+                            >
+                                Add annotation
+                            </LemonButton>
+                        )
                     }
                     closable={isDateLocked}
                     onClose={closePopover}
@@ -425,7 +433,7 @@ function AnnotationsPopover({
 }
 
 function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Element {
-    const { insightId, timezone, annotationsOverlayProps } = useValues(annotationsOverlayLogic)
+    const { insightId, timezone, annotationsOverlayProps, readOnly } = useValues(annotationsOverlayLogic)
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
@@ -444,7 +452,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     {annotationScopeToName[annotation.scope]}
                     -level
                 </h5>
-                {!isSystemAnnotation && (
+                {!isSystemAnnotation && !readOnly && (
                     <>
                         <LemonButton
                             size="small"

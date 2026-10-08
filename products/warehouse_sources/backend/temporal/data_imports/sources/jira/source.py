@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -52,10 +50,10 @@ class JiraSource(ResumableSource[JiraSourceConfig, JiraResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JIRA,
+            name=ExternalDataSourceType.JIRA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Jira",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Atlassian Jira credentials to pull your Jira data into the PostHog Data warehouse.
 
 Create an API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).

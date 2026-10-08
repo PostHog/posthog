@@ -1,8 +1,9 @@
 import { useActions } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
+
+import { AnnotationModal } from '../components/AnnotationModal'
+import { annotationModalLogic } from '../logics/annotationModalLogic'
 
 /**
  * Create button for the annotations empty state. Annotations are created in a modal

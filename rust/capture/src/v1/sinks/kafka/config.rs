@@ -106,13 +106,13 @@ pub struct Config {
     pub topic_client_ingestion_warning: String,
 
     /// Dedicated topic for `$ai_*` events. Not meant to be set via per-sink
-    /// env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
+    /// env: setup injects the deployment-level `CAPTURE_OUTPUT_AI_MAIN_TOPIC` into
     /// every sink config, overwriting whatever the env parse produced.
     #[envconfig(default = "events_plugin_ingestion_ai")]
     pub topic_ai: String,
 
     /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
-    /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
+    /// setup from the deployment-level `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`; unset
     /// means the pipeline never produces `Destination::AiEventsOverflow`.
     pub topic_ai_overflow: Option<String>,
 }
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn topic_ai_overflow_present_resolves_destination() {
         // Set the field directly, mirroring how setup injects
-        // CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into sink configs after env loading.
+        // CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC into sink configs after env loading.
         let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
         assert_eq!(
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn topic_ai_present_resolves_destination() {
-        // Set the field directly, mirroring how setup injects CAPTURE_ANALYTICS_AI_EVENTS_TOPIC
+        // Set the field directly, mirroring how setup injects CAPTURE_OUTPUT_AI_MAIN_TOPIC
         // into sink configs after env loading.
         let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
         cfg.topic_ai = "ai_events".to_string();

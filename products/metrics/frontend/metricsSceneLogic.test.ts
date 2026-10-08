@@ -12,14 +12,14 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { metricsQueryCreate, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsNamesRetrieve, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 
 import { metricsViewerLogic } from './components/metricsViewerLogic'
 import { metricsSceneLogic } from './metricsSceneLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
 
@@ -57,7 +57,7 @@ describe('metricsSceneLogic', () => {
             },
         } as AppContext
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         logic = metricsSceneLogic()
         logic.mount()

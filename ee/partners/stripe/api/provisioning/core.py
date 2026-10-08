@@ -22,6 +22,7 @@ import structlog
 from posthog.api.authentication import password_reset_token_generator
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -256,6 +257,8 @@ def handle_new_user(
     # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
 
+    # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
+    # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
         organization, team, user = User.objects.bootstrap(
             organization_name=org_name,
@@ -265,7 +268,7 @@ def handle_new_user(
             is_email_verified=False,
         )
     except IntegrityError:
-        existing = User.objects.filter(email=email).first()
+        existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
             capture_provisioning_event("account_request", "race_condition_existing_user", region=region)
             return handle_existing_user(
@@ -382,8 +385,29 @@ def compute_partner_scoped_teams(
         if user_can_access_team(user, team):
             granted.add(team.id)
 
-    # sorted() only for deterministic test assertions and log diffs; scope order is not a correctness requirement
-    return sorted(granted)
+    # The base team must stay at index 0. Refresh passes scoped_teams[0] back in as
+    # base_team_id, and resource creation and deep links default to it.
+    return [base_team_id, *sorted(granted - {base_team_id})]
+
+
+def base_team_id_from_scope(application: OAuthApplication | None, scoped_teams: list[int]) -> int:
+    """Pick the ``base_team_id`` for re-deriving a stored scope.
+
+    Every scoped team except the consent team has a TeamProvisioningConfig row for
+    ``application``, so the first team without one is the consent team. Stored order
+    is not enough on its own, because some stored scopes are sorted by id. When every
+    team is attributed, the base does not change the re-derived set.
+    """
+    if not scoped_teams:
+        return 0
+    if application is None:
+        return scoped_teams[0]
+    attributed = set(
+        TeamProvisioningConfig.objects.filter(application=application, team_id__in=scoped_teams).values_list(
+            "team_id", flat=True
+        )
+    )
+    return next((team_id for team_id in scoped_teams if team_id not in attributed), scoped_teams[0])
 
 
 def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
@@ -406,11 +430,11 @@ def add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> No
 
 
 def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    """Strip ``team_id`` from every access/refresh token for this app+user combo.
+    """Strip ``team_id`` from every access/refresh token this partner holds, for every user.
 
     Removing a resource has to revoke access for any *other* live token the same
-    partner installation might be holding for the same user (e.g. a separate
-    bearer issued via a prior OAuth grant that still has the team in scope).
+    partner holds for the team, for this user or another member of the org (e.g. a
+    separate bearer issued via a prior OAuth grant that still has the team in scope).
     Touching only the calling ``access_token`` would let the partner continue
     operating on the team via a sibling token after `remove` returned, since
     operational endpoints accept any team currently in ``scoped_teams``.
@@ -425,10 +449,10 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
         # Defensive: a provisioning bearer token without an app/user shouldn't
         # exist in practice, but fall back to the single-token strip if it does.
         application_filter: dict[str, object] = {"pk": access_token.pk}
-        user_filter: dict[str, object] = {}
+        orphan_filter: dict[str, object] = {}
     else:
-        application_filter = {"application": application, "user": user}
-        user_filter = {"application": application, "user": user}
+        application_filter = {"application": application}
+        orphan_filter = {"application": application}
 
     with transaction.atomic():
         access_tokens = list(
@@ -449,14 +473,14 @@ def remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) 
                 rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
                 rt.save(update_fields=["scoped_teams"])
 
-        if user_filter:
+        if orphan_filter:
             # Orphan refresh tokens (where the access token was already rotated
             # or deleted) still carry scope. Strip the team from those too.
             orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
                 scoped_teams__contains=[team_id],
                 access_token__isnull=True,
                 revoked__isnull=True,
-                **user_filter,
+                **orphan_filter,
             )
             for rt in orphan_refresh:
                 rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]

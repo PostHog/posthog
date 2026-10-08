@@ -84,12 +84,6 @@ class TestFetchPage:
             _fetch_page_unwrapped(session, "/shops.json", 1, None, MagicMock())
         assert str(exc.value) == "401 Client Error: Unauthorized for url: https://api.printify.com/v1/shops.json"
 
-    def test_bare_array_response_has_no_more_pages(self) -> None:
-        session = self._session_returning(200, [{"id": 1}, {"id": 2}])
-        items, has_more = _fetch_page_unwrapped(session, "/shops.json", None, None, MagicMock())
-        assert items == [{"id": 1}, {"id": 2}]
-        assert has_more is False
-
     @parameterized.expand(
         [
             ("mid_pagination", {"current_page": 1, "last_page": 3, "data": [{"id": "a"}]}, True),

@@ -1,0 +1,27 @@
+{
+    "letter": "MB",
+    "id": "MB6",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The finding conflates a ready_for_review event with a subsequent change to the reviewed head. /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:160-168 explicitly states that only the ready-state flip preserves the draft-time verdict; synchronize/reopen/base-retarget remain re-review triggers. _HEAD_CHANGING_ACTIONS at :49 and the guard at :167 implement that event distinction, and the initial task documents later re-reviews at :1118-1119. /tmp/frozen-75215/products/stamphog/backend/tests/test_tasks.py:830-854 independently tests synchronize_rereviews versus ready_for_review_keeps_the_draft_verdict. The review workflow then retracts the prior approval before reviewing the new state (/tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:266-289), so it does not retain an obsolete approval over new commits.",
+            "refutation": "I first checked whether 'keep the original approval' applies after commits change. The comments and tests limit that behavior to the ready_for_review flip itself, because it does not change what was reviewed. The caller intentionally treats a later synchronize or reopen as fresh review work, regardless of current draft state, while still requiring bot identity, native branch, task linkage, and opt-in. The suggested draft-only check would remove intended review coverage after a normal transition to ready. The claimed intended behavior is contradicted by the frozen source."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:160-168 explicitly distinguishes ready_for_review alone from later synchronize/reopen/base-retarget events: the state flip preserves the existing head-pinned verdict, while later relevant events re-review. products/stamphog/README.md:14 states that later pushes re-review through the task-linked carve-out, and AGENTS.md:100-109 describes the same later-event behavior without a draft-only restriction. test_tasks.py:830-854 explicitly tests synchronize_rereviews separately from ready_for_review_keeps_the_draft_verdict. The workflow retracts stale approvals before fresh review (temporal/activities.py:267-274).",
+            "refutation": "I tested the finding's intended-behavior premise against the event guard, documentation, and existing scope test. The contract preserves an approval across a ready-state flip because the reviewed head is unchanged; it does not preserve that judgment across new commits or end review eligibility permanently. A self-driving PR remains task-linked and opted-in after becoming ready. Adding draft=True as proposed would stop intended reviews of later commits. The requested change is a policy change based on a contradicted premise, not a defect in the current event handling."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The frozen contract distinguishes a ready_for_review transition from later head changes. products/stamphog/backend/tasks/tasks.py:160-165 says the ready flip alone retains the draft-time head-pinned approval, while synchronize/reopen/base-retarget deliveries re-review. The action guard implements that at :167-168, before bot, native-repository, task-link, and toggle validation at :169-207. products/stamphog/AGENTS.md:100-104 likewise says the webhook leg re-reviews synchronize/reopen/base-retarget events; it does not restrict them to drafts. tests/test_tasks.py:833-844 separately expects synchronize to re-review and ready_for_review to retain the draft verdict. temporal/activities.py:265-274 explains why a new review first retracts prior approvals: the prior approval must not cover newly pushed commits.",
+            "refutation": "I first checked the asserted 'skip all later reviews once ready' requirement against the exact event filtering and documented approval lifecycle. The source supports only skipping the readiness transition itself, which does not change the reviewed diff. A subsequent synchronize does change the head and is deliberately eligible for a fresh linked, opted-in review regardless of draft status. The suggested draft guard would remove that supported re-review behavior. Although the described ready-plus-later-push trigger is reachable, it is the intended implementation, not a correctness defect."
+        }
+    ]
+}

@@ -73,6 +73,16 @@ class OutboundRateLimiter:
         """
         return self._backend.pace_seconds(key, resolve_policy(key), priority)
 
+    def admission_interval_seconds(self, key: str, *, priority: Priority = Priority.NORMAL) -> float:
+        """Seconds between admissions that keep a steady caller inside its share of every window.
+
+        Derived from the registered policy alone, so it holds when ``pace_seconds`` cannot yet see
+        calls the caller admitted but has not consumed, and when the store is unavailable. A caller
+        that keeps several calls in flight waits for whichever of the two is longer.
+        """
+        policy = resolve_policy(key)
+        return max(period / max(1, count - policy.reserve_amount(priority, count)) for count, period in policy.limits)
+
 
 _limiter: OutboundRateLimiter | None = None
 _limiter_lock = threading.Lock()

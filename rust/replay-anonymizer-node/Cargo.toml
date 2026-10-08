@@ -15,5 +15,8 @@ crate-type = ["cdylib"]
 neon = { workspace = true, features = ["external-buffers"] }
 # default-features = false: the offline typed-parse module has no place in the ingestion cdylib.
 posthog-replay-anonymizer = { path = "../replay-anonymizer", default-features = false }
+brotlic = "0.8"
+lru = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }

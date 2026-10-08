@@ -29,6 +29,9 @@ export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
 export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
+// Bounds cost only: a short sliced page falls back to the full GROUP BY in loadGroupedLogs.
+export const LOG_GROUP_ROWS_PER_GROUP = 10000
+export const LOG_GROUP_MAX_SLICE_ROWS = 1_000_000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -37,6 +40,12 @@ export type LogsViewerLogicProps = {
     groupByInstanceId?: boolean
     searchGroups?: string[]
     defaultFilters?: Partial<LogEntryParams>
+    /**
+     * Opt out of the shared `levels`, `search`, `date_from` and `date_to` URL params. Several viewers
+     * can mount on one scene and the params carry no prefix, so one viewer's filter would override
+     * another's `defaultFilters`.
+     */
+    disableUrlSync?: boolean
 }
 
 export type LogsViewerFilters = {
@@ -121,16 +130,7 @@ const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams
     return query
 }
 
-const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
-    const query = hogql`
-        SELECT instance_id, timestamp, level, message
-        FROM log_entries
-        WHERE 1=1
-        ${hogql.raw(buildBoundaryFilters(request))}
-        ${hogql.raw(buildSearchFilters(request))}
-        ORDER BY timestamp ${hogql.raw(request.order)}
-        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
-
+const queryLogEntries = async (query: HogQLQueryString, request: LogEntryParams): Promise<LogEntry[]> => {
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
@@ -154,6 +154,41 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
+const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+    const query = hogql`
+        SELECT instance_id, timestamp, level, message
+        FROM log_entries
+        WHERE 1=1
+        ${hogql.raw(buildBoundaryFilters(request))}
+        ${hogql.raw(buildSearchFilters(request))}
+        ORDER BY timestamp ${hogql.raw(request.order)}
+        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
+
+    return await queryLogEntries(query, request)
+}
+
+// An instance in the newest-rows slice has its latest row there too, so the order matches the full GROUP BY
+// without its per-instance state. A slice of the oldest rows can understate max(timestamp), so ASC can't.
+export const groupedLogsSliceRows = (
+    request: LogEntryParams,
+    groupLimit: number,
+    groupOffset: number
+): number | null => {
+    if (request.order !== 'DESC') {
+        return null
+    }
+    const rows = (groupOffset + groupLimit) * LOG_GROUP_ROWS_PER_GROUP
+    return rows <= LOG_GROUP_MAX_SLICE_ROWS ? rows : null
+}
+
+// A page cut by the line cap loses the same groups under the full GROUP BY, so only short pages retry.
+export const shouldRetryGroupedLogsWithoutSlice = (entries: LogEntry[], groupLimit: number): boolean => {
+    if (entries.length >= LOG_GROUP_TOTAL_LOGS_LIMIT) {
+        return false
+    }
+    return new Set(entries.map((entry) => entry.instanceId)).size < groupLimit
+}
+
 // Grouped pagination keyset-pages over instance groups by offsetting the group subquery, ordered by
 // most recent activity. We deliberately do NOT paginate with a `timestamp < cursor` boundary: batch
 // workflows emit hundreds of instances within the same millisecond, so a timestamp cursor (truncated
@@ -162,8 +197,25 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
 export const buildGroupedLogsQuery = (
     request: LogEntryParams,
     groupLimit: number,
-    groupOffset: number = 0
+    groupOffset: number = 0,
+    sliceRows: number | null = groupedLogsSliceRows(request, groupLimit, groupOffset)
 ): HogQLQueryString => {
+    const groupSource =
+        sliceRows !== null
+            ? hogql`(
+                SELECT instance_id, timestamp
+                FROM log_entries
+                WHERE 1=1
+                ${hogql.raw(buildBoundaryFilters(request))}
+                ${hogql.raw(buildSearchFilters(request))}
+                ORDER BY timestamp DESC
+                LIMIT ${sliceRows}
+            )`
+            : hogql`log_entries
+            WHERE 1=1
+            ${hogql.raw(buildBoundaryFilters(request))}
+            ${hogql.raw(buildSearchFilters(request))}`
+
     return hogql`
         SELECT instance_id, timestamp, level, message
         FROM log_entries
@@ -171,10 +223,7 @@ export const buildGroupedLogsQuery = (
         ${hogql.raw(buildBoundaryFilters(request))}
         AND instance_id in (
             SELECT instance_id
-            FROM log_entries
-            WHERE 1=1
-            ${hogql.raw(buildBoundaryFilters(request))}
-            ${hogql.raw(buildSearchFilters(request))}
+            FROM ${hogql.raw(groupSource)}
             GROUP BY instance_id
             ORDER BY max(timestamp) ${hogql.raw(request.order)}, instance_id DESC
             LIMIT ${groupLimit}
@@ -189,29 +238,15 @@ const loadGroupedLogs = async (
     groupLimit: number = LOG_GROUP_LIMIT,
     groupOffset: number = 0
 ): Promise<LogEntry[]> => {
-    const query = buildGroupedLogsQuery(request, groupLimit, groupOffset)
+    const run = (sliceRows: number | null): Promise<LogEntry[]> =>
+        queryLogEntries(buildGroupedLogsQuery(request, groupLimit, groupOffset, sliceRows), request)
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: {
-                date_from: request.dateFrom ?? '-7d',
-                date_to: request.dateTo,
-            },
-        }
-    )
-
-    return response.results.map(
-        (result): LogEntry => ({
-            instanceId: result[0],
-            timestamp: dayjs(result[1]),
-            rawTimestamp: result[1],
-            level: result[2].toUpperCase(),
-            message: result[3],
-        })
-    )
+    const sliceRows = groupedLogsSliceRows(request, groupLimit, groupOffset)
+    const entries = await run(sliceRows)
+    if (sliceRows !== null && shouldRetryGroupedLogsWithoutSlice(entries, groupLimit)) {
+        return await run(null)
+    }
+    return entries
 }
 
 export const groupLogs = (logs: LogEntry[]): GroupedLogEntry[] => {
@@ -799,7 +834,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     beforeUnmount(() => {
         // Disposables handle cleanup automatically
     }),
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
+        if (props.disableUrlSync) {
+            return {}
+        }
         const syncProperties = (
             properties: Record<string, any>
         ): [string, Record<string, any>, Record<string, any>] => {
@@ -817,8 +855,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             setIsGrouped: () => syncProperties({ grouped: values.isGrouped }),
         }
     }),
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const reactToTabChange = (_: any, search: Record<string, any>): void => {
+            if (props.disableUrlSync) {
+                return
+            }
             Object.keys(search).forEach((key) => {
                 if (key in values.filters && search[key] !== values.filters[key as keyof LogsViewerFilters]) {
                     actions.setFilters({ [key]: search[key] })

@@ -27,7 +27,11 @@ import {
 import { validateSandboxEventIngestToken } from '../lib/jwt.js'
 import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
+import {
+    captureBudgetSteerIfNeeded,
+    captureProcessKilledIfNeeded,
+    heartbeatWorkflowIfNeeded,
+} from '../lib/side-effects.js'
 import {
     ClientDisconnected,
     EventIngestBadRequest,
@@ -248,6 +252,7 @@ async function ingestEventLines(
 
             const { seq, event } = eventLine
             const write = await redisStream.writeEventWithSequence(event, seq)
+            captureBudgetSteerIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             if (!write.accepted) {
                 // Duplicate: advance last_accepted_seq to whatever Redis has.
@@ -262,6 +267,7 @@ async function ingestEventLines(
 
             result.accepted++
             result.last_accepted_seq = seq
+            captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             await heartbeatWorkflowIfNeeded(
                 redisStream,

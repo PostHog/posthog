@@ -13,9 +13,14 @@ class EndpointQueryTooExpensive(APIException):
 class EndpointAtCapacity(APIException):
     """Shared ClickHouse pool momentarily at capacity — transient; materializing gives isolated compute."""
 
+    wait: int
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "query_capacity"
     default_detail = (
         "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
         "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
     )
+
+    def __init__(self, *, wait: int) -> None:
+        super().__init__()
+        self.wait = wait

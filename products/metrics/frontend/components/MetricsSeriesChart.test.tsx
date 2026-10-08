@@ -110,8 +110,6 @@ describe('MetricsSeriesChart', () => {
         expect(tooltip.value('http.requests')).toBe('0')
     })
 
-    // Guards createXAxisTickCallback and the tz-aware labelFormatter wiring: a regression here
-    // renders raw ISO strings on every tick and tooltip header instead of formatted dates.
     it('formats the x-axis ticks and tooltip label as tz-aware dates', async () => {
         renderChart([seriesWith({}, [1, 2, 3])])
         const chart = getHogChart()

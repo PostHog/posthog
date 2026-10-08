@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,7 +43,7 @@ class HerokuSource(ResumableSource[HerokuSourceConfig, HerokuResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HEROKU,
+            name=ExternalDataSourceType.HEROKU,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Heroku",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -104,6 +102,8 @@ You can find your API key in your [Heroku account settings](https://dashboard.he
                 return "Invoices for your personal Heroku account; team invoices are not included"
             if endpoint == "teams":
                 return "Only returns data for accounts that belong to Heroku Teams or Enterprise"
+            if endpoint == "team_monthly_usage":
+                return "Monthly usage for Heroku Enterprise teams, covering the last 12 months"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

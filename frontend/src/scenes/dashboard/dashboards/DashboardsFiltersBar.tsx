@@ -69,6 +69,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                                         size="small"
                                         onClick={() => setFilters({ tags: [] })}
                                         type="tertiary"
+                                        icon={<IconX />}
                                     >
                                         Clear selection
                                     </LemonButton>

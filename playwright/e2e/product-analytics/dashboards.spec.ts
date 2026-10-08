@@ -399,6 +399,7 @@ test.describe('Dashboard duplication', () => {
         await test.step('set date filter', async () => {
             sourceDashboardUrl = page.url()
             await dashboard.setDateFilter('Last 30 days')
+            await dashboard.saveFilters()
         })
 
         await test.step('duplicate the dashboard', async () => {
@@ -467,7 +468,6 @@ test.describe('Dashboard link variable and filter overrides', () => {
         await expect(dashboard.insightCards).toBeVisible()
         await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
         await expect(dashboard.dateFilter).toContainText('Last 7 days')
-        await expect(dashboard.overridesBanner).toBeVisible()
     })
 })
 

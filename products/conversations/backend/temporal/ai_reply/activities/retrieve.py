@@ -5,12 +5,19 @@ from uuid import UUID
 import structlog
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
+from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.business_knowledge.backend.logic import get_document_window, rerank_chunks, search_knowledge_for_team
+from products.business_knowledge.backend.logic import (
+    RetrievalTrace,
+    get_document_window,
+    rerank_chunks,
+    search_knowledge_for_team,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_CHUNKS,
@@ -37,8 +44,9 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
     seen_chunk_ids: set[str] = set()
 
     for query in input.queries:
-        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
-        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
+        trace = RetrievalTrace(surface="support")
+        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
+        reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K, trace=trace)
         for r in reranked:
             cid = str(r.chunk_id)
             if cid not in seen_chunk_ids:
@@ -72,4 +80,20 @@ def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
             except Exception:
                 logger.warning("support_reply_widen_failed", chunk_id=cid_str, exc_info=True)
 
-    return RetrieveOutput(chunk_ids=[str(r.chunk_id) for r in all_results[:MAX_CHUNKS]])
+    chunk_ids = [str(r.chunk_id) for r in all_results[:MAX_CHUNKS]]
+
+    try:
+        ph_background_capture()(
+            distinct_id=str(team.uuid),
+            event="business knowledge searched",
+            properties={
+                "surface": "support",
+                "query_count": len(input.queries),
+                "result_count": len(chunk_ids),
+            },
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.warning("business_knowledge_search_capture_failed", team_id=team.id, exc_info=True)
+
+    return RetrieveOutput(chunk_ids=chunk_ids)

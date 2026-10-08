@@ -8,8 +8,37 @@ from pydantic import BaseModel
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, NodeKind
 
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import CloningVisitor
+
+from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
+
+
+class _QualifyBarePersonId(CloningVisitor):
+    """Points a bare `person_id` at the events table.
+
+    A cohort filter emits one, which is ambiguous wherever the scan joins something that also has a
+    `person_id` — the converters join in the attribution CTEs is one such place.
+    """
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        if node.chain == ["person_id"]:
+            return ast.Field(chain=["events", "person_id"])
+        return super().visit_field(node)
+
+
+def test_account_conditions(team: Team, enabled: bool) -> list[ast.Expr]:
+    """The team's test-account filters, for an `events` scan that opted into them.
+
+    Empty when the toggle is off, which keeps the query shape byte-identical: the lazy precompute hashes
+    the insert query's AST, so an unconditional wrapper would repoint every team at a cold job.
+    """
+    if not enabled or not team.test_account_filters:
+        return []
+    qualify = _QualifyBarePersonId()
+    return [qualify.visit(property_to_expr(prop, team)) for prop in team.test_account_filters]
 
 
 def build_source_normalization_expr(source_expr: ast.Expr, source_mappings: dict[str, list[str]]) -> ast.Expr:

@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { router } from 'kea-router'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -17,6 +19,12 @@ const meta: Meta<typeof IntegrationFullPage> = {
     component: IntegrationFullPage,
     parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2023-01-01' },
     decorators: [
+        // Stories share one router across a run, so each one states the URL it renders at rather
+        // than inheriting whatever the previous story left behind.
+        function AtIntegrationUrl(Story, { parameters }) {
+            router.actions.push(urls.integration(Slack.slug), parameters.searchParams ?? {})
+            return <Story />
+        },
         mswDecorator({
             get: {
                 // slack_service.available drives whether the "Add to Slack" connect button shows
@@ -36,11 +44,19 @@ type Story = StoryObj<typeof IntegrationFullPage>
 
 // integrationsLogic loads from the environments endpoint, not projects
 export const NotConnected: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
+    decorators: [mswDecorator({ get: { '/api/projects/:id/integrations': { results: [] } } })],
 }
 
 export const Connected: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
+    decorators: [mswDecorator({ get: { '/api/projects/:id/integrations': { results: [mockIntegration] } } })],
+}
+
+// A connect attempt the provider sent back without a code. Slack answers `access_denied` both when
+// someone declines and when the workspace files the install for an admin to approve, so the reason
+// has to sit next to the connect button rather than in a toast the user never reads in time.
+export const ConnectRejected: Story = {
+    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
+    parameters: { searchParams: { integration_error: 'access_denied' } },
 }
 
 // An instance without Slack configured shows staff the instructions button instead of the connect
@@ -54,7 +70,7 @@ export const SlackNotConfigured: Story = {
                     realm: Realm.Cloud,
                     slack_service: { available: false, client_id: null },
                 },
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
             },
         }),
     ],
@@ -66,7 +82,7 @@ export const GithubNotConnected: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
                     personal_github_connected: false,
@@ -94,7 +110,7 @@ export const NoPermission: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:id/integrations': { results: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/@current/': memberOrganization,
             },
         }),

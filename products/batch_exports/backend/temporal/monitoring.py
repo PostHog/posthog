@@ -212,6 +212,7 @@ async def fetch_exported_event_counts(inputs: FetchExportedEventCountsInputs) ->
                 count=run.records_completed or 0,
             )
             for run in runs
+            if run.data_interval_end is not None
         ]
 
 

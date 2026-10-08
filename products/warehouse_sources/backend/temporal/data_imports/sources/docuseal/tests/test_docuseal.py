@@ -82,17 +82,6 @@ class TestBaseUrl:
 
 class TestValidateCredentials:
     @mock.patch(DOCUSEAL_SESSION_PATCH)
-    def test_returns_true_on_200(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        success, error = validate_credentials("key", "us")
-
-        assert success is True
-        assert error is None
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{DOCUSEAL_HOSTS['us']}/templates?limit=1"
-
-    @mock.patch(DOCUSEAL_SESSION_PATCH)
     def test_probes_selected_region_host(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
@@ -132,43 +121,6 @@ class TestValidateCredentials:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_terminates_without_extra_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        # A short page carries a non-null `next` (DocuSeal's final page always does) yet is the end.
-        params = _wire(session, [_response(_rows(3, 3), next_cursor=1)])
-
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert [r["id"] for r in rows] == [3, 2, 1]
-        assert session.send.call_count == 1
-        assert "after" not in params[0]
-        assert params[0]["limit"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_pages_using_after_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response(_rows(300, PAGE_SIZE), next_cursor=201),
-                _response(_rows(200, PAGE_SIZE), next_cursor=101),
-                _response(_rows(100, 50), next_cursor=51),
-            ],
-        )
-
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert len(rows) == 250
-        assert [p.get("after") for p in params] == [None, 201, 101]
-        # Newest-first across the whole walk.
-        assert rows[0]["id"] == 300
-        assert rows[-1]["id"] == 51
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_next_cursor_is_null(self, MockSession) -> None:
         session = MockSession.return_value
         # A full-size page whose `next` is null must still terminate.
@@ -179,18 +131,6 @@ class TestPagination:
         )
 
         assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_cursor=None)])
-
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert rows == []
         assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)

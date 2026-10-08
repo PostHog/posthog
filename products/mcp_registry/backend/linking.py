@@ -72,11 +72,16 @@ class MeasuredServerResolution:
     link_candidates: list[str] = field(default_factory=list)
 
 
-def resolve_measured_server(server_name: str) -> MeasuredServerResolution:
+def resolve_measured_server(server_name: str, team_id: int) -> MeasuredServerResolution:
     """Resolve a measured server name to its registry server row.
 
     Falls back to a standalone (non-registry) row when no unambiguous match exists,
-    reusing a previous standalone row for the same name if one was already created.
+    reusing this project's previous standalone row for the same name if one exists.
+
+    The standalone row belongs to one project. `serverInfo.name` is advertised by the
+    client and is often an SDK template default, so unrelated projects report the same
+    name routinely; keying the row on the name alone merged their traffic and their tool
+    names into a single row, which then ranked on the sum of everyone's calls.
     """
     result = find_registry_match(server_name)
     if result.server is not None:
@@ -86,12 +91,13 @@ def resolve_measured_server(server_name: str) -> MeasuredServerResolution:
         return MeasuredServerResolution(server=result.server, link_method=result.method)
 
     standalone = MCPRegistryServer.objects.filter(
-        listed_in_registry=False, is_measured=True, display_name=server_name
+        listed_in_registry=False, is_measured=True, display_name=server_name, measured_team_id=team_id
     ).first()
     if standalone is None:
         standalone = MCPRegistryServer.objects.create(
             display_name=server_name,
             description="Measured via MCP Analytics; not listed in the official registry.",
             is_measured=True,
+            measured_team_id=team_id,
         )
     return MeasuredServerResolution(server=standalone, link_method="standalone", link_candidates=result.candidates)

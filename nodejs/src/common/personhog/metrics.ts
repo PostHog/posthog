@@ -70,6 +70,15 @@ export function grpcErrorType(error: unknown): string {
     return 'non_grpc'
 }
 
+/** A bounded metric label: gRPC faults carry their status code, everything else its class name. */
+export function errorClassLabel(error: unknown): string {
+    if (error instanceof ConnectError) {
+        return grpcErrorType(error)
+    }
+    const name = error instanceof Error ? error.constructor?.name : undefined
+    return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
+}
+
 export const personhogLatencySeconds = new Histogram({
     name: 'personhog_latency_seconds',
     help: 'PersonHog request latency in seconds',

@@ -3,7 +3,6 @@ import {
   deriveScoutLifecycle,
   type ScoutAttention,
   type ScoutAttentionKind,
-  scoutSkillSlug,
 } from "@posthog/core/scouts/scoutPresentation";
 import { Badge, Button } from "@posthog/quill";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
@@ -41,7 +40,6 @@ export function ScoutAttentionStrip({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {shown.map(({ kind, config, detail }) => {
           const { label, tone, Icon } = KIND_META[kind];
-          const slug = scoutSkillSlug(config.skill_name);
           const lifecycle = deriveScoutLifecycle(config);
           const iconTone =
             tone === "destructive" ? "text-(--red-11)" : "text-(--amber-11)";
@@ -55,7 +53,7 @@ export function ScoutAttentionStrip({
                 <div className="flex min-w-0 items-center gap-2">
                   <AgentNameLink
                     config={config}
-                    onOpen={() => openAgent(slug)}
+                    onOpen={() => openAgent(config.skill_name)}
                   />
                   <Badge variant={tone}>{label}</Badge>
                 </div>
@@ -94,7 +92,9 @@ export function ScoutAttentionStrip({
                     type="button"
                     variant="outline"
                     size="xs"
-                    onClick={() => openAgent(slug, { tab: "activity" })}
+                    onClick={() =>
+                      openAgent(config.skill_name, { tab: "activity" })
+                    }
                     data-attr="scout-attention-open-runs"
                   >
                     {kind === "failing" ? "Open last run" : "Review runs"}

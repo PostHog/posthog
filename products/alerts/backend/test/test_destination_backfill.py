@@ -14,7 +14,7 @@ from products.alerts.backend.destination_backfill import (
     backfill_insight_alert_chart_blocks,
     blocks_with_chart,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 
 HEADER_BLOCK = {"type": "header", "text": {"type": "plain_text", "text": "Alert firing"}}
 CONTEXT_BLOCK = {"type": "context", "elements": [{"type": "mrkdwn", "text": "Project"}]}

@@ -161,10 +161,3 @@ export const useSessionIsCloud = (taskId: string | undefined): boolean => {
     return s.sessions[taskRunId]?.isCloud ?? false;
   });
 };
-
-export const useTaskSessionStarting = (taskId: string | undefined): boolean => {
-  return useSessionStore((s) => {
-    if (!taskId) return false;
-    return s.startingTaskIds[taskId] === true;
-  });
-};

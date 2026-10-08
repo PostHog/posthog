@@ -10,17 +10,22 @@ import datetime as dt
 from collections.abc import Sequence
 from typing import Any
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
-from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
-    MetricBucketDecomposition,
     MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
@@ -39,8 +44,8 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import cached_metric_names
-from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -61,21 +66,77 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
+def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
+    """One ClickHouse lookup of the ingested UCUM unit per physical series,
+    keyed by `series_fingerprint` and read from `metric_series` (the same table
+    the catalog reads). Per-fingerprint rather than per-name so a metric whose
+    series disagree on the unit never lends one series' unit to another.
+    Returns only series with a non-empty unit; a series with no unit is simply
+    absent, so callers use `.get(fingerprint)`. Kept separate from the
+    per-series data query so the unit costs one small grouped scan regardless
+    of how many series a query returns."""
+    if not metric_names:
+        return {}
+    names = sorted(metric_names)
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(unit) AS unit
+            FROM posthog.metric_series
+            WHERE metric_name IN {names}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
+    )
+    response = execute_hogql_query(
+        query_type="MetricUnitsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        # Same byte cap as the data queries: without it a high-cardinality name set
+        # would make this metadata scan the most expensive read of the request.
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {int(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
+
+
+def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
+    """The unit of one output series, resolved from the physical series it
+    aggregated. The unit only applies when every contributing series carries
+    the same one — a disagreement, or a series with no unit at all, means the
+    merge has no correct single unit, so it carries none."""
+    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    if len(units) != 1:
+        return None
+    (unit,) = units
+    return unit
+
+
 # Hard cap on series returned per clause; the largest series (by summed
 # absolute value) win so the most significant groups survive truncation.
 MAX_SERIES_PER_CLAUSE = 100
 
 
 def _assemble_series(
-    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+    rows: list[dict[str, Any]],
+    *,
+    metric_name: str,
+    clause_name: str,
+    grid: list[str],
+    units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps."""
     by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
+    fingerprints_by_labels: dict[tuple[tuple[str, str], ...], set[int]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
+        fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -90,6 +151,7 @@ def _assemble_series(
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
+            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -122,7 +184,7 @@ def _evaluate_formula_point(
 
 
 def _evaluate_formula(
-    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+    node: Any, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
 ) -> list[MetricSeries]:
     """Combine clause results point-by-point on the shared grid.
 
@@ -131,8 +193,6 @@ def _evaluate_formula(
     single ungrouped series is broadcast to every label-set instead. A
     label-set missing from any non-broadcast clause is dropped.
     """
-    node = parse_formula(formula_text, frozenset(series_by_clause))
-
     broadcasts: dict[str, MetricSeries] = {}
     grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
     for name, series_list in series_by_clause.items():
@@ -176,10 +236,15 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
+        if request.formula is not None
+        else None
+    )
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
-        runner = MetricQueryRunner(
+        runner = build_metric_query_runner(
             team=team,
             metric_name=clause.metric_name,
             aggregation=runner_aggregation,
@@ -193,26 +258,33 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         )
         rows_by_clause[clause.name] = runner.run()
 
-    # Validate the formula before any early return so bad formulas always 400.
-    formula_node_checked = (
-        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
-    )
-
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
         empty_clause = "formula" if formula_node_checked is not None else request.clauses[0].name
         metric_name = None if formula_node_checked is not None else request.clauses[0].metric_name
         return [MetricSeries(labels={}, points=(), metric_name=metric_name, clause=empty_clause)]
 
+    # A formula combines clauses (possibly of different units), so its series
+    # carry no unit and the unit lookup is skipped entirely.
+    units_by_fingerprint = (
+        {}
+        if formula_node_checked is not None
+        else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
+    )
+
     series_by_clause = {
         clause.name: _assemble_series(
-            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+            rows_by_clause[clause.name],
+            metric_name=clause.metric_name,
+            clause_name=clause.name,
+            grid=grid,
+            units_by_fingerprint=units_by_fingerprint,
         )
         for clause in request.clauses
     }
 
-    if request.formula is not None:
-        return _evaluate_formula(request.formula, series_by_clause, grid)
+    if formula_node_checked is not None:
+        return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
     return [series for clause in request.clauses for series in series_by_clause[clause.name]]
 
@@ -223,18 +295,38 @@ def list_metric_names(
     search: str = "",
     limit: int = 100,
     services: Sequence[str] = (),
+    names: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
-    most-recently-seen, with exact-name matches floated to the top.
+    Returns a list of `{"name": str, "metric_type": str}` dicts.
     Passing `services` narrows the list to names those services reported.
     Raises `ValueError` for an out-of-range limit or too many services.
 
     The unsearched list is cached per team and service scope for a minute;
     searches are not.
     """
+    if names:
+        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
     return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def list_metric_picker_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """List current metric names for the viewer picker without sparklines or caching."""
+    rows = MetricNamesQueryRunner(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        include_sparklines=False,
+    ).run()
+    return [{"name": row["name"], "metric_type": row["metric_type"]} for row in rows]
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
@@ -251,21 +343,30 @@ def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) ->
 def list_metric_attribute_keys(
     *,
     team: Team,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List distinct attribute keys seen on the team's metrics, most frequent
-    first, for the filter bar's key autocomplete.
+    """List attribute keys by distinct value count, from highest to lowest.
 
-    Datapoint and resource attributes are merged into one list (filters run
-    with scope 'auto', so the split doesn't matter to callers); `service_name`
-    is always surfaced when it matches the search. The window defaults to the
-    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
-    out-of-range limit or an inverted window.
+    When a metric name is provided, only series that emitted that metric in the
+    recent window supply choices. Datapoint and resource attributes are merged
+    into one list (filters run with scope 'auto', so the split doesn't matter
+    to callers); `service_name` is always surfaced when it matches the search.
+    The window defaults to the last 24 hours. Returns `{"name": str,
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    or an inverted window.
     """
-    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    runner = MetricAttributeKeysQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
     return runner.run()
 
 
@@ -282,7 +383,7 @@ def list_metric_attribute_values(
     for the filter bar's value autocomplete.
 
     `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 7 days. Returns
+    filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """
@@ -463,35 +564,4 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         anomaly_to=context.fired_at + context.leadout,
         filters=filters,
         companions=context.companions,
-    )
-
-
-def explain_metric_bucket(
-    *,
-    team: Team,
-    metric_name: str,
-    aggregation: str,
-    bucket_start: dt.datetime,
-    interval: str,
-    filters: Sequence[MetricFilter] = (),
-    metric_type: MetricType | None = None,
-    quantile: float | None = None,
-) -> MetricBucketDecomposition:
-    """Take one chart point apart and show how it was built.
-
-    Returns the series that reported in the bucket, the samples each sent, and
-    the two reductions that combined them, alongside both the value the product
-    would plot and the value recomputed independently from the raw samples.
-    Reading them side by side is what makes an aggregation bug visible instead
-    of merely plausible. The presentation layer surfaces `ValueError` as a 400.
-    """
-    return _decompose_bucket(
-        team=team,
-        metric_name=metric_name,
-        aggregation=aggregation,
-        bucket_start=bucket_start,
-        interval=interval,
-        filters=filters,
-        metric_type=metric_type.value if metric_type is not None else None,
-        quantile=quantile,
     )

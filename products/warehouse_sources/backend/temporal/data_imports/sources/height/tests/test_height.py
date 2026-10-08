@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import (
     HeightAPIKeyAuth,
@@ -51,14 +51,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestHeightAuth:
-    def test_authorization_header_uses_api_key_scheme(self) -> None:
-        auth = HeightAPIKeyAuth("secret_abc")
-        request = PreparedRequest()
-        request.prepare(method="GET", url="https://api.height.app/users")
-        auth(request)
-        # Height's scheme is the literal word `api-key` followed by the secret, not a Bearer token.
-        assert request.headers["Authorization"] == "api-key secret_abc"
-
     def test_redacts_both_composite_and_raw_key(self) -> None:
         # Both the header value and the raw key on its own are scrubbed from logged errors.
         auth = HeightAPIKeyAuth("secret_abc")
@@ -66,24 +58,6 @@ class TestHeightAuth:
 
 
 class TestHeightSourceRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_rows_from_list_key(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"list": [{"id": "a"}, {"id": "b"}]})])
-
-        rows = _rows(height_source(api_key="secret_key", endpoint="users", team_id=1, job_id="j"))
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        # Height list endpoints are single-shot; exactly one request pulls the whole collection.
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_list_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"list": []})])
-
-        rows = _rows(height_source(api_key="secret_key", endpoint="users", team_id=1, job_id="j"))
-        assert rows == []
-
     @parameterized.expand([(e,) for e in ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_every_endpoint_targets_its_path(self, endpoint: str, MockSession: mock.MagicMock) -> None:

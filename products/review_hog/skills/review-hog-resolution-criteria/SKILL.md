@@ -87,5 +87,5 @@ otherwise autonomous run; never ignore them.
    `wont_fix`.
 4. Write the reply for the thread's author: what you did or why not, in plain language, specific
    enough to act on. A decline names the deliberate reason; an escalation names exactly what a
-   human needs to decide; a fix names what changed and how it was verified — honestly, failures
-   included.
+   human needs to decide; a fix names what changed. Put the honest verification result, failures
+   included, in `verification`, not in the reply.

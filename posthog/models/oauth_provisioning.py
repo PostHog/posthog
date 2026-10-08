@@ -82,6 +82,10 @@ class ProvisioningConfig(BaseModel):
     # Grandfathered: only the legacy Stripe app still mints a Personal API Key.
     issues_personal_api_key: bool = False
 
+    # Staff-only. Billing refuses to move an organization to partner billing once the organization
+    # has its own Stripe customer, so the partner's organizations must not start self-serve billing.
+    pays_for_customers: bool = False
+
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
     # Every value stored here is admin-authored: the self-serve tiers are derived at

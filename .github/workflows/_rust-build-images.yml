@@ -51,7 +51,7 @@ on:
 jobs:
     load-matrix:
         name: load image matrix
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         permissions:
             contents: read
@@ -252,7 +252,7 @@ jobs:
     collect:
         name: collect digests
         needs: [load-matrix, build]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 2
         permissions:
             contents: read

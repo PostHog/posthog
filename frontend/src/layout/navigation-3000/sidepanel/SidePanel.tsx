@@ -3,16 +3,40 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
+import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
+)
+// The support panel renders the ticket editor, which pulls in tiptap extensions and lowlight.
+const SidePanelSupport = lazyWithRetry(() =>
+    import('./panels/support/SidePanelSupport').then((m) => ({ default: m.SidePanelSupport }))
+)
+// Discussion renders the comment composer, which pulls in the rich content editor and emoji picker.
+const SidePanelDiscussion = lazyWithRetry(() =>
+    import('./panels/discussion/SidePanelDiscussion').then((m) => ({ default: m.SidePanelDiscussion }))
+)
+const SidePanelAccessControl = lazyWithRetry(() =>
+    import('./panels/access_control/SidePanelAccessControl').then((m) => ({ default: m.SidePanelAccessControl }))
+)
+const SidePanelAccessDetail = lazyWithRetry(() =>
+    import('./panels/access_control/SidePanelAccessDetail').then((m) => ({ default: m.SidePanelAccessDetail }))
+)
+const SidePanelExports = lazyWithRetry(() =>
+    import('./panels/exports/SidePanelExports').then((m) => ({ default: m.SidePanelExports }))
+)
+const CanvasSidePanel = lazyWithRetry(() =>
+    import('products/canvas/frontend/sidePanel/CanvasSidePanel').then((m) => ({ default: m.CanvasSidePanel }))
+)
+const SidePanelActivity = lazyWithRetry(() =>
+    import('./panels/activity/SidePanelActivity').then((m) => ({ default: m.SidePanelActivity }))
 )
 
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -24,14 +48,11 @@ import { SidePanelTab } from '~/types'
 
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
-import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelAccessDetail } from './panels/access_control/SidePanelAccessDetail'
-import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
-import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
-import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
+import { SidePanelActivityIcon } from './panels/activity/SidePanelActivityIcon'
+import { SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussionIcon'
+import { SidePanelExportsIcon } from './panels/exports/SidePanelExportsIcon'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
 import { SidePanelMax } from './panels/max/SidePanelMax'
-import { SidePanelSupport } from './panels/support/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { SidePanelNavigation } from './SidePanelNavigation'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -81,6 +102,21 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
+    },
+    [SidePanelTab.CanvasChat]: {
+        label: 'Chat',
+        Icon: IconChat,
+        Content: CanvasSidePanel,
+    },
+    [SidePanelTab.CanvasBlocks]: {
+        label: 'Blocks',
+        Icon: IconApps,
+        Content: CanvasSidePanel,
+    },
+    [SidePanelTab.CanvasTimeline]: {
+        label: 'Timeline',
+        Icon: IconPulse,
+        Content: CanvasSidePanel,
     },
 }
 
@@ -157,7 +193,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
     return (
         <div
             className={cn(
-                'SidePanel3000 h-screen',
+                'SidePanel3000',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',
@@ -192,9 +228,12 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
             {PanelContent && (
                 <SidePanelNavigation activeTab={activeTab as SidePanelTab} onTabChange={(tab) => openSidePanel(tab)}>
                     <ErrorBoundary>
-                        <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
-                            <PanelContent />
-                        </Suspense>
+                        {/* Keep chunk-load failures out of the panel error reporter so stale assets reload once instead. */}
+                        <ChunkLoadErrorBoundary>
+                            <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
+                                <PanelContent />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
                     </ErrorBoundary>
                 </SidePanelNavigation>
             )}

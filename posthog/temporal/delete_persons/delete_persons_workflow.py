@@ -8,6 +8,7 @@ import dataclasses
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 from structlog import get_logger
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -15,9 +16,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
 
-# Personhog RPC request caps (see proto/personhog/types/v1/person.proto).
+# Personhog RPC request cap (see proto/personhog/types/v1/person.proto).
 GET_PERSONS_MAX_IDS = 250
-DELETE_PERSONS_MAX_UUIDS = 1000
 
 
 def _chunked(items: list, size: int) -> typing.Iterator[list]:
@@ -27,15 +27,14 @@ def _chunked(items: list, size: int) -> typing.Iterator[list]:
 
 
 def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) -> int:
-    """Delete specific persons by id via personhog.
+    """Tombstone specific persons by id via personhog and publish their ClickHouse tombstones.
 
-    Resolves ids -> uuids with GetPersons (capped at 250/call) and deletes with
-    DeletePersons (capped at 1000/call). DeletePersons cascades the per-person
-    cohortpeople cleanup, so no separate cohort delete is needed here.
+    A hard delete would leave live ClickHouse rows above the version 0 a re-created person starts at.
     """
+    from posthog.models.person.bulk_delete import tombstone_and_publish_persons_by_uuids
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
-    from posthog.personhog_client.proto import DeletePersonsRequest, GetPersonsRequest
+    from posthog.personhog_client.proto import GetPersonsRequest
 
     client = get_personhog_client()
     if client is None:
@@ -46,12 +45,31 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
         for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
             persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
             uuids.extend(person.uuid for person in persons_resp.persons)
+        if not uuids:
+            return 0
 
-        deleted = 0
-        for uuid_chunk in _chunked(uuids, DELETE_PERSONS_MAX_UUIDS):
-            delete_resp = client.delete_persons(DeletePersonsRequest(team_id=team_id, person_uuids=uuid_chunk))
-            deleted += delete_resp.deleted_count
-        return deleted
+        return tombstone_and_publish_persons_by_uuids(team_id, uuids)
+
+
+def _require_team_deleted(team_id: int) -> None:
+    """Refuse whole-team mode unless the team row is gone or queued for ClickHouse deletion.
+
+    Whole-team mode hard-deletes and publishes no ClickHouse tombstones, which is safe only once no person
+    can be re-created and the deletes job removes the team's ClickHouse rows.
+    """
+    from posthog.models.async_deletion import AsyncDeletion, DeletionType
+    from posthog.models.team import Team
+
+    if not Team.objects.filter(id=team_id).exists():
+        return
+    if AsyncDeletion.objects.filter(deletion_type=DeletionType.Team, key=str(team_id)).exists():
+        return
+    raise temporalio.exceptions.ApplicationError(
+        f"Team {team_id} is not deleted. Whole-team mode would hard-delete live persons and leave "
+        "their ClickHouse rows live. Pass person_ids to tombstone specific persons instead.",
+        type="TeamNotDeleted",
+        non_retryable=True,
+    )
 
 
 def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
@@ -59,6 +77,8 @@ def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> i
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
+
+    _require_team_deleted(team_id)
 
     client = get_personhog_client()
     if client is None:
@@ -88,7 +108,7 @@ async def preclean_cohort_members_activity(inputs: PrecleanCohortMembersActivity
 
     posthog_cohortpeople has no FK to posthog_person, so it must be cleared explicitly.
     For a whole-team delete we use the existing by-cohort RPC path (the same one the
-    team-teardown flow uses); the per-person DeletePersons cascade covers the by-ids mode.
+    team-teardown flow uses); the per-person tombstone covers the by-ids mode.
     """
     from django.db import close_old_connections
 
@@ -97,6 +117,7 @@ async def preclean_cohort_members_activity(inputs: PrecleanCohortMembersActivity
     async with Heartbeater():
         logger = LOGGER.bind(team_id=inputs.team_id)
         await asyncio.to_thread(close_old_connections)
+        await asyncio.to_thread(_require_team_deleted, inputs.team_id)
         await asyncio.to_thread(_delete_cohort_members_for_all_teams, [inputs.team_id])
         await logger.ainfo("Cleared cohort memberships for team")
 
@@ -169,10 +190,8 @@ class DeletePersonsWorkflowInputs:
 class DeletePersonsWorkflow(PostHogWorkflow):
     """Workflow to delete persons and their dependent rows from the persons database via personhog.
 
-    All deletion goes through personhog RPCs (no direct database connection). For a
-    whole-team delete, cohort memberships are cleared up front by cohort and persons are
-    then removed in batches; for a delete scoped to specific person_ids, GetPersons +
-    DeletePersons handle persons, distinct_ids, and per-person cohort memberships together.
+    Whole-team mode clears cohort memberships and hard-deletes in batches, only for a deleted team; by-ids mode
+    tombstones the persons and publishes their ClickHouse tombstones.
     """
 
     def __init__(self) -> None:
@@ -196,7 +215,7 @@ class DeletePersonsWorkflow(PostHogWorkflow):
         await temporalio.workflow.wait_condition(lambda: self.confirmed)
 
         # Whole-team deletes clear cohort memberships by cohort up front; the by-ids path
-        # relies on the per-person DeletePersons cascade instead.
+        # relies on the per-person tombstone clearing them instead.
         if not inputs.person_ids:
             await temporalio.workflow.execute_activity(
                 preclean_cohort_members_activity,

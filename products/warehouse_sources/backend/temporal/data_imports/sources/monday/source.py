@@ -1,15 +1,18 @@
+from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    SimpleSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -18,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
+    MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_V2,
     monday_source,
     validate_credentials as validate_monday_credentials,
 )
@@ -27,9 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
+    default_version = MONDAY_VERSION_2026_07
     api_docs_url = "https://developer.monday.com/api-reference"
+    # "v2" sends `API-Version: 2024-10`, which monday deprecated on this date. monday now answers it with
+    # its maintenance version instead of rejecting it, so a v2 pin no longer selects what it names.
+    deprecated_versions = (VersionDeprecation(version=MONDAY_VERSION_V2, sunset_at=date(2026, 2, 15)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -57,7 +65,7 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MONDAY,
+            name=ExternalDataSourceType.MONDAY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["monday.com"],
             label="monday.com",
@@ -123,7 +131,7 @@ You can find your personal API token in monday.com under your avatar > Developer
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_monday_credentials(config.api_token):
+        if validate_monday_credentials(config.api_token, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid monday.com API token"
@@ -133,4 +141,5 @@ You can find your personal API token in monday.com under your avatar > Developer
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

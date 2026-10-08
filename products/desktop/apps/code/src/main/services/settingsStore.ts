@@ -19,6 +19,9 @@ interface SettingsSchema {
   discordPresenceShowTaskTitle: boolean;
   discordPresenceShowRepoName: boolean;
   missionControlOverlayEnabled: boolean;
+  customCloudUrl: string;
+  customCloudOauthClientId: string;
+  customCloudGatewayUrl: string;
 }
 
 function getWorktreePath(dir: string): string {
@@ -126,6 +129,18 @@ const schema = {
     type: "boolean" as const,
     default: true,
   },
+  customCloudUrl: {
+    type: "string" as const,
+    default: "",
+  },
+  customCloudOauthClientId: {
+    type: "string" as const,
+    default: "",
+  },
+  customCloudGatewayUrl: {
+    type: "string" as const,
+    default: "",
+  },
 };
 
 export const settingsStore = new Store<SettingsSchema>({
@@ -142,6 +157,9 @@ export const settingsStore = new Store<SettingsSchema>({
     discordPresenceShowTaskTitle: false,
     discordPresenceShowRepoName: false,
     missionControlOverlayEnabled: true,
+    customCloudUrl: "",
+    customCloudOauthClientId: "",
+    customCloudGatewayUrl: "",
   },
 });
 

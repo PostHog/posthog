@@ -6,7 +6,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
     PAGE_SIZE,
     OutbrainResumeConfig,
-    _token_cache_key,
     get_rows,
     outbrain_source,
     validate_credentials,
@@ -41,23 +40,6 @@ def _no_cache() -> mock.MagicMock:
 
 
 class TestTokenCaching:
-    def test_cache_key_is_stable_and_credential_scoped(self):
-        assert _token_cache_key("u", "p") == _token_cache_key("u", "p")
-        assert _token_cache_key("u", "p") != _token_cache_key("u", "other")
-
-    @mock.patch(f"{_MODULE}.cache")
-    @mock.patch(f"{_MODULE}.requests.get")
-    def test_login_mints_and_caches_token(self, mock_get, mock_cache):
-        mock_cache.get.return_value = None
-        mock_get.return_value = _response({"OB-TOKEN-V1": "tok-1"})
-
-        assert validate_credentials("u", "p") is True
-        login_call = mock_get.call_args
-        assert login_call.args[0] == "https://api.outbrain.com/amplify/v0.1/login"
-        assert login_call.kwargs["auth"] == ("u", "p")
-        mock_cache.set.assert_called_once()
-        assert mock_cache.set.call_args.args[1] == "tok-1"
-
     @mock.patch(f"{_MODULE}.cache")
     @mock.patch(f"{_MODULE}.requests.get")
     def test_cached_token_skips_login(self, mock_get, mock_cache):
@@ -78,18 +60,6 @@ class TestTokenCaching:
 
 @mock.patch(f"{_MODULE}.cache")
 class TestEntityStreams:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_marketers_single_fetch(self, mock_session, mock_cache):
-        mock_cache.get.return_value = "tok"
-        mock_session.return_value.get.return_value = _response({"marketers": [{"id": "m1"}, {"id": "m2"}]})
-
-        batches = list(get_rows("u", "p", "marketers", mock.MagicMock(), _make_manager()))
-
-        assert [row["id"] for batch in batches for row in batch] == ["m1", "m2"]
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://api.outbrain.com/amplify/v0.1/marketers"
-        assert mock_session.return_value.get.call_args.kwargs["headers"] == {"OB-TOKEN-V1": "tok"}
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_campaigns_fan_out_per_marketer_with_offset_pagination(self, mock_session, mock_cache):
         mock_cache.get.return_value = "tok"

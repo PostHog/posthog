@@ -14,6 +14,7 @@ import {
     flattenObject,
     getCsvTableData,
     getJsonTableData,
+    projectExportRows,
 } from './clipboardUtils'
 import { DataTableRow } from './dataTableLogic'
 
@@ -449,5 +450,14 @@ describe('clipboardUtils', () => {
             // Restore original
             JSON.stringify = originalStringify
         })
+    })
+})
+
+describe('projectExportRows', () => {
+    it('preserves answer and outcome columns while excluding internal row metadata', () => {
+        const rows = [{ result: [{ properties: { internal: true } }, 'Useful examples', 'dismissed', 'event-id'] }]
+        expect(projectExportRows(rows, ['response', 'answer', 'status', 'actions'], ['answer', 'status'])).toEqual([
+            { result: ['Useful examples', 'dismissed'] },
+        ])
     })
 })

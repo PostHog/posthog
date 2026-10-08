@@ -1,6 +1,7 @@
 import { BlueprintIcon } from "@phosphor-icons/react";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -9,6 +10,7 @@ import {
 import { WebsiteDashboard } from "@posthog/ui/features/canvas/components/WebsiteDashboard";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
+import { OpenSidebarButton } from "@posthog/ui/features/sidebar/components/OpenSidebarButton";
 import { useEffect } from "react";
 
 export function CanvasesRoute() {
@@ -33,6 +35,9 @@ export function CanvasesRoute() {
             Choose a canvas from the list to open it here.
           </EmptyDescription>
         </EmptyHeader>
+        <EmptyContent>
+          <OpenSidebarButton />
+        </EmptyContent>
       </Empty>
     </div>
   );

@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 
 from products.slack_app.backend.services.slack_messages import (
     THREAD_REPLIES_CACHE_TTL_SECONDS,
+    SlackThreadMessage,
     cached_collect_thread_messages,
     invalidate_thread_messages_cache,
 )
@@ -50,7 +51,7 @@ class TestCachedCollectThreadMessages:
     def test_miss_then_hit_calls_underlying_once(self):
         # Burst case: two callers within the TTL — the underlying Slack fetch must
         # run exactly once, with the second caller served from cache.
-        sentinel = [{"user": "alice", "user_id": "U_A", "text": "hi", "ts": "1.000"}]
+        sentinel = [SlackThreadMessage(user="alice", user_id="U_A", text="hi", ts="1.000")]
         with patch(
             "products.slack_app.backend.services.slack_messages.collect_thread_messages",
             return_value=sentinel,
@@ -71,15 +72,15 @@ class TestCachedCollectThreadMessages:
         with patch(
             "products.slack_app.backend.services.slack_messages.collect_thread_messages",
             side_effect=[
-                [{"user": "alice", "user_id": "U_A", "text": "a", "ts": "1.000"}],
-                [{"user": "bob", "user_id": "U_B", "text": "b", "ts": "2.000"}],
+                [SlackThreadMessage(user="alice", user_id="U_A", text="a", ts="1.000")],
+                [SlackThreadMessage(user="bob", user_id="U_B", text="b", ts="2.000")],
             ],
         ) as mock_fetch:
             a = cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
             b = cached_collect_thread_messages(self.slack, self.integration, "C002", "2.000", our_bot_id=None)
 
-        assert a[0]["user"] == "alice"
-        assert b[0]["user"] == "bob"
+        assert a[0].user == "alice"
+        assert b[0].user == "bob"
         assert mock_fetch.call_count == 2
 
     def test_distinct_integrations_have_distinct_cache_entries(self):
@@ -94,15 +95,15 @@ class TestCachedCollectThreadMessages:
         with patch(
             "products.slack_app.backend.services.slack_messages.collect_thread_messages",
             side_effect=[
-                [{"user": "alice", "user_id": "U_A", "text": "a", "ts": "1.000"}],
-                [{"user": "bob", "user_id": "U_B", "text": "b", "ts": "1.000"}],
+                [SlackThreadMessage(user="alice", user_id="U_A", text="a", ts="1.000")],
+                [SlackThreadMessage(user="bob", user_id="U_B", text="b", ts="1.000")],
             ],
         ) as mock_fetch:
             a = cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
             b = cached_collect_thread_messages(self.slack, other_integration, "C001", "1.000", our_bot_id=None)
 
-        assert a[0]["user"] == "alice"
-        assert b[0]["user"] == "bob"
+        assert a[0].user == "alice"
+        assert b[0].user == "bob"
         assert mock_fetch.call_count == 2
 
     def test_underlying_exception_does_not_populate_cache(self):
@@ -117,10 +118,10 @@ class TestCachedCollectThreadMessages:
                 cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
 
             mock_fetch.side_effect = None
-            mock_fetch.return_value = [{"user": "alice", "user_id": "U_A", "text": "hi", "ts": "1.000"}]
+            mock_fetch.return_value = [SlackThreadMessage(user="alice", user_id="U_A", text="hi", ts="1.000")]
             recovered = cached_collect_thread_messages(self.slack, self.integration, "C001", "1.000", our_bot_id=None)
 
-        assert recovered[0]["user"] == "alice"
+        assert recovered[0].user == "alice"
         assert mock_fetch.call_count == 2
 
     def test_ttl_expiry_triggers_refetch(self):
@@ -133,7 +134,7 @@ class TestCachedCollectThreadMessages:
         def short_lived_set(key, value, timeout=None, **kw):
             return original_set(key, value, timeout=1)
 
-        sentinel = [{"user": "alice", "user_id": "U_A", "text": "hi", "ts": "1.000"}]
+        sentinel = [SlackThreadMessage(user="alice", user_id="U_A", text="hi", ts="1.000")]
         with (
             patch.object(cache, "set", side_effect=short_lived_set),
             patch(
@@ -150,7 +151,7 @@ class TestCachedCollectThreadMessages:
     def test_invalidate_drops_cached_snapshot(self):
         # Downstream callers that need a guaranteed-fresh fetch (e.g. just before a
         # destructive workflow decision) can drop the cache entry explicitly.
-        sentinel = [{"user": "alice", "user_id": "U_A", "text": "hi", "ts": "1.000"}]
+        sentinel = [SlackThreadMessage(user="alice", user_id="U_A", text="hi", ts="1.000")]
         with patch(
             "products.slack_app.backend.services.slack_messages.collect_thread_messages",
             return_value=sentinel,

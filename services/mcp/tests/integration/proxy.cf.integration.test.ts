@@ -12,9 +12,9 @@ import { defineAuthTests, defineResilienceTests, type ProtocolTestHarness } from
 //   - Real Redis (TEST_REDIS_URL / db TEST_REDIS_DB, default localhost:6379 db 15)
 //   - Real local PostHog stack at TEST_POSTHOG_API_BASE_URL (default localhost:8010)
 //
-// Nothing is mocked. The Worker is configured with `MCP_HONO_URL` pointing at
-// the in-process Hono, so authenticated `/mcp` traffic travels the full
-// client → proxy → Hono → PostHog chain.
+// Only the product-skill archive is served locally. The Worker is configured with
+// `MCP_HONO_URL` pointing at the in-process Hono, so authenticated `/mcp` traffic
+// travels the full client → proxy → Hono → PostHog chain.
 //
 // The worker owns OAuth metadata, redirects, health, and the bearer-token gate
 // locally and proxies only `/mcp` — it is not a transparent pass-through. The
@@ -81,12 +81,13 @@ describe('CF proxy plumbing (real stack)', () => {
         expect(wwwAuth).toContain('oauth-protected-resource')
     })
 
-    it('detects the EU region from X-Forwarded-Host when building OAuth metadata', async () => {
+    it('ignores a client-sent X-Forwarded-Host when building OAuth metadata', async () => {
         const res = await fetch(new URL('/.well-known/oauth-protected-resource/mcp', harness.baseUrl), {
             headers: { 'X-Forwarded-Host': 'mcp-eu.posthog.com' },
         })
         expect(res.status).toBe(200)
-        const json = (await res.json()) as { authorization_servers?: string[] }
+        const json = (await res.json()) as { resource?: string; authorization_servers?: string[] }
+        expect(new URL(json.resource!).host).toBe(new URL(harness.baseUrl).host)
         expect(Array.isArray(json.authorization_servers)).toBe(true)
     })
 

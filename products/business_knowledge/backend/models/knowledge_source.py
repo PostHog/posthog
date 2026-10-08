@@ -9,8 +9,8 @@ from .constants import CrawlMode, RefreshInterval, RefreshStatus, SourceStatus, 
 
 class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """
-    A user-created collection of business knowledge (e.g. "Product docs",
-    "Support macros"). One source groups one or more documents.
+    A collection of business knowledge (e.g. "Product docs", "Support macros").
+    One source groups one or more documents.
     """
 
     activity_logging_on_delete = True
@@ -18,6 +18,11 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="business_knowledge_sources")
     name = models.CharField(max_length=255)
     source_type = models.CharField(max_length=16, choices=SourceType.choices)
+    is_generated = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether PostHog manages this source with knowledge learned from resolved support tickets.",
+    )
     status = models.CharField(max_length=16, choices=SourceStatus.choices, default=SourceStatus.PENDING)
     # Human-facing failure reason. Empty when status != ERROR.
     error_message = models.TextField(blank=True, default="")

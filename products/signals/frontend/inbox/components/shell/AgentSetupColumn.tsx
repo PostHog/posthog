@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -16,6 +17,7 @@ import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -36,6 +38,8 @@ interface SetupWidgetCardProps {
     tone: WidgetTone
     size: WidgetSize
     loading?: boolean
+    /** Blocks clicks, e.g. while a request that `onClick` would repeat is in flight. */
+    disabled?: boolean
     /** One-line context, shown on `lg` cards only. */
     description?: string
     onClick?: () => void
@@ -89,10 +93,10 @@ const CARD_PADDING_CLASS: Record<WidgetSize, string> = {
 }
 
 function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
-    const { icon, title, status, tone, size, loading, description, onClick, to, children } = props
+    const { icon, title, status, tone, size, loading, disabled, description, onClick, to, children } = props
 
     const cardClassName = cn(
-        'group flex rounded border border-primary bg-surface-primary text-left no-underline cursor-pointer transition-colors hover:border-secondary',
+        'group flex rounded border border-primary bg-surface-primary text-left no-underline cursor-pointer transition-colors hover:border-secondary disabled:cursor-default disabled:hover:border-primary',
         size === 'sm' ? 'items-center justify-between gap-2' : 'flex-col',
         CARD_PADDING_CLASS[size]
     )
@@ -157,7 +161,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
         )
     }
     return (
-        <button type="button" onClick={onClick} className={cardClassName}>
+        <button type="button" onClick={onClick} disabled={disabled} className={cardClassName}>
             {content}
         </button>
     )
@@ -200,18 +204,41 @@ function ScoutTroopWidget(): JSX.Element {
 }
 
 function CodeAccessWidget(): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { getIntegrationsByKind, integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations, startPolling, stopPolling } = useActions(integrationsLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
+    // The loader keeps its last list on failure, so a null list after loading means the first fetch failed.
+    const loadFailed = integrations === null && !integrationsLoading
+    // Background polls keep the last known status on screen; only a load with no list yet shows the skeleton.
+    const firstLoadInFlight = integrations === null && integrationsLoading
+
+    // The GitHub App install finishes on github.com and returns to a settings page, often in another tab.
+    // Refetch on an interval and on window focus until GitHub shows up, so the card does not stay stale.
+    useEffect(() => {
+        if (hasGithub) {
+            return
+        }
+        startPolling()
+        return () => stopPolling()
+    }, [hasGithub]) // eslint-disable-line react-hooks/exhaustive-deps
+
     return (
         <SetupWidgetCard
             icon={<IconGithub />}
             title="Code access"
             size="md"
-            tone={hasGithub ? 'done' : 'todo'}
-            loading={integrationsLoading && !hasGithub}
-            status={hasGithub ? 'GitHub connected' : 'Foundational. Connect to start.'}
-            onClick={() => openSetupModal('github')}
+            tone={hasGithub ? 'done' : loadFailed ? 'neutral' : 'todo'}
+            loading={firstLoadInFlight}
+            disabled={firstLoadInFlight}
+            status={
+                hasGithub
+                    ? 'GitHub connected'
+                    : loadFailed
+                      ? "Couldn't check GitHub. Click to retry."
+                      : 'Foundational. Connect to start.'
+            }
+            onClick={() => (loadFailed ? loadIntegrations() : openSetupModal('github'))}
         />
     )
 }
@@ -253,10 +280,13 @@ function NotificationsWidget(): JSX.Element {
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
     return (
-        <GithubIntegration
-            next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
-            connectSurface="signals_agent_setup"
-        />
+        <div className="flex flex-col gap-3">
+            <GithubIntegration
+                next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
+                connectSurface="signals_agent_setup"
+            />
+            <RepoRoutingRules />
+        </div>
     )
 }
 

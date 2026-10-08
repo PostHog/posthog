@@ -10,10 +10,12 @@ from django.urls import get_resolver
 
 from parameterized import parameterized
 
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
+    DatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -42,6 +44,7 @@ _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "customer_analytics_customertask": "customer_task",
 }
 
 # Team-level definition tables gated under an object-restrictable scope for resource-level access
@@ -120,7 +123,13 @@ def _object_grant_scopes() -> frozenset[str]:
 
 
 class TestPostgresTable(BaseTest):
-    def _init_database(self, *, predicates=None, extra_fields=None):
+    def _init_database(
+        self,
+        *,
+        predicates: list[Expr] | None = None,
+        extra_fields: dict[str, DatabaseField] | None = None,
+        postgres_pushdown_values: dict[str, str | int | bool] | None = None,
+    ) -> None:
         self.database = Database.create_for(team=self.team)
 
         fields = {
@@ -138,6 +147,11 @@ class TestPostgresTable(BaseTest):
                     name="postgres_table",
                     postgres_table_name="some_table_on_postgres",
                     **({} if predicates is None else {"predicates": predicates}),
+                    **(
+                        {}
+                        if postgres_pushdown_values is None
+                        else {"postgres_pushdown_values": postgres_pushdown_values}
+                    ),
                     fields=fields,
                 ),
             )
@@ -226,6 +240,20 @@ class TestPostgresTable(BaseTest):
         self.assertEqual(
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), notEquals(postgres_table.status, %(hogql_val_5)s)) LIMIT 10",
+        )
+
+    def test_predicate_with_postgres_pushdown_value(self):
+        self._init_database(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            postgres_pushdown_values={"status": "active"},
+        )
+
+        sql = self._select("SELECT id FROM postgres_table LIMIT 10")
+
+        self.assertIn(
+            f"WHERE team_id = {self.team.pk} AND status = %(hogql_val_5)s)",
+            sql,
         )
 
     def test_predicate_combined_with_user_where(self):

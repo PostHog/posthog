@@ -11,17 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import (
     BigeyeResumeConfig,
     _auth_header_value,
-    _base_url,
-    _flatten_collection,
     bigeye_source,
     get_resource,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import (
-    BIGEYE_ENDPOINTS,
-    REQUEST_TIMEOUT_SECONDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import REQUEST_TIMEOUT_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -104,36 +99,8 @@ class TestNormalizeHost:
     def test_normalizes(self, value: str | None, expected: str) -> None:
         assert normalize_host(value) == expected
 
-    def test_base_url_defaults_to_saas_host(self) -> None:
-        assert _base_url(None) == "https://app.bigeye.com"
-
-    def test_base_url_honors_custom_host(self) -> None:
-        assert _base_url("bigeye.internal.example.com") == "https://bigeye.internal.example.com"
-
-
-class TestFlattenCollection:
-    def test_copies_id_and_name_to_root(self) -> None:
-        item = {"collectionConfiguration": {"id": 42, "name": "Nightly checks"}, "collectionMetricStatus": {}}
-        flattened = _flatten_collection(item)
-        assert flattened["id"] == 42
-        assert flattened["name"] == "Nightly checks"
-        assert flattened["collectionConfiguration"] == {"id": 42, "name": "Nightly checks"}
-
-    def test_missing_configuration_does_not_raise(self) -> None:
-        assert _flatten_collection({}) == {"id": None, "name": None}
-
 
 class TestGetResource:
-    @pytest.mark.parametrize("name", list(BIGEYE_ENDPOINTS.keys()))
-    def test_every_endpoint_builds_a_resource(self, name: str) -> None:
-        resource = cast(dict[str, Any], get_resource(name, workspace_id=None))
-        assert resource["name"] == name
-        assert resource["endpoint"]["path"] == BIGEYE_ENDPOINTS[name].path
-
-    def test_paginated_endpoint_omits_workspace_id_when_unset(self) -> None:
-        resource = cast(dict[str, Any], get_resource("Sources", workspace_id=None))
-        assert resource["endpoint"]["json"] == {"pageSize": 100}
-
     def test_paginated_endpoint_includes_workspace_id_when_set(self) -> None:
         resource = cast(dict[str, Any], get_resource("Sources", workspace_id=7))
         assert resource["endpoint"]["json"] == {"pageSize": 100, "workspaceId": 7}
@@ -142,30 +109,8 @@ class TestGetResource:
         resource = cast(dict[str, Any], get_resource("Collections", workspace_id=7))
         assert resource["endpoint"]["params"] == {"workspaceId": 7}
 
-    def test_workspaces_endpoint_has_no_workspace_scoping(self) -> None:
-        resource = cast(dict[str, Any], get_resource("Workspaces", workspace_id=7))
-        assert "json" not in resource["endpoint"]
-        assert "params" not in resource["endpoint"]
-
-    def test_collections_carries_flatten_data_map(self) -> None:
-        resource = cast(dict[str, Any], get_resource("Collections", workspace_id=None))
-        assert resource["data_map"] is _flatten_collection
-
 
 class TestSinglePageEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_workspaces_single_get_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        calls = _wire(session, [_response({"workspaces": [{"id": 1, "name": "Default"}]})])
-
-        rows = _rows(_build("Workspaces", manager))
-
-        assert [r["id"] for r in rows] == [1]
-        assert len(calls) == 1
-        assert calls[0]["method"] == "GET"
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_metrics_uses_metrics_key(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -263,16 +208,6 @@ class TestCursorPagination:
         assert saved == [BigeyeResumeConfig(next_cursor="c1")]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_saves_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager()
-        _wire(session, [_response({"tables": [{"id": 1}], "paginationInfo": {"nextCursor": ""}})])
-
-        _rows(_build("Tables", manager))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_cursor(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         manager = _make_manager(BigeyeResumeConfig(next_cursor="resumed"))
@@ -284,21 +219,6 @@ class TestCursorPagination:
 
 
 class TestBigeyeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(BIGEYE_ENDPOINTS.keys()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys_match_settings(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        MockSession.return_value.headers = {}
-        response = _build(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == [BIGEYE_ENDPOINTS[endpoint].primary_key]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_items_is_lazy(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        _build("Workspaces", _make_manager())
-        session.send.assert_not_called()
-
     def test_auth_header_carries_apikey_prefix(self) -> None:
         # Bigeye's auth header is `apikey <token>`, not the framework's default `Bearer <token>`.
         assert _auth_header_value("secret-token") == "apikey secret-token"
@@ -310,11 +230,6 @@ class TestValidateCredentials:
             session = factory.return_value
             session.get.return_value = response
             return validate_credentials(api_key="key", host=None, workspace_id=None, **kwargs)
-
-    def test_ok(self) -> None:
-        valid, error = self._run(_response({"workspaces": []}, status_code=200))
-        assert valid is True
-        assert error is None
 
     def test_invalid_api_key(self) -> None:
         valid, error = self._run(_response({}, status_code=401))

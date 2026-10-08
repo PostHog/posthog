@@ -57,3 +57,8 @@ class TestCrossTeamIsolation(BaseTest):
 
         assert logic.has_ready_sources(self.team.id) is True
         assert logic.has_ready_sources(self.other_team.id) is False
+
+    def test_ready_source_without_safety_cleared_content_is_not_searchable(self) -> None:
+        KnowledgeDocument.objects.unscoped().filter(team=self.team).update(safety_verdict=SafetyVerdict.UNKNOWN)
+
+        assert logic.has_ready_sources(self.team.id) is False

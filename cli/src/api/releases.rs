@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -50,7 +50,8 @@ impl Release {
 
         if let Err(err) = response {
             if let ClientError::ApiError(404, _, _) = err {
-                warn!("release {}@{} not found", name, version);
+                // The caller creates the release after this, so a 404 is normal flow.
+                debug!("release {}@{} not found", name, version);
                 return Ok(None);
             }
             warn!("failed to get release from hash: {}", err);

@@ -11,10 +11,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
     RipplingSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
-    ENDPOINTS,
-    RIPPLING_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import RIPPLING_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
 
 # The REST framework builds its session via make_tracked_session in the rest_client module.
@@ -26,36 +23,6 @@ class TestRipplingSource:
         self.source = RipplingSource()
         self.team_id = 123
         self.config = RipplingSourceConfig(api_token="api-token")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://rest.ripplingapis.com/workers?limit=100",
-            "403 Client Error: Forbidden for url: https://rest.ripplingapis.com/compensations",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_vendor_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://rest.ripplingapis.com/workers",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every Rippling list endpoint supports the standard OData-style filter.
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

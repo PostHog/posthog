@@ -1,43 +1,32 @@
+import { useService } from "@posthog/di/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
-import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import { toast } from "@posthog/ui/primitives/toast";
 import {
-  navigateToChannelReportDetail,
-  navigateToInboxDismissedDetail,
-  navigateToInboxPullRequestDetail,
-  navigateToInboxReportDetail,
-} from "@posthog/ui/router/navigationBridge";
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { toast } from "@posthog/ui/primitives/toast";
+import { navigateToReport } from "@posthog/ui/router/navigationBridge";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 const log = logger.scope("open-inbox-report");
 
-/**
- * Returns a callback that opens an inbox report by id: fetch it directly
- * (bypassing the paginated list), reset inbox-local
- * filters so it isn't hidden, then navigate to the right tab – Archive when
- * it's suppressed, Pulls when it has an implementation PR, otherwise Reports.
- *
- * Shared by the deep-link handler ({@link useInboxDeepLink}) and any in-app
- * surface that links to a report it only knows by id (e.g. the scout finding
- * → linked report chip). On 404/403 (wrong team / deleted) it toasts and
- * leaves the current view untouched.
- */
 export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
-  const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const { generalChannel } = useTaskChannels();
-  const generalChannelId = generalChannel?.id;
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
 
   return useCallback(
-    async (reportId: string) => {
+    async (
+      reportId: string,
+      options?: { preserveSource?: boolean; newTab?: boolean },
+    ) => {
+      const sourceKey = getRouterOrNull()?.history.location.state.__TSR_key;
       if (!client) {
         log.warn("Ignoring open-report request – not authenticated");
         return;
@@ -58,35 +47,25 @@ export function useOpenInboxReport() {
           return;
         }
 
-        resetFilters();
-        // With channel reports on, detail lives in the report's owning space
-        // (general when unassigned) so the space sidebar keeps its context. The
-        // inbox routes stay the fallback while the general space isn't
-        // provisioned yet.
-        const targetChannelId = channelReportsEnabled
-          ? (report.channel_id ?? generalChannelId)
-          : undefined;
-        if (targetChannelId) {
-          navigateToChannelReportDetail(targetChannelId, report.id);
-        } else if (report.status === "suppressed") {
-          navigateToInboxDismissedDetail(report.id);
-        } else if (report.implementation_pr_url) {
-          navigateToInboxPullRequestDetail(report.id);
-        } else {
-          navigateToInboxReportDetail(report.id);
+        if (getRouterOrNull()?.history.location.state.__TSR_key !== sourceKey)
+          return;
+        if (options?.newTab) {
+          const handled = await focusOrOpenBrowserTab(tabsClient, {
+            href: `/reports/${report.id}`,
+            appView: "report",
+          });
+          if (handled) {
+            log.info(`Successfully opened report: ${report.id}`);
+            return;
+          }
         }
+        navigateToReport(report.id, options);
         log.info(`Successfully opened report: ${report.id}`);
       } catch (error) {
         log.error("Unexpected error opening report:", error);
         toast.error("Failed to open report");
       }
     },
-    [
-      client,
-      queryClient,
-      resetFilters,
-      channelReportsEnabled,
-      generalChannelId,
-    ],
+    [client, queryClient, tabsClient],
   );
 }

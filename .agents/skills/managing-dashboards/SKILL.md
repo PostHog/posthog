@@ -71,15 +71,16 @@ State these decisions before implementation.
 
 Use this checklist as a design gate. Read the linked reference when an item applies.
 
-| Area                   | Check                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                        |
-| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)     |
-| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                    |
-| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md) |
-| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)          |
-| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                |
-| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                |
+| Area                   | Check                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                                  |
+| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)               |
+| Configuration editing  | [Dashboard configuration editing and URL overrides](references/filter-editing-and-temporary-views.md) |
+| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                              |
+| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md)           |
+| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)                    |
+| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                          |
+| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                          |
 
 ## 4. Implement across layers
 
@@ -91,6 +92,8 @@ Use this checklist as a design gate. Read the linked reference when an item appl
 6. Keep grid updates stable during drag, resize, and tile refresh. Avoid a full grid relayout for each tile result.
 7. Add observability when a change creates a new loading, query, cache, access, or refresh path.
 8. For list-only state, render controls only where that state applies.
+9. After a selector rename, search every dashboard consumer and test for the old name. Then run TypeScript.
+10. Keep dashboard mutation actions on the authenticated dashboard placement unless another placement has an explicit contract.
 
 ## 5. Test the boundary, not only the happy path
 

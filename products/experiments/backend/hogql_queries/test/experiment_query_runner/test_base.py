@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
@@ -64,7 +64,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(builder_class.call_args.kwargs["feature_flag_key"], original_key)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_includes_date_range(self):
         feature_flag = self.create_feature_flag()
@@ -170,7 +170,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_includes_event_property_filters(self):
         feature_flag = self.create_feature_flag()
@@ -250,7 +250,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 11)
         self.assertEqual(test_variant.number_of_samples, 11)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_using_action(self):
         feature_flag = self.create_feature_flag()
@@ -311,7 +311,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_group_aggregation_mean_metric(self):
         feature_flag = self.create_feature_flag()
@@ -351,7 +351,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 6)
         self.assertEqual(test_variant.sum, 8)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_group_aggregation_mean_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
@@ -391,7 +391,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, 60)
         self.assertEqual(test_variant.sum, 120)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
@@ -799,7 +799,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 4)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_without_feature_flag_property(self):
         feature_flag = self.create_feature_flag()
@@ -850,7 +850,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 11)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_no_exposures(self):
         feature_flag = self.create_feature_flag()
@@ -884,7 +884,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 0)
         self.assertEqual(test_variant.number_of_samples, 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_no_variant_exposures(self):
         feature_flag = self.create_feature_flag()
@@ -938,7 +938,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_no_control_variant(self):
         feature_flag = self.create_feature_flag()
@@ -1307,7 +1307,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ],
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_time_window(self, time_window_name, time_window_hours, expected_results):
         feature_flag = self.create_feature_flag()
@@ -1379,7 +1379,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.sum, expected_results["control_count"])
         self.assertEqual(test_variant.sum, expected_results["test_count"])
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_excludes_multiple_variants(self):
         feature_flag = self.create_feature_flag()
@@ -1524,7 +1524,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ],
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_multiple_variant_handling_options(
         self, handling_name, multiple_variant_handling, expected_results
@@ -1722,7 +1722,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             f"Test exposure mismatch for {handling_name} handling",
         )
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_none_event_filters_all_events(self):
         """Test that when event is None, all events are selected (no event name filter applied)."""
@@ -1830,7 +1830,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 5)
         self.assertEqual(test_variant.number_of_samples, 5)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_hogql_aggregation_expressions(self):
         """Test that HogQL aggregation expressions work end-to-end."""
@@ -1919,7 +1919,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, expected_test_sum)
         self.assertEqual(test_variant.number_of_samples, 10)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_hogql_aggregation_end_to_end(self):
         """Test that HogQL aggregation expressions work end-to-end with the experiment query runner."""
@@ -1994,7 +1994,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 4)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_hogql_fallback_to_sum(self):
         """Test that HogQL expressions without aggregation functions default to sum."""
@@ -2071,10 +2071,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 240)
         self.assertEqual(test_variant.number_of_samples, 3)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_query_runner_with_unique_users_metric(self):
+    def test_query_runner_with_unique_users_metric(self, name, use_precomputation):
         """Test that unique users metric correctly counts unique users, not total events."""
+        # The precomputed read embeds per-run job UUIDs; zero all numbers so the
+        # snapshot is stable across runs.
+        self.snapshot_replace_all_numbers = True
+        self._setup_precomputation_test(use_precomputation)
+
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
@@ -2098,7 +2109,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Create test data with multiple events per user to verify unique counting
         # Control: 3 users, but user_0 has 3 events, user_1 has 2 events, user_2 has 1 event
@@ -2163,6 +2174,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
+
+        # A broken precomputed read silently falls back to the direct scan; assert the intended path ran.
+        assert query_runner._metric_events_precomputed is use_precomputation
+
         assert result.variant_results is not None
 
         self.assertEqual(len(result.variant_results), 1)
@@ -2181,7 +2196,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 4)
         self.assertEqual(test_variant.number_of_samples, 4)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_unique_group_metric(self):
         """Test unique group metric counts unique groups that performed the target event."""
@@ -2233,7 +2248,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 3)  # 3 unique groups with purchase events
         self.assertEqual(test_variant.number_of_samples, 3)  # 3 unique groups exposed to test
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_parametric_aggregation(self):
         """Test that parametric aggregations like quantile work in mean metrics.

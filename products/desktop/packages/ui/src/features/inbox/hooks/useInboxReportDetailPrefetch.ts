@@ -10,6 +10,10 @@ import { useCallback, useMemo } from "react";
 
 export type InboxDetailRoute =
   | {
+      to: "/reports/$reportId";
+      params: { reportId: string };
+    }
+  | {
       to: "/inbox/pulls/$reportId";
       params: { reportId: string };
     }

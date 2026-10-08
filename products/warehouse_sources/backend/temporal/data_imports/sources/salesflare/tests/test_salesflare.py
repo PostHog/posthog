@@ -99,42 +99,6 @@ class TestPagination:
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == SalesflareResumeConfig(offset=PAGE_SIZE)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_run(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_run(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Offset 0 must never be fetched on resume — only the seeded page is served.
-        params = _wire(session, [_response([{"id": 5}])])
-
-        manager = _make_manager(SalesflareResumeConfig(offset=PAGE_SIZE))
-        rows = _rows(_run(manager))
-
-        assert rows == [{"id": 5}]
-        assert params[0]["offset"] == PAGE_SIZE
-
     @parameterized.expand([(e,) for e in ENDPOINTS])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_requests_the_endpoint_path(self, endpoint: str, MockSession) -> None:

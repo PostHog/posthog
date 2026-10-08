@@ -76,7 +76,7 @@ export const creationGroupLogic = kea<creationGroupLogicType>([
                     }
                     try {
                         // `groups/find` is a cross-product (groups) endpoint with no conversations-generated client.
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use groupsFindRetrieve() from 'products/groups/frontend/generated/api' instead.
                         return await api.get(`api/projects/${values.currentTeamId}/groups/find?${toParams(params)}`)
                     } catch {
                         // Group may no longer exist (stale snapshot) — degrade to no row rather than a broken link.

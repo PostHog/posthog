@@ -3,8 +3,8 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Hookdeck pins the API version as the first path segment. Omitting it resolves to the OLDEST
-# supported version, so the version is always part of the base URL.
+# Hookdeck pins the API version as the first path segment. Omitting it tracks the latest version,
+# so the version is always part of the base URL.
 HOOKDECK_API_HOST = "https://api.hookdeck.com"
 
 # `limit` is documented as max 250 (the OpenAPI schema allows 255).

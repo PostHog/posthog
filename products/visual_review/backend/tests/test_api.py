@@ -53,19 +53,22 @@ class TestProjectAPI:
         names = {p.repo_full_name for p in result}
         assert names == {"org/first", "org/second"}
 
-    def test_update_repo_sets_baseline_paths(self, team):
+    def test_update_repo_sets_the_fields_it_is_given(self, team):
         created = api.create_repo(team_id=team.id, repo_external_id=333, repo_full_name="org/test")
         assert created.baseline_file_paths == {}
+        assert created.debt_digest_enabled is False
 
         result = api.update_repo(
             UpdateRepoInput(
                 repo_id=created.id,
                 baseline_file_paths={"storybook": ".storybook/snapshots.yml"},
+                debt_digest_enabled=True,
             ),
             team_id=team.id,
         )
 
         assert result.baseline_file_paths == {"storybook": ".storybook/snapshots.yml"}
+        assert result.debt_digest_enabled is True
         assert result.repo_full_name == "org/test"  # unchanged
 
 

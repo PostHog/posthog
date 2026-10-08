@@ -1,5 +1,6 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasAvailability,
   CanvasDraft,
   CanvasSource,
   CanvasVersion,
@@ -53,13 +54,14 @@ export function useDashboards(
 }
 
 /** Every canvas across every visible space. */
-export function useAllCanvases(): {
+export function useAllCanvases(options?: { enabled?: boolean }): {
   dashboards: DashboardRecord[];
   isLoading: boolean;
 } {
   const trpc = useHostTRPC();
   const { data, isLoading } = useQuery(
     trpc.dashboards.listAll.queryOptions(undefined, {
+      enabled: options?.enabled ?? true,
       gcTime: SPACE_QUERY_GC_TIME_MS,
       meta: AUTH_SCOPED_QUERY_META,
       refetchInterval: SPACE_QUERY_REFETCH_INTERVAL_MS,
@@ -67,6 +69,78 @@ export function useAllCanvases(): {
     }),
   );
   return { dashboards: data ?? [], isLoading };
+}
+
+// How long a primed view payload counts as fresh. Comfortably above the
+// hover→click gap it exists to bridge; re-primes revalidate by ETag anyway.
+const CANVAS_VIEW_PRIME_STALE_MS = 15_000;
+
+/**
+ * Warm a canvas's open-path caches from the combined `view` endpoint — one
+ * round trip carrying the record, the live build (signed artifact URL
+ * included), and the head source when nothing is built yet. Seeds the
+ * record/builds/source caches only where they are empty, so any in-flight or
+ * fresher query stays authoritative. Call on row hover (open-on-click becomes
+ * cache-hot) and on canvas mount (a cold open loses the sequential source hop).
+ */
+export function usePrimeCanvasView(): (id: string) => void {
+  const trpc = useHostTRPC();
+  const queryClient = useQueryClient();
+  return useCallback(
+    (id: string) => {
+      if (!id) return;
+      const seed = (queryKey: readonly unknown[], value: unknown): void => {
+        if (queryClient.getQueryState(queryKey)?.data === undefined) {
+          queryClient.setQueryData(queryKey, value);
+        }
+      };
+      void (async () => {
+        try {
+          const view = await queryClient.fetchQuery(
+            trpc.dashboards.view.queryOptions(
+              { id },
+              { staleTime: CANVAS_VIEW_PRIME_STALE_MS },
+            ),
+          );
+          seed(trpc.dashboards.get.queryKey({ id }), view.record);
+          // Only a settled, head-is-live lifecycle is seedable. With a build
+          // in flight the real fetch must run or the poller that watches it
+          // never starts; with a head that ISN'T the published build (its
+          // build failed, or nothing built yet) the seed would hide the
+          // failed-build banner the real fetch surfaces.
+          const headIsLive =
+            view.currentVersionId == null ||
+            view.publishedBuild?.sourceVersionId === view.currentVersionId;
+          if (!view.hasActiveBuild && headIsLive) {
+            seed(trpc.dashboards.builds.queryKey({ id }), {
+              publishedBuildId: view.record.publishedBuildId,
+              currentVersionId: view.currentVersionId,
+              builds: view.publishedBuild ? [view.publishedBuild] : [],
+            });
+          }
+          if (view.source) {
+            seed(trpc.dashboards.source.queryKey({ id }), {
+              project: view.source,
+              currentVersionId: view.currentVersionId,
+            });
+          }
+          // Grids: the layout (with its component lifecycles) is the whole
+          // open path; useGridLayout's seeding effect fans the lifecycles out
+          // to the per-component builds caches.
+          if (view.layout) {
+            seed(trpc.dashboards.layout.queryKey({ id }), {
+              layout: view.layout,
+              currentVersionId: view.currentVersionId,
+              componentLifecycles: view.componentLifecycles,
+            });
+          }
+        } catch {
+          // Priming is best-effort: the per-endpoint queries still load the canvas.
+        }
+      })();
+    },
+    [trpc, queryClient],
+  );
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
@@ -83,6 +157,24 @@ export function useDashboard(id: string | undefined): {
     ),
   );
   return { dashboard: data, isLoading, isFetching };
+}
+
+/**
+ * Why a canvas would not open. Asked only once `useDashboard` has answered
+ * `null`, so a canvas that opens normally never pays for it.
+ */
+export function useCanvasAvailability(id: string | undefined): {
+  availability: CanvasAvailability | undefined;
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.availability.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, meta: AUTH_SCOPED_QUERY_META, staleTime: 5_000 },
+    ),
+  );
+  return { availability: data, isLoading };
 }
 
 /** A canvas's source project — the head, or a historical version. */
@@ -149,9 +241,6 @@ export function useDashboardMutations() {
   const remove = useMutation(
     trpc.dashboards.delete.mutationOptions({ onSuccess: invalidate }),
   );
-  const saveContext = useMutation(
-    trpc.dashboards.saveContext.mutationOptions({ onSuccess: invalidate }),
-  );
   const revertToVersion = useMutation(
     trpc.dashboards.revertToVersion.mutationOptions({
       // A revert moves the head and queues a rebuild; refresh the reverted
@@ -194,9 +283,6 @@ export function useDashboardMutations() {
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
     deleteDashboard: (id: string) => remove.mutateAsync({ id }),
-    // Persist the author-written context (markdown) passed to generation tasks.
-    saveContext: (id: string, context: string) =>
-      saveContext.mutateAsync({ id, context }),
     // Move the canvas's head back to an existing version (and rebuild it).
     revertToVersion: (
       id: string,
@@ -226,7 +312,6 @@ export function useDashboardMutations() {
       file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
-    isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
     isPromoting: promoteDraft.isPending,
   };

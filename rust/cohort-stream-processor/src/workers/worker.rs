@@ -7,9 +7,14 @@
 //! the lane only once the previous quantum has fully applied, and its runs go one per round, so
 //! live latency is at most one run and an admitted seed backlog never queues in front of live
 //! traffic.
+//!
+//! A `Sweep` message records an eviction request rather than running one. The pass then advances one
+//! bounded batch per round, alternating with live batches and running ahead of seeds
+//! ([`crate::workers::sweep_path`]), so a wave of deadlines coming due together costs live traffic
+//! one batch at a time instead of the whole wave at once.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -30,8 +35,7 @@ use crate::observability::metrics::{
     EVICTION_QUEUE_REBUILT_KEYS_TOTAL, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
     MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
     STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
-    SWEEP_KEYS_EVICTED_TOTAL,
+    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::router::WorkerInbox;
@@ -43,8 +47,7 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
-use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
+use crate::store::{BehavioralKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
@@ -57,19 +60,9 @@ use crate::workers::seed_apply::{apply_seed_group, ApplyDeps, BatchMarks};
 use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedGroup};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
-use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
-
-/// Max eviction keys a single sweep pass drains. Daily-bucket deadlines cluster on tz-midnight, so a
-/// large team's whole wave can come due on one tick; capping the pop loop bounds the per-pass RocksDB
-/// read + produce + write batch + Stage 2 pass so events do not queue behind one giant sweep. Leftover
-/// due keys stay scheduled and drain on the next sweep tick.
-const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
+use crate::workers::sweep_path::{run_sweep_turn, SweepSchedule};
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
-
-/// Chunk size for a team's sweep-state prefetch, so each `multi_get_behavioral` spans a bounded number of
-/// keys and no single read op holds long before the sweep makes progress.
-const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
 /// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
@@ -151,6 +144,8 @@ impl Stage1Worker {
 enum Turn {
     /// A live sub-batch, or `None` for a closed live lane.
     Live(Option<Vec<ShuffleMessage>>),
+    /// One bounded eviction batch of the pending sweep work.
+    Sweep,
     /// The pending quantum has a run to apply.
     Run,
     /// Seeds taken from the lane this round; `0` means the lane closed.
@@ -180,6 +175,7 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<BehavioralKey>::new();
+    let mut sweep = SweepSchedule::new(partition_id);
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
@@ -213,8 +209,11 @@ async fn run_worker(
     let mut pending = PendingRuns::default();
     let (mut live_open, mut seed_open) = (true, true);
     loop {
-        // Live first: a seed run is bounded work, a live backlog is not. A seed branch is reached
-        // only while the live lane is empty, so live latency is at most one seed run.
+        // Live before seeds: a seed run is bounded work, a live backlog is not. A seed branch is
+        // reached only while the live lane is empty, so live latency is at most one seed run. The
+        // eviction sweep sits between the two: it is maintenance the queue already owes, not
+        // admitted backlog, so it runs ahead of seeds, and it alternates with live rather than
+        // queueing behind it.
         //
         // A partition whose live lane is never empty makes no seed progress, by design: live
         // arrivals there already outpace the worker, a seed run would only deepen that backlog,
@@ -222,9 +221,18 @@ async fn run_worker(
         // `try_route_seeds` refuses, which is the alarm: `cohort_seed_paused_partitions` under
         // cause `channel_full` and `cohort_seed_oldest_held_age_ms` rise while
         // `cohort_seed_apply_run_size` goes flat.
+        //
+        // A draining sweep pass reads the same way for as long as it lasts, since it too sits ahead
+        // of both seed branches. Check `sweep_queue_lag_seconds` before concluding the live lane is
+        // the cause: a pass is bounded and clears, a live backlog does not.
         let turn = tokio::select! {
             biased;
+            // Ahead of live, but only for the one turn a live batch just earned it: eviction and live
+            // then alternate, so a lane that is never empty cannot hold a due wave indefinitely.
+            () = std::future::ready(()), if sweep.owes_turn() => Turn::Sweep,
             batch = live.recv(), if live_open => Turn::Live(batch),
+            // Live is idle, so the pass keeps going rather than waiting for the next tick.
+            () = std::future::ready(()), if sweep.has_work() => Turn::Sweep,
             // Ready at once: the quantum's remaining runs go one per round, behind any live batch.
             () = std::future::ready(()), if !pending.groups.is_empty() => Turn::Run,
             // The lane is polled again only once the previous quantum has fully applied.
@@ -257,6 +265,20 @@ async fn run_worker(
                 );
                 continue;
             }
+            Turn::Sweep => {
+                run_sweep_turn(
+                    partition_id,
+                    &handle,
+                    &catalog,
+                    &sink,
+                    &merge,
+                    &mut queue,
+                    &mut last_updated_clock,
+                    &mut sweep,
+                )
+                .await;
+                continue;
+            }
             Turn::Run => {
                 apply_next_run(
                     partition_id,
@@ -279,6 +301,10 @@ async fn run_worker(
                 continue;
             }
         };
+        // Claimed before the batch runs, not after: every exit path below (held offset, produce
+        // failure, clean mark) must still yield the next turn, or a partition that keeps failing to
+        // produce would starve eviction.
+        sweep.live_batch_done();
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
@@ -316,6 +342,13 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
+                    // The eviction runs on a later turn, but the buffer still flushes here, so this
+                    // batch's own `Entered` output precedes the request that may retract it. A
+                    // later live batch whose end-of-batch produce fails is not covered: its output
+                    // is dropped for replay while the sweep keeps its turn, so a `Left` can reach
+                    // the wire first. That converges, because the replayed `Entered` stamps newer
+                    // than the sweep's `Left`, and holding the sweep behind a failing lane instead
+                    // would starve eviction (see `live_batch_done`).
                     if flush_event_changes_before_inline(
                         &sink,
                         &mut buffer,
@@ -326,17 +359,7 @@ async fn run_worker(
                     {
                         break;
                     }
-                    handle_sweep(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &last_updated,
-                        due_before_ms,
-                    )
-                    .await;
+                    sweep.request(due_before_ms, &queue);
                 }
                 ShuffleMessage::Merge { event, offset } => {
                     if flush_event_changes_before_inline(
@@ -550,7 +573,7 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Flush buffered event-path changes so they land before an inline (sweep/merge/transfer) produce,
+/// Flush buffered event-path changes so they land before an inline (merge/transfer) produce,
 /// preserving produce order == state-commit order. No-op when the buffer is empty.
 /// Returns the failed-ack count (`0` = fully acked / empty).
 async fn flush_membership_buffer(
@@ -563,10 +586,13 @@ async fn flush_membership_buffer(
     produce_membership(sink, buffer.take()).await
 }
 
-/// Flush buffered event-path changes ahead of an inline arm (sweep, merge, transfer, cascade, or
-/// reconcile drain). Returns `true` when the flush failed: sets `held` so the caller `break`s and
+/// Flush buffered event-path changes ahead of an inline arm (merge, transfer, cascade, or reconcile
+/// drain). Returns `true` when the flush failed: sets `held` so the caller `break`s and
 /// `mark_processed` is skipped, causing Kafka to replay. Returns `false` (empty or all acked) to
 /// run the arm normally.
+///
+/// The `Sweep` arm produces nothing inline, but flushes here so the batch's own `Entered` output
+/// precedes the request that may retract it. Its call site says what that does not cover.
 async fn flush_event_changes_before_inline(
     sink: &Arc<dyn MembershipSink>,
     buffer: &mut OutputBuffer,
@@ -891,206 +917,6 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_sweep(
-    partition_id: u16,
-    handle: &StoreHandle,
-    catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
-    merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<BehavioralKey>,
-    last_updated: &str,
-    due_before_ms: i64,
-) {
-    let mut popped: Vec<(BehavioralKey, i64)> = Vec::new();
-    while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
-        let Some(entry) = queue.pop_due(due_before_ms) else {
-            break;
-        };
-        popped.push(entry);
-    }
-    if popped.is_empty() {
-        return;
-    }
-
-    let mut by_team: BTreeMap<u64, Vec<BehavioralKey>> = BTreeMap::new();
-    for &(key, _) in &popped {
-        by_team.entry(key.team_id()).or_default().push(key);
-    }
-
-    let snapshot = catalog.load();
-    let mut changes = Vec::new();
-    let mut results = Vec::new();
-    let mut drops: Vec<SweepDropReason> = Vec::new();
-    for (team_id, keys) in &by_team {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            drops.extend(std::iter::repeat_n(SweepDropReason::TeamDrift, keys.len()));
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        // Per-team retry: a read failure anywhere in the team reschedules all its keys and applies
-        // none of it, so gather every chunk before evicting.
-        let mut values: Vec<Option<Vec<u8>>> = Vec::with_capacity(keys.len());
-        let mut read_failed = false;
-        for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
-            // The maintenance permit rotates between chunks, keeping each op fair against event reads.
-            match handle
-                .multi_get_behavioral(chunk.to_vec(), ReadLane::Maintenance)
-                .await
-            {
-                Ok(chunk_values) => values.extend(chunk_values),
-                Err(error) => {
-                    warn!(
-                        partition_id,
-                        team_id,
-                        error = %error,
-                        "sweep state read failed; rescheduling the team's keys for retry",
-                    );
-                    reschedule_team(queue, &popped, *team_id);
-                    read_failed = true;
-                    break;
-                }
-            }
-        }
-        if read_failed {
-            continue;
-        }
-
-        let evictions = sweep_evict(filters, keys, values, due_before_ms);
-        for result in &evictions.results {
-            if let Some(transition) = &result.transition {
-                if let Some(kind) = transition_metric_label(filters, transition) {
-                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-                }
-                changes.extend(map_transition(filters, transition, last_updated));
-            }
-        }
-        results.extend(evictions.results);
-        drops.extend(evictions.drops);
-    }
-
-    if !changes.is_empty() {
-        let errors = produce_membership(sink, changes).await;
-        if errors > 0 {
-            warn!(
-                partition_id,
-                errors, "sweep produce to the membership topic failed; rescheduling for replay",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-    }
-
-    if !results.is_empty() {
-        let mut staged = StagedBatch::default();
-        for result in &results {
-            match &result.action {
-                EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
-                EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
-            }
-            // Keep this leg transition-based. The seed paths derive their single-leaf changes by
-            // diffing this register, and between a seed's acked produce and its post-ack commit
-            // the register reads `false` while downstream holds `Entered`. A register-diffed
-            // sweep would compute `false == false` there and emit no `Left`, so the entry would
-            // outlive the state that justified it. At most one of the path that emits an entry
-            // and the path that retracts it may read the register.
-            if let Some(transition) = &result.transition {
-                if let Some(filters) = snapshot.team(transition.team_id) {
-                    stage_register_writes(
-                        &mut staged,
-                        single_leaf_transition_register_writes(
-                            filters,
-                            partition_id,
-                            transition,
-                            due_before_ms,
-                        ),
-                    );
-                }
-            }
-        }
-        let written = handle.commit(staged).await;
-        if let Err(error) = written {
-            warn!(
-                partition_id,
-                error = %error,
-                "sweep state write failed; rescheduling popped keys to retry the eviction",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-
-        for result in &results {
-            if let Some(deadline) = result.reschedule {
-                queue.schedule(result.key, deadline);
-            }
-            counter!(SWEEP_KEYS_EVICTED_TOTAL, "variant" => result.variant.as_str()).increment(1);
-        }
-    }
-
-    for reason in &drops {
-        counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
-    }
-
-    let mut by_team_transitions: BTreeMap<u64, Vec<LeafTransition>> = BTreeMap::new();
-    for result in &results {
-        if let Some(transition) = &result.transition {
-            by_team_transitions
-                .entry(result.key.team_id())
-                .or_default()
-                .push(transition.clone());
-        }
-    }
-    let mut stage2_changes = Vec::new();
-    for (team_id, transitions) in &by_team_transitions {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        match compose_stage2(
-            partition_id,
-            handle,
-            filters,
-            &affected_leaves(transitions),
-            due_before_ms,
-            last_updated,
-            ReadLane::Event,
-        )
-        .await
-        {
-            Ok(changes) => stage2_changes.extend(changes),
-            Err(error) => warn!(
-                partition_id,
-                team_id,
-                error = %error,
-                "sweep stage 2 composition failed; skipping (self-heals on the person's next event)",
-            ),
-        }
-    }
-    if stage2_changes.is_empty() {
-        return;
-    }
-
-    // Only Stage 2 membership changes cascade; single-leaf evictions self-heal on the referrer's next event.
-    let cascades = first_cascades(merge, &stage2_changes, 0);
-    let errors = produce_membership(sink, stage2_changes).await;
-    if errors > 0 {
-        warn!(
-            partition_id,
-            errors,
-            "sweep stage 2 produce to the membership topic failed; dropping (cf_stage2 already committed, at-most-once)",
-        );
-        return;
-    }
-    let cascade_errors = produce_cascades(merge, cascades).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            errors = cascade_errors,
-            "sweep cascade produce failed; dropping (at-most-once). Recovery depends on each referrer being re-evaluated on its next event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf",
-        );
-    }
-}
-
 /// Re-seed the per-worker [`EvictionQueue`] from `cf_behavioral`, scheduling every behavioral key on
 /// its stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX`
 /// deadlines (permanent). Corrupt records are counted and skipped — the event path re-derives them. A
@@ -1146,24 +972,6 @@ async fn rebuild_eviction_queue(
             partition_id,
             rebuilt, "durable restore: re-seeded eviction queue from cf_behavioral",
         );
-    }
-}
-
-fn reschedule_all(queue: &mut EvictionQueue<BehavioralKey>, popped: &[(BehavioralKey, i64)]) {
-    for &(key, deadline) in popped {
-        queue.schedule(key, deadline);
-    }
-}
-
-fn reschedule_team(
-    queue: &mut EvictionQueue<BehavioralKey>,
-    popped: &[(BehavioralKey, i64)],
-    team_id: u64,
-) {
-    for &(key, deadline) in popped {
-        if key.team_id() == team_id {
-            queue.schedule(key, deadline);
-        }
     }
 }
 

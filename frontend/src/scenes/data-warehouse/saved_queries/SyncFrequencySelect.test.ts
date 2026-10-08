@@ -45,7 +45,7 @@ describe('SyncFrequencySelect', () => {
 
     it('explains the range only where a per-view cadence is writable', () => {
         expect(buildExplanation(bounds())).toContain('Pick between 6 hours and 12 hours.')
-        expect(buildExplanation(bounds({ frequency_mode: 'dag_schedule' }))).toBeNull()
+        expect(buildExplanation(bounds({ frequency_mode: 'managed_viewset' }))).toBeNull()
         expect(buildExplanation(bounds({ floor: null, ceiling: null }))).toBeNull()
     })
 
@@ -184,7 +184,6 @@ describe('SyncFrequencySelect', () => {
     })
     describe('modeDisabledReason', () => {
         it.each([
-            ['dag_schedule', 'This view refreshes on a shared schedule. Its frequency is not set per view.'],
             ['managed_viewset', 'PostHog manages this view, including how often it refreshes.'],
             ['no_node', 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.'],
         ])('locks %s, where the backend refuses the write', (mode, reason) => {

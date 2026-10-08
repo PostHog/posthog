@@ -4,7 +4,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { llmTaggersLogic } from './llmTaggersLogic'
-import { defaultTaggerTemplates } from './templates'
 import { Tagger, TaggerType } from './types'
 
 const makeTagger = (overrides: Partial<Tagger> & { id: string; name: string }): Tagger => ({
@@ -97,28 +96,20 @@ describe('llmTaggersLogic', () => {
         })
     })
 
-    describe('seeding defaults', () => {
-        let createCalls: Record<string, unknown>[]
+    describe('loading an empty tagger list', () => {
+        let createCalls: number
 
         beforeEach(() => {
-            createCalls = []
-            let firstGet = true
+            createCalls = 0
             useMocks({
                 get: {
                     ...providerKeyMocks,
-                    '/api/environments/:team_id/taggers/': () => {
-                        if (firstGet) {
-                            firstGet = false
-                            return [200, { results: [] }]
-                        }
-                        return [200, { results: mockTaggers }]
-                    },
+                    '/api/environments/:team_id/taggers/': { results: [] },
                 },
                 post: {
-                    '/api/environments/:team_id/taggers/': async ({ request }) => {
-                        const body = (await request.json()) as Record<string, any>
-                        createCalls.push(body)
-                        return [200, { id: `new-${createCalls.length}`, ...body }]
+                    '/api/environments/:team_id/taggers/': () => {
+                        createCalls++
+                        return [201, {}]
                     },
                 },
             })
@@ -131,13 +122,13 @@ describe('llmTaggersLogic', () => {
             logic?.unmount()
         })
 
-        it('seeds default taggers when none exist and creates them disabled', async () => {
-            await expectLogic(logic).toDispatchActions(['loadTaggersSuccess'])
+        it('does not create taggers when the list is empty', async () => {
+            await expectLogic(logic).toDispatchActions(['loadTaggersSuccess']).toMatchValues({
+                taggers: [],
+                taggersLoading: false,
+            })
 
-            expect(createCalls).toHaveLength(defaultTaggerTemplates.length)
-            for (const call of createCalls) {
-                expect(call).toMatchObject({ enabled: false })
-            }
+            expect(createCalls).toBe(0)
         })
     })
 

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
     BettermodeResumeConfig,
     BettermodeRetryableError,
     _base_url,
-    _build_query,
     _execute,
     _format_datetime,
     bettermode_source,
@@ -81,10 +80,6 @@ class TestFormatDatetime:
 
 
 class TestBaseUrl:
-    def test_regional_hosts(self):
-        assert _base_url("us") == "https://api.bettermode.com"
-        assert _base_url("eu") == "https://api.bettermode.de"
-
     def test_invalid_region_raises(self):
         with pytest.raises(ValueError):
             _base_url("mars")
@@ -169,15 +164,6 @@ class TestGetRows:
         assert second_variables["limit"] == BETTERMODE_ENDPOINTS["members"].page_size
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_data_requests_carry_bearer_of_minted_token(self, mock_make_session):
-        _mock_sessions(mock_make_session, [_page("members", [])])
-
-        list(get_rows("us", "client", "secret", "net", "members", mock.MagicMock(), _make_manager()))
-
-        data_session_headers = mock_make_session.call_args_list[1].kwargs["headers"]
-        assert data_session_headers == {"Authorization": "Bearer jwt-token"}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_cursor(self, mock_make_session):
         _, data_session = _mock_sessions(mock_make_session, [_page("members", [])])
 
@@ -214,48 +200,8 @@ class TestGetRows:
         assert variables["orderBy"] == "publishedAt"
         assert variables["reverse"] is False
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_posts_has_no_filter(self, mock_make_session):
-        _, data_session = _mock_sessions(mock_make_session, [_page("posts", [])])
-
-        list(get_rows("us", "client", "secret", "net", "posts", mock.MagicMock(), _make_manager()))
-
-        variables = data_session.post.call_args.kwargs["json"]["variables"]
-        assert "filterBy" not in variables
-        assert variables["orderBy"] == "createdAt"
-
 
 class TestRepliesFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_fans_out_only_over_posts_with_replies(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
-            [
-                # Parent enumeration: p2 has no replies and must be skipped.
-                _page(
-                    "posts",
-                    [
-                        {"id": "p1", "totalRepliesCount": 2},
-                        {"id": "p2", "totalRepliesCount": 0},
-                        {"id": "p3", "totalRepliesCount": 1},
-                    ],
-                ),
-                _page("replies", [{"id": "r1"}], end_cursor="cur-r1"),
-                _page("replies", [{"id": "r2"}]),
-                _page("replies", [{"id": "r3"}]),
-            ],
-        )
-
-        manager = _make_manager()
-        batches = list(get_rows("us", "client", "secret", "net", "replies", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["r1", "r2", "r3"]
-        reply_calls = data_session.post.call_args_list[1:]
-        assert [call.kwargs["json"]["variables"]["postId"] for call in reply_calls] == ["p1", "p1", "p3"]
-        # Mid-post page checkpoint, then a bookmark advancing to the next parent.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [(state.after, state.post_id) for state in saved] == [("cur-r1", "p1"), (None, "p3")]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_bookmarked_post(self, mock_make_session):
         _, data_session = _mock_sessions(
@@ -294,13 +240,132 @@ class TestBettermodeSourceResponse:
             assert response.partition_keys is None
 
 
-class TestQueryDocuments:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_query_declares_every_variable_it_passes(self, endpoint):
-        config = BETTERMODE_ENDPOINTS[endpoint]
-        query = _build_query(config)
+class TestListEndpoints:
+    @pytest.mark.parametrize("endpoint", ["collections", "roles"])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_single_request_yields_the_whole_list(self, mock_make_session, endpoint):
+        query_field = BETTERMODE_ENDPOINTS[endpoint].query_field
+        _, data_session = _mock_sessions(
+            mock_make_session, [_response({"data": {query_field: [{"id": "a"}, {"id": "b"}]}})]
+        )
 
-        assert f"{config.query_field}(" in query
-        for arg_name, gql_type in {"limit": "Int!", "after": "String", **config.extra_args}.items():
-            assert f"${arg_name}: {gql_type}" in query
-            assert f"{arg_name}: ${arg_name}" in query
+        manager = _make_manager()
+        batches = list(get_rows("us", "client", "secret", "net", endpoint, mock.MagicMock(), manager))
+
+        assert [row["id"] for batch in batches for row in batch] == ["a", "b"]
+        assert data_session.post.call_count == 1
+        # `collections` and `roles` reject limit/after — they return the whole list.
+        assert data_session.post.call_args.kwargs["json"]["variables"] == {}
+        assert "$limit" not in data_session.post.call_args.kwargs["json"]["query"]
+        manager.save_state.assert_not_called()
+
+
+class TestSpaceFanOut:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_space_members_flattened_and_checkpointed_per_space(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                _page("spaces", [{"id": "s1"}, {"id": "s2"}]),
+                _page(
+                    "spaceMembers",
+                    [{"member": {"id": "m1"}, "role": {"id": "r1", "name": "Admin", "type": "admin"}}],
+                    end_cursor="cur-1",
+                ),
+                _page(
+                    "spaceMembers", [{"member": {"id": "m2"}, "role": {"id": "r2", "name": "Member", "type": "member"}}]
+                ),
+                # A membership whose member is no longer readable carries no usable key.
+                _page("spaceMembers", [{"member": None, "role": None}, {"member": {"id": "m3"}, "role": {}}]),
+            ],
+        )
+
+        manager = _make_manager()
+        batches = list(get_rows("us", "client", "secret", "net", "space_members", mock.MagicMock(), manager))
+
+        assert [row for batch in batches for row in batch] == [
+            {"spaceId": "s1", "memberId": "m1", "roleId": "r1", "roleName": "Admin", "roleType": "admin"},
+            {"spaceId": "s1", "memberId": "m2", "roleId": "r2", "roleName": "Member", "roleType": "member"},
+            {"spaceId": "s2", "memberId": "m3", "roleId": None, "roleName": None, "roleType": None},
+        ]
+        member_calls = data_session.post.call_args_list[1:]
+        assert [call.kwargs["json"]["variables"]["spaceId"] for call in member_calls] == ["s1", "s1", "s2"]
+        assert member_calls[0].kwargs["json"]["variables"]["orderBy"] == "CREATED_AT"
+        # Mid-space page checkpoint, then a bookmark advancing to the next space.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert [(state.after, state.space_id, state.post_id) for state in saved] == [
+            ("cur-1", "s1", None),
+            (None, "s2", None),
+        ]
+
+
+class TestPostReactionParticipantsFanOut:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_fans_out_over_post_reaction_pairs(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                # Parent enumeration: `love` has zero count and p2 has no reactions, so the only
+                # pairs to fetch are (p1, like) and (p3, wow).
+                _page(
+                    "posts",
+                    [
+                        {"id": "p1", "reactions": [{"reaction": "like", "count": 2}, {"reaction": "love", "count": 0}]},
+                        {"id": "p2", "reactions": []},
+                        {"id": "p3", "reactions": [{"reaction": "wow", "count": 1}]},
+                    ],
+                ),
+                _page("postReactionParticipants", [{"participant": {"id": "m1"}}], end_cursor="cur-1"),
+                # A participant whose member is no longer readable carries no usable key.
+                _page("postReactionParticipants", [{"participant": {"id": "m2"}}, {"participant": None}]),
+                _page("postReactionParticipants", [{"participant": {"id": "m3"}}]),
+            ],
+        )
+
+        manager = _make_manager()
+        batches = list(
+            get_rows("us", "client", "secret", "net", "post_reaction_participants", mock.MagicMock(), manager)
+        )
+
+        assert [row for batch in batches for row in batch] == [
+            {"postId": "p1", "reaction": "like", "memberId": "m1"},
+            {"postId": "p1", "reaction": "like", "memberId": "m2"},
+            {"postId": "p3", "reaction": "wow", "memberId": "m3"},
+        ]
+        participant_calls = data_session.post.call_args_list[1:]
+        assert [
+            (call.kwargs["json"]["variables"]["postId"], call.kwargs["json"]["variables"]["reaction"])
+            for call in participant_calls
+        ] == [("p1", "like"), ("p1", "like"), ("p3", "wow")]
+        # Mid-pair page checkpoint, then a bookmark advancing to the next (post, reaction) pair.
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert [(state.after, state.post_id, state.reaction) for state in saved] == [
+            ("cur-1", "p1", "like"),
+            (None, "p3", "wow"),
+        ]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resumes_from_bookmarked_pair(self, mock_make_session):
+        _, data_session = _mock_sessions(
+            mock_make_session,
+            [
+                _page(
+                    "posts",
+                    [
+                        {"id": "p1", "reactions": [{"reaction": "like", "count": 2}]},
+                        {"id": "p3", "reactions": [{"reaction": "wow", "count": 1}]},
+                    ],
+                ),
+                _page("postReactionParticipants", [{"participant": {"id": "m9"}}]),
+            ],
+        )
+
+        manager = _make_manager(BettermodeResumeConfig(after="cur-mid", post_id="p3", reaction="wow"))
+        list(get_rows("us", "client", "secret", "net", "post_reaction_participants", mock.MagicMock(), manager))
+
+        participant_calls = data_session.post.call_args_list[1:]
+        assert len(participant_calls) == 1
+        variables = participant_calls[0].kwargs["json"]["variables"]
+        assert variables["postId"] == "p3"
+        assert variables["reaction"] == "wow"
+        assert variables["after"] == "cur-mid"

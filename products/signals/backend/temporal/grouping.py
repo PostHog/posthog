@@ -31,11 +31,15 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.receivers import _is_safety_suppressed
+from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -492,6 +496,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         validate=validate,
         temperature=0.2,
         stage="match",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -503,6 +508,16 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
         result = await match_signal_to_report(input)
+        if isinstance(result, ExistingReportMatch) and input.team_id is not None:
+            report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
+            if report is not None and report.status != SignalReport.Status.DELETED:
+                current = await database_sync_to_async(signal_target_report, thread_sensitive=False)(report)
+                if current.id != report.id:
+                    result.report_id = str(current.id)
+                    unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+                        str(current.id), input.team_id
+                    )
+                    result.report_title = "" if unsafe else current.title
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
             f"Match result: matched={isinstance(result, ExistingReportMatch)}",
@@ -603,6 +618,7 @@ async def verify_match_specificity(
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
         stage="specificity",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -692,6 +708,38 @@ class AssignAndEmitDbResult:
     report_signals_researched: int = 0
 
 
+def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
+    """Point a report born from a failed follow-up check at the report that check was written on.
+
+    A `metric_threshold` check that fails on a resolved report emits a `signals_check` signal, and
+    this is the report that signal landed on. Without the edge the fresh report carries neither the
+    verdict nor the report whose fix the check was measuring, so research starts from nothing.
+
+    Distinct from the `recurrence_of` row the resolved-report fork writes: that one says the issue
+    came back, this one says a measurement of the fix breached. A report can hold both.
+
+    Best-effort. The signal is already assigned, and losing the edge must not fail the assignment.
+    """
+    if source_product != SignalSourceProduct.SIGNALS_CHECK:
+        return
+    origin_id = extra.get("report_id")
+    if not origin_id or str(origin_id) == report_id:
+        return
+    reason = (extra.get("explanation") or "")[:MAX_REPORT_LINK_REASON_LENGTH] or None
+    try:
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason),
+            attribution=ArtefactAttribution.system(),
+            write_path=ReportLinkWritePath.PIPELINE,
+        )
+    except Exception:
+        logger.exception(
+            "signals.report_check.follow_up_link_failed", report_id=report_id, team_id=team_id, origin_id=origin_id
+        )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -752,28 +800,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         promotion_suppressed=False,
                         next_research_bucket=None,
                     )
+                # A report dismissed as fixed claims the issue is gone, exactly as a resolved report
+                # does, so this signal contradicts it and must not be absorbed. The other dismissal
+                # codes state a preference about the report, and a sink is the right answer for
+                # them (see recurrence.py).
+                report = signal_target_report(report, lock=True)
+                dismissed_as_fixed_at = (
+                    fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
+                )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
-                # `related_to` artefact. add_log writes the symmetric back-link automatically, so the
-                # link is discoverable from either side. The research agent is later handed that
+                # `recurrence_of` report link. The research agent is later handed that
                 # resolved report as context (see report.py).
-                if report.status == SignalReport.Status.RESOLVED:
-                    resolved_report = report
+                if report.status == SignalReport.Status.RESOLVED or dismissed_as_fixed_at is not None:
+                    parent_report = report
+                    inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
                         total_weight=input.weight,
                         signal_count=1,
-                        title=resolved_report.title,
-                        summary=resolved_report.summary,
+                        title=parent_report.title if inherit_content else "",
+                        summary=parent_report.summary if inherit_content else "",
                         billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                     )
                     SignalReportArtefact.add_log(
                         team_id=input.team_id,
                         report_id=str(report.id),
-                        content=RelatedTo(report_id=str(resolved_report.id)),
+                        content=ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent_report.id)),
                         attribution=ArtefactAttribution.system(),
+                        write_path=ReportLinkWritePath.PIPELINE,
                     )
                 else:
                     report.total_weight += input.weight
@@ -798,7 +855,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
 
             # Promotion rules by status:
-            # - SUPPRESSED: never promoted.
+            # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
+            #   either (a recurrence spawns a fresh report above).
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
@@ -842,6 +900,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     promoted = True
 
             report_id = str(report.id)
+            _link_check_follow_up(
+                team_id=input.team_id,
+                report_id=report_id,
+                source_product=input.source_product,
+                extra=input.extra,
+            )
 
             metadata = {
                 "source_product": input.source_product,
@@ -1284,7 +1348,13 @@ async def _process_signal_batch(
 
             if isinstance(match_result, ExistingReportMatch):
                 report_ctx = report_contexts.get(match_result.report_id)
-                report_title = report_ctx.title if report_ctx else ""
+                report_title = (
+                    match_result.report_title
+                    if match_result.report_title is not None
+                    else report_ctx.title
+                    if report_ctx
+                    else ""
+                )
 
                 group_signals_result: FetchSignalsForReportOutput = await workflow.execute_activity(
                     fetch_signals_for_report_activity,

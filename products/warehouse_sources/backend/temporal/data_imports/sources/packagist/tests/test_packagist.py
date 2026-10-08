@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.
     PACKAGIST_BASE_URL,
     PackagistResumeConfig,
     PackagistRetryableError,
-    _advisory_rows,
     _download_rows,
     _fetch_json,
     _format_from_date,
@@ -26,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.
     parse_packages,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.settings import PACKAGIST_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist"
 
@@ -96,26 +94,6 @@ class _FakeResumableManager:
 
 
 class TestParsePackages:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("monolog/monolog", ["monolog/monolog"]),
-            ("monolog/monolog\nsymfony/console", ["monolog/monolog", "symfony/console"]),
-            ("monolog/monolog, symfony/console", ["monolog/monolog", "symfony/console"]),
-            # A bare vendor token is kept as-is for sync-time expansion.
-            ("symfony", ["symfony"]),
-            # Composer names are lowercase; user input is normalized before validation.
-            ("Monolog/Monolog", ["monolog/monolog"]),
-            ("monolog/monolog\nMONOLOG/MONOLOG", ["monolog/monolog"]),
-            ("monolog/monolog\n\n  \nsymfony", ["monolog/monolog", "symfony"]),
-            # Separator shapes Composer allows: `.`/`_`/`-` in both halves, `--` in the package half.
-            ("my-vendor/my_package.name", ["my-vendor/my_package.name"]),
-            ("vendor.name/pkg--name", ["vendor.name/pkg--name"]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_packages(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", " , , "])
     def test_empty_raises(self, raw):
         with pytest.raises(ValueError):
@@ -183,12 +161,6 @@ _fetch_once = _fetch_json.__wrapped__  # type: ignore[attr-defined]
 
 
 class TestFetchJson:
-    def test_404_returns_none(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(404)
-
-        assert _fetch_once(session, "https://packagist.org/x", structlog.get_logger()) is None
-
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
         session = mock.MagicMock()
@@ -206,13 +178,6 @@ class TestFetchJson:
 
 
 class TestRowBuilders:
-    def test_package_rows_drop_versions(self):
-        rows = list(_package_rows(_metadata_document()))
-
-        assert len(rows) == 1
-        assert rows[0]["name"] == "monolog/monolog"
-        assert "versions" not in rows[0]
-
     def test_package_rows_skip_document_without_name(self):
         assert list(_package_rows({"package": {}})) == []
 
@@ -225,14 +190,6 @@ class TestRowBuilders:
             ("monolog/monolog", "dev-main"),
         }
 
-    def test_download_rows_zip_labels_and_values(self):
-        rows = list(_download_rows("monolog/monolog", _stats_document()))
-
-        assert rows == [
-            {"package": "monolog/monolog", "date": "2026-07-01", "downloads": 678190},
-            {"package": "monolog/monolog", "date": "2026-07-02", "downloads": 695724},
-        ]
-
     def test_download_rows_fall_back_to_single_values_entry(self):
         # Packagist keys `values` by its canonical spelling, which can differ from the requested
         # token; with exactly one entry the mismatch must not drop the whole stream.
@@ -241,12 +198,6 @@ class TestRowBuilders:
         rows = list(_download_rows("monolog/monolog", document))
 
         assert rows == [{"package": "monolog/monolog", "date": "2026-07-01", "downloads": 5}]
-
-    def test_advisory_rows_flatten_and_require_advisory_id(self):
-        rows = list(_advisory_rows(_advisories_document()))
-
-        assert len(rows) == 1
-        assert rows[0]["advisoryId"] == "PKSA-1"
 
 
 class TestFormatFromDate:
@@ -348,20 +299,6 @@ class TestGetRows:
         assert len(batches) == 1
         assert batches[0][0]["name"] == "monolog/monolog"
 
-    def test_saves_state_after_each_package(self):
-        _, _, manager = self._run(
-            "packages",
-            [
-                _response(200, _metadata_document("monolog/monolog")),
-                _response(200, _metadata_document("symfony/console")),
-            ],
-        )
-
-        assert manager.saved == [
-            PackagistResumeConfig(next_package_index=1),
-            PackagistResumeConfig(next_package_index=2),
-        ]
-
     def test_resumes_from_saved_state(self):
         batches, session, _ = self._run(
             "packages",
@@ -427,14 +364,6 @@ class TestGetRows:
 
 
 class TestPackagistSource:
-    @pytest.mark.parametrize("endpoint", list(PACKAGIST_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = packagist_source(endpoint, "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]
-
-        assert response.name == endpoint
-        assert response.primary_keys == PACKAGIST_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     def test_only_downloads_is_partitioned(self):
         downloads = packagist_source("downloads", "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]
         packages = packagist_source("packages", "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]

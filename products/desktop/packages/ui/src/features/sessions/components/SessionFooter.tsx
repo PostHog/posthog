@@ -30,6 +30,7 @@ interface SessionFooterProps {
   /** Timestamp (ms) of the newest event in the thread; the generating indicator
    *  says how long it has been since one arrived. */
   lastActivityAt?: number | null;
+  currentWork?: string;
 }
 
 export function SessionFooter({
@@ -46,6 +47,7 @@ export function SessionFooter({
   isBackgroundTurnActive = false,
   completedToolCallCount,
   lastActivityAt,
+  currentWork,
 }: SessionFooterProps) {
   const rightSide = (
     <Flex align="center" gap="3" className="ml-auto shrink-0">
@@ -90,6 +92,7 @@ export function SessionFooter({
               pausedDurationMs={pausedDurationMs}
               activityKey={completedToolCallCount}
               lastActivityAt={lastActivityAt}
+              currentWork={currentWork}
             />
             {queuedCount > 0 && (
               <Text className="truncate text-[13px] text-muted-foreground">

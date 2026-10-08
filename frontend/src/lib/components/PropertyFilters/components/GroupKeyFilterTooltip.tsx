@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import { Group, GroupTypeIndex } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import { groupKeyTooltipLogic } from './groupKeyTooltipLogic'
 

@@ -77,7 +77,7 @@ def _log_delivery_failure(topic: str, error_name: str, msg: Optional[Message]) -
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProduceResult:
     """
     A Future-like wrapper for confluent-kafka delivery results.
@@ -94,6 +94,9 @@ class ProduceResult:
         self._error = error
         self._message = message
         self._event.set()
+
+    def done(self) -> bool:
+        return self._event.is_set()
 
     def get(self, timeout: Optional[float] = None) -> Optional[Message]:
         """
@@ -172,7 +175,6 @@ _KAFKA_PYTHON_TO_CONFLUENT_KEYS = {
     "linger_ms": "linger.ms",
     "max_in_flight_requests_per_connection": "max.in.flight.requests.per.connection",
     "buffer_memory": "queue.buffering.max.kbytes",
-    "max_block_ms": "queue.buffering.max.ms",
     "topic_metadata_refresh_interval_ms": "topic.metadata.refresh.interval.ms",
     "queue_buffering_max_messages": "queue.buffering.max.messages",
     "sticky_partitioning_linger_ms": "sticky.partitioning.linger.ms",
@@ -476,11 +478,13 @@ class ClickhouseProducer:
     can target the cluster mapped in TOPIC_ROUTING.
     """
 
-    def produce(self, sql: str, topic: str, data: dict[str, Any]):
+    def produce(self, sql: str, topic: str, data: dict[str, Any]) -> ProduceResult:
         if settings.TEST:
             sync_execute(sql, data)
-            return
+            result = ProduceResult(topic=topic)
+            result.set_result(None, None)
+            return result
         # Lazy import: routing imports from this module.
         from posthog.kafka_client.routing import get_producer
 
-        get_producer(topic=topic).produce(topic=topic, data=data)
+        return get_producer(topic=topic).produce(topic=topic, data=data)

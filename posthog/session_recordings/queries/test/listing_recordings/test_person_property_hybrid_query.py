@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, create_person_id_override_by_distinct_id
 from unittest.mock import patch
 
@@ -24,7 +24,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.persons import create_person
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
 class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
@@ -97,7 +97,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_hybrid_query_finds_pre_identification_sessions(self, mock_feature_enabled) -> None:
-        with freeze_time("2021-08-21T20:00:00.000Z"):
+        with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
             anonymous_id = "anonymous_user_456"
             identified_id = "identified_user_456"
             session_id_before = "session_before_identification_456"
@@ -163,7 +163,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_hybrid_query_finds_all_person_sessions(self, mock_feature_enabled) -> None:
-        with freeze_time("2021-08-21T20:00:00.000Z"):
+        with time_machine.travel("2021-08-21T20:00:00.000Z", tick=False):
             distinct_id_1 = "distinct_1"
             distinct_id_2 = "distinct_2"
             distinct_id_3 = "distinct_3"

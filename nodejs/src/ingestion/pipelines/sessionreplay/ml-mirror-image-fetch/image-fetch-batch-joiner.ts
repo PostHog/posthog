@@ -1,13 +1,18 @@
 import { Message } from 'node-rdkafka'
 
+import { ImageFetchProcessingMetrics, ProcessingStageTimer } from './processing-metrics'
+
 export const IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS = 500
-export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 4
+export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 16
 
 type BatchProcessor = (messages: Message[]) => Promise<void>
 
+type DispatchedBatch = { backgroundTask: Promise<void> }
+
 type BatchWaiter = {
-    resolve: () => void
+    resolve: (batch: DispatchedBatch) => void
     reject: (error: unknown) => void
+    timer: ProcessingStageTimer
 }
 
 type PendingBatchGroup = {
@@ -28,6 +33,7 @@ export function assertImageFetchBatchTarget(targetBatchCount: number): void {
 
 export class ImageFetchBatchJoiner {
     private pendingGroup?: PendingBatchGroup
+    private readonly activeProcessing = new Set<Promise<void>>()
     private failed = false
     private failure: unknown
 
@@ -38,7 +44,7 @@ export class ImageFetchBatchJoiner {
         assertImageFetchBatchTarget(targetBatchCount)
     }
 
-    public handleBatch(messages: Message[]): Promise<void> {
+    public handleBatch(messages: Message[]): Promise<DispatchedBatch | void> {
         if (messages.length === 0) {
             return Promise.resolve()
         }
@@ -46,14 +52,18 @@ export class ImageFetchBatchJoiner {
             return Promise.reject(this.failure)
         }
 
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<DispatchedBatch>((resolve, reject) => {
             const group = this.pendingGroup ?? this.createPendingGroup()
             group.batches.push(messages)
-            group.waiters.push({ resolve, reject })
+            group.waiters.push({ resolve, reject, timer: ImageFetchProcessingMetrics.start('consumer_join') })
             if (group.batches.length >= this.targetBatchCount) {
                 this.dispatch(group)
             }
         })
+    }
+
+    public async waitForProcessing(): Promise<void> {
+        await Promise.allSettled(this.activeProcessing)
     }
 
     private createPendingGroup(): PendingBatchGroup {
@@ -72,6 +82,10 @@ export class ImageFetchBatchJoiner {
             clearTimeout(group.timeout)
         }
 
+        ImageFetchProcessingMetrics.joinedBatches.observe(group.batches.length)
+        for (const { timer } of group.waiters) {
+            timer.move('consumer_process')
+        }
         const processing = (async () => {
             if (this.failed) {
                 throw this.failure
@@ -82,11 +96,14 @@ export class ImageFetchBatchJoiner {
                 this.fail(error)
                 throw error
             }
-        })()
-        void processing.then(
-            () => group.waiters.forEach(({ resolve }) => resolve()),
-            (error) => group.waiters.forEach(({ reject }) => reject(error))
-        )
+        })().finally(() => {
+            group.waiters.forEach(({ timer }) => timer.finish())
+            this.activeProcessing.delete(processing)
+        })
+        this.activeProcessing.add(processing)
+        for (const { resolve } of group.waiters) {
+            resolve({ backgroundTask: processing })
+        }
     }
 
     private fail(error: unknown): void {
@@ -103,7 +120,8 @@ export class ImageFetchBatchJoiner {
         if (pendingGroup.timeout) {
             clearTimeout(pendingGroup.timeout)
         }
-        for (const { reject } of pendingGroup.waiters) {
+        for (const { reject, timer } of pendingGroup.waiters) {
+            timer.finish()
             reject(this.failure)
         }
     }

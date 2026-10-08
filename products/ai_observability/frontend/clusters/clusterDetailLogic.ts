@@ -9,9 +9,9 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
@@ -20,14 +20,13 @@ import { llmEvaluationsLogic, waitForEvaluationsSettled } from '../evaluations/l
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
-    FILTER_QUERY_MAX_ROWS,
     AI_OBSERVABILITY_CLUSTER_SCENE_TAG,
     AI_OBSERVABILITY_CLUSTER_URL_PATTERN,
     NOISE_CLUSTER_ID,
     OUTLIER_COLOR,
-    SAFE_ID_RE,
     TRACES_PER_PAGE,
 } from './constants'
+import { loadFilterMatchedItemIds } from './filteredItemIdsLoader'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -180,7 +179,11 @@ export interface clusterDetailLogicMeta {
         windowEnd: (clusterData: ClusterData | null) => string
         clusteringLevel: (clusterData: ClusterData | null) => ClusteringLevel
         isOutlierCluster: (cluster: Cluster | null) => boolean
-        scatterPlotSeries: (cluster: Cluster | null, isOutlierCluster: boolean) => ClusterScatterSeries[]
+        scatterPlotSeries: (
+            cluster: Cluster | null,
+            isOutlierCluster: boolean,
+            filteredItemIds: Set<string> | null
+        ) => ClusterScatterSeries[]
         sortedTraceIds: (cluster: Cluster | null, filteredItemIds: Set<string> | null) => string[]
         totalTraces: (sortedTraceIds: string[]) => number
         unfilteredTotalTraces: (cluster: Cluster | null) => number
@@ -273,97 +276,34 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         // Subset of cluster item IDs that match the user's active property filters
         // (cohorts, person properties, etc.). Null when no filters are active —
         // selectors treat null as "show everything", which avoids forcing every
-        // unfiltered cluster view to round-trip an EventsQuery on mount.
+        // unfiltered cluster view to round-trip a query on mount.
         filteredItemIds: [
             null as Set<string> | null,
             {
                 loadFilteredItemIds: async (_, breakpoint) => {
                     // Debounce to coalesce overlapping filter changes (e.g. quick toggles
                     // of the test-accounts switch or successive cohort selections) into a
-                    // single EventsQuery round-trip.
+                    // single round-trip.
                     await breakpoint(150)
 
-                    const propertyFilters: AnyPropertyFilter[] = values.propertyFilters || []
-                    const shouldFilterTestAccounts: boolean = values.shouldFilterTestAccounts
                     const cluster = values.cluster
                     const windowStart = values.windowStart
                     const windowEnd = values.windowEnd
-                    const clusteringLevel: ClusteringLevel = values.clusteringLevel
 
                     if (!cluster || !windowStart || !windowEnd) {
                         return null
                     }
 
-                    if (propertyFilters.length === 0 && !shouldFilterTestAccounts) {
-                        return null
-                    }
-
-                    // Eval clusters key on $ai_evaluation event UUIDs, which don't carry the
-                    // person/cohort fields the user filters by. Skip filtering for now rather
-                    // than silently producing empty results.
-                    if (clusteringLevel === 'evaluation') {
-                        return null
-                    }
-
-                    const clusterIds = Object.keys(cluster.traces).filter((id) => SAFE_ID_RE.test(id))
-                    if (clusterIds.length === 0) {
-                        return new Set<string>()
-                    }
-
-                    // For clusters larger than the server's row cap we'd silently miss matches,
-                    // which would render a misleading partial result. Skip filtering instead and
-                    // surface a warning — a future change can paginate via offset if this becomes
-                    // a real-world hit rather than a theoretical one.
-                    if (clusterIds.length > FILTER_QUERY_MAX_ROWS) {
-                        console.warn(
-                            `Cluster has ${clusterIds.length} items, exceeding the ${FILTER_QUERY_MAX_ROWS}-row cap for filter queries. Filters not applied.`
-                        )
-                        return null
-                    }
-
-                    const idPropertyKey = clusteringLevel === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
-                    const idSelectExpression = `properties['${idPropertyKey}']`
-
-                    // Constrain to cluster items via a typed event-property filter rather than a
-                    // raw HogQL `where` clause: `properties.$ai_generation_id` doesn't parse cleanly
-                    // as a column reference because of the leading `$`, which would 500 the
-                    // EventsQuery. The typed filter routes through `property_to_expr` which knows
-                    // how to escape it.
-                    const idsFilter: AnyPropertyFilter = {
-                        type: PropertyFilterType.Event,
-                        key: idPropertyKey,
-                        operator: PropertyOperator.Exact,
-                        value: clusterIds,
-                    }
-
-                    const eventsQuery: EventsQuery = {
-                        kind: NodeKind.EventsQuery,
-                        // The Set accumulator below already dedupes, so we don't need DISTINCT —
-                        // and `DISTINCT col` is not a valid HogQL select expression anyway (it's a
-                        // query-level modifier, not a per-column prefix).
-                        select: [idSelectExpression],
-                        event: '$ai_generation',
-                        properties: [idsFilter, ...propertyFilters],
-                        after: windowStart,
-                        before: windowEnd,
-                        filterTestAccounts: shouldFilterTestAccounts,
-                        limit: clusterIds.length + 1,
-                        // Required for the query runner to populate the `product` ClickHouse
-                        // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
-                        // every request.
-                        tags: { productKey: ProductKey.AI_OBSERVABILITY, scene: AI_OBSERVABILITY_CLUSTER_SCENE_TAG },
-                    }
-
-                    const response = await api.query(eventsQuery)
+                    const matched = await loadFilterMatchedItemIds({
+                        itemIds: Object.keys(cluster.traces),
+                        level: values.clusteringLevel,
+                        windowStart,
+                        windowEnd,
+                        propertyFilters: values.propertyFilters || [],
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        scene: AI_OBSERVABILITY_CLUSTER_SCENE_TAG,
+                    })
                     breakpoint()
-
-                    const matched = new Set<string>()
-                    for (const row of response.results || []) {
-                        const id = (row as unknown[])[0]
-                        if (typeof id === 'string' && id) {
-                            matched.add(id)
-                        }
-                    }
                     return matched
                 },
             },
@@ -473,12 +413,19 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
 
         scatterPlotSeries: [
-            (s) => [s.cluster, s.isOutlierCluster],
-            (cluster: Cluster | null, isOutlier: boolean): ClusterScatterSeries[] => {
+            (s) => [s.cluster, s.isOutlierCluster, s.filteredItemIds],
+            (
+                cluster: Cluster | null,
+                isOutlier: boolean,
+                filteredItemIds: Set<string> | null
+            ): ClusterScatterSeries[] => {
                 if (!cluster) {
                     return []
                 }
 
+                // Same membership rule as sortedTraceIds, so the plot and the list show the same items
+                const entries = Object.entries(cluster.traces)
+                const visibleEntries = filteredItemIds ? entries.filter(([id]) => filteredItemIds.has(id)) : entries
                 const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
                 const result: ClusterScatterSeries[] = [
@@ -488,7 +435,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         color,
                         pointRadius: 5,
                         shape: isOutlier ? 'cross' : 'circle',
-                        points: Object.entries(cluster.traces).map(([itemKey, traceInfo]) => ({
+                        points: visibleEntries.map(([itemKey, traceInfo]) => ({
                             x: traceInfo.x,
                             y: traceInfo.y,
                             meta: {
@@ -501,7 +448,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                 ]
 
                 // Add centroid marker for non-outlier clusters
-                if (!isOutlier) {
+                if (!isOutlier && visibleEntries.length > 0) {
                     result.push({
                         key: 'centroid',
                         label: 'Centroid',

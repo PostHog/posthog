@@ -1,23 +1,22 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow import (
     AppfollowResumeConfig,
     appfollow_source,
     check_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
-    APPFOLLOW_ENDPOINTS,
+    APPFOLLOW_V2,
+    APPFOLLOW_V3,
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -36,8 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v2",)
-    default_version = "v2"
+    supported_versions = (APPFOLLOW_V2, APPFOLLOW_V3)
+    default_version = APPFOLLOW_V3
     api_docs_url = "https://docs.api.appfollow.io/reference/overview"
 
     @property
@@ -47,7 +46,7 @@ class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPFOLLOW,
+            name=ExternalDataSourceType.APPFOLLOW,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="AppFollow",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -98,14 +97,16 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        endpoints = endpoints_for_version(self.resolve_api_version(api_version))
+
         def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = APPFOLLOW_ENDPOINTS[endpoint]
-            has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
+            endpoint_config = endpoints[endpoint]
+            has_incremental = bool(endpoint_config.incremental_fields)
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental,
                 supports_append=has_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 detected_primary_keys=endpoint_config.primary_keys,
             )
@@ -123,7 +124,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        status = check_credentials(config.api_key)
+        status = check_credentials(config.api_key, self.resolve_api_version(api_version))
         if status is None:
             return False, "Could not reach AppFollow. Please try again."
         if status == 401:
@@ -148,6 +149,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
         return appfollow_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

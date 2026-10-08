@@ -62,6 +62,7 @@ class IncrementalState:
     definition_fingerprint: Optional[str] = None
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
+    has_incremental_history: bool = False
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
@@ -101,7 +102,38 @@ def get_incremental_state(saved_query) -> IncrementalState:
         definition_fingerprint=raw.get("definition_fingerprint"),
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
+        has_incremental_history=raw.get("has_incremental_history") is True,
     )
+
+
+def has_incremental_history(saved_query) -> bool:
+    """Whether an incremental plan participated in a run.
+
+    The config fallback covers views that used the feature before the durable marker existed.
+    Current clients remove the config when they disable incremental materialization.
+    """
+    state = get_incremental_state(saved_query)
+    return (
+        state.has_incremental_history
+        or state.last_run_mode is not None
+        or isinstance(saved_query.incremental_config, dict)
+    )
+
+
+def record_incremental_history(saved_query) -> None:
+    """Persist the history marker once without overwriting concurrent state changes."""
+    if get_incremental_state(saved_query).has_incremental_history:
+        return
+
+    model = type(saved_query)
+    with transaction.atomic():
+        locked = model.objects.select_for_update().get(pk=saved_query.pk)
+        state = dict(locked.incremental_state or {})
+        if state.get("has_incremental_history") is not True:
+            state["has_incremental_history"] = True
+            locked.incremental_state = state
+            locked.save(update_fields=["incremental_state"])
+    saved_query.incremental_state = state
 
 
 def definition_fingerprint(query: dict | None, config: IncrementalConfig) -> Optional[str]:

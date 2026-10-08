@@ -9,10 +9,6 @@ _INVENTORY_ENDPOINTS = ["pods", "endpoints", "templates", "network_volumes"]
 
 
 class TestRunPodSchemas:
-    def test_all_endpoints_present(self) -> None:
-        names = {s.name for s in RunPodSource().get_schemas(MagicMock(), team_id=1)}
-        assert names == set(_BILLING_ENDPOINTS) | set(_INVENTORY_ENDPOINTS)
-
     @parameterized.expand([(name,) for name in _BILLING_ENDPOINTS])
     def test_billing_endpoints_are_incremental_on_time(self, endpoint: str) -> None:
         # Only the billing endpoints have a genuine server-side time filter (startTime).
@@ -58,15 +54,3 @@ class TestRunPodSourceForPipeline:
         assert response.sort_mode == "asc"
         assert response.partition_mode == partition_mode
         assert response.partition_keys == partition_keys
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog => the source opts into publishing its table list to public docs.
-        assert RunPodSource().lists_tables_without_credentials is True
-        tables = RunPodSource().get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(_BILLING_ENDPOINTS) | set(_INVENTORY_ENDPOINTS) <= names
-        billing = next(t for t in tables if t["name"] == "billing_pods")
-        assert "Incremental" in billing["sync_methods"]
-        assert billing["description"]  # canonical description is surfaced

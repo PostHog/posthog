@@ -6,6 +6,9 @@
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 
 const ciAlertsDevex = require('./ci-alerts-devex')
 
@@ -25,11 +28,13 @@ function recordingFn(impl) {
 // Workflow-run objects in raw listWorkflowRuns shape, conclusions newest-first.
 function runs(name, conclusions) {
     return conclusions.map((conclusion, i) => ({
+        id: 1000 + i,
         name,
         status: 'completed',
         conclusion,
         head_sha: `sha_${name}_${i}`,
         html_url: `https://github.com/runs/${name}/${i}`,
+        created_at: minutes(-(i * 5)).toISOString(),
         updated_at: minutes(-(i * 5)).toISOString(),
     }))
 }
@@ -240,7 +245,17 @@ describe('ci-alerts-devex', () => {
             assert.equal(body.event, 'master_ci_incident_opened')
             assert.equal(body.properties.channel, 'C0AS64N6DJL')
             assert.equal(body.properties.ts, '111.222') // the anchor, so the agent replies under it
-            assert.deepEqual(body.properties.workflows, ['Backend CI'])
+            assert.deepEqual(body.properties.workflows, [
+                {
+                    name: 'Backend CI',
+                    workflow_file: 'ci-backend.yml',
+                    event: 'push',
+                    run_id: 1000,
+                    run_url: 'https://github.com/runs/Backend CI/0',
+                    run_created_at: minutes(0).toISOString(),
+                    head_sha: 'sha_Backend CI_0',
+                },
+            ])
         })
 
         it('retries a failed start rather than losing it', async () => {
@@ -343,10 +358,17 @@ describe('ci-alerts-devex', () => {
                     : { 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' }
             )
         )
-        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+        const fetch = makeWebhook()
+        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }), {
+            env: { DIAGNOSIS_WEBHOOK_URL: 'https://webhooks.test/start' },
+            fetch,
+        })
 
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.commit_streak, '10')
+        const payload = JSON.parse(fetch.calls[0][1].body)
+        assert.deepEqual(payload.properties.workflows, [])
+        assert.equal(payload.properties.latest_commit_sha, 'commit_sha_0')
         const anchor = slack.postMessage.calls[0][0]
         const body = JSON.stringify(anchor.attachments)
         assert.match(body, /10 commits in a row failed a required check/)
@@ -818,6 +840,45 @@ describe('ci-alerts-devex', () => {
                 anchored.map((w) => w.name).sort(),
                 expected.blocking
             )
+        })
+    }
+
+    // (contents of the Depot runs file, or null for no file) → action.
+    for (const [scenario, depotRuns, expected] of [
+        ['pages on a red streak', runs('Backend CI', ['failure', 'failure']), { action: 'create', blocking: '1' }],
+        ['stays quiet when green', runs('Backend CI', ['success', 'failure']), { action: 'none', blocking: '0' }],
+        ['holds an open incident when the file is missing', null, { action: 'hold', blocking: '0' }],
+        ['holds an open incident for a non-array payload', 'invalid', { action: 'hold', blocking: '0' }],
+        ['holds an open incident for an empty payload', [], { action: 'hold', blocking: '0' }],
+        [
+            'holds an open incident for missing run timestamps',
+            [{ status: 'completed', conclusion: 'success' }],
+            { action: 'hold', blocking: '0' },
+        ],
+        ['holds an open incident for null run entries', [null], { action: 'hold', blocking: '0' }],
+    ]) {
+        it(`scheduled lane read from Depot CI: ${scenario}`, async (t) => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depot-runs-'))
+            t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+            const runsFile = path.join(dir, 'runs.json')
+            if (depotRuns) {
+                fs.writeFileSync(runsFile, JSON.stringify(depotRuns))
+            }
+            const github = laneGithub(
+                { 'ci-backend.yml:push': runs('Backend CI', ['success']) },
+                pushAt(minutes(-3).toISOString())
+            )
+            const { slack, outputs } = await run(github, {
+                env: {
+                    GATING_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml',
+                    DEPOT_SCHEDULED_RUNS_FILE: runsFile,
+                },
+                history: expected.action === 'hold' ? [activeAnchor({ workflows: ['Backend CI (scheduled)'] })] : [],
+            })
+            assert.equal(outputs.action, expected.action)
+            assert.equal(outputs.blocking_count, expected.blocking)
+            assert.equal(slack.update.calls.length, 0)
         })
     }
 

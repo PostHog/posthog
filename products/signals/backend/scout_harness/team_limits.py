@@ -10,7 +10,9 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import hashlib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -25,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +78,12 @@ MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
 
 # Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
 TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
+
+# Key inside `team_configs` / `default_team_config` that overrides `MAX_ENABLED_SCOUTS_PER_TEAM`,
+# the ceiling on how many scouts one project may have switched on at once. A project that needs
+# more capacity than the fleet default gets it in the flag UI, with no deploy and without raising
+# the allowance for every other project.
+TEAM_CONFIG_MAX_ENABLED_SCOUTS = "max_enabled_scouts"
 
 # Key inside `team_configs` / `default_team_config` controlling whether report-channel scouts get
 # the `gh` evidence-gathering prompt guidance (reviewer routing from commit history by path, PR
@@ -212,6 +221,123 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
 
 
+# Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
+# asking. Separate from `guaranteed_team_ids`: a background team gets one config for one skill, not
+# the full catalog seed.
+BACKGROUND_KEY = "background"
+DEFAULT_BACKGROUND_SKILL_NAME = "signals-scout-general"
+# Bounds how many teams get a new background config in one tick, so a large list starts over
+# several ticks instead of in one burst.
+DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK = 5
+
+
+@dataclass(frozen=True)
+class BackgroundBand:
+    """One entry of `background.bands`. `interval_minutes` is `None` when unset, so the block value applies."""
+
+    percent: int
+    interval_minutes: int | None
+
+
+# The activity bands that the nightly job writes to `SignalScoutBackgroundBand`, most active first.
+BACKGROUND_BANDS = (1, 2, 3, 4)
+
+
+@dataclass(frozen=True)
+class BackgroundEnrollment:
+    """Parsed `background` block from the `signals-scout` flag payload.
+
+    `enabled` → the coordinator creates and dispatches background configs. A valid block with
+    `enabled` off still pauses configs whose team left `team_ids`. `interval_minutes` is `None`
+    when unset, so the created row keeps the model default.
+    """
+
+    enabled: bool
+    skill_name: str
+    team_ids: frozenset[int]
+    interval_minutes: int | None
+    max_new_teams_per_tick: int
+    # Only the bands with a valid entry. A missing band samples no project.
+    bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+
+    def band_interval_minutes(self, band: int | None) -> int | None:
+        entry = self.bands.get(band) if band is not None else None
+        if entry is not None and entry.interval_minutes is not None:
+            return entry.interval_minutes
+        return self.interval_minutes
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
+    """Parse `background.bands`. A malformed entry drops out, so that band samples 0 percent.
+
+    A malformed entry never invalidates the block, because the block also carries `team_ids`.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    bands: dict[int, BackgroundBand] = {}
+    for band in BACKGROUND_BANDS:
+        entry = raw.get(str(band))
+        if not isinstance(entry, dict):
+            continue
+        percent = entry.get("percent")
+        if not isinstance(percent, int) or isinstance(percent, bool) or not 0 <= percent <= 100:
+            continue
+        bands[band] = BackgroundBand(
+            percent=percent, interval_minutes=_positive_int_or_none(entry.get("interval_minutes"))
+        )
+    return bands
+
+
+def background_sample_bucket(team_id: int) -> int:
+    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+
+    A project is sampled when its bucket is below its band percent, so a higher percent keeps every
+    project that a lower percent sampled.
+    """
+    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
+def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
+    """Parse the `background` block, or return `None` when the coordinator must not act on it.
+
+    `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
+    that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
+    `team_ids` must not read as an empty list, because an empty list pauses every background
+    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, or `bands` entry falls back to its default and does not invalidate the block.
+    """
+    if payload is None:
+        return None
+    raw = payload.get(BACKGROUND_KEY)
+    if not isinstance(raw, dict):
+        return None
+
+    skill_name = raw.get("skill_name", DEFAULT_BACKGROUND_SKILL_NAME)
+    if not isinstance(skill_name, str) or not skill_name.strip():
+        return None
+
+    raw_team_ids = raw.get("team_ids", [])
+    if not isinstance(raw_team_ids, list) or not all(
+        isinstance(team_id, int) and not isinstance(team_id, bool) for team_id in raw_team_ids
+    ):
+        return None
+
+    max_new = _positive_int_or_none(raw.get("max_new_teams_per_tick"))
+    return BackgroundEnrollment(
+        enabled=raw.get("enabled") is True,
+        skill_name=skill_name.strip(),
+        team_ids=frozenset(raw_team_ids),
+        interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
+        max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+        bands=_parse_background_bands(raw.get("bands")),
+    )
+
+
 def _enrolled_team_ids(payload: dict | None) -> set[int]:
     """Explicit enrolled project ids (skip removed) — the back-compat view of `_parse_enrollment`
     for the metadata path and existing callers.
@@ -305,6 +431,39 @@ def _resolve_max_runs_per_day(team_id: int, team_configs: dict[int, dict], defau
         if isinstance(override, int) and not isinstance(override, bool) and override > 0:
             return override
     return MAX_RUNS_PER_TEAM_PER_DAY
+
+
+def resolve_max_enabled_scouts(config_layers: Sequence[dict] | None) -> int:
+    """Effective enabled-scout ceiling for one project, most-specific layer first.
+
+    `config_layers` are the project's flag config layers in precedence order — its `team_configs`
+    entry, then the fleet `default_team_config`. The first layer carrying a positive int wins; an
+    absent or malformed value (null, zero, negative, fractional, string, bool) falls through to the
+    next layer and finally to `MAX_ENABLED_SCOUTS_PER_TEAM`, so a typo cannot silently widen or
+    narrow a project's allowance.
+
+    The single resolver every enforcement point reads, so the cap the API reports is the cap
+    registration and resume apply. Callers that already hold the layers (the coordinator, the
+    on-demand sync) pass them and pay no extra flag read; request-context callers use
+    `max_enabled_scouts_for_team`.
+    """
+    for source in config_layers or ():
+        override = source.get(TEAM_CONFIG_MAX_ENABLED_SCOUTS)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return override
+    return MAX_ENABLED_SCOUTS_PER_TEAM
+
+
+def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
+    """One flag-payload read → this project's enabled-scout ceiling.
+
+    `canonical_team_id` must be the parent/project id; `team_configs` keys are canonicalized so a
+    child-environment override still resolves, and an explicit parent-keyed entry wins over one
+    keyed on a child. A missing or unreadable payload yields `MAX_ENABLED_SCOUTS_PER_TEAM`.
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    return resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's
@@ -519,6 +678,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     return _is_team_enrolled(canonical_team_id, enrollment.explicit)
 
 
+def team_is_enrolled(canonical_team_id: int) -> bool:
+    """Whether a canonical project runs scouts, as the `signals-scout` flag payload says right now."""
+    return _resolve_enrolled(canonical_team_id, _parse_enrollment(_read_flag_payload()))
+
+
 @dataclass(frozen=True)
 class ScoutTeamLimits:
     """A team's effective scout run caps + current usage, all resolved the way dispatch enforces."""
@@ -527,6 +691,7 @@ class ScoutTeamLimits:
     max_runs_per_day: int | None
     runs_today: int
     runs_remaining_today: int | None
+    max_enabled_scouts: int
 
 
 @dataclass(frozen=True)
@@ -547,6 +712,7 @@ class ScoutTeamMetadata:
                 "max_runs_per_day": self.limits.max_runs_per_day,
                 "runs_today": self.limits.runs_today,
                 "runs_remaining_today": self.limits.runs_remaining_today,
+                "max_enabled_scouts": self.limits.max_enabled_scouts,
             },
         }
 
@@ -581,5 +747,8 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
             max_runs_per_day=max_runs_per_day,
             runs_today=runs_today,
             runs_remaining_today=runs_remaining_today,
+            max_enabled_scouts=resolve_max_enabled_scouts(
+                [team_configs.get(canonical_team_id) or {}, default_team_config]
+            ),
         ),
     )

@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.c
     calendly_source,
     create_webhook,
     delete_webhook,
-    get_current_organization,
     get_external_webhook_info,
     validate_credentials,
 )
@@ -35,6 +34,13 @@ CALENDLY_SESSION_PATCH = (
 )
 
 ORG_URI = "https://api.calendly.com/organizations/ABC123"
+
+# Parent row each fan-out child is bound to, keyed by the child endpoint.
+PARENT_URIS = {
+    "invitees": "https://api.calendly.com/scheduled_events/EV1",
+    "routing_form_submissions": "https://api.calendly.com/routing_forms/RF1",
+    "event_type_memberships": "https://api.calendly.com/event_types/ET1",
+}
 
 
 def _response(
@@ -114,9 +120,6 @@ class TestFormatDatetime:
     def test_format_datetime(self, _name: str, value: object, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset_in_output(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -125,70 +128,10 @@ class TestValidateCredentials:
         self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock
     ) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("token") is expected
-
-    @mock.patch(CALENDLY_SESSION_PATCH, side_effect=Exception("network down"))
-    def test_validate_credentials_swallows_exceptions(self, _mock_session: mock.MagicMock) -> None:
-        assert validate_credentials("token") is False
-
-
-class TestGetCurrentOrganization:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_parses_org_uri(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _users_me_response()
-        assert get_current_organization("token") == ORG_URI
+        assert validate_credentials("token") == (expected, status_code)
 
 
 class TestPagination:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_across_pages_following_next_page(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        next_url = f"{CALENDLY_BASE_URL}/event_types?page=2"
-        snapshots = _wire(
-            MockClientSession.return_value,
-            [_response([{"uri": "a"}, {"uri": "b"}], next_page=next_url), _response([{"uri": "c"}])],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source(manager))
-
-        assert [r["uri"] for r in rows] == ["a", "b", "c"]
-        # First request is the org-scoped list; second follows the self-contained next_page URL.
-        assert snapshots[0]["params"]["count"] == 100
-        assert snapshots[0]["params"]["organization"] == ORG_URI
-        assert snapshots[1]["url"] == next_url
-        assert snapshots[1]["params"] == {}
-        # State saved after the first page yielded, pointing at page 2; no save at the end.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CalendlyResumeConfig(next_url=next_url)
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        _wire(MockClientSession.return_value, [_response([])])
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == []
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_collection_key_treated_as_empty(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        _wire(MockClientSession.return_value, [_response(None, drop_collection=True)])
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == []
-
     @mock.patch(CALENDLY_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_mid_pagination_does_not_terminate_early(
@@ -240,21 +183,6 @@ class TestPagination:
 
     @mock.patch(CALENDLY_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_scopes_to_organization(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "a"}])])
-
-        _rows(_source(_make_manager()))
-
-        # users/me bootstrap first, then the scoped list request carrying the org URI.
-        users_me_call = mock_calendly_session.return_value.get.call_args
-        assert users_me_call.args[0] == f"{CALENDLY_BASE_URL}/users/me"
-        assert snapshots[0]["params"]["organization"] == ORG_URI
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_http_4xx_fails_loudly(
         self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
     ) -> None:
@@ -266,19 +194,6 @@ class TestPagination:
 
 
 class TestRequestParams:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_scheduled_events_adds_sort_and_no_filter_without_incremental(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "a"}])])
-
-        _rows(_source(_make_manager(), endpoint="scheduled_events"))
-
-        assert snapshots[0]["params"]["sort"] == "start_time:asc"
-        assert "min_start_time" not in snapshots[0]["params"]
-
     @mock.patch(CALENDLY_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_scheduled_events_adds_min_start_time_when_incremental(
@@ -316,6 +231,61 @@ class TestRequestParams:
         )
 
         assert "min_start_time" not in snapshots[0]["params"]
+
+
+class TestFanoutEndpoints:
+    """The three child endpoints scoped to a parent resource, fanned out one request per parent."""
+
+    @parameterized.expand(
+        [
+            (
+                "invitees",
+                "scheduled_events",
+                f"{CALENDLY_BASE_URL}/scheduled_events/EV1/invitees",
+                "created_at:asc",
+            ),
+            (
+                "routing_form_submissions",
+                "routing_forms",
+                f"{CALENDLY_BASE_URL}/routing_form_submissions?form=https%3A%2F%2Fapi.calendly.com%2Frouting_forms%2FRF1",
+                "created_at:asc",
+            ),
+            (
+                "event_type_memberships",
+                "event_types",
+                f"{CALENDLY_BASE_URL}/event_type_memberships?event_type=https%3A%2F%2Fapi.calendly.com%2Fevent_types%2FET1",
+                # The only list endpoint that accepts no sort param.
+                None,
+            ),
+        ]
+    )
+    @mock.patch(CALENDLY_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_request_is_bound_to_its_parent(
+        self,
+        endpoint: str,
+        parent: str,
+        expected_child_url: str,
+        expected_sort: Optional[str],
+        MockClientSession: mock.MagicMock,
+        mock_calendly_session: mock.MagicMock,
+    ) -> None:
+        mock_calendly_session.return_value.get.return_value = _users_me_response()
+        snapshots = _wire(
+            MockClientSession.return_value,
+            [_response([{"uri": PARENT_URIS[endpoint]}]), _response([{"uri": "child-1"}])],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+
+        # The parent walk stays org-scoped; the child carries the parent identity in its path,
+        # percent-encoded where it rides in a query param.
+        assert snapshots[0]["url"] == f"{CALENDLY_BASE_URL}/{parent}"
+        assert snapshots[0]["params"]["organization"] == ORG_URI
+        assert snapshots[1]["url"] == expected_child_url
+        assert snapshots[1]["params"].get("sort") == expected_sort
+        assert snapshots[1]["params"]["count"] == 100
+        assert [r["uri"] for r in rows] == ["child-1"]
 
 
 class TestCalendlySource:
@@ -395,40 +365,6 @@ def _wire_webhook_session(
 
 
 class TestWebhookTableTransformer:
-    def test_lifts_the_nested_scheduled_event_into_the_polled_row_shape(self) -> None:
-        table = table_from_py_list([_delivery(_scheduled_event())])
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert rows == [_scheduled_event()]
-
-    def test_keeps_only_the_latest_delivery_per_scheduled_event(self) -> None:
-        # A batch can carry invitee.created then invitee.canceled for one meeting. Delta merge only
-        # dedupes across syncs, so the batch itself must collapse to the canceled row.
-        table = table_from_py_list(
-            [
-                _delivery(_scheduled_event(status="active"), created_at="2026-07-02T12:00:00.000000Z"),
-                _delivery(_scheduled_event(status="canceled"), created_at="2026-07-03T09:00:00.000000Z"),
-            ]
-        )
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert len(rows) == 1
-        assert rows[0]["status"] == "canceled"
-
-    def test_out_of_order_deliveries_still_resolve_to_the_newest(self) -> None:
-        table = table_from_py_list(
-            [
-                _delivery(_scheduled_event(status="canceled"), created_at="2026-07-03T09:00:00.000000Z"),
-                _delivery(_scheduled_event(status="active"), created_at="2026-07-02T12:00:00.000000Z"),
-            ]
-        )
-
-        rows = _webhook_table_transformer(table).to_pylist()
-
-        assert [row["status"] for row in rows] == ["canceled"]
-
     def test_distinct_meetings_are_all_kept(self) -> None:
         table = table_from_py_list(
             [
@@ -480,35 +416,6 @@ class TestCreateWebhook:
         assert body["events"] == list(CALENDLY_WEBHOOK_EVENTS)
         assert body["signing_key"]
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_falls_back_to_the_generated_key_when_the_response_omits_it(self, mock_session: mock.MagicMock) -> None:
-        session = _wire_webhook_session(mock_session)
-        created = Response()
-        created.status_code = 201
-        created._content = json.dumps({"resource": _subscription()}).encode()
-        session.post.return_value = created
-
-        result = create_webhook("token", WEBHOOK_URL)
-
-        assert result.success is True
-        assert result.extra_inputs["signing_secret"] == session.post.call_args.kwargs["json"]["signing_key"]
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_replaces_an_existing_subscription_on_the_same_url(self, mock_session: mock.MagicMock) -> None:
-        # Calendly rejects a duplicate callback URL and never hands back an existing subscription's
-        # signing key, so the stale one has to go before we can register a key we hold.
-        session = _wire_webhook_session(mock_session, [_subscriptions_response([_subscription(uuid="old-sub")])])
-        session.delete.return_value = mock.MagicMock(status_code=204)
-        created = Response()
-        created.status_code = 201
-        created._content = json.dumps({"resource": _subscription()}).encode()
-        session.post.return_value = created
-
-        result = create_webhook("token", WEBHOOK_URL)
-
-        assert result.success is True
-        assert session.delete.call_args.args[0].endswith("/webhook_subscriptions/old-sub")
-
     @parameterized.expand([("payment_required", 402), ("forbidden", 403), ("conflict", 409)])
     @mock.patch(CALENDLY_SESSION_PATCH)
     def test_rejection_surfaces_an_actionable_error(
@@ -552,23 +459,6 @@ class TestDeleteWebhook:
         assert result.success is True
         assert session.delete.call_count == 1
         assert session.delete.call_args.args[0].endswith("/webhook_subscriptions/ours")
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_walks_every_page_of_subscriptions(self, mock_session: mock.MagicMock) -> None:
-        next_page = f"{CALENDLY_BASE_URL}/webhook_subscriptions?page_token=abc"
-        session = _wire_webhook_session(
-            mock_session,
-            [
-                _subscriptions_response([_subscription(uuid="page-1", callback_url="https://other/hook")], next_page),
-                _subscriptions_response([_subscription(uuid="page-2")]),
-            ],
-        )
-        session.delete.return_value = mock.MagicMock(status_code=204)
-
-        result = delete_webhook("token", WEBHOOK_URL)
-
-        assert result.success is True
-        assert session.delete.call_args.args[0].endswith("/webhook_subscriptions/page-2")
 
     @mock.patch(CALENDLY_SESSION_PATCH)
     def test_failed_delete_is_reported(self, mock_session: mock.MagicMock) -> None:

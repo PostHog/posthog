@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
-import { integrationsLogic } from './integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
 import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
@@ -131,6 +131,7 @@ export function IntegrationView({
                                 onBeforeManage={
                                     currentTeam?.id
                                         ? async () => {
+                                              // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. integrationsGithubPrepareCallbackCreate() from 'products/integrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                                               await api.create(
                                                   `api/projects/${currentTeam.id}/integrations/github/prepare_callback/`,
                                                   {
@@ -173,9 +174,9 @@ export function IntegrationView({
                                     type="secondary"
                                     size="small"
                                     disableClientSideRouting
-                                    to={api.integrations.authorizeUrl({
+                                    to={integrationAuthorizeUrl({
                                         kind: integration.kind,
-                                        next: window.location.pathname,
+                                        next: reconnectReturnUrl(window.location.pathname, window.location.search),
                                     })}
                                     onClick={() =>
                                         reportIntegrationConnectClicked(
@@ -199,9 +200,9 @@ export function IntegrationView({
                         action={{
                             children: 'Reconnect',
                             disableClientSideRouting: true,
-                            to: api.integrations.authorizeUrl({
+                            to: integrationAuthorizeUrl({
                                 kind: integration.kind,
-                                next: window.location.pathname,
+                                next: reconnectReturnUrl(window.location.pathname, window.location.search),
                             }),
                             onClick: () =>
                                 reportIntegrationConnectClicked(

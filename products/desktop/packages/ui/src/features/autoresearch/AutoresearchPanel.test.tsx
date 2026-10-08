@@ -57,12 +57,8 @@ describe("PreBaselineState", () => {
     });
 
     expect(screen.getByText("Establishing the baseline")).toBeVisible();
-    expect(
-      screen.getByRole("status", { name: "Loading" }).parentElement,
-    ).toHaveClass("animate-spin", "motion-reduce:animate-none");
     expect(screen.getByRole("status", { name: "Loading" })).toHaveClass(
-      "size-5",
-      "animate-none",
+      "animate-spin",
     );
     const metrics = screen.getByRole("status", {
       name: "Loading autoresearch metrics",

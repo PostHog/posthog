@@ -3,6 +3,7 @@ import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-sc
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScopes } from '@/lib/api'
+import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import {
     type ToolDefinition,
     type ToolFilterOptions,
@@ -113,7 +114,11 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        // Hand-written TOOL_MAP wins on collision (e.g. update-feature-flag group merge).
+        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = mergeToolFactories({
+            generated: GENERATED_TOOL_MAP,
+            handwritten: TOOL_MAP,
+        })
 
         const defs = getToolDefinitions()
 

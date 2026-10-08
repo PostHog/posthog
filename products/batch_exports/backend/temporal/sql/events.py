@@ -2,6 +2,8 @@
 
 from string import Template
 
+from posthog.hogql.printer.events_json_document import event_document_sql
+
 # Projected columns a HogQL query can select.
 # NOTE: this is just for the 'old' version of our HogQL support, where a user can define a custom
 # SELECT FROM clause, useful for defining a custom schema. It's not related to the new HogQL model,
@@ -497,4 +499,63 @@ ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
+"""
+
+
+# The `{{}}` literals below are not a typo. `ClickHouseClient.prepare_query` runs `str.format` over
+# the whole query, which turns `{{}}` back into `{}`. A bare `{}` would parse as a positional field
+# and reach ClickHouse as `{0}`, so the `nullIf` would never match an empty object. The rebuilt document
+# gets the same doubling for the same reason.
+# `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
+# which is why the native query's SETTINGS carry it.
+_PROPERTIES_DOCUMENT = (
+    event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
+    .replace("{", "{{")
+    .replace("}", "}}")
+)
+SERIALIZED_EVENTS_JSON_SOURCE = """(
+    SELECT * REPLACE (
+        toString(uuid) AS uuid,
+        toString(person_id) AS person_id,
+        JSONStripEmptyStringsAndNulls(__PROPERTIES_DOCUMENT__) AS properties,
+        JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
+    ),
+        nullIf(toJSONString(temporary_properties.^`$set`), '{{}}') AS set,
+        nullIf(toJSONString(temporary_properties.^`$set_once`), '{{}}') AS set_once,
+        nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
+        nullIf(toJSONString(temporary_properties.^`$group_set`), '{{}}') AS group_set
+    FROM events_json
+)""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT)
+
+
+def native_events_export_query(
+    fields: str,
+    filters: str = "",
+    *,
+    order: str = "",
+    s3_function: str | None = None,
+) -> str:
+    return f"""
+{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
+SELECT {fields}
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+        *, timestamp AS _inserted_at
+    FROM {SERIALIZED_EVENTS_JSON_SOURCE} AS events
+    WHERE team_id = {{{{team_id:Int64}}}}
+        AND ({{interval_start}}::Nullable(DateTime64) IS NULL OR timestamp >= {{interval_start}}::Nullable(DateTime64))
+        AND timestamp < {{{{interval_end:DateTime64}}}}
+        AND (length({{{{include_events:Array(String)}}}}) = 0 OR event IN {{{{include_events:Array(String)}}}})
+        AND (length({{{{exclude_events:Array(String)}}}}) = 0 OR event NOT IN {{{{exclude_events:Array(String)}}}})
+        {"AND " + filters if filters else ""}
+    {order}
+) AS events
+{"" if s3_function else "FORMAT ArrowStream"}
+SETTINGS
+    max_bytes_before_external_sort=50000000000,
+    max_replica_delay_for_distributed_queries=60,
+    fallback_to_stale_replicas_for_distributed_queries=0,
+    optimize_aggregation_in_order=1,
+    json_type_escape_dots_in_keys=1
+{", log_comment={log_comment}" if s3_function else ""}
 """

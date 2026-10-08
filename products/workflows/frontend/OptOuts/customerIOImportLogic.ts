@@ -488,7 +488,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             (s) => [s.currentTeamIdStrict],
             (currentTeamIdStrict: number | string): string => {
                 const host = window.location.origin
-                return `${host}/api/environments/${currentTeamIdStrict}/messaging/customerio/webhook/`
+                return `${host}/api/projects/${currentTeamIdStrict}/messaging/customerio/webhook/`
             },
         ],
         stepCompletion: [
@@ -585,7 +585,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
 
             try {
                 const response = await fetch(
-                    `/api/environments/${values.currentTeamIdStrict}/messaging_categories/import_preferences_csv/`,
+                    `/api/projects/${values.currentTeamIdStrict}/messaging_categories/import_preferences_csv/`,
                     {
                         method: 'POST',
                         body: formData,

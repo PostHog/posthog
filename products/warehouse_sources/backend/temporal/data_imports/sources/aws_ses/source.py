@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import (
     AwsSesResumeConfig,
     aws_ses_source,
@@ -58,7 +56,12 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             "Amazon SES request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
             "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-            "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity and ses:ListSuppressedDestinations to the IAM user or role.",
+            "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
+            # No retry turns a 400 into rows. `None` keeps the raised message, which names the
+            # table; a fixed string here could not say which of the ten tables AWS rejected.
+            # A stale pagination token also surfaces as a 400, so the walk restarts itself once
+            # before one can reach this map.
+            "Amazon SES request failed: BadRequestException": None,
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
@@ -133,12 +136,12 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_SES,
+            name=ExternalDataSourceType.AWSSES,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Amazon SES",
             caption="""Sync your Amazon SES account data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity` and `ses:ListSuppressedDestinations` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity`, `ses:ListSuppressedDestinations`, `ses:ListEmailTemplates`, `ses:GetEmailTemplate`, `ses:ListContactLists`, `ses:GetContactList`, `ses:ListDedicatedIpPools`, `ses:GetDedicatedIpPool`, `ses:GetDedicatedIps`, `ses:ListCustomVerificationEmailTemplates`, `ses:GetCustomVerificationEmailTemplate` and `ses:ListMultiRegionEndpoints` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
             iconPath="/static/services/aws_ses.png",

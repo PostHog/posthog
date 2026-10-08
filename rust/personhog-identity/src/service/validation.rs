@@ -17,6 +17,17 @@ pub struct RequestLimits {
     pub max_extra_distinct_ids: usize,
 }
 
+const VALIDATION_REJECTIONS_TOTAL: &str = "personhog_identity_validation_rejections_total";
+
+pub(crate) fn rejected(reason: &'static str, message: impl Into<String>) -> Status {
+    common_metrics::inc(
+        VALIDATION_REJECTIONS_TOTAL,
+        &[("reason".to_string(), reason.to_string())],
+        1,
+    );
+    Status::invalid_argument(message)
+}
+
 // tonic Status is a large Err variant; boxing here would diverge from the
 // tonic handler signatures these feed into.
 
@@ -26,7 +37,8 @@ pub struct RequestLimits {
 #[allow(clippy::result_large_err)]
 pub fn validate_team_id(team_id: i64) -> Result<(), Status> {
     if team_id <= 0 || team_id > i32::MAX as i64 {
-        return Err(Status::invalid_argument(
+        return Err(rejected(
+            "team_id",
             "team_id must be a positive 32-bit integer",
         ));
     }
@@ -36,10 +48,10 @@ pub fn validate_team_id(team_id: i64) -> Result<(), Status> {
 #[allow(clippy::result_large_err)]
 pub fn validate_batch_size(limits: &RequestLimits, len: usize) -> Result<(), Status> {
     if len > limits.max_batch_size {
-        return Err(Status::invalid_argument(format!(
-            "batch size {len} exceeds maximum {}",
-            limits.max_batch_size
-        )));
+        return Err(rejected(
+            "batch_size",
+            format!("batch size {len} exceeds maximum {}", limits.max_batch_size),
+        ));
     }
     Ok(())
 }
@@ -53,17 +65,21 @@ pub fn validate_entry(
     // with `as i32` — an unchecked value above i32::MAX would wrap and read
     // or write another tenant's rows.
     if entry.team_id <= 0 || entry.team_id > i32::MAX as i64 {
-        return Err(Status::invalid_argument(
+        return Err(rejected(
+            "team_id",
             "team_id must be a positive 32-bit integer",
         ));
     }
     validate_distinct_id(limits, &entry.distinct_id)?;
     if entry.extra_distinct_ids.len() > limits.max_extra_distinct_ids {
-        return Err(Status::invalid_argument(format!(
-            "entry has {} extra distinct ids, exceeding maximum {}",
-            entry.extra_distinct_ids.len(),
-            limits.max_extra_distinct_ids
-        )));
+        return Err(rejected(
+            "extra_distinct_ids",
+            format!(
+                "entry has {} extra distinct ids, exceeding maximum {}",
+                entry.extra_distinct_ids.len(),
+                limits.max_extra_distinct_ids
+            ),
+        ));
     }
     for extra in &entry.extra_distinct_ids {
         validate_distinct_id(limits, extra)?;
@@ -74,19 +90,28 @@ pub fn validate_entry(
 #[allow(clippy::result_large_err)]
 fn validate_distinct_id(limits: &RequestLimits, distinct_id: &str) -> Result<(), Status> {
     if distinct_id.is_empty() {
-        return Err(Status::invalid_argument("distinct_id must not be empty"));
+        return Err(rejected(
+            "distinct_id_empty",
+            "distinct_id must not be empty",
+        ));
     }
     if distinct_id.chars().count() > limits.max_distinct_id_length {
-        return Err(Status::invalid_argument(format!(
-            "distinct_id exceeds {} characters",
-            limits.max_distinct_id_length
-        )));
+        return Err(rejected(
+            "distinct_id_length",
+            format!(
+                "distinct_id exceeds {} characters",
+                limits.max_distinct_id_length
+            ),
+        ));
     }
     // Postgres cannot store NUL in text, so this id could never be
     // created — reject it instead of surfacing the insert failure as an
     // internal error.
     if distinct_id.contains('\u{0000}') {
-        return Err(Status::invalid_argument("distinct_id must not contain NUL"));
+        return Err(rejected(
+            "distinct_id_nul",
+            "distinct_id must not contain NUL",
+        ));
     }
     Ok(())
 }

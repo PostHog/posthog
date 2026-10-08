@@ -100,6 +100,15 @@ registerActionNodeCategory({
     nodes: [
         {
             type: 'function',
+            name: 'Create task',
+            featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+            description:
+                'Create a Customer analytics task with an optional account, assignee, and due date. All fields support workflow variables.',
+            config: { template_id: 'template-posthog-create-customer-task', inputs: {} },
+            output_variable: { key: 'customer_task', result_path: null, label: 'Task' },
+        },
+        {
+            type: 'function',
             name: 'Create account',
             description: "Create a Customer analytics account for the event's group, if one doesn't exist yet.",
             config: { template_id: 'template-posthog-create-account', inputs: {} },

@@ -2,6 +2,7 @@ import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetri
 
 import {
     type EmailMetric,
+    type EmailMetricName,
     buildEmailMetricInvocationSearchParams,
     buildEmailMetricRows,
     buildPushMetricRows,
@@ -14,6 +15,8 @@ import {
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
+    interval: 'day',
+    timezone: 'UTC',
     series: namedValues.map(([name, values]) => ({ name, values })),
 })
 
@@ -91,10 +94,22 @@ describe('buildEmailMetricInvocationSearchParams', () => {
     // Each metric drills into the Invocations tab via the unified search box (`inv_search`), narrowed
     // to the level that distinguishes it: bounced/marked-as-spam at WARN/ERROR, bounce prevented
     // ("Skipping send") at INFO.
-    it.each<[EmailMetric, Record<string, string>]>([
+    it.each<[EmailMetricName, Record<string, string>]>([
         [
             'email_bounced',
             { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'bounce', inv_log_levels: 'WARN,ERROR' },
+        ],
+        [
+            'email_bounced_hard',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Permanent bounce', inv_log_levels: 'ERROR' },
+        ],
+        [
+            'email_bounced_transient',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Transient bounce', inv_log_levels: 'WARN' },
+        ],
+        [
+            'email_bounced_undetermined',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Undetermined bounce', inv_log_levels: 'WARN' },
         ],
         [
             'email_blocked',
@@ -161,6 +176,8 @@ describe('buildEmailMetricRows', () => {
                 email_opened: 40,
                 email_link_clicked: 12,
                 email_bounced: 6,
+                email_bounced_hard: 4,
+                email_bounced_transient: 2,
                 email_bounce_prevented: 2,
                 email_blocked: 4,
                 email_untracked: 7,
@@ -175,6 +192,9 @@ describe('buildEmailMetricRows', () => {
                 opened: 40,
                 linkClicked: 12,
                 bounced: 6,
+                bouncedHard: 4,
+                bouncedSoft: 2,
+                bouncedUnknown: 0,
                 bouncePrevented: 2,
                 markedAsSpam: 4,
                 untracked: 7,

@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
+import { EvaluationExplanation } from '../../components/EvaluationExplanation'
+import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
+import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
 import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -39,10 +41,20 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluationRuns, evaluationRunsError, evaluation, evaluationRunsLoading } =
-        useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
+    const {
+        filteredEvaluationRuns,
+        evaluationRuns,
+        evaluationRunsError,
+        originalEvaluation: evaluation,
+        evaluationRunsLoading,
+        runsDateRange,
+        runsBackfillId,
+    } = useValues(llmEvaluationLogic)
+    const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
+    const showOutcomeFilters =
+        evaluation?.output_type === 'numeric' ||
+        evaluation?.output_type === 'categorical' ||
+        evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
     // Every run in this table belongs to `evaluation`, so its polarity applies to the whole column.
     const trueIsFailure = !!evaluation && evaluationIsDetector(evaluation)
@@ -76,9 +88,11 @@ export function EvaluationRunsTable(): JSX.Element {
         </div>
     ) : (
         <div className="text-center py-8">
-            <div className="text-muted mb-2">No evaluation runs yet</div>
+            <div className="text-muted mb-2">No evaluation runs found</div>
             <div className="text-sm text-muted">
-                Runs will appear here once this evaluation starts executing based on your triggers.
+                {runsBackfillId
+                    ? 'Runs will appear here as this backfill progresses.'
+                    : 'Try a wider date range, or check that the evaluation is enabled and its triggers match your data.'}
             </div>
         </div>
     )
@@ -87,7 +101,7 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Timestamp',
             key: 'timestamp',
-            render: (_, run) => <TZLabel time={run.timestamp} />,
+            render: (_, run) => <EvaluationRunTimestampCell run={run} />,
             sorter: (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         },
         {
@@ -98,24 +112,20 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => <EvaluationResultTag run={run} trueIsFailure={trueIsFailure} />,
-            sorter: (a, b) => {
-                return (
-                    getEvaluationResultSortValue(b, { trueIsFailure }) -
-                    getEvaluationResultSortValue(a, { trueIsFailure })
-                )
-            },
+            render: (_, run) => (
+                <EvaluationResultTag
+                    run={run}
+                    trueIsFailure={trueIsFailure}
+                    passingRule={evaluation?.output_config.passing_rule}
+                    categoryOptions={evaluation?.output_config.options}
+                />
+            ),
+            sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),
         },
         {
-            title: 'Reasoning',
+            title: 'Details',
             key: 'reasoning',
-            render: (_, run) => (
-                <Tooltip title={run.reasoning}>
-                    <div className="max-w-md cursor-default">
-                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                    </div>
-                </Tooltip>
-            ),
+            render: (_, run) => <EvaluationExplanation reasoning={run.reasoning} probability={run.probability} />,
         },
         {
             title: 'Status',
@@ -134,14 +144,22 @@ export function EvaluationRunsTable(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                {showOutcomeFilters ? (
-                    <EvaluationRunsFilters />
-                ) : showSentimentFilters ? (
-                    <SentimentEvaluationRunsFilters />
-                ) : (
-                    <div />
-                )}
+            <div className="flex flex-wrap gap-2 justify-between items-center">
+                <div className="flex flex-wrap items-center gap-2">
+                    {!runsBackfillId && (
+                        <DateFilter
+                            dateFrom={runsDateRange.date_from}
+                            dateTo={runsDateRange.date_to}
+                            onChange={setRunsDates}
+                            size="small"
+                        />
+                    )}
+                    {showOutcomeFilters ? (
+                        <EvaluationRunsFilters />
+                    ) : showSentimentFilters ? (
+                        <SentimentEvaluationRunsFilters />
+                    ) : null}
+                </div>
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}

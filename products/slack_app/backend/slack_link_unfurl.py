@@ -1,4 +1,7 @@
-"""Slack link unfurling for PostHog resource URLs (metadata only)."""
+"""Slack link unfurling for PostHog resource URLs (metadata only).
+
+Ticket subjects and messages are customer-authored, so every one goes through `escape_slack_mrkdwn`.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +17,8 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.redis import get_client
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import (
@@ -23,6 +28,8 @@ from products.access_control.backend.facade.user_access_control import (
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -32,6 +39,13 @@ logger = structlog.get_logger(__name__)
 _MAX_DESCRIPTION_CHARS = 2800
 # Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
 _MAX_OPENING_MESSAGE_CHARS = 2000
+
+_INVITE_UTM_TAGS = "utm_source=slack&utm_medium=unfurl&utm_campaign=link_unfurl_followup"
+# A channel that shares PostHog links all day would otherwise carry the invite on every unfurl,
+# which reads as chrome and stops being noticed. One a day per channel keeps it legible.
+_INVITE_THROTTLE_SECONDS = 24 * 60 * 60
+# The throttle must fail fast rather than correctly: it sits inside the webhook's ack budget.
+_INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 
 # Query `source.kind` / top-level `kind` → short name before " insight" (sync with InsightType / query kinds).
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
@@ -224,11 +238,6 @@ def _find_ticket(team_id: int, ref: str) -> Ticket | None:
         return None
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """Escape mrkdwn control chars — ticket subjects/messages are customer-authored."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _ticket_requester(team: Team, ticket: Ticket) -> str:
     """Display the ticket's requester using the project's person display-name settings.
 
@@ -259,7 +268,7 @@ def _ticket_opening_message(team_id: int, ticket_id: UUID) -> str | None:
         .values_list("content", flat=True)
         .first()
     )
-    return _truncate(_escape_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
+    return _truncate(escape_slack_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
 
 
 def _unfurl_payload(*, resource_label: str, title: str, description: str | None) -> dict:
@@ -284,6 +293,57 @@ def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_
     if opening_message:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f">>> {opening_message}"}})
     return {"blocks": blocks}
+
+
+def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
+    """Whether this channel may carry the follow-up invite now, claiming the day's slot if so.
+
+    ``SET NX EX`` makes the claim atomic, so two unfurls racing in the same channel produce one
+    invite. A Redis failure returns False: skipping a nudge costs nothing, while failing open
+    would turn an outage into an invite on every unfurl in every channel at once.
+
+    The raw client rather than ``cache.add``, which the product's other one-shot claims use,
+    because this one needs an explicit timeout. ``CACHES`` sets no ``SOCKET_TIMEOUT``, so a cache
+    call waits on a stalled Redis for as long as it takes, and the ack budget does not allow that.
+    """
+    try:
+        client = get_client(
+            socket_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
+        )
+        claimed = client.set(
+            f"slack_app:unfurl_invite:v1:{slack_team_id}:{channel}",
+            "1",
+            nx=True,
+            ex=_INVITE_THROTTLE_SECONDS,
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_invite_throttle_unavailable", channel=channel, exc_info=True)
+        return False
+    return bool(claimed)
+
+
+def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> dict | None:
+    """The invite block for the first resource we unfurled, or None when it should stay quiet.
+
+    Consent is checked before the slot is claimed: the other way round, a workspace that never
+    approved AI would burn its channel's daily slot on every paste, and an approval later that
+    day would stay suppressed until the key expired.
+    """
+    slack_team_id = integration.integration_id
+    if not slack_team_id:
+        return None
+    ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
+    if not ai_enabled:
+        return None
+    if not _claim_invite_slot(slack_team_id, channel):
+        return None
+    return build_followup_invite(
+        integration,
+        utm_tags=_INVITE_UTM_TAGS,
+        ai_enabled=ai_enabled,
+        subject=f"this {kind}",
+    )
 
 
 def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict[str, bool]) -> bool:
@@ -427,6 +487,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     uac = UserAccessControl(user, team=team)
 
     unfurls: dict[str, dict] = {}
+    unfurled_kinds: list[str] = []
+    # Carries the kind alongside the url so the invite never has to guess which payload is first.
+    first_unfurled: tuple[str, str] | None = None
     # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
     # can be answered from logs instead of by re-deriving the path by hand.
     skipped: list[dict[str, str]] = []
@@ -502,7 +565,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
                 ticket=ticket,
-                requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
+                requester=escape_slack_mrkdwn(_ticket_requester(team, ticket)),
                 opening_message=_ticket_opening_message(team.pk, ticket.id),
             )
         elif kind == "task":
@@ -517,7 +580,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
+            unfurls[raw_url] = _unfurl_payload(
+                resource_label=label, title=escape_slack_mrkdwn(task.title), description=None
+            )
             try:
                 _attach_public_slack_thread_reference(
                     slack=slack,
@@ -531,6 +596,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
 
+        if raw_url in unfurls:
+            unfurled_kinds.append(kind)
+            if first_unfurled is None:
+                first_unfurled = (raw_url, kind)
+
     logger.info(
         "slack_app_link_unfurl_result",
         team_id=team.pk,
@@ -543,6 +613,13 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     if not unfurls:
         return
 
+    invite = None
+    if first_unfurled is not None:
+        invite_url, invite_kind = first_unfurled
+        invite = _build_unfurl_invite(integration, invite_kind, channel)
+        if invite:
+            unfurls[invite_url]["blocks"].append(invite)
+
     unfurl_kwargs: dict = {"channel": channel, "ts": message_ts, "unfurls": unfurls}
     if unfurl_id:
         unfurl_kwargs["unfurl_id"] = unfurl_id
@@ -553,3 +630,14 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         slack.client.chat_unfurl(**unfurl_kwargs)
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
+    else:
+        capture_slack_event(
+            integration,
+            "slack app link unfurled",
+            slack_user_id=slack_user_id,
+            posthog_user=user,
+            kinds=sorted(set(unfurled_kinds)),
+            unfurled_count=len(unfurls),
+            skipped_count=len(skipped),
+            followup_invite_shown=invite is not None,
+        )

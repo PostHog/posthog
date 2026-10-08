@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 import pytest
@@ -5,8 +6,8 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import SourceFieldOauthConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -76,6 +77,9 @@ class TestInstagramSource:
         assert self.source.resolve_api_version(None) == "v26.0"
         # An existing pin is honored verbatim so older sources keep hitting their own version path.
         assert self.source.resolve_api_version("v23.0") == "v23.0"
+        # Meta stops serving v22.0 on 2027-05-20; it stays supported until then so pinned rows keep syncing.
+        assert "v22.0" in self.source.supported_versions
+        assert self.source.deprecated_versions == (VersionDeprecation(version="v22.0", sunset_at=date(2027, 5, 20)),)
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
     def test_fan_out_tables_key_on_the_parent_so_rows_stay_unique_table_wide(self) -> None:
@@ -98,6 +102,18 @@ class TestInstagramSource:
         observed_error = "Instagram API error (retryable): status=429, code=4, message=rate limited"
 
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Instagram API error (retryable): status=429, code=4, message=rate limited",
+            "Instagram API error (retryable): status=500, code=2, message=An unexpected error has occurred. "
+            "Please retry your request later.",
+            "Instagram API error (retryable): status=503, message=response body was not JSON",
+        ],
+    )
+    def test_a_transient_meta_blip_is_kept_out_of_error_tracking_as_noise(self, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
 
     def test_validate_credentials_uses_the_connection_token_and_the_chosen_account(self) -> None:
         with (

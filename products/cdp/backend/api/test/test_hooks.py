@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from posthog.test.base import ClickhouseTestMixin
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 
@@ -78,6 +79,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "source": "events",
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }
 
         assert (hog_function.hog, hog_function.inputs) == self.snapshot

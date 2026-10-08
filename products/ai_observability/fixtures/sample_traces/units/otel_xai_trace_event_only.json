@@ -1,0 +1,49 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Grok resume-fit scoring call, metadata only",
+  "scenario": "A resume-scanning service's OTel instrumentation records a single metadata-only span for a resume-fit-scoring call to xAI's Grok, with no prompt or completion content captured.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "xai"
+    ],
+    "frameworks": [],
+    "models": [
+      "grok-imagine-image"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_span_id": "a8ed7bd8290602a5",
+        "$ai_trace_id": "78a872c21809fa8e3d61fea74a9e84a8",
+        "$geoip_disable": true,
+        "app.genai.request.id": "req01",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "session_uuid": "4c92c1a9-cc6d-7604-7e7e-5e83e52bc41e",
+        "service.name": "resume-scan",
+        "$ai_model": "grok-imagine-image",
+        "$ai_provider": "xai",
+        "$ai_span_name": "score_resume_fit",
+        "$ai_latency": 8.570716877
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

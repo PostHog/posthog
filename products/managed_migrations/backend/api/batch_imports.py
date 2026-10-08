@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE, ShapeError, validate_external_url
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.models.batch_imports import (
@@ -121,14 +122,16 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
-        # Deferred: batch_export pulls the batch-export Temporal framework, which has no
-        # business on this module's import path.
-        from products.batch_exports.backend.api.batch_export import resolve_and_validate_url  # noqa: PLC0415
-
         try:
-            resolve_and_validate_url(value)
+            validate_external_url(value)
+        except ShapeError:
+            # The value is never echoed: a URL carries its credentials in the userinfo, and
+            # this message reaches the response body, the request log and error tracking.
+            raise serializers.ValidationError(
+                "Invalid endpoint URL. Check that it starts with http:// or https:// and carries no credentials."
+            )
         except ValueError:
-            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+            raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
         return value
 
     def create(self, validated_data: dict) -> BatchImport:
@@ -411,12 +414,20 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
         required=False,
         allow_blank=True,
         default="",
-        help_text="Source access key / API key. Required for Amplitude; unused for Mixpanel, which authenticates with the project secret alone.",
+        help_text="Source access key / API key. Required for Amplitude. For Mixpanel, the service account username when mixpanel_project_id is set; otherwise unused.",
     )
     secret_key = serializers.CharField(
         write_only=True,
         required=True,
-        help_text="Source secret. For Mixpanel this is the project API secret, found under Project settings → Access keys.",
+        help_text="Source secret. For Mixpanel, the service account secret when mixpanel_project_id is set; otherwise the project API secret, found under Project settings → Access keys.",
+    )
+    mixpanel_project_id = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=1,
+        help_text="Mixpanel project ID. Set it to authenticate with a Mixpanel service account (access_key and secret_key) instead of a project secret.",
     )
     is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
@@ -440,6 +451,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
             "content_type",
             "access_key",
             "secret_key",
+            "mixpanel_project_id",
             "is_eu_region",
             "import_events",
             "generate_identify_events",
@@ -479,8 +491,16 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
             if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
                 raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
 
-        # For Amplitude, validate required fields and event-type selection
         source_type = data.get("source_type")
+        if data.get("mixpanel_project_id") is not None:
+            if source_type != "mixpanel":
+                raise serializers.ValidationError("Mixpanel project ID only applies to Mixpanel migrations.")
+            if not data.get("access_key"):
+                raise serializers.ValidationError(
+                    "Service account username is required when a Mixpanel project ID is set."
+                )
+
+        # For Amplitude, validate required fields and event-type selection
         if source_type == "amplitude":
             if not data.get("access_key"):
                 raise serializers.ValidationError("Access key is required for Amplitude migrations.")
@@ -515,6 +535,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, B
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
                 is_eu_region=validated_data.get("is_eu_region", False),
+                mixpanel_project_id=validated_data.get("mixpanel_project_id"),
             )
 
             # Only apply import_events and generate_identify_events for Amplitude

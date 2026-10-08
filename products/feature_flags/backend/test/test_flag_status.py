@@ -193,6 +193,24 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # The two legacy shapes the checker reads as no targeting. Each matches its own arm
+            # of the SQL: an absent key is SQL NULL, a stored null is the jsonb scalar `null`.
+            (
+                "properties_key_absent",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            (
+                "null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                },
+                True,
+            ),
             # Only case that reaches the config branch's last OR arm, where `filters` being
             # non-nullable makes `= '{}'` the whole test.
             (
@@ -213,6 +231,37 @@ class TestFilterFlagsByActiveParam(BaseTest):
         filter_stale = self._filter("STALE")
         assert filter_stale == self._checker_stale()
         assert (key in filter_stale) is expected_stale
+
+    def test_stale_filter_honours_an_explicit_threshold(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="called-ten-days-ago",
+            active=True,
+            last_called_at=timezone.now() - timedelta(days=10),
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+        def stale_keys(**kwargs: Any) -> set[str]:
+            return {flag.key for flag in filter_stale_flags(FeatureFlag.objects.filter(team=self.team), **kwargs)}
+
+        assert "called-ten-days-ago" not in stale_keys()
+        assert "called-ten-days-ago" in stale_keys(stale_threshold=timezone.now() - timedelta(days=5))
+
+    def test_stale_filter_survives_a_legacy_scalar_groups_value(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="scalar-groups",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"groups": "all"},
+            created_by=self.user,
+        )
+
+        # Without the guard `jsonb_array_elements` raises, and the error aborts the statement for
+        # every flag the query covers rather than skipping this row.
+        assert "scalar-groups" not in self._filter("STALE")
+        assert "stale" in self._filter("STALE")
 
     def test_stale_filter_query_count_does_not_grow_with_candidate_count(self) -> None:
         def evaluate() -> list[FeatureFlag]:
@@ -271,6 +320,14 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            (
+                "null_group_properties",
+                {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
             # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
             # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
             # match the staleness detection it shares logic with.
@@ -295,6 +352,20 @@ class TestRolloutSummary(BaseTest):
                 {
                     "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
                     "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                False,
+                100,
+                True,
+            ),
+            # The multivariate path reads the same null `properties` through
+            # is_group_fully_rolled_out, where `len(None)` used to raise. The boolean case above
+            # reaches is_boolean_flag_fully_rolled_out instead.
+            (
+                "multivariate_null_group_properties",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": None, "rollout_percentage": 100}],
                 },
                 True,
                 False,

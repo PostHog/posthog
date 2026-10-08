@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+from .models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, TeamBusinessKnowledgeConfig
 
 
 @admin.register(KnowledgeSource)
@@ -33,4 +33,13 @@ class KnowledgeChunkAdmin(admin.ModelAdmin):
     raw_id_fields = ("team", "source", "document")
     readonly_fields = ("id", "created_at")
     ordering = ("document_id", "ordinal")
+    show_full_result_count = False
+
+
+@admin.register(TeamBusinessKnowledgeConfig)
+class TeamBusinessKnowledgeConfigAdmin(admin.ModelAdmin):
+    list_display = ("team", "learn_from_support_enabled")
+    list_filter = ("learn_from_support_enabled",)
+    search_fields = ("team__name",)
+    raw_id_fields = ("team",)
     show_full_result_count = False

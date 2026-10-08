@@ -37,12 +37,14 @@ def _analytics_config(name: str) -> AppStoreConnectEndpointConfig:
 
 
 # One report date restated across vintages, plus snapshot-backfilled history (negative _line):
-#   - 2026-06-15 exists only in the snapshot vintage (processing_date 2026-07-02).
-#   - 2026-07-01 has a snapshot row at the boundary plus two ongoing vintages (07-03, 07-04);
+#   - 2026-06-15 has an older ongoing vintage (06-30) and a newer snapshot-only vintage (07-02).
+#   - 2026-07-01 has a snapshot row tied with the newest ongoing vintage (07-04), plus an older
+#     ongoing vintage (07-03);
 #     the (US) tuple is restated in every vintage, the (DE) tuple only in the older ongoing one.
 _VINTAGE_ROWS: list[tuple[str, date, int, date, str, int]] = [
     ("app1", date(2026, 7, 2), -1, date(2026, 6, 15), "US", 7),
-    ("app1", date(2026, 7, 2), -2, date(2026, 7, 1), "US", 99),
+    ("app1", date(2026, 6, 30), 1, date(2026, 6, 15), "US", 4),
+    ("app1", date(2026, 7, 4), -2, date(2026, 7, 1), "US", 99),
     ("app1", date(2026, 7, 3), 1, date(2026, 7, 1), "US", 5),
     ("app1", date(2026, 7, 3), 2, date(2026, 7, 1), "DE", 3),
     ("app1", date(2026, 7, 4), 1, date(2026, 7, 1), "US", 6),

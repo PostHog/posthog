@@ -1,0 +1,103 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Grading a recipe-card extraction against the scanned original",
+  "scenario": "Kitchen Scan lets users photograph a paper recipe card and turns it into a structured recipe. An automated LLM grader compares the original scanned card against the pipeline's rendered extraction, scoring fidelity and writing feedback on what it missed.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "gateway"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "google/gemini-3.8-flash"
+    ],
+    "content_types": [
+      "file",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "22034d86-52d4-7371-c4ff-8d4e4ebc672e",
+        "$ai_model": "google/gemini-3.8-flash",
+        "$ai_span_name": "scoring-YwAhooXd",
+        "app.eval": true,
+        "$ai_lib": "posthog-ai",
+        "sampled": false,
+        "is_flagged": false,
+        "$ai_lib_version": "8.4.0",
+        "$ai_latency": 6.145,
+        "eval_rubric_id": "rb-0042",
+        "$ai_provider": "gateway",
+        "$ai_framework": "vercel",
+        "$ai_framework_version": "6",
+        "$ai_model_parameters": {},
+        "$ai_tokens_source": "sdk",
+        "$ai_stop_reason": "stop",
+        "$is_server": true,
+        "$ai_input_tokens": 3245,
+        "$ai_output_tokens": 495,
+        "$lib_version": "5.46.0",
+        "$geoip_disable": true,
+        "$ai_base_url": "https://gateway.ai.example.com/v1",
+        "$lib": "posthog-node",
+        "$ai_http_status": 200,
+        "$ai_image_input_tokens": 2080,
+        "$ai_text_input_tokens": 1165,
+        "$ai_text_output_tokens": 495,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "You are the automated quality grader for Kitchen Scan's recipe-extraction pipeline. Thousands of users photograph paper recipe cards every week, and your score decides whether an extraction ships straight to the user's library or gets queued for human review.\n\n## Your job\nYou will receive two PDF attachments:\n1. The original scanned recipe card as uploaded by a user, exactly as they photographed or scanned it.\n2. The recipe our pipeline extracted, rendered back into a clean PDF for side-by-side review.\n\nCompare them page by page and score the extraction from 0 to 100 on how faithfully it reproduces the source. A score above 90 means the extraction is essentially perfect. A score below 60 should route to a human reviewer.\n\n## Rubric\n- Ingredient accuracy (40 points): every ingredient, quantity and unit from the original must appear. Deduct for missing items, wrong quantities, or invented ingredients that don't exist on the card.\n- Step accuracy (30 points): steps must preserve order, temperatures and timings. A reordered step is a bigger deduction than a rephrased one.\n- Metadata (15 points): title, servings, and prep/cook time should be captured when present, or reasonably inferred when the card doesn't state them explicitly.\n- Formatting and readability (15 points): the rendered recipe should be well structured, with clear sections, never garbled or truncated mid-sentence.\n\n## Common failure modes\n- OCR errors on handwritten cards, such as \"1/2 tsp\" misread as \"12 tsp\", or a fraction slash mistaken for a 1\n- Ingredients split across two lines on the card and merged incorrectly into one\n- Steps that reference an ingredient never listed, usually because the ingredient line was dropped\n- Garnishes, toppings, or handwritten margin notes dropped entirely from the final steps\n- Temperature units silently swapped between Fahrenheit and Celsius\n\n## Output format\nReturn strict JSON with exactly two fields:\n- \"score\": an integer from 0 to 100\n- \"feedback\": two to four sentences explaining the score, citing the exact ingredient or step where something went wrong, or confirming there were none\n\nDo not include any text outside the JSON object, and do not restate the whole recipe back to us.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": [
+              {
+                "text": "Please grade this extraction.\n\nThe first PDF is the original recipe card exactly as the user uploaded it from their kitchen. The second PDF is what our pipeline extracted and re-rendered into a clean recipe layout.\n\nRecipe: a home-style lasagna, submitted through the mobile app's camera import flow last night. The handwriting in the ingredients section is a little rushed and slants downward toward the margin, so please check quantities carefully against the source before scoring rather than trusting the extraction's confidence.\n\nThis card also has a handwritten note squeezed into the margin near the bottom, which the pipeline sometimes misses entirely since it isn't part of the main ingredient or step blocks. Note whether that happened here, though per the rubric it isn't a scored deduction on its own.\n\nA few things worth double-checking on this one specifically, since past extractions from this user's cards have slipped on them before:\n- Garnishes and toppings mentioned only at the end of the ingredient list, since the model sometimes treats them as optional and skips them\n- Whether the final plating or serving instruction survived into the last step, since it often gets truncated when the card runs out of visible margin\n- Whether any oven temperature got rounded or converted incorrectly between the two documents\n\nWalk through the rubric in your instructions before answering:\n- Confirm every ingredient and quantity carried over correctly, including fractional amounts\n- Confirm the steps preserve order, temperature and timing exactly as written\n- Confirm servings, prep time and any garnish notes weren't silently dropped\n- Confirm the rendered PDF reads cleanly with no truncated lines\n\nReturn only the JSON object, no extra commentary before or after it.",
+                "type": "text"
+              },
+              {
+                "file": "data:application/pdf;base64,⟦media:vercel_gateway_file_part_recipe_card__M9500581.pdf⟧",
+                "mediaType": "application/pdf",
+                "type": "file"
+              },
+              {
+                "file": "data:application/pdf;base64,⟦media:vercel_gateway_file_part_recipe_card__M6640572.pdf⟧",
+                "mediaType": "application/pdf",
+                "type": "file"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"score\": 83, \"feedback\": \"The extraction is strong overall and safe to accept, though it dropped one garnish detail that keeps this out of the top band.\\n\\nAll eleven measured ingredients transferred correctly, including the easy-to-misread \\\"1/2 tsp nutmeg\\\" and \\\"1/2 lb Italian sausage\\\" lines that a less careful OCR pass would likely have gotten wrong. All six steps kept their original order, exact temperature (375F) and timing, with nothing reordered or reworded in a way that changes the method. Servings and prep/cook time were added even though the original card didn't state them explicitly, which is a reasonable inference from the ingredient quantities and step count rather than an invention.\\n\\nThe deduction is for completeness under the ingredient-accuracy criterion: the extraction omits \\\"fresh basil for garnish\\\" from the ingredient list entirely, and step 6 drops the instruction to top the dish with basil before serving, both clearly present on the original card in the same line. That's a real loss of information a user would want, even if it doesn't change how the lasagna is cooked.\\n\\nThe handwritten margin note about doubling the sauce if the noodles look dry was, as expected, not carried into the extraction. Per the rubric that note is optional context rather than a scored ingredient or step, so its absence here isn't penalized, though it would be a nice enhancement to surface as a tip.\\n\\nRecommend adding the missing garnish ingredient and closing step before this extraction is shown to the user.\"}",
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

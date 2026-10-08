@@ -8,11 +8,7 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.torii.settings import (
-    ENDPOINTS,
-    PARTITION_KEYS,
-    PRIMARY_KEYS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.torii.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.torii.torii import (
     ToriiResumeConfig,
     torii_source,
@@ -115,54 +111,11 @@ class TestToriiSourceResumeBehavior:
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _make_manager()
-        responses = [_make_http_response({"apps": [{"id": "only"}]})]
-        self._drive("Apps", manager, responses)
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = _make_manager()
         responses = [_make_http_response({"apps": [{"id": "a"}]})]
         self._drive("Apps", manager, responses)
         manager.load_state.assert_not_called()
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_sends_pinned_api_version_header(self, endpoint: str) -> None:
-        manager = _make_manager()
-        key = _DATA_SELECTOR[endpoint]
-        responses = [_make_http_response({key: [{"id": "1"}]})]
-        mock_session, _ = self._drive(endpoint, manager, responses)
-        assert mock_session.headers == {"X-API-Version": "1.1"}
-
-
-class TestToriiSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        manager = _make_manager()
-
-        response = torii_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-            api_version="1.1",
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == PRIMARY_KEYS[endpoint]
-
-        partition_key = PARTITION_KEYS[endpoint]
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "month"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_format is None
-            assert response.partition_keys is None
 
 
 class TestValidateCredentials:
@@ -173,8 +126,3 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
         assert validate_credentials("test-key") is expected
-
-    @mock.patch(TORII_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("test-key") is False

@@ -1,15 +1,19 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { toPaginatedResponse } from '~/mocks/handlers'
 
 import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const RULES_V2_FLAG_ID = 1802
+const DELETED_FLAG_ID = 1526
 
 const meta: Meta = {
     component: App,
@@ -21,11 +25,22 @@ const meta: Meta = {
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
         testOptions: { viewport: { width: 1300, height: 2000 } },
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/integrations': {},
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        realtime: { state: 'ready', ready_at: '2023-01-27T09:40:00Z', build: null },
+                    },
+                ]),
 
                 '/api/projects/:team_id/feature_flags': featureFlags,
                 '/api/projects/:team_id/feature_flags/1111111111111/': [
@@ -38,6 +53,9 @@ const meta: Meta = {
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    if (flag?.id === DELETED_FLAG_ID) {
+                        return [200, { ...flag, deleted: true, can_edit: true }]
+                    }
                     if (flag?.id !== STALE_FLAG_ID) {
                         return [200, flag]
                     }
@@ -113,9 +131,45 @@ export const EditFeatureFlag: Story = {
     },
 }
 
+export const EditFeatureFlagConditionsWithRealtimeCohort: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1779)}?edit=true`,
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => {
+        // Condition sets start collapsed, and the realtime tag sits on the expanded cohort row.
+        const expandAll = await waitFor(
+            () => {
+                const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="expand-all-conditions"]')
+                if (!button) {
+                    throw new Error('release conditions for flag 1779 not yet rendered')
+                }
+                return button
+            },
+            // The flag scene is a lazy chunk, so give a cold bundle time to arrive.
+            { timeout: 30000 }
+        )
+        expandAll.click()
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="collapse-all-conditions"]')) {
+                    throw new Error('condition sets not expanded yet')
+                }
+            },
+            { timeout: 5000 }
+        )
+    },
+}
+
 export const EditMultiVariateFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1502),
+    },
+}
+
+export const EditExperimentFeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(1801)}?edit=true`,
     },
 }
 
@@ -134,6 +188,67 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
 export const StaleFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
+export const FeatureFlagsListWithRulesV2Flag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlags()}?search=rules-v2`,
+    },
+}
+
+export const RulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+}
+
+// Without the editor flag, `?edit=true` must still show the read-only view, because the v1 form's full save would
+// rewrite the document.
+export const RulesV2FeatureFlagEditDeepLink: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+    },
+}
+
+export const NewRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const EditRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const StaleFeatureFlagWithAiAssessment: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(STALE_FLAG_ID),
+        featureFlags: [
+            FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('[data-attr="feature-flag-stale-banner-review-cleanup"]')) {
+                    throw new Error('AI assessment action not rendered')
+                }
+            },
+            { timeout: 30000 }
+        )
+    },
+}
+
+export const DeletedFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_FLAG_ID),
     },
 }
 

@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT p.id AS \"id!\",\n            (SELECT count(*) FROM (SELECT 1 FROM posthog_persondistinctid\n                WHERE team_id = $1 AND person_id = p.id LIMIT $3) t) AS \"distinct_ids!\",\n            (SELECT count(*) FROM (SELECT 1 FROM posthog_featureflaghashkeyoverride\n                WHERE team_id = $1 AND person_id = p.id LIMIT $3) t) AS \"hash_key_overrides!\",\n            (SELECT count(*) FROM (SELECT 1 FROM posthog_cohortpeople\n                WHERE person_id = p.id LIMIT $3) t) AS \"cohort_memberships!\"\n        FROM unnest($2::bigint[]) AS p(id)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_ids!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash_key_overrides!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "cohort_memberships!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2ab6a8ac144329498bd667e14dc58969f93d025cd0e8551886ee56367c3bc0b1"
+}

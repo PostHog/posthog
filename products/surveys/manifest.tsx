@@ -20,6 +20,7 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
+            listHref: () => urls.surveys(),
             iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },
@@ -37,7 +38,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Surveys',
             intents: [ProductKey.SURVEYS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'survey',
             href: urls.surveys(),
             iconType: 'survey',

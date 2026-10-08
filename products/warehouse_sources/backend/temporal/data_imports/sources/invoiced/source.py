@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -49,13 +47,13 @@ class InvoicedSource(ResumableSource[InvoicedSourceConfig, InvoicedResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INVOICED,
+            name=ExternalDataSourceType.INVOICED,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Invoiced",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Invoiced API key to pull your accounts receivable and billing data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → Developers → API Keys** in [Invoiced](https://www.invoiced.com). The key grants read access to your customers, invoices, payments, credit notes, estimates, subscriptions, and billing catalog.
+You can create an API key under **Settings → Developers → API Keys** in [Invoiced](https://www.invoiced.com). The key grants read access to your customers, invoices, payments, credit notes, credit balance adjustments, estimates, subscriptions, billing catalog, tax rates, collection tasks, and events.
 """,
             iconPath="/static/services/invoiced.png",
             docsUrl="https://posthog.com/docs/cdp/sources/invoiced",
@@ -97,8 +95,6 @@ You can create an API key under **Settings → Developers → API Keys** in [Inv
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every list endpoint documents a server-side `updated_after` UNIX-timestamp filter, so
-        # each schema advertises `updated_at` as a genuine incremental cursor.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

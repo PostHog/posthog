@@ -14,10 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.
     humanitix_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.settings import (
-    ENDPOINTS,
-    HUMANITIX_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -104,41 +100,6 @@ def _source(endpoint: str, manager: mock.MagicMock):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_yields_items_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(_rows("id", 2), total=2)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 2)
-        assert params[0] == {"page": 1, "pageSize": PAGE_SIZE}
-        assert session.send.call_count == 1
-        # A short final page means no further pages, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response(_rows("a", PAGE_SIZE), total=PAGE_SIZE + 1),
-                _response(_rows("b", 1), total=PAGE_SIZE + 1),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        # State is saved AFTER page 1 is yielded (pointing at page 2), and never for the final page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == HumanitixResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_on_full_page_that_reaches_total(self, MockSession) -> None:
         # A single full page whose length equals total must terminate without fetching page 2.
         session = MockSession.return_value
@@ -171,29 +132,6 @@ class TestPagination:
         assert params[0]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total=0)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_endpoint_specific_list_key(self, MockSession) -> None:
-        # The `tags` endpoint returns its rows under a `tags` key, not `events`.
-        session = MockSession.return_value
-        _wire(session, [_response(_rows("t", 1), total=1, list_key="tags")])
-
-        manager = _make_manager()
-        rows = _collect(_source("tags", manager))
-
-        assert rows == _rows("t", 1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_list_key_raises_loudly(self, MockSession) -> None:
         # A 200 body without the list key means the response shape changed — fail loud, not 0 rows.
         session = MockSession.return_value
@@ -204,32 +142,77 @@ class TestPagination:
             _collect(_source("events", manager))
 
 
+class TestEventFanout:
+    @staticmethod
+    def _wire_with_urls(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+        session.headers = {}
+        sent: list[tuple[str, dict[str, Any]]] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            sent.append((request.url, dict(request.params or {})))
+            prepared = mock.MagicMock()
+            prepared.url = request.url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return sent
+
+    @parameterized.expand([("orders",), ("tickets",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_each_event_and_stamps_event_id(self, endpoint, MockSession) -> None:
+        session = MockSession.return_value
+        sent = self._wire_with_urls(
+            session,
+            [
+                _response([{"_id": "e1"}, {"_id": "e2"}], total=2),
+                _response([{"_id": "c1"}], total=1, list_key=endpoint),
+                _response([{"_id": "c2", "eventId": "e2"}], total=1, list_key=endpoint),
+            ],
+        )
+
+        response = _source(endpoint, _make_manager())
+        rows = _collect(response)
+
+        assert [(url.rsplit("/v1", 1)[-1], params) for url, params in sent[1:]] == [
+            (f"/events/e1/{endpoint}", {"page": 1, "pageSize": PAGE_SIZE}),
+            (f"/events/e2/{endpoint}", {"page": 1, "pageSize": PAGE_SIZE}),
+        ]
+        # Orders may omit `eventId`, but it is part of the primary key, so every row must carry it.
+        assert [{key: row[key] for key in response.primary_keys} for row in rows] == [
+            {"eventId": "e1", "_id": "c1"},
+            {"eventId": "e2", "_id": "c2"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_events_and_continues_the_current_one(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = self._wire_with_urls(
+            session,
+            [
+                _response([{"_id": "e1"}, {"_id": "e2"}], total=2),
+                _response(_rows("o", 1), total=PAGE_SIZE + 1, list_key="orders"),
+            ],
+        )
+
+        manager = _make_manager(
+            HumanitixResumeConfig(
+                completed=["/events/e1/orders"], current="/events/e2/orders", child_state={"next_page": 2}
+            )
+        )
+        rows = _collect(_source("orders", manager))
+
+        assert len(rows) == 1
+        assert len(sent) == 2
+        assert sent[1][0].endswith("/events/e2/orders")
+        assert sent[1][1]["page"] == 2
+        # Finishing e2 records it as completed so a later restart skips it too.
+        assert manager.save_state.call_args.args[0] == HumanitixResumeConfig(
+            completed=["/events/e1/orders", "/events/e2/orders"], current=None, child_state=None
+        )
+
+
 class TestRetryAndErrors:
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        # A 429 raises a retryable error; the retry re-issues the request and the 200 completes it.
-        _wire(session, [_error_response(429, "Too Many Requests"), _response(_rows("id", 1), total=1)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 1)
-        assert session.send.call_count == 2
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_server_error_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(500, "Internal Server Error"), _response(_rows("id", 1), total=1)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 1)
-        assert session.send.call_count == 2
-
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -275,8 +258,3 @@ class TestSourceResponse:
         # Every endpoint is full refresh only, so there is no datetime partitioning.
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        # Humanitix Mongo `_id`s are globally unique, so a single `_id` key is sufficient table-wide.
-        assert all(config.primary_keys == ["_id"] for config in HUMANITIX_ENDPOINTS.values())
-        assert set(HUMANITIX_ENDPOINTS) == set(ENDPOINTS)

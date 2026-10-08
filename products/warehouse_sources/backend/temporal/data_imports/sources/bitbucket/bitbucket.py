@@ -1,8 +1,8 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import requests
 from dateutil import parser as dateutil_parser
@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import (
     BITBUCKET_ENDPOINTS,
     BitbucketEndpointConfig,
+    SecondLevelFanOut,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -27,7 +28,7 @@ class BitbucketRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BitbucketResumeConfig:
     # Full URL of the next page to fetch. None means "start the current bookmark's list
     # from its first page" (the URL is built fresh when the loop reaches it).
@@ -36,6 +37,12 @@ class BitbucketResumeConfig:
     # (not a positional index) so repos added/removed between a crash and the retry
     # can't resume us into the wrong repo. None for top-level endpoints.
     repo_slug: str | None = None
+    # Second-level bookmarks for endpoints that fan out over a parent endpoint. The
+    # cursor is the parent's ordering value, which resolves where the walk had reached
+    # even if the bookmarked parent itself has since been deleted; the id identifies the
+    # exact parent `next_url` belongs to. Both None for single-level endpoints.
+    parent_id: str | None = None
+    parent_cursor: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -225,6 +232,69 @@ def _normalize_member_row(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "user_uuid": user.get("uuid"), "user_display_name": user.get("display_name")}
 
 
+# The kinds of entry the v2.0 activity feed returns; each row carries exactly one of them
+# alongside the pull request it belongs to.
+_ACTIVITY_TYPES = ("comment", "update", "approval", "changes_requested")
+
+
+def _normalize_activity_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lift the activity kind, its timestamp and its actor to top-level columns. The entry
+    itself is polymorphic and carries no id, so the primary key and the incremental cursor
+    have nothing stable to read without this."""
+    pull_request = row.get("pull_request") or {}
+    activity_type = next((kind for kind in _ACTIVITY_TYPES if kind in row), None)
+    detail = (row.get(activity_type) or {}) if activity_type else {}
+    # Comments date themselves with created_on; updates and approvals use date. Updates
+    # name their actor `author`, the rest `user`.
+    actor = detail.get("user") or detail.get("author") or {}
+    return {
+        **row,
+        "pull_request_id": pull_request.get("id"),
+        "activity_type": activity_type,
+        "activity_date": detail.get("date") or detail.get("created_on"),
+        "actor_uuid": actor.get("uuid"),
+        "actor_display_name": actor.get("display_name"),
+    }
+
+
+def _normalize_comment_row(row: dict[str, Any]) -> dict[str, Any]:
+    pull_request = row.get("pullrequest") or {}
+    user = row.get("user") or {}
+    return {**row, "pull_request_id": pull_request.get("id"), "user_uuid": user.get("uuid")}
+
+
+def _normalize_pipeline_step_row(row: dict[str, Any]) -> dict[str, Any]:
+    # A step that pulls its build container from a private registry carries the registry
+    # password in `image`. Persisting it would hand the credential to everyone with
+    # warehouse query access, including people with no access to the repository.
+    image = row.get("image")
+    if not isinstance(image, dict) or "password" not in image:
+        return row
+    return {**row, "image": {key: value for key, value in image.items() if key != "password"}}
+
+
+_ROW_MAPPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "workspace_members": _normalize_member_row,
+    "pipeline_steps": _normalize_pipeline_step_row,
+    "pull_request_activity": _normalize_activity_row,
+    "pull_request_comments": _normalize_comment_row,
+}
+
+# A pending comment is an unpublished draft that only its author can read, and the API
+# returns the connector identity's own drafts. Syncing them would put one person's private
+# drafts in front of everyone with warehouse query access, so they are dropped.
+_ROW_FILTERS: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "pull_request_comments": lambda row: not row.get("pending"),
+}
+
+
+def _map_rows(endpoint: str, items: list[dict[str, Any]], repo: dict[str, Any] | None) -> list[dict[str, Any]]:
+    mapper = _ROW_MAPPERS.get(endpoint)
+    row_filter = _ROW_FILTERS.get(endpoint)
+    rows = (item for item in items if row_filter is None or row_filter(item))
+    return [_normalize_row(mapper(row) if mapper else row, repo) for row in rows]
+
+
 def _iter_repositories(
     session: requests.Session, workspace: str, logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
@@ -267,14 +337,13 @@ def _get_top_level_rows(
     else:
         url = _build_url(config.path.format(workspace=workspace), params)
 
-    is_members = config.name == "workspace_members"
     while True:
         data = _fetch_page(session, url, logger)
         items = data.get("values", [])
         next_url = data.get("next")
 
         if items:
-            yield [_normalize_member_row(item) if is_members else item for item in items]
+            yield _map_rows(config.name, items, None)
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields
             # the last page rather than skipping it — merge dedupes on the primary key.
             if next_url:
@@ -321,13 +390,14 @@ def _get_fan_out_rows(
                 if next_url and config.rebuild_page_urls:
                     next_url = _increment_page_url(url, int(data.get("page") or 1))
 
-                if cutoff is not None and cursor_field and _page_predates_cutoff(items, cursor_field, cutoff):
+                rows = _map_rows(config.name, items, repo)
+                if cutoff is not None and cursor_field and _page_predates_cutoff(rows, cursor_field, cutoff):
                     # Newest-first scroll walked past the watermark: everything from here
                     # back is already synced, so stop without yielding this page.
                     break
 
-                if items:
-                    yield [_normalize_row(item, repo) for item in items]
+                if rows:
+                    yield rows
                     if next_url:
                         resumable_source_manager.save_state(
                             BitbucketResumeConfig(next_url=next_url, repo_slug=repo["slug"])
@@ -352,6 +422,178 @@ def _get_fan_out_rows(
             )
 
 
+def _parent_precedes_bookmark(order: str, value: Any, bookmark: str) -> bool:
+    """True when a parent sits before the resume bookmark in the walk's own order, so the
+    previous attempt already processed it. A value we cannot compare is never skipped —
+    re-fetching a parent costs requests, skipping one loses its rows."""
+    if order == "id_asc":
+        try:
+            return int(value) < int(bookmark)
+        except (TypeError, ValueError):
+            return False
+
+    parsed = _as_utc_datetime(value)
+    marked = _as_utc_datetime(bookmark)
+    if parsed is None or marked is None:
+        return False
+    return parsed > marked
+
+
+def _iter_fan_out_parents(
+    session: requests.Session,
+    fan_out: SecondLevelFanOut,
+    workspace: str,
+    repo_slug: str,
+    logger: FilteringBoundLogger,
+    since: Any,
+) -> Iterator[dict[str, Any]]:
+    """Walk one repository's parent rows for a two-level fan-out, reusing the parent
+    endpoint's own page size and params so the list stays defined in one place."""
+    parent = BITBUCKET_ENDPOINTS[fan_out.parent]
+    params: list[tuple[str, str]] = [("pagelen", str(parent.page_size)), *parent.extra_params]
+    if fan_out.parent_sort:
+        params.append(("sort", fan_out.parent_sort))
+    if fan_out.parent_filter_field and since is not None:
+        params.append(("q", f'{fan_out.parent_filter_field} > "{_format_bbql_datetime(since)}"'))
+
+    # Parents the server can't filter are bounded here instead: they arrive newest-first,
+    # so the walk stops once a whole page predates the watermark.
+    cutoff = None if fan_out.parent_filter_field else _as_utc_datetime(since)
+
+    url = _build_url(parent.path.format(workspace=workspace, repo_slug=repo_slug), params)
+    walked = 0
+    while True:
+        data = _fetch_page(session, url, logger)
+        items = data.get("values", [])
+        next_url = data.get("next")
+        if next_url and parent.rebuild_page_urls:
+            next_url = _increment_page_url(url, int(data.get("page") or 1))
+
+        if cutoff is not None and _page_predates_cutoff(items, fan_out.order_field, cutoff):
+            return
+
+        for item in items:
+            yield item
+            walked += 1
+            if fan_out.max_parents_per_repo is not None and walked >= fan_out.max_parents_per_repo:
+                logger.warning(
+                    f"Bitbucket: reached the {fan_out.max_parents_per_repo} {fan_out.parent} cap for "
+                    f"repo {repo_slug}; older {fan_out.parent} are not walked this sync"
+                )
+                return
+
+        if not next_url:
+            return
+        url = next_url
+
+
+def _get_second_level_fan_out_rows(
+    session: requests.Session,
+    config: BitbucketEndpointConfig,
+    fan_out: SecondLevelFanOut,
+    workspace: str,
+    resumable_source_manager: ResumableSourceManager[BitbucketResumeConfig],
+    logger: FilteringBoundLogger,
+    params: list[tuple[str, str]],
+    parent_since: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Two-level fan-out: every repository in the workspace, then every row of a parent
+    endpoint within it, then this endpoint once per parent row.
+
+    An incremental sync narrows the parent walk to what changed since the watermark. Without
+    that bound every sync would issue one request per parent that ever existed, which no
+    workspace's rate budget survives."""
+    repos = [repo for repo in _iter_repositories(session, workspace, logger) if repo.get("slug")]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = repos
+    resume_parent_id: str | None = None
+    resume_parent_cursor: str | None = None
+    resume_url: str | None = None
+    if resume is not None and resume.repo_slug is not None:
+        slugs = [repo["slug"] for repo in repos]
+        if resume.repo_slug in slugs:
+            remaining = repos[slugs.index(resume.repo_slug) :]
+            resume_parent_id = resume.parent_id
+            resume_parent_cursor = resume.parent_cursor
+            resume_url = resume.next_url
+            logger.debug(
+                f"Bitbucket: resuming {config.name} from repo={resume.repo_slug}, "
+                f"parent={resume_parent_id}, url={resume_url}"
+            )
+
+    for index, repo in enumerate(remaining):
+        # The bookmark only describes the repo it was taken in; later repos start fresh.
+        bookmark_cursor = resume_parent_cursor if index == 0 else None
+        bookmark_id = resume_parent_id if index == 0 else None
+        bookmark_url = resume_url if index == 0 else None
+
+        try:
+            for parent in _iter_fan_out_parents(session, fan_out, workspace, repo["slug"], logger, parent_since):
+                cursor = parent.get(fan_out.order_field)
+                if bookmark_cursor is not None and _parent_precedes_bookmark(fan_out.order, cursor, bookmark_cursor):
+                    continue
+
+                parent_id = parent.get(fan_out.id_field)
+                if bookmark_url and str(parent_id) == bookmark_id:
+                    url = bookmark_url
+                else:
+                    url = _build_url(
+                        config.path.format(
+                            workspace=workspace,
+                            repo_slug=repo["slug"],
+                            # Pipeline uuids are braced, which is not path-safe.
+                            **{fan_out.path_param: quote(str(parent_id), safe="")},
+                        ),
+                        params,
+                    )
+                bookmark_url = None
+
+                injected = {column: parent.get(field) for column, field in fan_out.inject.items()}
+                bookmark = BitbucketResumeConfig(
+                    repo_slug=repo["slug"],
+                    parent_id=str(parent_id),
+                    parent_cursor=str(cursor) if cursor is not None else None,
+                )
+
+                try:
+                    while True:
+                        data = _fetch_page(session, url, logger)
+                        items = data.get("values", [])
+                        next_url = data.get("next")
+
+                        rows = [{**row, **injected} for row in _map_rows(config.name, items, repo)]
+                        if rows:
+                            yield rows
+                            resumable_source_manager.save_state(dataclasses.replace(bookmark, next_url=next_url))
+
+                        if not next_url:
+                            break
+                        url = next_url
+                except requests.HTTPError as exc:
+                    # The parent was deleted between the listing and this fetch. Skip it and
+                    # keep going through the repo's remaining parents.
+                    if exc.response is not None and exc.response.status_code == 404:
+                        logger.warning(
+                            f"Bitbucket: {config.name} not available for "
+                            f"{repo['slug']} {fan_out.parent} {parent_id}, skipping"
+                        )
+                        continue
+                    raise
+        except requests.HTTPError as exc:
+            # The repository was deleted between enumeration and the parent walk, or the
+            # parent endpoint is not enabled on it (a repo with Pipelines turned off).
+            if exc.response is not None and exc.response.status_code == 404:
+                logger.warning(f"Bitbucket: {config.name} not available for repo {repo['slug']}, skipping")
+            else:
+                raise
+
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(
+                BitbucketResumeConfig(next_url=None, repo_slug=remaining[index + 1]["slug"])
+            )
+
+
 def get_rows(
     auth: BitbucketAuth,
     workspace: str,
@@ -370,7 +612,18 @@ def get_rows(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
-    if config.fan_out_over_repos:
+    if config.fan_out is not None:
+        yield from _get_second_level_fan_out_rows(
+            session,
+            config,
+            config.fan_out,
+            workspace,
+            resumable_source_manager,
+            logger,
+            params,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+    elif config.fan_out_over_repos:
         cutoff = _client_side_cutoff(config, should_use_incremental_field, db_incremental_field_last_value)
         cursor_field = incremental_field or config.default_incremental_field
         yield from _get_fan_out_rows(
@@ -409,7 +662,7 @@ def bitbucket_source(
         # ascending — desc defers the incremental watermark to successful job end (max
         # seen), instead of checkpointing per batch as asc would. Top-level endpoints
         # request an ascending server sort, so asc checkpointing is safe there.
-        sort_mode="desc" if endpoint_config.fan_out_over_repos else "asc",
+        sort_mode="desc" if (endpoint_config.fan_out_over_repos or endpoint_config.fan_out is not None) else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

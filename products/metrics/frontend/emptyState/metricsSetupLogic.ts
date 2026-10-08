@@ -1,3 +1,4 @@
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { retryWithBackoff } from 'lib/utils/async'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -31,8 +32,21 @@ export const metricsSetupLogic = createSetupDetectionLogic({
         if (!teamId) {
             return 'unknown'
         }
-        const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(teamId)), { maxAttempts: 3 })
-        return response.hasMetrics ? 'has-data' : 'needs-setup'
+        try {
+            const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(teamId)), {
+                maxAttempts: 3,
+            })
+            return response.hasMetrics ? 'has-data' : 'needs-setup'
+        } catch (error) {
+            // The alpha enrollment has not reached the server yet: it arrives as an ingested
+            // person property, so a user who just turned the feature preview on is still denied
+            // for a few seconds. That is not a detection failure worth an error toast - report
+            // `unknown` and let the next poll answer.
+            if (isFeatureFlagGatedError(error)) {
+                return 'unknown'
+            }
+            throw error
+        }
     },
     onDetected: (status) => {
         if (status === 'needs-setup') {

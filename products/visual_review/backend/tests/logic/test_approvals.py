@@ -1,9 +1,11 @@
 """Unit tests for logic/approvals.py — Approving snapshots and finalizing a run."""
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.db import transaction
 
+from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunType, SnapshotResult
 from products.visual_review.backend.logic import (
@@ -12,6 +14,7 @@ from products.visual_review.backend.logic import (
     baselines,
     ci_status,
     errors,
+    github_api,
     repos,
     run_queries,
     runs,
@@ -19,6 +22,12 @@ from products.visual_review.backend.logic import (
 )
 from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+
+def _fake_github_job_api(method, repo, path, **kwargs):
+    if method == "GET":
+        return MagicMock(status_code=200, json=lambda: {"head_sha": "abc", "run_id": 777})
+    return MagicMock(status_code=201)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -136,6 +145,30 @@ class TestApproveRun:
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
 
+    @pytest.mark.parametrize(
+        ("approve", "tolerate", "expected"),
+        [
+            ([], [], 2),
+            (["A"], ["B"], 1),
+            ([], ["A", "B"], 0),
+        ],
+    )
+    def test_completing_again_reports_what_still_fails_the_gate(self, repo, user, mocker, approve, tolerate, expected):
+        # A re-run of the completing CI job calls complete on a finished run and gates on this
+        # count, so an untouched or approved-but-uncommitted change must still count.
+        run = self._completed_two_change_run(repo, mocker)
+        for identifier in tolerate:
+            toleration.mark_snapshot_as_tolerated(
+                run.id, run.snapshots.get(identifier=identifier).id, user.id, repo.team_id
+            )
+        approvals.approve_snapshots(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": i, "new_hash": f"h{i.lower()}"} for i in approve],
+        )
+
+        assert api.complete_run(run.id, team_id=repo.team_id).summary.unresolved == expected
+
     @pytest.mark.parametrize("add_images", [True, False])
     def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
         # The PR comment is always dispatched on finalize; add_images_to_comment_on_pr only
@@ -160,15 +193,16 @@ class TestApproveRun:
         ("result", "approve_all", "expect_committed"),
         [
             ("new", False, True),
-            ("changed", False, False),
+            ("changed", False, True),
             ("new", True, False),
+            ("changed", True, False),
         ],
     )
-    def test_finalize_commits_quarantined_new_only_when_approved_by_identifier(
+    def test_finalize_commits_quarantined_only_when_approved_by_identifier(
         self, repo, user, mocker, result, approve_all, expect_committed
     ):
-        # A quarantined NEW snapshot has no entry to protect, so an explicit approval lands in the
-        # commit. A quarantined CHANGED one keeps its entry, and approve_all never touches quarantine.
+        # An explicit approval commits a quarantined snapshot, so its baseline can follow the story.
+        # approve_all never touches quarantine, so a flapping hash cannot land in bulk.
         run = self._completed_quarantined_run(repo, mocker, result)
         if not approve_all:
             approvals.approve_snapshots(
@@ -176,6 +210,9 @@ class TestApproveRun:
             )
         commit = mocker.patch.object(baselines, "_commit_baseline_to_github")
         mocker.patch.object(ci_status, "_post_commit_status")
+        github = mocker.patch.object(github_api, "_github_api_request", side_effect=_fake_github_job_api)
+        mocker.patch.object(transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
+        mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
 
         updated = approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=approve_all)
 
@@ -184,6 +221,8 @@ class TestApproveRun:
             assert commit.call_args.args[2] == [{"identifier": "Q", "new_hash": "hq"}]
         else:
             assert commit.called is False
+        reruns = [c.args[2] for c in github.call_args_list if c.args[0] == "POST"]
+        assert reruns == ([] if expect_committed else ["actions/jobs/42/rerun"])
 
     def _completed_quarantined_run(self, repo, mocker, result):
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="hq", storage_path="p/q")
@@ -197,6 +236,7 @@ class TestApproveRun:
                 pr_number=7,
                 snapshots=[SnapshotManifestItem(identifier="Q", content_hash="hq")],
                 baseline_hashes=baseline,
+                metadata={"github_check_run_id": "42", "github_run_id": "777"},
             ),
             team_id=repo.team_id,
         )

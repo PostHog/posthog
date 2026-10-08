@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChevronLeft, IconGraph } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
@@ -31,10 +33,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
+import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
@@ -42,12 +46,12 @@ import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
     intervalOptions,
     bysetposOptions,
     monthlyWeekdayOptions,
     getSubscriptionAdvancedSettings,
-    getNextDeliveryDate,
     formatSubscriptionSchedule,
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,
@@ -60,7 +64,7 @@ import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/Edit
 interface SubscriptionWizardProps {
     insightShortId?: InsightShortId
     insightName?: string
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
 }
 
@@ -113,6 +117,7 @@ export function SubscriptionWizard({
         subscriptionInitialized,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        subscriptionValidationErrors,
     } = useValues(subscriptionFormLogic)
     const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
@@ -151,9 +156,11 @@ export function SubscriptionWizard({
         contentDisabledReason = 'Select at least one insight'
     }
     const emailAvailable = subscription.target_type !== 'email' || Boolean(preflight?.email_service_available)
+    const targetValueValidationError = subscriptionValidationErrors.target_value
     const destinationReady = Boolean(
         emailAvailable &&
         subscription.target_value &&
+        !targetValueValidationError &&
         (subscription.target_type !== 'slack' || subscription.integration_id)
     )
     const requiresDeliveryDays = shouldShowDayPicker(subscription.frequency, subscription.interval)
@@ -165,9 +172,11 @@ export function SubscriptionWizard({
     )
     let destinationDisabledReason: string | undefined
     if (!destinationReady) {
-        destinationDisabledReason = emailAvailable
-            ? 'Choose a destination and recipient'
-            : 'Email delivery is not configured for this PostHog instance'
+        destinationDisabledReason = !emailAvailable
+            ? 'Email delivery is not configured for this PostHog instance'
+            : typeof targetValueValidationError === 'string'
+              ? targetValueValidationError
+              : 'Choose a destination and recipient'
     }
     const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
     const goToStep = (step: SubscriptionWizardStep): void => {
@@ -426,6 +435,39 @@ function SubscriptionDeliveryStep({
                     </>
                 )
             ) : null}
+            {subscription.target_type === 'teams' ? (
+                <LemonField
+                    name="target_value"
+                    label="Microsoft Teams webhook URL"
+                    help={
+                        <div>
+                            <p className="m-0 mb-2">
+                                In Teams, open the channel's Workflows menu. Create a workflow that posts when a webhook
+                                request is received.
+                            </p>
+                            <p className="m-0 mb-2">
+                                Paste the URL it gives you here. It usually starts with{' '}
+                                <code>https://...logic.azure.com/...</code>.{' '}
+                                <Link
+                                    to="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Learn how to create a Teams webhook
+                                </Link>
+                                .
+                            </p>
+                            <p className="m-0">Keep this URL private. Anyone with it can post to the channel.</p>
+                        </div>
+                    }
+                >
+                    <LemonInput
+                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                        autoComplete="off"
+                        data-attr="subscription-teams-webhook-url"
+                    />
+                </LemonField>
+            ) : null}
         </div>
     )
 }
@@ -438,7 +480,7 @@ function SubscriptionContentStep({
     aiSubscriptionBlocked,
 }: {
     logicProps: SubscriptionLogicProps
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightName?: string
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
@@ -472,6 +514,7 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     prompt={subscription.prompt}
+                    targetType={subscription.target_type}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
@@ -594,6 +637,7 @@ function SubscriptionSettingsStep({
 }): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { summaryQuota } = useValues(subscriptionLogic(logicProps))
+    const summaryCopyVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.SUBSCRIPTION_SUMMARY_COPY_EXPERIMENT)
 
     return (
         <div className="mt-6 flex flex-col gap-2">
@@ -603,7 +647,10 @@ function SubscriptionSettingsStep({
                     {({ value, onChange }) => (
                         <LemonSwitch
                             checked={value}
-                            onChange={onChange}
+                            onChange={(enabled) => {
+                                onChange(enabled)
+                                posthog.capture('subscription summary toggled', { enabled })
+                            }}
                             disabledReason={
                                 summaryQuota?.at_limit && !value
                                     ? `Plan limit reached (${summaryQuota.limit} active AI summaries)`
@@ -613,9 +660,15 @@ function SubscriptionSettingsStep({
                             fullWidth
                             label={
                                 <div className="flex flex-col gap-1 py-1">
-                                    <div className="leading-tight">Include an automatic AI summary</div>
+                                    <div className="leading-tight">
+                                        {summaryCopyVariant === 'summary'
+                                            ? 'Include a report summary'
+                                            : 'Include an automatic AI summary'}
+                                    </div>
                                     <div className="text-xs text-secondary font-normal leading-tight">
-                                        Add an AI-written overview of the report to each delivery.
+                                        {summaryCopyVariant === 'summary'
+                                            ? 'Add an overview of the report to each delivery.'
+                                            : 'Add an AI-written overview of the report to each delivery.'}
                                     </div>
                                 </div>
                             }
@@ -674,7 +727,7 @@ function SubscriptionReviewStep({
 }: {
     logicProps: SubscriptionLogicProps
     subscription: SubscriptionType
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightShortId?: InsightShortId
 }): JSX.Element {
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
@@ -709,9 +762,19 @@ function SubscriptionReviewStep({
             ? [
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
+                  {
+                      label: 'Report contents',
+                      value: getAiSubscriptionDisplaySummary(subscription.delivery_config, subscription.target_type),
+                  },
               ]
             : []),
-        { label: 'Sends to', value: subscription.target_value },
+        {
+            label: 'Sends to',
+            value:
+                subscription.target_type === 'teams'
+                    ? 'Microsoft Teams webhook URL (not shown)'
+                    : subscription.target_value,
+        },
         { label: 'Runs', value: formatSubscriptionSchedule(subscription) },
         ...(dashboard
             ? [

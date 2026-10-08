@@ -142,7 +142,7 @@ interface DateAxisCellProps {
     title: string
     labels: string[]
     series: Series[]
-    interval: TimeInterval
+    interval?: TimeInterval
     timezone: string
 }
 
@@ -350,9 +350,9 @@ export const ComparisonOf: Story = {
 
 export const DateAxis: Story = {
     render: () => {
-        const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [
+        const cells: { interval?: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [
             { interval: 'hour', labels: HOURLY_LABELS, series: HOURLY_SERIES, title: 'hour' },
-            { interval: 'day', labels: DAILY_LABELS, series: DAILY_SERIES, title: 'day' },
+            { labels: DAILY_LABELS, series: DAILY_SERIES, title: 'day (inferred)' },
             { interval: 'month', labels: MONTHLY_LABELS, series: MONTHLY_SERIES, title: 'month' },
         ]
         return (

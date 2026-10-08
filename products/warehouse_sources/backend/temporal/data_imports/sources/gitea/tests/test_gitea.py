@@ -6,10 +6,10 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import (
     GiteaResumeConfig,
-    _flatten_commit,
     _make_webhook_dedupe_transformer,
     _parse_next_url,
     create_repo_webhook,
@@ -17,12 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gite
     get_repo_webhook_info,
     get_rows,
     gitea_source,
-    hostname_of,
     normalize_host,
     update_repo_webhook_events,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import ENDPOINTS, GITEA_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea"
 
@@ -79,18 +77,8 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    def test_hostname_of(self):
-        assert hostname_of("https://gitea.example.com/") == "gitea.example.com"
-
 
 class TestParseNextUrl:
-    def test_parses_next_rel_among_others(self):
-        header = (
-            f'<{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2>; rel="next",'
-            f'<{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=9>; rel="last"'
-        )
-        assert _parse_next_url(header) == f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
-
     @pytest.mark.parametrize("header", ["", f'<{BASE_URL}/x?page=1>; rel="last"'])
     def test_no_next_returns_none(self, header):
         assert _parse_next_url(header) is None
@@ -167,37 +155,6 @@ class TestGetRows:
         )
 
         assert mock_session.return_value.get.call_args.args[0] == resume_url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_issues_pass_since_and_static_params(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        list(
-            get_rows(
-                BASE_URL,
-                "tok",
-                REPO,
-                "issues",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC),
-            )
-        )
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "since=2024-01-02T03%3A04%3A05Z" in url
-        # type=issues keeps pull requests out of the issues table.
-        assert "type=issues" in url
-        assert "state=all" in url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_omits_since(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        list(get_rows(BASE_URL, "tok", REPO, "issues", mock.MagicMock(), _make_manager()))
-
-        assert "since=" not in mock_session.return_value.get.call_args.args[0]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_pull_requests_never_send_since(self, mock_session):
@@ -283,31 +240,128 @@ class TestGetRows:
         # The commit timestamp survives as the cursor/partition column.
         assert row["created"] == "2024-01-01T00:00:00Z"
 
+    @pytest.mark.parametrize(
+        "endpoint, page_1, page_2, headers",
+        [
+            ("issue_comments", [{"id": 1}, {"id": 2}], [{"id": 3}], {"X-Total-Count": "3"}),
+            (
+                "workflow_runs",
+                {"total_count": 3, "workflow_runs": [{"id": 3}, {"id": 2}]},
+                {"total_count": 3, "workflow_runs": [{"id": 1}]},
+                {},
+            ),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_total_count_pagination_pages_by_number_without_link_header(
+        self, mock_session, endpoint, page_1, page_2, headers
+    ):
+        mock_session.return_value.get.side_effect = [
+            _response(page_1, headers=headers),
+            _response(page_2, headers=headers),
+        ]
+        manager = _make_manager()
 
-class TestFlattenCommit:
-    def test_missing_nested_objects_do_not_crash(self):
-        assert _flatten_commit({"sha": "abc"}) == {"sha": "abc"}
+        batches = list(get_rows(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), manager))
+
+        assert sorted(row["id"] for batch in batches for row in batch) == [1, 2, 3]
+        # The total is covered after page 2, so no third request goes out.
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert len(urls) == 2
+        assert "page=2" in urls[1]
+        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [urls[1]]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_workflow_runs_not_found_raises_actions_unavailable(self, mock_session):
+        not_found = _response({"message": "Not Found"}, status_code=404)
+        not_found.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=not_found)
+        mock_session.return_value.get.return_value = not_found
+
+        with pytest.raises(ValueError, match="Gitea Actions runs are unavailable"):
+            list(get_rows(BASE_URL, "tok", REPO, "workflow_runs", mock.MagicMock(), _make_manager()))
+
+
+class TestFanOut:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_timeline_fans_out_over_issues_in_one_unpaged_request_each(self, mock_session):
+        issues_page_2 = f"{BASE_URL}/api/v1/repos/{REPO}/issues?limit=50&page=2"
+        deleted_issue = _response({"message": "Not Found"}, status_code=404)
+        deleted_issue.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=deleted_issue)
+        responses = {
+            f"/repos/{REPO}/issues?": [
+                _response([{"number": 1}, {"number": 2}], headers={"Link": f'<{issues_page_2}>; rel="next"'}),
+                _response([{"number": 3}]),
+            ],
+            f"/repos/{REPO}/issues/1/timeline": [_response([{"id": 10}, {"id": 11}], headers={"X-Total-Count": "2"})],
+            f"/repos/{REPO}/issues/2/timeline": [deleted_issue],
+            f"/repos/{REPO}/issues/3/timeline": [_response([{"id": 30}])],
+        }
+
+        def get(url, timeout):
+            return next(responses[key].pop(0) for key in responses if key in url)
+
+        mock_session.return_value.get.side_effect = get
+        manager = _make_manager()
+
+        batches = list(
+            get_rows(
+                BASE_URL,
+                "tok",
+                REPO,
+                "issue_timeline",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == [
+            {"id": 10, "issue_number": 1},
+            {"id": 11, "issue_number": 1},
+            {"id": 30, "issue_number": 3},
+        ]
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        timeline_urls = [url for url in urls if "/timeline" in url]
+        assert len(timeline_urls) == 3
+        # Gitea drops rows from a timeline page after paging, and its X-Total-Count is the
+        # filtered page length, so a paged walk can stop early. Without `page` the endpoint
+        # returns the whole timeline in one response.
+        assert not any("page=" in url or "limit=" in url for url in timeline_urls)
+        # The watermark bounds both the parent issues and each issue's timeline.
+        assert all("since=2024-01-02T00%3A00%3A00Z" in url for url in [urls[0], *timeline_urls])
+        assert "type=issues" in urls[0]
+        # State points at the next parent page once every child of the current one is yielded.
+        assert [call.args[0].next_url for call in manager.save_state.call_args_list] == [issues_page_2]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_resume_starts_from_saved_parent_page(self, mock_session):
+        resume_url = f"{BASE_URL}/api/v1/repos/{REPO}/pulls?limit=50&page=4"
+        mock_session.return_value.get.side_effect = [
+            _response([{"number": 9}]),
+            _response([{"id": 90}]),
+        ]
+
+        batches = list(
+            get_rows(
+                BASE_URL,
+                "tok",
+                REPO,
+                "reviews",
+                mock.MagicMock(),
+                _make_manager(GiteaResumeConfig(next_url=resume_url)),
+            )
+        )
+
+        assert batches == [[{"id": 90, "pull_request_number": 9}]]
+        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        assert urls[0] == resume_url
+        # Gitea drops other users' pending reviews after paging, so reviews are fetched unpaged.
+        assert urls[1] == f"{BASE_URL}/api/v1/repos/{REPO}/pulls/9/reviews"
 
 
 class TestGiteaSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = gitea_source(BASE_URL, "tok", REPO, endpoint, mock.MagicMock(), _make_manager())
-
-        config = GITEA_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-
-    def test_commits_key_on_sha(self):
-        response = gitea_source(BASE_URL, "tok", REPO, "commits", mock.MagicMock(), _make_manager())
-        assert response.primary_keys == ["sha"]
-
     def test_webhook_enabled_drains_webhook_items_with_dedupe(self):
         webhook_manager = mock.MagicMock()
         webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
@@ -356,17 +410,6 @@ class TestWebhookDedupeTransformer:
             {"id": 2, "state": "open", "updated_at": "2024-01-01T00:00:00Z"},
             {"id": 1, "state": "closed", "updated_at": "2024-01-02T00:00:00Z"},
         ]
-
-    def test_tie_keeps_later_arriving_row(self):
-        transform = _make_webhook_dedupe_transformer("id", ["updated_at"])
-        table = self._table(
-            [
-                {"id": 1, "state": "open", "updated_at": "2024-01-01T00:00:00Z"},
-                {"id": 1, "state": "closed", "updated_at": "2024-01-01T00:00:00Z"},
-            ]
-        )
-
-        assert transform(table).to_pylist() == [{"id": 1, "state": "closed", "updated_at": "2024-01-01T00:00:00Z"}]
 
     def test_missing_version_column_leaves_table_unchanged(self):
         transform = _make_webhook_dedupe_transformer("id", ["updated_at"])

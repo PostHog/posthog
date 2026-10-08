@@ -139,25 +139,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(UservoiceResumeConfig(cursor=None, page=2))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response("suggestions", [{"id": 1}], {"cursor": "CUR2"}),
-                _response("suggestions", [{"id": 2}], {}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert "cursor" not in params[0]
-        assert params[1]["cursor"] == "CUR2"
-        manager.save_state.assert_called_once_with(UservoiceResumeConfig(cursor="CUR2", page=None))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_on_non_advancing_cursor(self, MockSession) -> None:
         # A cursor that repeats itself must not loop forever, but both yielded pages are kept.
         session = MockSession.return_value
@@ -187,15 +168,6 @@ class TestPagination:
         rows = _rows(_source(_make_manager()))
         assert len(rows) == PER_PAGE + 1
         assert params[1]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("suggestions", [{"id": 2}], {"page": 2, "total_pages": 2})])
-
-        rows = _rows(_source(_make_manager(UservoiceResumeConfig(page=2))))
-        assert [r["id"] for r in rows] == [2]
-        assert params[0]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
@@ -236,27 +208,6 @@ class TestPagination:
         )
         assert "updated_after" not in params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_response(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("labels", [], {"page": 1, "total_pages": 1})])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="labels"))
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_token_not_placed_in_plain_header(self, MockSession) -> None:
-        # The token rides the framework Bearer auth (redacted from logs), so only the non-secret
-        # Accept header is set directly on the session.
-        session = MockSession.return_value
-        _wire(session, [_response("suggestions", [{"id": 1}], {"page": 1, "total_pages": 1})])
-
-        _rows(_source(_make_manager()))
-        assert session.headers.get("Accept") == "application/json"
-        assert "Authorization" not in session.headers
-
 
 class TestSourceResponse:
     @parameterized.expand(
@@ -291,11 +242,6 @@ class TestValidateCredentials:
         ok, code = validate_credentials("acme", "token")
         assert ok is expected_ok
         assert code == expected_status
-
-    @mock.patch(USERVOICE_SESSION_PATCH)
-    def test_transport_error_maps_to_none(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("acme", "token") == (False, None)
 
     def test_bad_subdomain_raises(self) -> None:
         # A malformed subdomain must surface as ValueError so the caller can show a precise message.

@@ -4,6 +4,7 @@ from typing import cast
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,6 +16,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.user import User
+from posthog.permissions import TimeSensitiveActionPermission
 
 
 class ConnectedAppSerializer(serializers.Serializer):
@@ -34,6 +36,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission]
     http_method_names = ["get", "post"]
 
     @extend_schema(

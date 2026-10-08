@@ -7,6 +7,8 @@ from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.prompt_references import resolve_prompt_references
+
 from ee.hogai.chat_agent.sql.prompts import CORE_MEMORY_USAGE_INSTRUCTION, HOGQL_QUERY_WRITING_RULES
 
 logger = structlog.get_logger(__name__)
@@ -94,8 +96,10 @@ def resolve_prompt(team: Team, name: str, default: str) -> str:
     if cached is not None:
         stored = cached.get("prompt")
         if isinstance(stored, str) and stored.strip():
-            _capture_prompt_source(team, name, "managed")
-            return stored
+            resolved = resolve_prompt_references(team, stored)
+            if resolved is not None:
+                _capture_prompt_source(team, name, "managed")
+                return resolved
     _capture_prompt_source(team, name, "fallback")
     return default
 

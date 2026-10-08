@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.tests.test_user_access_control import BaseUserAccessControlTest
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
@@ -160,6 +161,13 @@ class TestResolveResourceAccess(BaseMostSpecificResolutionTest):
 
 @pytest.mark.ee
 class TestShadowDivergenceTelemetry(BaseMostSpecificResolutionTest):
+    def setUp(self):
+        super().setUp()
+        # The shadow only runs, and only diverges, for an org still on the legacy resolution
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+
     @patch("products.access_control.backend.facade.user_access_control.posthoganalytics.capture")
     def test_enforcement_keeps_the_enforced_answer_and_reports_the_divergence(self, mock_capture):
         self._apply({"member": "none", "role_a": "editor"})

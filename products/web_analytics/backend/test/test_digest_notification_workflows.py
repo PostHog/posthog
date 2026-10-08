@@ -9,12 +9,13 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.temporal.common.digest import OrgBatchPageResult
+
 from products.web_analytics.backend.temporal.digest_notification.types import (
     WA_DIGEST_NOTIF_THRESHOLD_EXCEEDED_TYPE,
     DigestBatchInput,
     DigestBatchResult,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     WADigestNotificationInput,
 )
 from products.web_analytics.backend.temporal.digest_notification.workflows import WADigestNotificationWorkflow

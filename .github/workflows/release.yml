@@ -91,6 +91,7 @@ jobs:
                   path: plan-dist-manifest.json
 
     # Build and packages all the platform-specific things
+    # hogli-lint: allow-generated-runner-matrix -- dist builds this matrix; its runner labels are pinned under [dist.github-custom-runners] in dist-workspace.toml
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
         # Let the initial task tell us to not run (very blunt)

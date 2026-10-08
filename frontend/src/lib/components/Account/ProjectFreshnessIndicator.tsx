@@ -60,7 +60,13 @@ function SourceBreakdown({
  * A project that has never received anything is stated plainly rather than warned about: a
  * project created a minute ago legitimately has no data, and amber on it would be wrong.
  */
-export function ProjectFreshnessIndicator({ teamId }: { teamId: number }): JSX.Element | null {
+export function ProjectFreshnessIndicator({
+    teamId,
+    className,
+}: {
+    teamId: number
+    className?: string
+}): JSX.Element | null {
     const { dataFreshness, freshnessByTeamId } = useValues(projectDataFreshnessLogic)
 
     const freshness = freshnessByTeamId[teamId]
@@ -96,7 +102,8 @@ export function ProjectFreshnessIndicator({ teamId }: { teamId: number }): JSX.E
             <span
                 className={cn(
                     'text-xxs shrink-0 ml-1 whitespace-nowrap',
-                    freshness.freshness === 'never' ? 'text-tertiary' : 'text-warning'
+                    freshness.freshness === 'never' ? 'text-tertiary' : 'text-warning',
+                    className
                 )}
             >
                 {label}

@@ -4,8 +4,11 @@ import {
 } from "@tanstack/react-router";
 import { RouteNotFound } from "./RouteNotFound";
 import { RoutePending } from "./RoutePending";
+import { isReportPath } from "./reportNavigation";
 import { setRouter } from "./routerRef";
 import { routeTree } from "./routeTree.gen";
+
+const reportSourceEntries = new Set<string>();
 
 export const router = createTanStackRouter({
   routeTree,
@@ -26,7 +29,15 @@ export const router = createTanStackRouter({
   defaultPendingMinMs: 0,
   defaultPendingComponent: RoutePending,
   defaultNotFoundComponent: RouteNotFound,
-  scrollRestoration: false,
+  scrollRestoration: ({ location }) =>
+    isReportPath(location.pathname) ||
+    reportSourceEntries.has(location.state.__TSR_key ?? ""),
+});
+
+router.subscribe("onBeforeLoad", ({ fromLocation, toLocation }) => {
+  if (fromLocation?.state.__TSR_key && isReportPath(toLocation.pathname)) {
+    reportSourceEntries.add(fromLocation.state.__TSR_key);
+  }
 });
 
 // Publish the instance to the leaf ref so imperative callers reach it without a

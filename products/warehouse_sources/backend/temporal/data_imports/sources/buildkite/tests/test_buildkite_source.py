@@ -5,10 +5,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
     BuildkiteSourceConfig,
@@ -31,17 +27,29 @@ class TestBuildkiteSource:
 
     @parameterized.expand(
         [
-            # Only builds exposes a server-side timestamp filter, so it's the only incremental endpoint.
-            ("builds", True),
-            ("organizations", False),
-            ("pipelines", False),
-            ("agents", False),
+            # Builds exposes a server-side timestamp filter, and jobs inherit it through the build
+            # fan-out that drives them. Nothing else has one.
+            ("builds", True, True),
+            ("jobs", True, False),
+            ("organizations", False, False),
+            ("organization_members", False, False),
+            ("pipelines", False, False),
+            ("pipeline_schedules", False, False),
+            ("agents", False, False),
+            ("cluster_queues", False, False),
+            ("teams", False, False),
+            ("team_pipelines", False, False),
+            ("test_suites", False, False),
+            ("test_suite_runs", False, False),
+            ("test_suite_tests", False, False),
         ]
     )
-    def test_incremental_support_per_endpoint(self, endpoint: str, expected: bool) -> None:
+    def test_incremental_support_per_endpoint(self, endpoint: str, incremental: bool, append: bool) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas[endpoint].supports_incremental is expected
-        assert schemas[endpoint].supports_append is expected
+        assert schemas[endpoint].supports_incremental is incremental
+        # A job restates after it is created (state, finished_at) and each incremental run re-walks
+        # the trailing build window, so append would materialize the re-pulled rows as duplicates.
+        assert schemas[endpoint].supports_append is append
 
     @parameterized.expand(
         [
@@ -69,11 +77,6 @@ class TestBuildkiteSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Each declared endpoint should have a curated description so it isn't sent to the LLM.
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

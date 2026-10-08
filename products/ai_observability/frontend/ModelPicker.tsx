@@ -11,7 +11,7 @@ import { LLMProviderIcon } from './LLMProviderIcon'
 import { type ModelOption, type ProviderModelGroup } from './modelPickerLogic'
 import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic'
 
-const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
+export const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
 export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string; to: string } {
     return {
@@ -118,12 +118,23 @@ export function ModelPicker({
                 </div>
             ),
         },
+        ...(filteredGroups.length === 0
+            ? [
+                  {
+                      label: () => (
+                          <div className="px-2 py-1.5 text-xs text-secondary">
+                              {isSearching ? 'No models match your search.' : 'No models available.'}
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         ...filteredGroups.map((group): LemonMenuItems[number] => {
-            if (group.disabled) {
+            if (group.disabledReason) {
                 return {
                     icon: <LLMProviderIcon provider={group.provider} />,
                     label: group.label,
-                    disabledReason: 'This provider key has an issue. Check your provider settings.',
+                    disabledReason: group.disabledReason,
                 }
             }
 

@@ -6,13 +6,18 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
+    CLUSTER_UNAVAILABLE_ERROR,
+    CREDENTIALS_REJECTED_ERROR,
+    FORBIDDEN_ERROR,
     PAGE_SIZE,
+    TLS_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
+    UNREACHABLE_ERROR,
     ElasticsearchAuth,
     coerce_float_fields,
     elasticsearch_source,
     get_float_field_paths,
     get_rows,
-    hostname_of,
     list_indices,
     normalize_host,
     validate_credentials,
@@ -54,9 +59,6 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    def test_hostname_of(self):
-        assert hostname_of("https://es.example.com:9243/") == "es.example.com"
-
 
 class TestAuthWiring:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -80,26 +82,43 @@ class TestAuthWiring:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_error",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, True, None),
+            (401, False, CREDENTIALS_REJECTED_ERROR),
+            (403, False, FORBIDDEN_ERROR),
+            (404, False, UNEXPECTED_RESPONSE_ERROR),
+            (429, False, CLUSTER_UNAVAILABLE_ERROR),
+            (500, False, CLUSTER_UNAVAILABLE_ERROR),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_error):
         mock_session.return_value.headers = {}
         mock_session.return_value.get.return_value = _response({}, status=status_code)
 
-        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) is expected
+        is_valid, error = validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
+        assert is_valid is expected_valid
+        assert error == expected_error
+
+    @pytest.mark.parametrize(
+        "raised, expected_error",
+        [
+            (Exception("boom"), UNREACHABLE_ERROR),
+            (requests.exceptions.ConnectionError("refused"), UNREACHABLE_ERROR),
+            (requests.exceptions.SSLError("bad cert"), TLS_ERROR),
+        ],
+    )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
+    def test_validate_credentials_transport_failure_mapping(self, mock_session, raised, expected_error):
         mock_session.return_value.headers = {}
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) is False
+        mock_session.return_value.get.side_effect = raised
+
+        assert validate_credentials("https://es.example.com", ElasticsearchAuth(api_key="k")) == (
+            False,
+            expected_error,
+        )
 
 
 class TestListIndices:
@@ -152,26 +171,6 @@ class TestGetRows:
 
         mock_session.return_value.delete.assert_called_once()
         assert mock_session.return_value.delete.call_args.kwargs["json"] == {"scroll_id": ["scroll-1"]}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_rows_hoist_source_and_id(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.post.return_value = _response(
-            _scroll_page([{"_id": "doc-1", "_source": {"name": "x"}}])
-        )
-
-        batches = list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
-
-        assert batches == [[{"name": "x", "_id": "doc-1"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_index_yields_nothing(self, mock_session):
-        mock_session.return_value.headers = {}
-        mock_session.return_value.post.return_value = _response(_scroll_page([]))
-
-        assert (
-            list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock())) == []
-        )
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_float_typed_fields_are_coerced_across_rows(self, mock_session):

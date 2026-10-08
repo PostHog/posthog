@@ -1,6 +1,7 @@
 import type { ScoutSurface } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useSkillsSelectionActions } from "@posthog/ui/features/skills/skillsSelectionStore";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ export function ScoutHelperSkillLinks({ surface }: { surface: ScoutSurface }) {
           <Link
             to="/settings/$category"
             params={{ category: "skills" }}
+            search={{ from: settingsSourceHref() }}
             onClick={() => {
               track(ANALYTICS_EVENTS.SCOUT_ACTION, {
                 action_type: "open_helper_skill",

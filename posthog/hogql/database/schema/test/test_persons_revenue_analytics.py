@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
@@ -24,9 +24,10 @@ from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViews
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.ph_client import feature_enabled_or_false
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 
@@ -128,7 +129,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
@@ -151,7 +152,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             queries = [
                 "SELECT id, revenue_analytics.revenue from persons order by id asc",
                 "SELECT id, $virt_revenue from persons order by id asc",
@@ -192,7 +193,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue FROM persons ORDER BY id ASC"),
                 self.team,
@@ -244,7 +245,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
                 self.team,
@@ -278,7 +279,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         # Dummy person without revenue
         dummy_person = _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
@@ -315,7 +316,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         expected_revenue = Decimal("766.0654934005")  # cus_1 283.8496260553 + cus_2 482.2158673452
         expected_mrr = Decimal("63.7684363904")  # cus_1 22.9631447238 + cus_2 40.8052916666
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             table_results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
@@ -359,7 +360,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
 
         # `cus_2` through `cus_6` match no person, so they carry the all-zeros UUID and are dropped.
         # Only the two attributable rows remain, one from each leg.
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics"),
                 self.team,
@@ -394,7 +395,10 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             field_name="persons",
         )
 
-        with freeze_time(self.QUERY_TIMESTAMP), patch.object(persons_revenue_analytics, "logger") as mock_logger:
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            patch.object(persons_revenue_analytics, "logger") as mock_logger,
+        ):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue FROM persons_revenue_analytics"),
                 self.team,
@@ -438,7 +442,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
             expected_rows = [(person.uuid, Decimal("283.8496260553"))]
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select(
                     """
@@ -465,7 +469,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -503,7 +507,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
@@ -534,7 +538,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.save()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -571,7 +575,18 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.create_and_materialize_viewsets()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            self.snapshot_select_queries(),
+            patch(
+                "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+                side_effect=lambda flag, *args, **kwargs: (
+                    False
+                    if flag == "trends-breakdown-rank-before-arrays"
+                    else feature_enabled_or_false(flag, *args, **kwargs)
+                ),
+            ),
+        ):
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -603,7 +618,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.team.save()
         self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
@@ -627,7 +642,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -661,7 +676,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             distinct_id_to_person_id[distinct_id] = person.uuid
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             queries = [
                 "SELECT id, revenue_analytics.revenue from persons order by id asc",
                 "SELECT id, $virt_revenue from persons order by id asc",
@@ -697,7 +712,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.team.save()
         self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",

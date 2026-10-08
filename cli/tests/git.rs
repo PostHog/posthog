@@ -1,7 +1,8 @@
 use posthog_cli::utils::git::{get_git_info, get_git_info_from_env, get_remote_url, get_repo_name};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
@@ -392,6 +393,198 @@ fn test_get_git_info_from_worktree_config_precedence() {
     assert_eq!(info.repo_name.as_deref(), Some("worktree-override"));
 
     let _ = fs::remove_dir_all(temp_root);
+}
+
+/// Runs git in `dir` and returns its trimmed standard output.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .unwrap_or_else(|error| panic!("failed to run git {args:?}: {error}"));
+
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn git_is_available() -> bool {
+    Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Creates a repository with one commit on `main` and the given remote.
+///
+/// The commit is written with plumbing rather than `git commit`, so the test does not depend on
+/// the hooks or the signing configuration of the machine that runs it.
+fn init_repo_with_commit(dir: &Path, remote_url: Option<&str>) -> String {
+    fs::create_dir_all(dir).expect("failed to create repository directory");
+    git(dir, &["init", "-q", "-b", "main", "."]);
+    if let Some(remote_url) = remote_url {
+        git(dir, &["remote", "add", "origin", remote_url]);
+    }
+
+    fs::create_dir_all(dir.join("nested")).expect("failed to create nested directory");
+    fs::write(dir.join("nested/file.txt"), "content").expect("failed to write file");
+    git(dir, &["add", "."]);
+
+    let tree = git(dir, &["write-tree"]);
+    let commit = git(
+        dir,
+        &[
+            "-c",
+            "user.name=posthog-cli test",
+            "-c",
+            "user.email=test@posthog.com",
+            "commit-tree",
+            &tree,
+            "-m",
+            "initial commit",
+        ],
+    );
+    git(dir, &["update-ref", "refs/heads/main", &commit]);
+
+    commit
+}
+
+fn temp_root(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("posthog_cli_{name}_{}", Uuid::now_v7()));
+    fs::create_dir_all(&root).expect("failed to create temp root");
+    root
+}
+
+fn git_info_of(dir: &Path) -> posthog_cli::utils::git::GitInfo {
+    get_git_info(Some(dir.to_path_buf()))
+        .unwrap_or_else(|error| panic!("get_git_info failed for {}: {error:#}", dir.display()))
+        .unwrap_or_else(|| panic!("no git info for {}", dir.display()))
+}
+
+/// The layout of a real `git worktree`: `.git` is a file, HEAD lives in the worktree's own git
+/// directory, and the branch ref and the config live in the common git directory.
+#[test]
+fn test_get_git_info_from_a_real_worktree() {
+    if !git_is_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+
+    let root = temp_root("real_worktree");
+    let main_dir = root.join("main");
+    let commit = init_repo_with_commit(&main_dir, Some("https://github.com/PostHog/posthog.git"));
+
+    let worktree_dir = root.join("feature-worktree");
+    git(
+        &main_dir,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree_dir.to_str().unwrap(),
+            "-b",
+            "feature/in-a-worktree",
+        ],
+    );
+
+    for dir in [&worktree_dir, &worktree_dir.join("nested")] {
+        let info = git_info_of(dir);
+        assert_eq!(info.branch, "feature/in-a-worktree");
+        assert_eq!(info.commit_id, commit);
+        assert_eq!(
+            info.remote_url.as_deref(),
+            Some("https://github.com/PostHog/posthog.git")
+        );
+        assert_eq!(info.repo_name.as_deref(), Some("posthog"));
+    }
+
+    // Packing the refs removes the loose branch ref the worktree read above.
+    git(&main_dir, &["pack-refs", "--all"]);
+    let info = git_info_of(&worktree_dir);
+    assert_eq!(info.branch, "feature/in-a-worktree");
+    assert_eq!(info.commit_id, commit);
+
+    let detached_dir = root.join("detached-worktree");
+    git(
+        &main_dir,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            detached_dir.to_str().unwrap(),
+            &commit,
+        ],
+    );
+    let info = git_info_of(&detached_dir);
+    assert_eq!(info.branch, "HEAD-detached");
+    assert_eq!(info.commit_id, commit);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+/// A superproject records its submodules' URLs in its own config. The submodule section comes
+/// before the remote section when the repository gets its remote after its submodules, so the
+/// reader has to know which section a URL sits in.
+#[test]
+fn test_get_git_info_from_a_real_superproject_reports_its_own_remote() {
+    if !git_is_available() {
+        eprintln!("skipping: git is not on PATH");
+        return;
+    }
+
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+
+    let root = temp_root("real_superproject");
+    let submodule_dir = root.join("submodule");
+    init_repo_with_commit(&submodule_dir, None);
+
+    let super_dir = root.join("superproject");
+    let commit = init_repo_with_commit(&super_dir, None);
+    git(&super_dir, &["reset", "-q", "--hard", "main"]);
+    git(
+        &super_dir,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            submodule_dir.to_str().unwrap(),
+            "vendor/lib",
+        ],
+    );
+    git(
+        &super_dir,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/PostHog/posthog.git",
+        ],
+    );
+
+    let info = git_info_of(&super_dir);
+    assert_eq!(info.branch, "main");
+    assert_eq!(info.commit_id, commit);
+    assert_eq!(
+        info.remote_url.as_deref(),
+        Some("https://github.com/PostHog/posthog.git"),
+        "the superproject's own remote, not a submodule's"
+    );
+    assert_eq!(info.repo_name.as_deref(), Some("posthog"));
+
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

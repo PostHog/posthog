@@ -11,7 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

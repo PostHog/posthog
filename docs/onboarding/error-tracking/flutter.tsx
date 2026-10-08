@@ -155,7 +155,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 {dedent`
                     Before proceeding, let's make sure exception events are being captured and sent to PostHog. You should see events appear in the activity feed.
 
-                    [Check for exceptions in PostHog](https://app.posthog.com/activity/explore)
+                    [Check for exceptions in PostHog](https://app.posthog.com/activity/events)
                 `}
             </Markdown>
         ),

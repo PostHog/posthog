@@ -1,9 +1,10 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
     AccountsQuery,
     AccountsTableQuery,
@@ -15,6 +16,7 @@ import {
     CompareFilter,
     DataTableNode,
     DataVisualizationNode,
+    VisualizationNode,
     DataWarehouseNode,
     DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
@@ -47,10 +49,10 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsHistogramQuery,
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -76,7 +78,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
+import { AnnotationScope, BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -92,7 +94,9 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
     )
 }
 
-export function isNodeWithSource(node?: Record<string, any> | null): node is DataTableNode | InsightVizNode {
+export function isNodeWithSource(
+    node?: Record<string, any> | null
+): node is DataTableNode | VisualizationNode | InsightVizNode {
     if (!node) {
         return false
     }
@@ -160,13 +164,17 @@ export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null)
     return isDataTableNode(node) && isHogQLQuery(node.source)
 }
 
-export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
-    return node?.kind === NodeKind.DataVisualizationNode
+export function isBIVisualizationNode(node?: Record<string, any> | null): node is BIVisualizationNode {
+    return node?.kind === NodeKind.BIVisualizationNode
+}
+
+export function isDataVisualizationNode(node?: Record<string, any> | null): node is VisualizationNode {
+    return node?.kind === NodeKind.DataVisualizationNode || isBIVisualizationNode(node)
 }
 
 export function isDataVisualizationNodeWithHogQLQuery(
     node?: Record<string, any> | null
-): node is DataVisualizationNode & { source: HogQLQuery } {
+): node is VisualizationNode & { source: HogQLQuery } {
     return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
@@ -232,6 +240,10 @@ export function isMetricsQuery(node?: Record<string, any> | null): node is Metri
     return node?.kind === NodeKind.MetricsQuery
 }
 
+export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
+    return node?.kind === NodeKind.MetricsHistogramQuery
+}
+
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
     return node?.kind === NodeKind.EndpointsUsageOverviewQuery
 }
@@ -290,12 +302,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
-}
-
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -492,6 +498,10 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
+export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
+    (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
+
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
 const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
@@ -505,6 +515,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
@@ -639,11 +650,16 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
     return undefined
 }
 
-export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
+const isProportionBarQuery = (query: TrendsQuery): boolean =>
+    query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
+
+export const getShowLegend = (query: InsightQueryNode, partCount?: number): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLegend
+        const showsByDefault =
+            isProportionBarQuery(query) && partCount !== undefined && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+        return query.trendsFilter?.showLegend ?? (showsByDefault ? true : undefined)
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
@@ -656,7 +672,7 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.legendPosition
+        return query.trendsFilter?.legendPosition ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.legendPosition
     } else if (isLifecycleQuery(query)) {
@@ -679,6 +695,15 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
         return query.trendsFilter?.showAnnotations
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showAnnotations
+    }
+    return undefined
+}
+
+export const getAnnotationsScope = (query: InsightQueryNode): AnnotationScope | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotationsScope
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.annotationsScope
     }
     return undefined
 }

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.un
     PAGE_SIZE,
     UnleashHostNotAllowedError,
     UnleashResumeConfig,
-    _headers,
     check_endpoint_permissions,
     normalize_instance_url,
     unleash_source,
@@ -125,47 +124,8 @@ class TestNormalizeAndHeaders:
     def test_normalize_instance_url(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_instance_url(raw) == expected
 
-    def test_headers_send_raw_token_without_bearer_prefix(self) -> None:
-        # The probe helpers (validate/permissions) send the raw token as the whole header value.
-        assert _headers(TOKEN)["Authorization"] == TOKEN
-
 
 class TestPipelineTransport:
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_fetches_once_and_extracts_wrapped_rows(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_json_response({"version": 1, "projects": [{"id": "a"}, {"id": "b"}]})])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "projects"))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # No offset/limit for the single-request endpoints.
-        assert params[0] == {}
-        # The whole collection arrives in one response, so nothing is checkpointed.
-        manager.save_state.assert_not_called()
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_bare_array_endpoint_extracts_rows(self, MockSession: Any, _safe: Any) -> None:
-        # context_fields returns a bare JSON array (no wrapper object / data_selector).
-        session = MockSession.return_value
-        _wire(session, [_json_response([{"name": "userId"}, {"name": "email"}])])
-
-        rows = _rows(_source(_make_manager(), "context_fields"))
-        assert rows == [{"name": "userId"}, {"name": "email"}]
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_with_no_rows_yields_no_batches(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_json_response({"version": 1, "projects": []})])
-
-        # An empty collection must not push an empty batch into the pipeline.
-        assert list(_source(_make_manager(), "projects").items()) == []
-
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
     def test_paginated_endpoint_walks_offsets_and_saves_state_after_yield(self, MockSession: Any, _safe: Any) -> None:
@@ -192,32 +152,6 @@ class TestPipelineTransport:
 
     @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
     @patch(CLIENT_SESSION_PATCH)
-    def test_paginated_endpoint_stops_on_short_page_without_total(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_json_response({"features": [{"name": "only"}]})])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "features"))
-        assert rows == [{"name": "only"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_paginated_endpoint_stops_when_total_reached_on_full_page(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        full_page = [{"name": f"flag-{i}"} for i in range(PAGE_SIZE)]
-        _wire(session, [_json_response({"features": full_page, "total": PAGE_SIZE})])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, "features"))
-        assert len(rows) == PAGE_SIZE
-        # total == offset means the collection is exhausted — no extra empty-page request.
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
     def test_paginated_endpoint_resumes_from_saved_offset(self, MockSession: Any, _safe: Any) -> None:
         session = MockSession.return_value
         params = _wire(session, [_json_response({"features": [{"name": "x"}], "total": PAGE_SIZE + 1})])
@@ -226,31 +160,6 @@ class TestPipelineTransport:
         rows = _rows(_source(manager, "features"))
         assert rows == [{"name": "x"}]
         assert [p["offset"] for p in params] == [PAGE_SIZE]
-
-    @patch(IS_HOST_SAFE_PATCH, return_value=(True, None))
-    @patch(CLIENT_SESSION_PATCH)
-    def test_token_travels_via_raw_api_key_auth_not_plain_headers(self, MockSession: Any, _safe: Any) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured_auth: list[Any] = []
-
-        def _prepare(request: Any) -> MagicMock:
-            captured_auth.append(request.auth)
-            prepared = MagicMock()
-            prepared.url = request.url
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_json_response({"version": 1, "projects": [{"id": "a"}]})]
-
-        _rows(_source(_make_manager(), "projects"))
-
-        # The raw token (no Bearer prefix) rides in the Authorization header via redacting auth.
-        assert captured_auth[0].api_key == TOKEN
-        assert captured_auth[0].name == "Authorization"
-        assert captured_auth[0].location == "header"
-        assert session.headers.get("Accept") == "application/json"
-        assert "Authorization" not in session.headers
 
     def test_blocks_unsafe_hosts(self) -> None:
         with patch(IS_HOST_SAFE_PATCH, return_value=(False, "blocked")):

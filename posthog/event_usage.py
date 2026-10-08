@@ -11,21 +11,25 @@ from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
 from opentelemetry import trace
-from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
-from posthog.utils import get_instance_realm
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
+from posthog.utils import get_instance_realm, get_instance_region
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+
+def _is_hosted_dev_deployment() -> bool:
+    return get_instance_region() == "DEV"
 
 
 def report_user_signed_up(
@@ -40,11 +44,15 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
     joins a new organization, this event is **not** triggered; see `report_user_joined_organization`).
     """
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
 
@@ -60,6 +68,9 @@ def report_user_signed_up(
         "referral_source_ai_prompt": referral_source_ai_prompt,
         "is_email_verified": user.is_email_verified,
     }
+    if oauth_connection is not None:
+        props["signup_oauth_client_name"] = oauth_connection.client_name
+        props["signup_oauth_client_id"] = oauth_connection.client_id
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
 
@@ -138,6 +149,47 @@ def report_user_logged_in(
         distinct_id=user.distinct_id,
         event="user logged in",
         properties={"social_provider": social_provider},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_email_change_requested(user: User, *, verification_required: bool) -> None:
+    """Triggered when a user stages a new login email.
+
+    `verification_required` is False on an instance without email configured, where the new address
+    is written straight to the account and no code goes out.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user email change requested",
+        properties={
+            "verification_required": verification_required,
+            "$set": user.get_analytics_metadata(),
+        },
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+    """Triggered when the API refuses to change the login email or the password.
+
+    `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
+    session has not re-authenticated recently enough. See `UserViewSet.guard_identity_change`.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="user identity change refused",
+        properties={
+            "field": field,
+            "reason": reason,
+            "$set": user.get_analytics_metadata(),
+        },
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -293,6 +345,8 @@ class EventSource(StrEnum):
     # Signals OAuth application, which is what tells them apart from the coding agents they
     # otherwise look identical to.
     SELF_DRIVING = "self_driving"
+    # A browser agent driving a logged-in tab through the WebMCP tool the web app registers.
+    WEBMCP = "webmcp"
     DESKTOP = "desktop"
     MOBILE = "mobile"
     SLACK = "slack"
@@ -324,6 +378,7 @@ AGENT_EVENT_SOURCES = frozenset(
         EventSource.WIZARD,
         EventSource.CLI,
         EventSource.POSTHOG_AI,
+        EventSource.WEBMCP,
     }
 )
 
@@ -343,6 +398,7 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
         EventSource.SLACK,
         EventSource.POSTHOG_CODE,
         EventSource.SELF_DRIVING,
+        EventSource.WEBMCP,
     }
 )
 
@@ -441,6 +497,8 @@ def get_event_source(request) -> EventSource:
     # declares the posthog-code MCP consumer. Only the application it minted under separates it.
     if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
         return EventSource.SELF_DRIVING
+    if client_id == WEBMCP_APP_CLIENT_ID:
+        return EventSource.WEBMCP
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
@@ -468,6 +526,10 @@ def get_event_source(request) -> EventSource:
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
+    # Call-time import: model files import this module during django.setup(), and posthog.auth
+    # pulls zxcvbn and webauthn, which no background process needs.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     if getattr(getattr(request, "session", None), "session_key", None) is not None:
@@ -629,6 +691,9 @@ def report_user_or_team_action(
 
 
 def report_organization_deleted(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -640,6 +705,9 @@ def report_organization_deleted(user: User, organization: Organization):
 
 
 def report_organization_deletion_initiated(user: User, organization: Organization):
+    if _is_hosted_dev_deployment():
+        return
+
     if not user.distinct_id:
         return
     posthoganalytics.capture(
@@ -653,6 +721,9 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
 def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
     from posthog.ph_client import ph_scoped_capture
+
+    if _is_hosted_dev_deployment():
+        return
 
     user = UserModel.objects.filter(id=user_id).first()
     if not user or not user.distinct_id:

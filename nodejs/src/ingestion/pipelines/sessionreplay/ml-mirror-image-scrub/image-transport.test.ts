@@ -7,17 +7,18 @@ import {
     prepareFetchedImage,
 } from './image-transport'
 
+const AVIF_HEADER = Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x18]),
+    Buffer.from('ftypavif', 'ascii'),
+    Buffer.alloc(4),
+    Buffer.from('avifmif1', 'ascii'),
+])
+
 const imageHeaders = {
     'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
     'image/gif': Buffer.from('GIF89a', 'ascii'),
     'image/webp': Buffer.from('RIFF\x04\x00\x00\x00WEBP', 'binary'),
-    'image/avif': Buffer.concat([
-        Buffer.from([0x00, 0x00, 0x00, 0x18]),
-        Buffer.from('ftypavif', 'ascii'),
-        Buffer.alloc(4),
-        Buffer.from('avifmif1', 'ascii'),
-    ]),
 } satisfies Record<(typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number], Buffer>
 
 describe('image transport', () => {
@@ -83,6 +84,7 @@ describe('image transport', () => {
     it.each([
         ['a missing content-type', imageHeaders['image/png'], undefined, 'missing_content_type'],
         ['a BMP content-type', Buffer.from('BM', 'ascii'), 'image/bmp', 'unsupported_content_type'],
+        ['an AVIF content-type', AVIF_HEADER, 'image/avif', 'unsupported_content_type'],
     ] as const)('labels %s', async (_case, bytes, contentType, reason) => {
         await expect(prepareFetchedImage(bytes, contentType, undefined)).rejects.toMatchObject({ reason })
     })

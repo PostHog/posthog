@@ -48,7 +48,7 @@ export function SourceMapsRecommendationCard({
                     targetBlank
                     onClick={() => {
                         posthog.capture('error_tracking_source_maps_docs_clicked', {
-                            source: 'recommendation_card',
+                            ui_source: 'recommendation_card',
                         })
                     }}
                 >

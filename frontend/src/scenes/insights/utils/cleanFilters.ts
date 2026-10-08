@@ -20,7 +20,6 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 
 import {
     AnyFilterType,
@@ -42,7 +41,9 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
+import { DEFAULT_STEP_LIMIT } from 'products/product_analytics/frontend/insights/paths/pathsDataLogic'
+
+import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/legacyFilters'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()

@@ -22,7 +22,7 @@ POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
     "Or click *No repo needed* to continue without one. "
     "Or @mention me again and include the exact repository as `org/repo`. "
-    'You can also add routing rules with `@PostHog rules add "description" [org/repo]`.'
+    'You can also add routing rules with `/posthog rules add "description" [org/repo]`.'
 )
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 

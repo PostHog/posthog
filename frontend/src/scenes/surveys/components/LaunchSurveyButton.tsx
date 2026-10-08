@@ -8,20 +8,17 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HostedSurveyRespondentHint } from 'scenes/surveys/components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
+import { SurveysDisabledLaunchWarning } from 'scenes/surveys/components/SurveysDisabledLaunchWarning'
 import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { launchSurvey } = useActions(surveyLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
 
-    const needsOptIn = !currentTeam?.surveys_opt_in
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
 
@@ -61,18 +58,13 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                         This survey will be shown to all users.
                                     </div>
                                 )}
-                                {needsOptIn && (
-                                    <div className="text-xs text-muted">This will enable surveys for your project.</div>
-                                )}
+                                <SurveysDisabledLaunchWarning surveyType={survey.type} />
                             </div>
                         ),
                         primaryButton: {
                             children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
                             onClick: () => {
-                                if (needsOptIn) {
-                                    updateCurrentTeam({ surveys_opt_in: true })
-                                }
                                 if (isHostedSurvey) {
                                     void copyToClipboard(getSurveyUrl(survey.id), 'survey link')
                                 }

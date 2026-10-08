@@ -116,6 +116,7 @@ class PostgresTable(FunctionCallTable):
     # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
     # rather than after the rows have been copied out. None means the table has no retention window.
     retention_field: Optional[str] = None
+    postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:

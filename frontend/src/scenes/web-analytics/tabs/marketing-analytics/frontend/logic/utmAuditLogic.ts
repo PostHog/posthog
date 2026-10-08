@@ -257,8 +257,9 @@ export const utmAuditLogic = kea<utmAuditLogicType>([
                     const params: Record<string, string> = {
                         date_from: '-30d',
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use marketingAnalyticsUtmAuditRetrieve() from 'products/marketing_analytics/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/marketing_analytics/utm_audit`,
+                        `api/projects/${values.currentTeamId}/marketing_analytics/utm_audit`,
                         params
                     )
                     return response as UtmAuditResponse

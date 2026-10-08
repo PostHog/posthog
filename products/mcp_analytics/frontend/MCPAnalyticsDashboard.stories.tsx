@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,6 +8,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
     ['2026-05-25', 320, 4100, 120, 1900, false],
@@ -83,6 +87,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000001',
             tool_calls: 42,
+            error_calls: 1,
             session_start: '2026-06-07T10:00:00Z',
             session_end: '2026-06-07T10:10:10Z',
             distinct_id_count: 1,
@@ -96,6 +101,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000002',
             tool_calls: 6,
+            error_calls: 0,
             session_start: '2026-06-07T09:30:00Z',
             session_end: '2026-06-07T09:31:35Z',
             distinct_id_count: 1,
@@ -109,6 +115,7 @@ const SESSION_LIST = {
         {
             session_id: '0193f2a1-aaaa-bbbb-cccc-000000000003',
             tool_calls: 31,
+            error_calls: 4,
             session_start: '2026-06-07T08:15:00Z',
             session_end: '2026-06-07T08:19:00Z',
             distinct_id_count: 1,
@@ -158,6 +165,18 @@ const TOOL_CALL_LIST = {
 // Tool quality tab — one row per tool: tool, total_calls, errors, error_rate_pct,
 // p50, p95, p99, users, sessions, first_seen, last_seen.
 type ToolQualityStoryRow = [string, number, number, number, number, number, number, number, number, string, string]
+
+// Previous-period calls for the Trend column: a surge, a new tool, and a decline; the rest stay near flat.
+const PREVIOUS_CALLS: Record<string, number> = {
+    'read-data-schema': 120,
+    'query-trends': 600,
+    'cohort-create': 0,
+}
+const TOTAL_SESSIONS = 720
+const PREVIOUS_TOTAL_SESSIONS = 680
+// Previous-period values that trigger the regression markers: an error-rate jump and a p95 slowdown.
+const PREVIOUS_ERRORS: Record<string, number> = { 'execute-sql': 40 }
+const PREVIOUS_P95_MS: Record<string, number> = { 'insight-create': 400 }
 
 const TOOL_QUALITY_ROWS: ToolQualityStoryRow[] = [
     ['execute-sql', 1480, 144, 9.7, 820, 3525, 9800, 210, 540, '2026-05-08T09:00:00Z', '2026-06-07T10:04:00Z'],
@@ -443,6 +462,8 @@ const CLUSTER_SNAPSHOT = {
     ],
 }
 
+const ACTIVITY_MODELS = ['claude-opus-5-5', 'gpt-5.6-sol', 'claude-sonnet-5']
+
 // [tool, intent, durationMs, client, errorMessage]
 const ACTIVITY_CALLS: [string, string | null, number | null, string, string | null][] = [
     [
@@ -586,6 +607,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
     }
 
     const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const model = ACTIVITY_MODELS[index % ACTIVITY_MODELS.length]
         const timestamp = dayjs('2026-06-07T12:00:00Z')
             .subtract(index * 37, 'second')
             .toISOString()
@@ -599,6 +621,7 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 $mcp_error_message: errorMessage,
                 $mcp_intent: intent,
                 $mcp_is_error: errorMessage !== null,
+                $mcp_llm_model: model,
                 $mcp_parameters: { input: `Example input for ${tool}` },
                 $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
                 $mcp_server_name: 'example-server',
@@ -630,6 +653,9 @@ function activityEventsResponse(select: string[]): Record<string, any> {
             if (column.endsWith('-- Client')) {
                 return clientName
             }
+            if (column.endsWith('-- Model')) {
+                return model
+            }
             return null
         })
     })
@@ -651,12 +677,16 @@ const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics',
     decorators: [
+        (Story, context) =>
+            mswDecorator({
+                get: { '/api/users/@me/': { ...MOCK_DEFAULT_USER, theme_mode: context.globals.theme ?? 'light' } },
+            })(Story, context),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
-                '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
-                '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
+                '/api/projects/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
                 '/api/projects/:team_id/property_definitions': ({ request }) => {
                     const isFeatureFlag = new URL(request.url).searchParams.get('is_feature_flag') === 'true'
                     return [200, isFeatureFlag ? MCP_FEATURE_FLAG_DEFINITIONS : MCP_PROPERTY_DEFINITIONS]
@@ -675,24 +705,49 @@ const meta: Meta = {
                     const query: string = body?.query?.query ?? ''
                     // The harness tile sends a typed MCPHarnessBreakdownQuery node (the runner
                     // resolves the harness server-side) — match on its kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { model: 'example-provider/model-with-a-long-version-name', total_calls: 4200 },
+                                    { model: 'example-fast', total_calls: 3100 },
+                                    { model: 'example-balanced', total_calls: 1800 },
+                                    { model: 'example-model-d', total_calls: 500 },
+                                    { model: 'example-model-e', total_calls: 200 },
+                                    { model: 'example-model-f', total_calls: 1 },
+                                    { model: 'Other', total_calls: 179 },
+                                    { model: 'Unknown', total_calls: 600 },
+                                ],
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
-                        const rows = TOOL_QUALITY_ROWS.map((r) => ({
-                            tool: r[0],
-                            total_calls: r[1],
-                            errors: r[2],
-                            error_rate_pct: r[3],
-                            p50_duration_ms: r[4],
-                            p95_duration_ms: r[5],
-                            p99_duration_ms: r[6],
-                            users: r[7],
-                            sessions: r[8],
-                            first_seen: r[9],
-                            last_seen: r[10],
-                        }))
+                        const rows = TOOL_QUALITY_ROWS.map((r) => {
+                            const previousCalls = PREVIOUS_CALLS[r[0]] ?? Math.round(r[1] * 0.95)
+                            return {
+                                tool: r[0],
+                                total_calls: r[1],
+                                previous_calls: previousCalls,
+                                trend_score: (r[1] - previousCalls) / (previousCalls + 10),
+                                previous_errors: PREVIOUS_ERRORS[r[0]] ?? Math.round((r[2] * previousCalls) / r[1]),
+                                previous_p95_duration_ms: previousCalls ? (PREVIOUS_P95_MS[r[0]] ?? r[5]) : null,
+                                previous_sessions: Math.round(r[8] * 0.9),
+                                errors: r[2],
+                                error_rate_pct: r[3],
+                                p50_duration_ms: r[4],
+                                p95_duration_ms: r[5],
+                                p99_duration_ms: r[6],
+                                users: r[7],
+                                sessions: r[8],
+                                first_seen: r[9],
+                                last_seen: r[10],
+                            }
+                        })
                         const search = String(body.query.search ?? '')
                             .trim()
                             .toLowerCase()
@@ -718,6 +773,8 @@ const meta: Meta = {
                             {
                                 results: page,
                                 totalCount: filteredRows.length,
+                                totalSessions: TOTAL_SESSIONS,
+                                previousTotalSessions: PREVIOUS_TOTAL_SESSIONS,
                             },
                         ]
                     }
@@ -775,7 +832,12 @@ const meta: Meta = {
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
-                        return [200, { results: [[true, true]] }]
+                        return [
+                            200,
+                            {
+                                results: [[true, ACTIVITY_OVERVIEW.stats.total_calls, 72, '2026-05-15T09:00:00Z']],
+                            },
+                        ]
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
@@ -796,19 +858,28 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-07T12:00:00Z',
         pageUrl: urls.mcpAnalyticsDashboard(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS],
     },
 }
 export default meta
 
 type Story = StoryObj<{}>
 
-export const Dashboard: Story = {}
+export const Dashboard: Story = {
+    parameters: { testOptions: { viewportWidths: ['medium', 'wide'] } },
+}
 
-// Re-list MCP_ANALYTICS — per-story featureFlags replace meta's, not merge with it.
+export const DashboardNarrow: Story = {
+    parameters: { layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
+}
+
 export const DashboardWithMenuBar: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+        featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
     },
 }
 
@@ -839,6 +910,6 @@ export const ToolQuality: Story = {
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
     },
 }

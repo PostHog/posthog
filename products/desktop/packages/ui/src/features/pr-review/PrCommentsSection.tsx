@@ -1,8 +1,8 @@
 import { ArrowSquareOutIcon, ChatCircleIcon } from "@phosphor-icons/react";
-import { Spinner } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { NestedButton } from "@posthog/ui/primitives/NestedButton";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { useMemo, useState } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
@@ -78,7 +78,7 @@ export function PrCommentsSection({ prUrl }: PrCommentsSectionProps) {
         onToggle={() => {}}
         summary={
           <span className="inline-flex items-center gap-2 text-[11px] text-gray-10">
-            <Spinner />
+            <Spinner size="sm" />
             Loading…
           </span>
         }

@@ -24,7 +24,7 @@ export function AllowTrainingCallout({
         isHobby ||
         restrictionReason ||
         currentOrganization?.is_ai_training_opted_in !== false ||
-        currentOrganization.is_hipaa ||
+        currentOrganization.has_signed_baa ||
         currentOrganization.is_ai_training_cta_shown === false
     ) {
         return null

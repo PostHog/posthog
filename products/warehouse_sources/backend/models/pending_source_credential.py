@@ -24,7 +24,7 @@ class PendingSourceCredential(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel
     soon as the source is created, and ignored/purged after `expires_at` if never consumed.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
     payload = EncryptedJSONField(default=dict)
     expires_at = models.DateTimeField(default=pending_credential_default_expiry)

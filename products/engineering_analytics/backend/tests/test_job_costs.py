@@ -18,7 +18,7 @@ from products.engineering_analytics.backend.logic.cost import (
     classify_runner,
     estimate_job_cost_usd,
 )
-from products.engineering_analytics.backend.logic.views import job_costs
+from products.engineering_analytics.backend.logic.views import depot_ci, job_costs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -132,6 +132,13 @@ def _run_row(run_id: int, *, run_attempt: int, pr_number: int) -> dict[str, Any]
     }
 
 
+def _cost_query(jobs_table: str, runs_table: str) -> str:
+    return job_costs.build_query(
+        jobs_table=depot_ci.with_depot_jobs(jobs_table, None, runs_table),
+        runs_table=depot_ci.with_depot_runs(runs_table, None, None, None),
+    )
+
+
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     # The drift guard for the single-source-of-truth contract: the view is rendered from the same
     # constants as logic.cost, so any change to one side that isn't matched on the other shows up
@@ -163,7 +170,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         runs_table = self._create_table(
             "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
         )
-        query = job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)
+        query = _cost_query(jobs_table, runs_table)
         columns = execute_hogql_query(
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         ).columns
@@ -188,7 +195,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
 
         sql = (
             "SELECT job_name, provider, os, vcpu, multiplier, billable_seconds, estimated_cost_usd "
-            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) ORDER BY job_name"
+            f"FROM ({_cost_query(jobs_table, runs_table)}) ORDER BY job_name"
         )
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
         by_job = {row[0]: row for row in rows}
@@ -238,7 +245,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
 
         sql = (
             "SELECT job_name, duration_seconds, billable_seconds, estimated_cost_usd "
-            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) ORDER BY job_name"
+            f"FROM ({_cost_query(jobs_table, runs_table)}) ORDER BY job_name"
         )
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
         by_job = {row[0]: row for row in rows}
@@ -280,7 +287,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
 
         sql = (
             "SELECT job_name, run_attempt, repo_owner, repo_name, pr_number, is_rerun_copy, estimated_cost_usd "
-            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) "
+            f"FROM ({_cost_query(jobs_table, runs_table)}) "
             "ORDER BY job_name, run_attempt"
         )
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
@@ -335,7 +342,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
 
         sql = (
             "SELECT job_name, run_attempt, is_rerun_copy, duration_seconds, billable_seconds, estimated_cost_usd "
-            f"FROM ({job_costs.build_query(jobs_table=jobs_table, runs_table=runs_table)}) "
+            f"FROM ({_cost_query(jobs_table, runs_table)}) "
             "ORDER BY job_name, run_attempt"
         )
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results

@@ -11,7 +11,6 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 
 const INBOX_ACTIVITY_PREVIEW_LIMIT = 3;
@@ -26,7 +25,6 @@ interface InboxActivityPreview {
 }
 
 export function useInboxActivityPreview(): InboxActivityPreview {
-  const reportsInboxEnabled = useReportsInboxEnabled();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const inboxEnabled = useActivityFilterStore((state) =>
     authIdentity
@@ -45,7 +43,7 @@ export function useInboxActivityPreview(): InboxActivityPreview {
   const priorityFilter = useActivityFilterStore(
     (state) => state.inboxPriorityFilter,
   );
-  const isIncluded = reportsInboxEnabled && inboxEnabled;
+  const isIncluded = inboxEnabled;
   const needsReviewer = isIncluded && inboxScope === INBOX_SCOPE_FOR_YOU;
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: isReviewerLoading } = useCurrentUser({

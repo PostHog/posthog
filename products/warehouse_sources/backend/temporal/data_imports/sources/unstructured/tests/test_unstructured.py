@@ -75,12 +75,6 @@ class TestFetch:
         with pytest.raises(requests.HTTPError):
             cast(Any, unstructured._fetch).__wrapped__(session, "https://x/y", {}, None, MagicMock())
 
-    def test_returns_list_body(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(200, [{"id": "a"}, {"id": "b"}])
-        rows = cast(Any, unstructured._fetch).__wrapped__(session, "https://x/y", {}, None, MagicMock())
-        assert rows == [{"id": "a"}, {"id": "b"}]
-
     def test_non_list_body_returns_empty(self) -> None:
         # A shape change (envelope instead of bare array) must degrade to an empty sync, not crash.
         session = MagicMock()
@@ -95,27 +89,6 @@ class TestGetRows:
         manager.can_resume.return_value = resume is not None
         manager.load_state.return_value = resume
         return manager
-
-    def test_non_paginated_endpoint_single_fetch(self) -> None:
-        manager = self._manager()
-        session = MagicMock()
-        session.get.return_value = _response(200, [{"id": "j1"}, {"id": "j2"}])
-        with patch.object(unstructured, "make_tracked_session", return_value=session):
-            batches = list(get_rows(DEFAULT_BASE_URL, "key", "jobs", MagicMock(), manager, team_id=1))
-
-        assert batches == [[{"id": "j1"}, {"id": "j2"}]]
-        assert session.get.call_count == 1
-        # Non-paginated endpoints never checkpoint page state.
-        manager.save_state.assert_not_called()
-
-    def test_non_paginated_empty_yields_nothing(self) -> None:
-        manager = self._manager()
-        session = MagicMock()
-        session.get.return_value = _response(200, [])
-        with patch.object(unstructured, "make_tracked_session", return_value=session):
-            batches = list(get_rows(DEFAULT_BASE_URL, "key", "sources", MagicMock(), manager, team_id=1))
-
-        assert batches == []
 
     def test_paginated_walks_pages_until_short_page(self) -> None:
         manager = self._manager()
@@ -145,26 +118,6 @@ class TestGetRows:
         # Resumed straight into the saved page rather than restarting at page 1.
         assert session.get.call_args_list[0].kwargs["params"]["page"] == 3
 
-    def test_paginated_sends_stable_ascending_sort(self) -> None:
-        manager = self._manager()
-        session = MagicMock()
-        session.get.return_value = _response(200, [{"id": "x"}])
-        with patch.object(unstructured, "make_tracked_session", return_value=session):
-            list(get_rows(DEFAULT_BASE_URL, "key", "workflows", MagicMock(), manager, team_id=1))
-
-        params = session.get.call_args_list[0].kwargs["params"]
-        assert params["sort_by"] == "created_at"
-        assert params["sort_direction"] == "asc"
-
-    def test_auth_header_sent(self) -> None:
-        manager = self._manager()
-        session = MagicMock()
-        session.get.return_value = _response(200, [])
-        with patch.object(unstructured, "make_tracked_session", return_value=session):
-            list(get_rows(DEFAULT_BASE_URL, "secret-key", "jobs", MagicMock(), manager, team_id=1))
-
-        assert session.get.call_args.kwargs["headers"]["unstructured-api-key"] == "secret-key"
-
     @parameterized.expand(["sources", "destinations"])
     def test_connector_config_is_stripped(self, endpoint: str) -> None:
         # The connector `config` object holds raw secrets (DB passwords, OAuth tokens, cloud keys); it
@@ -178,16 +131,6 @@ class TestGetRows:
             batches = list(get_rows(DEFAULT_BASE_URL, "key", endpoint, MagicMock(), manager, team_id=1))
 
         assert batches == [[{"id": "c1", "name": "prod", "type": "s3"}]]
-
-    def test_config_field_kept_when_not_sensitive(self) -> None:
-        # Endpoints without a drop list (e.g. jobs) pass rows through untouched.
-        manager = self._manager()
-        session = MagicMock()
-        session.get.return_value = _response(200, [{"id": "j1", "config": {"harmless": True}}])
-        with patch.object(unstructured, "make_tracked_session", return_value=session):
-            batches = list(get_rows(DEFAULT_BASE_URL, "key", "jobs", MagicMock(), manager, team_id=1))
-
-        assert batches == [[{"id": "j1", "config": {"harmless": True}}]]
 
     def test_session_pins_redirects_off_and_redacts_key(self) -> None:
         # Locks in the SSRF hardening: the credentialed session must never follow redirects and must

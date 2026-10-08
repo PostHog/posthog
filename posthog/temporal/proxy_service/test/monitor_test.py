@@ -2,7 +2,7 @@ import json
 import ipaddress
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, Mock, patch
 
 from django.test import TestCase
@@ -47,7 +47,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
@@ -159,7 +159,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_create_connection.assert_not_called()
 
     @pytest.mark.asyncio
-    @freeze_time("2024-01-16 10:00:00")
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)
     @patch("posthog.temporal.proxy_service.monitor.validate_url_and_pin_ips")
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
@@ -244,7 +244,9 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
-    @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
+    @time_machine.travel(
+        "2024-01-16 10:00:00", tick=False
+    )  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
     @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
     @patch("posthog.temporal.proxy_service.monitor.requests.post")

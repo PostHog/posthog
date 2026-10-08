@@ -1,5 +1,11 @@
 Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: "when did latency change, and how".
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per non-empty `(time bucket, duration bucket)` cell:
 
 - `time` — ISO 8601 bucket start (UTC)
@@ -17,8 +23,6 @@ Use to answer:
 
 For a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.
 
-All parameters must be nested inside a `query` object.
-
 # Reading the grid
 
 Group rows by `bucket_ns` and read each duration bucket as a horizontal band over time:
@@ -28,8 +32,6 @@ Group rows by `bucket_ns` and read each duration bucket as a horizontal band ove
 - The whole distribution stepping up one or two buckets at once = a uniform slowdown.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 
@@ -54,7 +56,7 @@ When true (default), cells count **traces by their root span's duration** — th
 
 Property filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -89,4 +91,4 @@ Property filters applied to the counted spans. Same filter shape and operators a
 - `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.
 - Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.
 - Cells carry no service breakdown — narrow with `serviceNames` instead.
-- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (nanoseconds), `orderBy: "duration"`.
+- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (milliseconds, not nanoseconds), `orderBy: "duration"`.

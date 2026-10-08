@@ -306,14 +306,12 @@ export function TaxonomicFilterMenu({
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
             })
-            // Legacy `taxonomic filter *` contract — emitted alongside the
-            // menu-specific events so the rebuild is comparable to the
-            // control/pill variants by feature-flag value.
             // Legacy's `groupType: activeTab` is omitted because the menu has no single active tab at close time.
             posthog.capture('taxonomic filter closed', {
                 surface: TAXONOMIC_FILTER_SURFACE,
                 dwellMs,
                 hadSelection: hadCommitRef.current,
+                categoryRailDocked: false,
             })
             lastMenuClosedAtMs = closedAt
             openedAtRef.current = null
@@ -779,7 +777,8 @@ export function TaxonomicFilterMenu({
                 and dismisses both the dialog and the popover). */}
             {state.kind === 'dwh-config' && (
                 <MenuFilterDwhConfig
-                    table={state.table}
+                    // The selected entry receives schema loaded after opening; state.table is only the opening snapshot.
+                    table={state.origin === 'menu' ? (selected?.item ?? state.table) : state.table}
                     group={state.group}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     insightProps={insightProps}

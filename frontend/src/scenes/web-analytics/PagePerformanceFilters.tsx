@@ -10,18 +10,19 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 
+import { SearchAndAiFiltersPopover } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiFiltersPopover'
+
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { pagePerformanceLogic } from './pagePerformanceLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
-import { WebAnalyticsDeviceToggle, WebAnalyticsDomainSelector } from './WebAnalyticsFilters'
+import { WebAnalyticsDomainSelector } from './WebAnalyticsFilters'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
-import { WebPropertyFilters } from './WebPropertyFilters'
 
 /**
  * Country and referrer narrow this tab's queries and round-trip through its URL, but neither has a
- * control of its own here the way the domain and device selections do. A shared link that carries
+ * control of its own here the way the domain selection does. A shared link that carries
  * one would otherwise filter the numbers with nothing on screen to explain it. Renders nothing when
  * neither is set, which is the usual case.
  */
@@ -72,7 +73,7 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
                         onClick={reloadAll}
                         icon={isReloading ? <Spinner textColored /> : <IconRefresh />}
                         disabledReason={isReloading ? 'Loading' : undefined}
-                        aria-label="Reload page performance"
+                        aria-label="Reload Search & AI"
                     />
                     <DateFilter
                         dateOptions={webAnalyticsDateMapping}
@@ -82,16 +83,11 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
                         onChange={setDates}
                     />
                     <WebAnalyticsDomainSelector />
-                    <WebAnalyticsDeviceToggle />
                     <ActiveDrillDownFilters />
                     <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
-                </>
-            }
-            right={
-                <>
                     <WebConversionGoal value={conversionGoal} onChange={setConversionGoal} />
-                    <WebPropertyFilters />
+                    <SearchAndAiFiltersPopover />
                 </>
             }
         />

@@ -60,6 +60,7 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
             {scannerType === 'monitor' && (
                 <FilterPill<ObservationVerdictValue>
                     label="Verdict"
+                    dataAttr="vision-overview-verdict-filter"
                     options={VERDICT_OPTIONS}
                     value={overviewVerdictFilter}
                     onChange={setOverviewVerdictFilter}
@@ -68,6 +69,7 @@ export function ScannerOverviewFilters({ scannerId }: { scannerId: string }): JS
             {scannerType === 'classifier' && tagOptions.length > 0 && (
                 <FilterPill<string>
                     label="Category"
+                    dataAttr="vision-overview-category-filter"
                     searchPlaceholder="Search categories"
                     options={tagOptions}
                     value={overviewTagFilter}

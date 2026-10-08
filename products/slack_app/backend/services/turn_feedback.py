@@ -84,13 +84,15 @@ class _FeedbackTarget:
     which is what makes every field here trusted: the integration is matched on the Slack
     team the rating came from, and the run is looked up scoped to that integration's
     project, so a forged ``run_id`` resolves to nothing rather than attributing feedback
-    to another team's run.
+    to another team's run. ``trace_id`` names no row of ours and so cannot be matched that
+    way; ``_trace_id`` says what stands behind it instead.
     """
 
     integration: Integration
     run_id: str
     task_id: str | None
     turn_id: str | None
+    trace_id: str | None
     slack_user_id: str
 
 
@@ -192,8 +194,30 @@ def _resolve_target(
         run_id=str(run.id),
         task_id=str(run.task_id),
         turn_id=turn_id,
+        trace_id=_trace_id(value),
         slack_user_id=slack_user_id,
     )
+
+
+def _trace_id(value: dict[str, Any]) -> str | None:
+    """The rated turn's gateway trace id, as carried by the reply we posted.
+
+    Unlike the run, there is nothing to match it against: a trace id names an event in
+    AI observability, not a row we own. What stands behind it instead is Slack's request
+    signature — the value comes back from a block we wrote — and the shape check here,
+    which is what keeps a malformed id from being stamped onto ``$ai_trace_id`` and
+    joining nothing. The gateway renders the id as a UUID (``traceIdFromHookStderr`` in
+    the agent), so anything else is not one of ours.
+    """
+    trace_id = value.get("trace_id")
+    if not isinstance(trace_id, str):
+        return None
+    try:
+        UUID(trace_id)
+    except ValueError:
+        logger.info("slack_app_turn_feedback_malformed_trace_id", run_id=value.get("run_id"))
+        return None
+    return trace_id
 
 
 def _turn_id(payload: dict) -> str | None:
@@ -239,15 +263,16 @@ def _event_context(target: _FeedbackTarget) -> dict[str, Any]:
     carries, so a rating can be joined against the rest of them.
 
     ``$ai_session_id`` is the task id because every ``$ai_generation`` of a run carries it
-    as ``task_id``, which is the same bargain the desktop client makes. ``$ai_trace_id`` is
-    absent until the sandbox exposes per-turn trace ids; adding it here is what will attach
-    a rating to the exact generation rather than to the run.
+    as ``task_id``, which is the same bargain the desktop client makes. ``$ai_trace_id``
+    narrows that to the one turn the reader rated, and is ``None`` when the turn reported
+    no trace id — the same null the web and desktop clients send rather than a guess.
     """
     return slack_event_props(
         target.integration,
         slack_user_id=target.slack_user_id,
         **{
             "$ai_session_id": target.task_id,
+            "$ai_trace_id": target.trace_id,
             "ai_product": AI_PRODUCT,
             "agent_runtime": "sandbox",
             "task_id": target.task_id,
@@ -277,6 +302,9 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
             feedback_source=properties.get("feedback_source"),
             run_id=target.run_id,
             turn_id=target.turn_id,
+            # Absent here and present on the reply's buttons narrows a missing join to the
+            # parse; absent in both puts it upstream, in the turn that never reported one.
+            trace_id=target.trace_id,
         )
     except Exception:
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
@@ -317,6 +345,7 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
             "integration_id": target.integration.id,
             "run_id": target.run_id,
             "turn_id": target.turn_id,
+            "trace_id": target.trace_id,
         }
     )
     try:

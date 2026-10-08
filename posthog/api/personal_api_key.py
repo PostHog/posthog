@@ -17,7 +17,7 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -39,8 +39,7 @@ def validate_personal_api_key_scopes(
         scope_parts = scope.split(":")
         if (
             len(scope_parts) != 2
-            or scope_parts[0] not in API_SCOPE_OBJECTS
-            or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
+            or scope_parts[0] not in GRANTABLE_API_SCOPE_OBJECTS
             or scope_parts[1] not in API_SCOPE_ACTIONS
         ):
             raise serializers.ValidationError(f"Invalid scope: {scope}")
@@ -242,8 +241,12 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         if personal_api_key.scoped_organizations:
             org_ids = personal_api_key.scoped_organizations
         elif personal_api_key.scoped_teams:
-            teams = Team.objects.filter(pk__in=personal_api_key.scoped_teams).select_related("organization")
-            org_ids = list({team.organization_id for team in teams})
+            # `organization_id` is a column on the team row, so no organization join is needed.
+            org_ids = list(
+                Team.objects.filter(pk__in=personal_api_key.scoped_teams)
+                .values_list("organization_id", flat=True)
+                .distinct()
+            )
         else:
             user_permissions = UserPermissions(personal_api_key.user)
             org_ids = list(user_permissions.organization_memberships.keys())

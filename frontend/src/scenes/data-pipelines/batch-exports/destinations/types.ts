@@ -8,6 +8,7 @@ export type BatchExportServiceType = BatchExportService['type']
 export interface DestinationContext {
     isNew: boolean
     formValues: Record<string, any>
+    savedConfig?: Record<string, any> | null
     // The Integration currently picked in the form, when the destination uses one. Null while
     // integrations are still loading, or when the picked one no longer exists.
     selectedIntegration?: IntegrationType | null

@@ -56,9 +56,10 @@ export const manifest: ProductManifest = {
         {
             path: 'MCP servers',
             intents: [],
-            category: ProductItemCategory.AI_ENGINEERING,
+            category: ProductItemCategory.SCHEMA,
             href: urls.mcpGateway(),
-            iconType: 'tools',
+            iconType: 'mcp_server',
+            iconColor: ['var(--color-product-mcp-servers-light)', 'var(--color-product-mcp-servers-dark)'],
             flag: FEATURE_FLAGS.MCP_GATEWAY,
             tags: ['alpha'],
             sceneKey: 'McpGateway',

@@ -1,0 +1,17 @@
+{
+    "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
+    "source_path": "contracts/feature_flag_rules_v2",
+    "source_release": "1.5.0",
+    "source_revision": "e487249c34176c053f524d96bf0f99818dc91247",
+    "contract_version": "2.0.0",
+    "config_schema_version": "1.0.0",
+    "registry_version": "2.0.0",
+    "source_sha256sums_digest": "22998a9449a57ee489585ed7b80295d8311af74bfda8a891545330d63df19bc5",
+    "vendored": "SHA256SUMS is the complete upstream index; this directory holds the config schema, literal registry, management warning schema, manifest and config fixtures it lists. The corpus and wire fixtures stay with the Rust runner.",
+    "update_procedure": [
+        "Never edit a vendored file in place. A changed expectation needs a new contract version upstream and a review explanation there.",
+        "To move to a new version: check out the harness at the released revision to vendor, copy the same files from source_path into a sibling directory named after the new contract version, and delete this one.",
+        "Record the release, revision, component versions and the SHA-256 of the upstream SHA256SUMS file (shasum -a 256 SHA256SUMS) in the new SOURCE.json.",
+        "Point CONTRACT_DIR in test_facade_config_validation.py at the new directory."
+    ]
+}

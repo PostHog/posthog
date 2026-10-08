@@ -6,6 +6,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -141,7 +142,10 @@ function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown
     return combineUrl(urls.aiObservabilityTrace(row.id), {
         ...nonTraceSearchParams,
         back_to: 'traces',
-        timestamp: getTraceTimestamp(row.createdAt),
+        // An omitted timestamp makes the detail view use its wide default date range. A timestamp
+        // built from a missing or unparseable `createdAt` would instead point the lookup at a
+        // ten-minute window around the present, where an older trace is not found.
+        timestamp: row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined,
     }).url
 }
 
@@ -256,9 +260,20 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     }
 }
 
+// DataTable passes each renderer the row the response actually returned, which can
+// lack fields `LLMTrace` declares as present. A throw in a cell reaches the scene's
+// error boundary and blanks the whole traces list, so every renderer below degrades
+// to a dash instead.
+function traceEvents(row: LLMTrace): LLMTrace['events'] {
+    return Array.isArray(row.events) ? row.events : []
+}
+
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
+    if (!row.id) {
+        return <>–</>
+    }
     return (
         <strong>
             <Tooltip title={row.id}>
@@ -273,12 +288,17 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
+    const name = row.traceName || '–'
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
-                    {row.traceName || '–'}
-                </Link>
+                {row.id ? (
+                    <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
+                        {name}
+                    </Link>
+                ) : (
+                    name
+                )}
             </strong>
             {row.isSupportTrace && <LemonTag type="muted">Support</LemonTag>}
         </div>
@@ -287,6 +307,9 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
 
 const TimestampColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    if (!row.createdAt) {
+        return <>–</>
+    }
     return <TZLabel time={row.createdAt} />
 }
 TimestampColumn.displayName = 'TimestampColumn'
@@ -295,7 +318,7 @@ const PromptVersionColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const promptVersions = Array.from(
         new Set(
-            row.events
+            traceEvents(row)
                 .map((event) => event.properties?.['$ai_prompt_version'])
                 .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
                 .map((value) => String(value))
@@ -321,7 +344,7 @@ const PromptVersionIdColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const promptVersionIds = Array.from(
         new Set(
-            row.events
+            traceEvents(row)
                 .map((event) => event.properties?.['$ai_prompt_version_id'])
                 .filter((value): value is string => typeof value === 'string' && value.length > 0)
         )
@@ -386,7 +409,7 @@ function useTraceMessagesForRow(row: LLMTrace): TraceMessages | null | undefined
             ensureTraceMessagesLoaded([{ id: row.id, createdAt: row.createdAt ?? null }])
         }
     }, [row.id, row.createdAt, ensureTraceMessagesLoaded])
-    return getTraceMessages(row.id)
+    return row.id ? getTraceMessages(row.id) : null
 }
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
@@ -411,9 +434,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
 
-    const errorEventFound = Array.isArray(row.events)
-        ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
-        : false
+    const errorEventFound = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
     if (errorEventFound) {
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">

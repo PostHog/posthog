@@ -8,10 +8,11 @@ design for that ledger and the memory conventions around it.
 
 ## The scratchpad is your only persistence
 
-The scratchpad is durable, per-team prose keyed by string. No tags, no TTLs — **the category
-is the key prefix**, so a future run finds an entry with one `text=` search. Re-using a key
-rewrites the entry in place (the idempotent refresh — use it to update a baseline or a
-`last_checked` timestamp without creating duplicates).
+The scratchpad is durable, per-team prose keyed by string. No tags — **the category
+is the key prefix**, so a future run finds an entry with one `text=` search. Entries are
+durable by default, with `expires_at` as the opt-in TTL for the ones that are only true
+for a while. Re-using a key rewrites the entry in place (the idempotent refresh — use it
+to update a baseline or a `last_checked` timestamp without creating duplicates).
 
 ### Key vocabulary
 

@@ -16,12 +16,16 @@ jest.mock('@posthog/hogql-parser', () => ({
 
 describe('hogqlParserSingleton', () => {
     let parseSelect: (input: string, isInternal?: boolean) => Promise<string>
+    let captureException: jest.SpyInstance
 
     beforeEach(async () => {
         jest.resetModules()
         parseSelectMock.mockReset()
         initMock.mockReset()
         parseSelectMock.mockImplementation((input: string) => `{"node":"SelectQuery","len":${input.length}}`)
+        // Imported after the reset, so the spy sits on the posthog-js instance the singleton loads.
+        const { default: posthog } = await import('posthog-js')
+        captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         ;({ parseSelect } = await import('./hogqlParserSingleton'))
     })
 
@@ -70,6 +74,24 @@ describe('hogqlParserSingleton', () => {
         await expect(parseSelect('SELECT 1 FROM events')).rejects.toThrow('boom')
         await expect(parseSelect('SELECT 1 FROM events')).resolves.toContain('SelectQuery')
         expect(parseSelectMock).toHaveBeenCalledTimes(2)
+        // Only init failures are reported. A failure of one parse is per query and would flood error tracking.
+        expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed parser init once, however many parses retry it', async () => {
+        // A CSP that blocks the glue's eval fails init on every retry, and the editor's fallback
+        // swallows the rejection, so this report is the only trace of a broken parser.
+        const blocked = new EvalError('Refused to evaluate a string as JavaScript')
+        initMock.mockImplementation(() => {
+            throw blocked
+        })
+
+        await expect(parseSelect('SELECT 1 FROM events')).rejects.toBe(blocked)
+        await expect(parseSelect('SELECT 2 FROM events')).rejects.toBe(blocked)
+
+        expect(initMock).toHaveBeenCalledTimes(2)
+        expect(captureException).toHaveBeenCalledTimes(1)
+        expect(captureException).toHaveBeenCalledWith(blocked, { feature: 'hogql-parser-init' })
     })
 
     it('does not grow without bound as the query is edited', async () => {

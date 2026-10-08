@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQueryResponse, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -107,10 +108,10 @@ export interface mcpAnalyticsOnboardingLogicActions {
         errorObject?: any
     }
     loadSignalsSuccess: (
-        signals: MCPOnboardingSignals,
+        signals: MCPOnboardingSignals | null,
         payload?: void
     ) => {
-        signals: MCPOnboardingSignals
+        signals: MCPOnboardingSignals | null
         payload?: void
     }
 }
@@ -140,7 +141,8 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
     loaders({
         signals: {
             __default: null as MCPOnboardingSignals | null,
-            loadSignals: async (_: void, breakpoint): Promise<MCPOnboardingSignals> => {
+            loadSignals: async (_: void, breakpoint): Promise<MCPOnboardingSignals | null> => {
+                const projectUuid = teamLogic.values.currentTeam?.uuid
                 // Force a fresh calculation instead of reading a cached result. The first
                 // events on a new project land a beat after capture returns 200, so a poll
                 // during that gap caches `[0,0]` — and with the default cache TTL the page
@@ -150,14 +152,25 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 // graduates to the full dashboard (see loadSignalsSuccess), so this is bounded
                 // to the onboarding + activity window, and the query itself is cheap (event-name
                 // counts on the sort key).
-                const response = (await api.query(
-                    {
-                        kind: NodeKind.HogQLQuery,
-                        query: ONBOARDING_SIGNAL_QUERY,
-                    },
-                    { refresh: 'force_blocking' }
-                )) as HogQLQueryResponse
+                const response = (await api
+                    .query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: ONBOARDING_SIGNAL_QUERY,
+                        },
+                        { refresh: 'force_blocking' }
+                    )
+                    .catch((error: unknown) => {
+                        breakpoint()
+                        if (projectUuid !== teamLogic.values.currentTeam?.uuid) {
+                            return null
+                        }
+                        throw error
+                    })) as HogQLQueryResponse | null
                 breakpoint()
+                if (projectUuid !== teamLogic.values.currentTeam?.uuid) {
+                    return null
+                }
                 const row = (response?.results?.[0] as unknown[] | undefined) ?? []
                 const toolCallsTotal = asNumber(row[1])
                 return {
@@ -216,7 +229,10 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 actions.setDetectedStatus('unknown')
             }
         },
-        loadSignalsSuccess: () => {
+        loadSignalsSuccess: ({ signals }) => {
+            if (!signals) {
+                return
+            }
             // Feed the app-wide setup-status layer (drives the scene empty-state gate).
             actions.setDetectedStatus(emptyStateStatusForOnboardingState(values.onboardingState))
 

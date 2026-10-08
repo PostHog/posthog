@@ -62,7 +62,7 @@ const series: Series<SlopeSeriesMeta>[] = [
 ```
 
 Key options (full list in the charts
-[AGENTS.md](../../../packages/quill/packages/charts/AGENTS.md) "Composition" section):
+[docs/chart-types.md](../../../packages/quill/packages/charts/src/docs/chart-types.md) "SlopeChart" section):
 
 - `showStartLabels` / `showEndLabels` — chart-level defaults for the value labels;
   override per series with `meta.showStartLabel` / `meta.showEndLabel`.
@@ -85,7 +85,7 @@ There are **two** ways to render a slope graph; which you reach for depends on t
 - **`ChartDisplayType.SlopeGraph`** — a first-class insight display (value
   `'SlopeGraph'` in `frontend/src/types.ts`), rendered by the backend
   `SlopeGraphTrendsQueryRunner`
-  (`posthog/hogql_queries/insights/trends/slope_graph_trends_query_runner.py`). It
+  (`products/product_analytics/backend/hogql_queries/trends/slope_graph_trends_query_runner.py`). It
   takes a `TrendsQuery` and keeps the **first and last bucket** of the date range as
   the two slope points (the last segment is dashed when it's the current,
   still-accumulating period). Set it via `trendsFilter.display: "SlopeGraph"`

@@ -113,6 +113,10 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Proportion bar
+export { ProportionBar } from './charts/ProportionBar/ProportionBar'
+export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
 export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
@@ -185,7 +189,7 @@ export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
-export { createXAxisTickCallback } from './utils/dates'
+export { createTooltipDateFormatter, createXAxisTickCallback } from './utils/dates'
 export type { TimeInterval } from './utils/dates'
 export { buildYTickFormatter } from './utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'

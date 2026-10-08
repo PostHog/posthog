@@ -8,7 +8,7 @@ fast-returns. A dropped condition is silent until a customer notices stale state
 import uuid
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -42,11 +42,8 @@ def _schema(**config_overrides) -> ExternalDataSchema:
     )
 
 
-def _run(schema: ExternalDataSchema, *, enrichment=False, statistics=False, data_quality=False, flag_enabled=True):
-    with (
-        patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=data_quality),
-        patch(f"{_MODULE}.is_fast_return_enabled", return_value=flag_enabled),
-    ):
+def _run(schema: ExternalDataSchema, *, enrichment=False, statistics=False, data_quality=False):
+    with patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=data_quality):
         return _fast_return_eligible(
             schema=schema,
             team_id=1,
@@ -89,7 +86,7 @@ class TestFastReturnEligibility:
     def test_schema_state_that_blocks_eligibility(self, _name: str, config_overrides: dict):
         assert _run(_schema(**config_overrides)) is False
 
-    @freeze_time("2026-08-24T12:00:00Z")
+    @time_machine.travel("2026-08-24T12:00:00Z", tick=False)
     def test_naive_full_run_stamp_is_not_eligible(self):
         assert _run(_schema(last_full_run_at="2026-08-24T11:00:00")) is False
 
@@ -108,6 +105,3 @@ class TestFastReturnEligibility:
     )
     def test_outstanding_repair_work_blocks_eligibility(self, _name: str, gates: dict):
         assert _run(_schema(), **gates) is False
-
-    def test_rollout_flag_off_is_not_eligible(self):
-        assert _run(_schema(), flag_enabled=False) is False

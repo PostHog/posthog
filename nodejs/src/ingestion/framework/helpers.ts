@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { ChunkPipelineBuilder, newChunkPipelineBuilder } from './builders'
 import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
@@ -14,12 +14,43 @@ import { PipelineResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 
 /** Loggable origin of a Kafka message, stored on the context at feed time. */
-export type KafkaDebugContext = { topic?: string; partition: number; offset: number }
+export type KafkaDebugContext = {
+    topic?: string
+    partition: number
+    offset: number
+    headers?: Record<string, string>
+}
+
+// The headers a responder needs to write an event restriction for a poison
+// message. distinct_id and session_id are customer-controlled and stay out.
+const LOGGED_HEADERS = new Set(['token', 'event', 'uuid'])
 
 export type DefaultContext = { message: Message; debugContext?: KafkaDebugContext }
 
 export function createKafkaDebugContext(message: Message): KafkaDebugContext {
-    return { topic: message.topic, partition: message.partition, offset: message.offset }
+    const { topic, partition, offset, headers } = message
+    return {
+        topic,
+        partition,
+        offset,
+        // Built for every message, read only when a step crashes: render the
+        // headers on read so the happy path does no string work.
+        get headers() {
+            return headers === undefined ? undefined : formatKafkaHeaders(headers)
+        },
+    }
+}
+
+function formatKafkaHeaders(headers: MessageHeader[]): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const header of headers) {
+        for (const key of Object.keys(header)) {
+            if (LOGGED_HEADERS.has(key)) {
+                result[key] = header[key].toString()
+            }
+        }
+    }
+    return result
 }
 
 /**

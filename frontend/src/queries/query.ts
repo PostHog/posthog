@@ -284,6 +284,7 @@ export async function performQuery<N extends DataNode>(
 
     try {
         if (isPersonsNode(queryNode)) {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
         } else {
             response = await executeQuery(
@@ -335,10 +336,10 @@ export async function performQuery<N extends DataNode>(
         // 'query failed' metric isn't drowned in cancellation noise.
         if (!isAbortError(e)) {
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
-            const error = e as (Error & { status?: number; code?: string | null }) | null
+            const error = e as (Error & { status?: number; code?: string | null; queryId?: string }) | null
             posthog.capture('query failed', {
                 query: queryNode,
-                queryId,
+                queryId: error?.queryId ?? queryId,
                 duration: performance.now() - startTime,
                 error_status: error?.status ?? null,
                 error_code: error?.code ?? null,

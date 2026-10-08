@@ -285,10 +285,12 @@ class TestSelfManagedS3Secrets:
         assert [secret.key_id for secret in secrets] == ["allowed-key"]
 
 
-class TestDuckgresShadowCompilation:
+class TestManagedWarehouseShadowCompilation:
     @mock.patch("products.managed_warehouse.backend.client.compile_hogql_to_ducklake_sql")
     def test_materialization_compile_bypasses_warehouse_access_control(self, mock_compile):
-        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import _compile_hogql_for_ducklake
+        from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+            _compile_hogql_for_ducklake,
+        )
 
         mock_compile.return_value = DuckLakeCompiledQuery(
             sql="SELECT * FROM source", values={}, hogql="SELECT * FROM source"

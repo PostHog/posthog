@@ -1,15 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
+    ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
     CodefreshResumeConfig,
     codefresh_source,
     validate_credentials as validate_codefresh_credentials,
@@ -48,7 +48,7 @@ class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODEFRESH,
+            name=ExternalDataSourceType.CODEFRESH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codefresh",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -59,6 +59,9 @@ You can create an API key in your [Codefresh user settings](https://g.codefresh.
 - **Pipeline** (pipelines, triggers)
 - **Build** (builds, images)
 - **Step Type** (step types)
+- **Environments V2** (environments)
+
+The teams and users tables read your account's membership, which Codefresh does not put behind a resource scope.
 
 Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-prem installations are not yet supported.
 """,
@@ -94,6 +97,9 @@ Only the US SaaS host (`g.codefresh.io`) is supported. EU and self-hosted/on-pre
             # per-request path/query.
             "401 Client Error: Unauthorized for url: https://g.codefresh.io": "Your Codefresh API key is invalid or has been revoked. Create a new key in your Codefresh user settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://g.codefresh.io": "Your Codefresh API key is missing the access scope needed to sync this data. Grant the required resource scopes to the key in your Codefresh user settings, then reconnect.",
+            # The users table needs an account id, which is read from the teams the key can see. A
+            # key that reaches no team can never resolve one, so retrying cannot help.
+            ACCOUNT_LOOKUP_FAILED: ACCOUNT_LOOKUP_MESSAGE,
         }
 
     def get_schemas(

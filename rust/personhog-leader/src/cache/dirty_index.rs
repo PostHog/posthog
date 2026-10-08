@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -27,14 +27,24 @@ pub struct DirtyMark {
     /// The person's routing partition, denormalized so pruning can work
     /// per partition without rehashing keys.
     pub partition: u32,
+    /// Whether the marked record is a death document. The prune returns
+    /// only these pairs, so the settle never touches live persons' keys.
+    pub is_deleted: bool,
+}
+
+/// What a prune pass reclaimed: the count drives shrinking and metrics;
+/// the death pairs go to the settle.
+pub struct PrunedMarks {
+    pub removed: usize,
+    pub death_marks: Vec<(PersonCacheKey, DirtyMark)>,
 }
 
 /// A partition's reclaim queue: `(offset, key)` entries in rough offset
 /// order, popped from the head as the writer's committed offset passes them.
 type ReclaimQueue = Arc<Mutex<VecDeque<(i64, PersonCacheKey)>>>;
 
-/// Maximum queue pops per prune lock hold (see `prune_partition`).
-const PRUNE_CHUNK: usize = 4_096;
+/// Maximum queue pops per prune lock hold (see `prune_chunk`).
+pub const PRUNE_CHUNK: usize = 4_096;
 
 /// Containers below this capacity are never shrunk — the retained memory
 /// is a few hundred KB at most, not worth the churn.
@@ -171,20 +181,6 @@ impl DirtyIndex {
         self.map.get(key).map(|entry| *entry.value())
     }
 
-    /// Drop every mark the writer has applied, across all partitions: a
-    /// mark is applied once its partition's committed offset (absent = no
-    /// commit yet) has moved past it. Returns how many were pruned.
-    pub fn prune_applied(&self, committed: &HashMap<u32, i64>) -> usize {
-        let removed = committed
-            .iter()
-            .map(|(partition, committed)| self.prune_partition(*partition, *committed))
-            .sum();
-        if removed > 0 {
-            self.maybe_shrink_map();
-        }
-        removed
-    }
-
     /// Return the map's spare capacity to the allocator. Removal never
     /// shrinks it, so a catch-up after a deep outage would otherwise pin
     /// the backlog's worst-case footprint forever; capacity only becomes
@@ -200,67 +196,39 @@ impl DirtyIndex {
         }
     }
 
-    /// Drop marks on `partition` that the writer has applied (offset below
-    /// its committed offset). Pops the reclaim queue only while its head
-    /// is applied, so the cost is proportional to the marks reclaimed.
-    /// The pass releases the queue lock every `PRUNE_CHUNK` pops: a
-    /// catch-up after a long writer outage reclaims millions of marks in
-    /// one call, and an unbroken hold would stall every new-key `mark` —
-    /// the write hot path — for the whole pass. Between chunks the queue
-    /// is re-fetched, so a concurrent `clear_partition` (which detaches
-    /// it) ends the pass instead of racing the drain. Returns how many
-    /// were pruned.
-    pub fn prune_partition(&self, partition: u32, committed: i64) -> usize {
-        let mut removed = 0;
-        loop {
-            let (chunk_removed, exhausted) = self.prune_chunk(partition, committed);
-            removed += chunk_removed;
-            if exhausted {
-                break;
-            }
-        }
-        // A queue never shrinks on pop, so after a catch-up it would pin
-        // its backlog-peak buffer until the partition is released.
-        if removed > 0 {
-            if let Some(queue) = self
-                .queues
-                .get(&partition)
-                .map(|entry| Arc::clone(entry.value()))
-            {
-                let mut queue = queue.lock().expect("dirty index queue lock poisoned");
-                if queue.capacity() > SHRINK_CAPACITY_FLOOR && queue.len() * 4 < queue.capacity() {
-                    queue.shrink_to_fit();
-                }
-            }
-        }
-        removed
-    }
-
-    /// One bounded slice of a prune pass: re-fetch the queue, hold its
-    /// lock for at most `PRUNE_CHUNK` pops, and report how many marks
-    /// were removed plus whether the pass is exhausted. Exhaustion means
-    /// the head is unapplied, the queue is empty, or the queue was
-    /// detached by a concurrent `clear_partition` — the re-fetch is what
-    /// lets a release end an in-flight pass instead of racing its drain.
-    fn prune_chunk(&self, partition: u32, committed: i64) -> (usize, bool) {
+    /// One bounded prune slice: hold the queue lock for at most
+    /// `PRUNE_CHUNK` pops, remove the applied marks (offset below the
+    /// committed offset), and return the death pairs for the caller to
+    /// settle before the next slice — that keeps a catch-up's memory and
+    /// lock exposure flat, and lets `mark` (the write hot path) breathe
+    /// between slices. Exhausted means the head is unapplied, the queue
+    /// is empty, or it was detached by a concurrent `clear_partition` —
+    /// the re-fetch is what lets a release end an in-flight pass instead
+    /// of racing its drain.
+    pub fn prune_chunk(&self, partition: u32, committed: i64) -> (PrunedMarks, bool) {
+        let mut pruned = PrunedMarks {
+            removed: 0,
+            death_marks: Vec::new(),
+        };
         let Some(queue) = self
             .queues
             .get(&partition)
             .map(|entry| Arc::clone(entry.value()))
         else {
-            return (0, true);
+            return (pruned, true);
         };
         let mut queue = queue.lock().expect("dirty index queue lock poisoned");
         let mut removed = 0;
         let mut budget = PRUNE_CHUNK;
+        let mut exhausted = false;
         while budget > 0 {
             let Some(&(offset, _)) = queue.front() else {
-                self.size.fetch_sub(removed, Ordering::Relaxed);
-                return (removed, true);
+                exhausted = true;
+                break;
             };
             if offset >= committed {
-                self.size.fetch_sub(removed, Ordering::Relaxed);
-                return (removed, true);
+                exhausted = true;
+                break;
             }
             budget -= 1;
             let (_, key) = queue.pop_front().expect("front was just observed");
@@ -268,12 +236,12 @@ impl DirtyIndex {
             // lock: between the pop and here the key may have been
             // re-marked, and removing the newer mark would silently
             // reopen the stale-fallback hole.
-            if self
-                .map
-                .remove_if(&key, |_, mark| mark.offset < committed)
-                .is_some()
-            {
+            if let Some(entry) = self.map.remove_if(&key, |_, mark| mark.offset < committed) {
                 removed += 1;
+                pruned.removed += 1;
+                if entry.1.is_deleted {
+                    pruned.death_marks.push(entry);
+                }
             } else if let Some(mark) = self.map.get(&key) {
                 // Superseded: the live mark is ahead of the committed
                 // offset, and the entry just popped was this key's only
@@ -289,7 +257,17 @@ impl DirtyIndex {
             }
         }
         self.size.fetch_sub(removed, Ordering::Relaxed);
-        (removed, false)
+        if exhausted {
+            // A queue never shrinks on pop; reclaim after a catch-up.
+            if queue.capacity() > SHRINK_CAPACITY_FLOOR && queue.len() * 4 < queue.capacity() {
+                queue.shrink_to_fit();
+            }
+        }
+        drop(queue);
+        if exhausted {
+            self.maybe_shrink_map();
+        }
+        (pruned, exhausted)
     }
 
     /// Drop every mark on `partition` — used when the partition is released
@@ -307,7 +285,7 @@ impl DirtyIndex {
             }
         }
         self.size.fetch_sub(removed, Ordering::Relaxed);
-        // Releases bypass prune_applied, so a released backlog's map
+        // Releases bypass the prune, so a released backlog's map
         // capacity would otherwise stay pinned until some future prune.
         if removed > 0 {
             self.maybe_shrink_map();
@@ -378,6 +356,29 @@ mod tests {
             version: offset,
             offset,
             partition,
+            is_deleted: false,
+        }
+    }
+
+    fn death_mark(offset: i64, partition: u32) -> DirtyMark {
+        DirtyMark {
+            is_deleted: true,
+            ..mark(offset, partition)
+        }
+    }
+
+    fn prune_all(index: &DirtyIndex, partition: u32, committed: i64) -> PrunedMarks {
+        let mut total = PrunedMarks {
+            removed: 0,
+            death_marks: Vec::new(),
+        };
+        loop {
+            let (pruned, exhausted) = index.prune_chunk(partition, committed);
+            total.removed += pruned.removed;
+            total.death_marks.extend(pruned.death_marks);
+            if exhausted {
+                return total;
+            }
         }
     }
 
@@ -397,7 +398,7 @@ mod tests {
         assert_eq!(index.len(), 2);
 
         // Pruning frees admission again.
-        index.prune_partition(0, 100);
+        prune_all(&index, 0, 100);
         assert!(index.can_admit(&key(3)));
     }
 
@@ -415,17 +416,27 @@ mod tests {
     #[test]
     fn prune_removes_applied_marks_and_keeps_the_boundary() {
         let index = DirtyIndex::new(1_000);
-        index.mark(key(1), mark(4, 0));
+        index.mark(key(1), death_mark(4, 0));
         index.mark(key(2), mark(5, 0));
         index.mark(key(3), mark(6, 0));
 
         // Committed offset 5 means the record at 4 is applied; the record
         // at 5 is not yet.
-        let pruned = index.prune_partition(0, 5);
-        assert_eq!(pruned, 1);
+        let pruned = prune_all(&index, 0, 5);
+        assert_eq!(pruned.removed, 1);
+        // The death pair carries the removed key and its mark, so the
+        // settle acts on exactly what was pruned.
+        assert_eq!(pruned.death_marks.len(), 1);
+        assert_eq!(pruned.death_marks[0].0, key(1));
+        assert_eq!(pruned.death_marks[0].1.offset, 4);
         assert!(index.get(&key(1)).is_none());
         assert!(index.get(&key(2)).is_some());
         assert!(index.get(&key(3)).is_some());
+
+        // A pruned live mark counts but yields no death pair.
+        let pruned = prune_all(&index, 0, 6);
+        assert_eq!(pruned.removed, 1);
+        assert!(pruned.death_marks.is_empty());
     }
 
     #[test]
@@ -436,12 +447,12 @@ mod tests {
 
         // The stale queue entry at offset 1 is popped, but the live mark
         // is ahead of the committed offset and must survive.
-        assert_eq!(index.prune_partition(0, 3), 0);
+        assert_eq!(prune_all(&index, 0, 3).removed, 0);
         assert_eq!(index.get(&key(1)).unwrap().offset, 5);
 
         // The re-enqueued entry keeps the key reclaimable once the writer
         // catches up — a dropped entry would leak the mark forever.
-        assert_eq!(index.prune_partition(0, 6), 1);
+        assert_eq!(prune_all(&index, 0, 6).removed, 1);
         assert!(index.get(&key(1)).is_none());
         assert_eq!(index.len(), 0);
     }
@@ -455,8 +466,8 @@ mod tests {
         index.mark(key(1), mark(10, 0));
         index.mark(key(2), mark(9, 0));
 
-        assert_eq!(index.prune_partition(0, 10), 0);
-        assert_eq!(index.prune_partition(0, 11), 2);
+        assert_eq!(prune_all(&index, 0, 10).removed, 0);
+        assert_eq!(prune_all(&index, 0, 11).removed, 2);
         assert!(index.is_empty());
     }
 
@@ -469,7 +480,7 @@ mod tests {
         }
 
         // A catch-up reclaims across chunk boundaries in a single call.
-        assert_eq!(index.prune_partition(0, total), total as usize);
+        assert_eq!(prune_all(&index, 0, total).removed, total as usize);
         assert!(index.is_empty());
     }
 
@@ -484,7 +495,7 @@ mod tests {
         // The first chunk of an in-flight pass reclaims its bounded slice
         // and reports the pass unfinished.
         let (removed, exhausted) = index.prune_chunk(0, total);
-        assert_eq!(removed, PRUNE_CHUNK);
+        assert_eq!(removed.removed, PRUNE_CHUNK);
         assert!(!exhausted);
 
         // A release lands between chunks: it detaches the queue and
@@ -495,13 +506,31 @@ mod tests {
         // The paused pass re-fetches, observes the detachment, and ends
         // instead of racing the drain it would otherwise double-count.
         let (removed, exhausted) = index.prune_chunk(0, total);
-        assert_eq!(removed, 0);
+        assert_eq!(removed.removed, 0);
         assert!(exhausted);
 
         // Ownership re-acquired after the release: fresh marks live in a
         // fresh queue that a new pass reclaims normally.
         index.mark(key(1), mark(total + 1, 0));
-        assert_eq!(index.prune_partition(0, total + 2), 1);
+        assert_eq!(prune_all(&index, 0, total + 2).removed, 1);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn a_death_backlog_prunes_in_bounded_chunks() {
+        let total = PRUNE_CHUNK as i64 + 100;
+        let index = DirtyIndex::new(usize::MAX);
+        for offset in 0..total {
+            index.mark(key(offset), death_mark(offset, 0));
+        }
+
+        let (first, exhausted) = index.prune_chunk(0, total);
+        assert_eq!(first.death_marks.len(), PRUNE_CHUNK);
+        assert!(!exhausted);
+
+        let (rest, exhausted) = index.prune_chunk(0, total);
+        assert_eq!(rest.death_marks.len(), 100);
+        assert!(exhausted);
         assert!(index.is_empty());
     }
 
@@ -511,7 +540,7 @@ mod tests {
         index.mark(key(1), mark(1, 0));
         index.mark(key(2), mark(1, 7));
 
-        assert_eq!(index.prune_partition(0, 100), 1);
+        assert_eq!(prune_all(&index, 0, 100).removed, 1);
         assert!(index.get(&key(2)).is_some());
 
         index.mark(key(3), mark(2, 7));
@@ -533,7 +562,7 @@ mod tests {
         assert_eq!(index.max_offset(7), Some(2));
         assert_eq!(index.max_offset(3), None);
 
-        index.prune_partition(0, 100);
+        prune_all(&index, 0, 100);
         assert_eq!(index.max_offset(0), None);
         assert_eq!(index.partitions_with_marks(), vec![7]);
     }
@@ -546,7 +575,7 @@ mod tests {
         index.mark(key(2), mark(3, 0));
         assert_eq!(index.len(), 2);
 
-        index.prune_partition(0, 3);
+        prune_all(&index, 0, 3);
         assert_eq!(index.len(), 1);
 
         index.clear_partition(0);

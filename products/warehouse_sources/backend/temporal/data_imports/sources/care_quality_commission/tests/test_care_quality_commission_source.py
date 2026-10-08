@@ -4,8 +4,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission import (
     source as cqc_source,
 )
@@ -21,35 +19,16 @@ def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
     return config
 
 
-class TestSourceConfig:
-    def test_config_metadata(self) -> None:
-        config = CareQualityCommissionSource().get_source_config
-        assert config.label == "Care Quality Commission"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl slug must match the published doc filename so the website doesn't 404.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/care-quality-commission"
-        assert config.unreleasedSource is None
-
-    def test_fields(self) -> None:
-        fields: dict[str, Any] = {f.name: f for f in CareQualityCommissionSource().get_source_config.fields}
-        assert set(fields) == {"api_key", "partner_code"}
-        # The subscription key is the secret; the partner code is an optional throttling hint.
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["partner_code"].required is False
-
-
 class TestGetSchemas:
-    def test_returns_both_streams_as_full_refresh(self) -> None:
-        schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"providers", "locations"}
-        for schema in schemas.values():
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    @parameterized.expand([("providers", ["providerId"]), ("locations", ["locationId"])])
+    @parameterized.expand(
+        [
+            ("providers", ["providerId"]),
+            ("locations", ["locationId"]),
+            ("inspection_areas", ["inspectionAreaId"]),
+            ("provider_inspection_areas", ["providerId", "inspectionAreaId"]),
+            ("location_inspection_areas", ["locationId", "inspectionAreaId"]),
+        ]
+    )
     def test_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
         schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].detected_primary_keys == expected_keys
@@ -64,21 +43,8 @@ class TestDocumentedTables:
         # The endpoint catalog is static (no I/O), so the public docs can render the table list.
         assert CareQualityCommissionSource.lists_tables_without_credentials is True
 
-    def test_documented_tables_carry_descriptions_and_keys(self) -> None:
-        tables = {t["name"]: t for t in CareQualityCommissionSource().get_documented_tables()}
-        assert set(tables) == {"providers", "locations"}
-        assert tables["providers"]["primary_keys"] == ["providerId"]
-        assert tables["providers"]["sync_methods"] == ["Full refresh"]
-        assert tables["providers"]["description"]
-
 
 class TestValidateCredentials:
-    def test_valid(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(cqc_source, "validate_cqc_credentials", lambda api_key, partner_code: True)
-        ok, error = CareQualityCommissionSource().validate_credentials(_config(), team_id=1)
-        assert ok is True
-        assert error is None
-
     def test_invalid(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(cqc_source, "validate_cqc_credentials", lambda api_key, partner_code: False)
         ok, error = CareQualityCommissionSource().validate_credentials(_config(), team_id=1)

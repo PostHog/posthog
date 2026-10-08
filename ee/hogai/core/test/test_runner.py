@@ -1,6 +1,7 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,6 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import openai
 import anthropic
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 from parameterized import parameterized
 
 from posthog.schema import AssistantEventType, FailureMessage
@@ -15,7 +19,7 @@ from posthog.schema import AssistantEventType, FailureMessage
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.core.base import BaseAssistantGraph
-from ee.hogai.tool import ClientToolCallRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.types.base import AssistantState, ConversationTitleAction, PartialAssistantState
 
 
@@ -767,7 +771,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
         mock_state = MagicMock()
         mock_state.values = {}
         mock_state.next = ["pending_node"]
-        mock_state.tasks = [MagicMock(interrupts=[MagicMock(value=interrupt_value)])]
+        mock_state.tasks = [MagicMock(result=None, interrupts=[MagicMock(value=interrupt_value)])]
         mock_graph.aget_state = AsyncMock(return_value=mock_state)
         mock_graph.aupdate_state = AsyncMock()
 
@@ -823,3 +827,59 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
 
         self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
         mock_graph.aupdate_state.assert_called_once()
+
+    @parameterized.expand([("approve",), ("reject",)])
+    async def test_response_targets_selected_parallel_approval(self, action: str) -> None:
+        executed: list[str] = []
+
+        def operation(name: str) -> Callable[[AssistantState], dict[str, object]]:
+            proposal_id = str(uuid4())
+
+            def run(state: AssistantState) -> dict[str, object]:
+                response = interrupt(
+                    ApprovalRequest(
+                        proposal_id=proposal_id, tool_name=name, preview=name, payload={}, original_tool_call_id=name
+                    )
+                )
+                if response["action"] == "approve":
+                    executed.append(name)
+                return {}
+
+            return run
+
+        builder = StateGraph(AssistantState)
+        for name in ("first", "second"):
+            builder.add_node(name, operation(name))
+            builder.add_edge(START, name)
+            builder.add_edge(name, END)
+        graph = builder.compile(checkpointer=MemorySaver())
+        runner, _ = self._create_runner_with_interrupt(None)
+        runner._graph = graph
+        config = runner._get_config()
+        config["callbacks"] = []
+        await graph.ainvoke(AssistantState(messages=[]), config)
+        snapshot = await graph.aget_state(config)
+        approvals = {pending.value.tool_name: pending.value for task in snapshot.tasks for pending in task.interrupts}
+        for approval in approvals.values():
+            self.conversation.approval_decisions[approval.proposal_id] = {"decision_status": "pending"}
+        runner._resume_payload = {"action": action, "proposal_id": approvals["second"].proposal_id}
+        command = await runner._init_or_update_state()
+        await graph.ainvoke(command, config)
+        self.assertEqual(executed, ["second"] if action == "approve" else [])
+        after = await graph.aget_state(config)
+        remaining = [pending.value for task in after.tasks if task.result is None for pending in task.interrupts]
+        self.assertEqual([request.proposal_id for request in remaining], [approvals["first"].proposal_id])
+        await self.conversation.arefresh_from_db()
+        self.assertEqual(
+            self.conversation.approval_decisions[approvals["first"].proposal_id]["decision_status"], "pending"
+        )
+        self.assertEqual(
+            self.conversation.approval_decisions[approvals["second"].proposal_id]["decision_status"],
+            "approved" if action == "approve" else "rejected",
+        )
+        with self.assertRaisesMessage(ValueError, "Approval does not match a pending operation"):
+            await runner._init_or_update_state()
+        runner._resume_payload = {"action": "reject", "proposal_id": approvals["first"].proposal_id}
+        await graph.ainvoke(await runner._init_or_update_state(), config)
+        self.assertFalse((await graph.aget_state(config)).next)
+        self.assertEqual(executed, ["second"] if action == "approve" else [])

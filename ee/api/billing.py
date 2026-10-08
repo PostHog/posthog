@@ -1,65 +1,164 @@
+import re
 import json
 from collections.abc import Callable, Sequence
-from typing import Any, Optional, cast
+from datetime import timedelta
+from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
-from django.http import HttpResponse
+from django.conf import settings
+from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 
 import requests
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import (
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-    posthog_feature_flag_enabled,
-)
+from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
 from ee.billing.billing_types import USAGE_TYPE_VALUES
+from ee.billing.exports import (  # noqa: F401
+    _EXPORT_STREAMS,
+    _gzip_stream,
+    _release_export_stream_slot,
+    _released_after,
+    _resolve_team_labels,
+    _rewrite_csv_labels,
+    _stream_chunks,
+    _take_export_stream_slot,
+    exportable_team_ids,
+)
+from ee.billing.grants import (
+    BILLING_LIMIT_TODAYS_USAGE_KEYS,
+    _billing_limit_todays_usage_enabled,
+    _member_billing_usage_spend_read_access_enabled,
+    _owner_only_billing_enabled,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
-OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
-MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
-BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
-BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
 
 
-def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
-    if not user.distinct_id:
-        return None
+class BillingQueryTimeout(APIException):
+    """The billing service did not answer a usage or spend query in time.
 
-    try:
-        return posthog_feature_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return None
+    A 400 rather than a 502 or 504, because the person can fix it by asking for less: fewer
+    projects, a shorter range, or an export. The detail is shown to them, so it says what to
+    change.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_query_timeout"
+    default_detail = (
+        "This request took too long to complete. Select fewer projects, choose a shorter date "
+        "range, or export the data instead."
+    )
+
+
+class BillingQueryTooLarge(APIException):
+    """Billing refused a breakdown as more than it will hold for one request."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_breakdown_too_large"
+    default_detail = (
+        "This breakdown is too large to load at once. Select fewer projects or products, choose a "
+        "shorter date range or a coarser interval, or export the data instead."
+    )
+
+
+class BillingDateRangeTooLong(APIException):
+    """Billing serves at most a year per request."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "usage_date_range_too_long"
+    default_detail = "The date range is longer than a year. Choose a range of at most a year."
+
+
+class BillingQueryRejected(APIException):
+    """Billing refused the request for a reason the page has no guidance for."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_query_rejected"
+    default_detail = "Billing could not answer this request. Adjust the filters and try again."
+
+
+class BillingServiceError(APIException):
+    """Billing failed or answered in a shape the proxy does not recognise."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "billing_service_error"
+    default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
+    """How often one person may start an export. Each one has billing build a whole file."""
+
+    scope = "billing_export"
+    rate = settings.BILLING_EXPORT_THROTTLE_RATE
+
+
+# Billing's guidance codes on the usage and spend endpoints, each with the page's own sentence.
+# Billing's own text is never returned to the browser: it is written for API callers, and an
+# unexpected body could carry internal detail.
+BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
+    BillingQueryTimeout.default_code: BillingQueryTimeout,
+    BillingQueryTooLarge.default_code: BillingQueryTooLarge,
+    BillingDateRangeTooLong.default_code: BillingDateRangeTooLong,
+}
+
+BILLING_VALIDATION_ERROR_MESSAGES = {
+    "required": "This field is required.",
+    "invalid_input": "Invalid value. Check this parameter's format and allowed values.",
+    "invalid_choice": "Select a valid option for this parameter.",
+}
+
+
+BREAKDOWNS_MESSAGE = "Value must be a JSON array containing only 'type' and/or 'team'."
+# Spend adds across products, so the spend read serves a project on its own. Usage counts each
+# type in units that do not add: events, recordings, rows. So the usage read serves a project
+# breakdown only beside the product one.
+USAGE_BREAKDOWNS_MESSAGE = (
+    'Pass [], ["type"] or ["type","team"]. To break usage down by project, pass "type" with '
+    '"team": billing counts usage per product, and the counts do not add up across products.'
+)
+
+
+BILLING_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have billing access for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
+BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE = (
+    "Your PostHog user does not have access to billing usage and spend for this organization. "
+    "Ask someone with billing access to run this or update your role."
+)
+BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
+    "The requested projects are not available to this PostHog user or token. "
+    "Adjust the project filter or ask someone with billing access to run this."
+)
 
 
 def user_has_billing_access(user: User, organization: Organization) -> bool:
@@ -75,42 +174,6 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
     return _owner_only_billing_enabled(user, organization) is False
-
-
-def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
-        return False
-
-
-def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                BILLING_LIMIT_TODAYS_USAGE_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_TODAYS_USAGE_FLAG})
-        return False
 
 
 def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:
@@ -172,7 +235,7 @@ class HasBillingAccess(permissions.BasePermission):
     Permission to allow users with Billing access to access Billing endpoints.
     """
 
-    message = "You do not have access to Billing for this organization."
+    message = BILLING_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -188,12 +251,10 @@ class HasBillingAccess(permissions.BasePermission):
 
 class HasBillingUsageSpendReadAccess(permissions.BasePermission):
     """
-    Permission for read-only billing usage/spend endpoints. The frontend additionally requires
-    usage-spend-dashboards before honoring the member grant, but that flag is not an authorization
-    input here or in the billing service.
+    Permission for read-only billing usage/spend endpoints.
     """
 
-    message = "You do not have access to billing usage and spend data for this organization."
+    message = BILLING_USAGE_SPEND_ACCESS_DENIED_MESSAGE
 
     def has_permission(self, request: Request, view: Any) -> bool:
         try:
@@ -207,9 +268,34 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
         return user_has_billing_usage_spend_read_access(request.user, org)
 
 
+class BillingNotManagedByPartner(permissions.BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is not None:
+            raise_if_billing_managed_by_partner(organization)
+        return True
+
+
+def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
+    partner = get_billing_lock_partner(organization) if organization else None
+    return {"partner_name": partner.name} if partner else None
+
+
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+class BillingManagedByPartnerSerializer(serializers.Serializer):
+    partner_name = serializers.CharField(
+        allow_blank=True, help_text="Name of the partner that pays for this organization. Can be empty."
+    )
+
+
+BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
+    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
+    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+)
 
 
 @extend_schema_serializer(many=False)
@@ -251,6 +337,9 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     account_owner = serializers.JSONField(required=False, allow_null=True)
     customer_trust_scores = serializers.JSONField(required=False)
     never_drop_data = serializers.BooleanField(required=False)
+    billing_managed_by_partner = BillingManagedByPartnerSerializer(
+        allow_null=True, help_text=BILLING_MANAGED_BY_PARTNER_HELP_TEXT
+    )
 
 
 class LicenseKeySerializer(serializers.Serializer):
@@ -263,8 +352,23 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     Only responsible for parsing dates, passes through other params.
     """
 
-    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            'Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
+    )
+    end_date = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, "
+            "or today if only start_date is provided."
+        ),
+    )
     usage_types = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -296,6 +400,35 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         ),
     )
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    top_projects = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=200,
+        help_text=(
+            "With a project breakdown, return only this many highest-usage projects and fold "
+            "the rest into a single 'all other projects' series, so the totals still reconcile. "
+            "Omit it to get every project."
+        ),
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Return at most this many series, ranked by total, with a `next` cursor for the "
+            "page after. A caller that pages never approaches the size this endpoint refuses "
+            "oversized breakdowns at. Requires a project breakdown."
+        ),
+    )
+    after = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=512,
+        help_text="The `next` cursor from the previous page. Opaque. Ignored without page_size.",
+    )
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
         """Shared date parsing logic into YYYY-MM-DD format. Handles relative dates too."""
@@ -319,8 +452,12 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("start_date") and not attrs.get("end_date"):
-            attrs["end_date"] = timezone.now().date().isoformat()
+        today_utc = timezone.now().astimezone(ZoneInfo("UTC")).date()
+        if not attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["start_date"] = (today_utc - timedelta(days=30)).isoformat()
+            attrs["end_date"] = (today_utc - timedelta(days=1)).isoformat()
+        elif attrs.get("start_date") and not attrs.get("end_date"):
+            attrs["end_date"] = today_utc.isoformat()
         return attrs
 
     def validate_usage_types(self, value: Optional[str]) -> Optional[str]:
@@ -360,10 +497,10 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         return value
 
@@ -384,6 +521,13 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     results = BillingTimeSeriesPointSerializer(many=True)
     team_id_options = serializers.ListField(child=serializers.IntegerField(), required=False)
     next = serializers.CharField(required=False, allow_blank=True)
+    total_count = serializers.IntegerField(required=False)
+
+
+class BillingTeamOptionsResponseSerializer(serializers.Serializer):
+    team_id_options = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
+    )
 
 
 class BillingPeriodResponseSerializer(serializers.Serializer):
@@ -404,7 +548,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     param_derived_from_user_current_team = "team_id"
 
     scope_object = "billing"
-    scope_object_read_actions = ["list", "usage", "spend"]
+    scope_object_read_actions = ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"]
     scope_object_write_actions: list[str] = []
     # OpenAPI skips root-router viewsets that derive their team from the current user.
     # Billing opts in so generated clients and MCP scaffolding include these read actions.
@@ -424,7 +568,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org()
         if is_token_auth_request(request):
             if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
-                raise PermissionDenied("You do not have access to Billing for this organization.")
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -446,6 +590,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             account_url = vercel_integration.config.get("account", {}).get("url", "")
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
+
+        response["billing_managed_by_partner"] = billing_managed_by_partner(org)
 
         return Response(response)
 
@@ -535,7 +681,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
@@ -579,11 +725,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
         url_path="subscription/switch-plan",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -594,7 +741,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["GET"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -631,12 +778,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
+                # Billing puts its message under `detail`. The page shows it as guidance only when `detail`
+                # is a string, so the message is passed through flat rather than as the whole body.
+                detail = detail_object.get("error_message") or detail_object.get("detail") or detail_object
                 return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
+                    {"statusText": e.args[0], "detail": detail, "code": detail_object.get("code")},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
@@ -669,7 +815,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="credits/purchase",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -689,7 +835,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/activate",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -709,7 +855,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.cancel_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize",
+        permission_classes=[permissions.IsAuthenticated, BillingNotManagedByPartner],
+    )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -758,7 +909,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         license = License(key=serializer.validated_data["license"])
         ip_address = get_trusted_client_ip(request)
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=BillingManager(license, ip_address=ip_address).get_auth_headers(organization),
         )
@@ -815,12 +966,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
+                # Billing puts its message under `detail`. The page shows it as guidance only when `detail`
+                # is a string, so the message is passed through flat rather than as the whole body.
+                detail = detail_object.get("error_message") or detail_object.get("detail") or detail_object
                 return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
+                    {"statusText": e.args[0], "detail": detail, "code": detail_object.get("code")},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
@@ -882,6 +1032,32 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         return self._usage_or_spend_response(request, self.get_billing_manager().get_usage_data)
 
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/team_options",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        responses={200: BillingTeamOptionsResponseSerializer},
+    )
+    def usage_team_options(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        """The project ids the project filter offers, loaded apart from the charts.
+
+        Scoped the way the charts are: a member without billing access sees only the projects
+        they can see.
+        """
+        organization = self._get_org_required()
+        scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, {})
+        try:
+            res = self.get_billing_manager().get_usage_team_options(organization)
+        except Exception as e:  # noqa: BLE001 - a failure here empties the filter and must not fail the page
+            logger.warning("billing_team_options_unavailable", organization_id=str(organization.id), error=str(e)[:200])
+            res = {}
+        options = res.get("team_id_options") or [] if isinstance(res, dict) else []
+        if scoped_team_ids is not None:
+            scoped_team_id_set = set(scoped_team_ids)
+            options = [team_id for team_id in options if team_id in scoped_team_id_set]
+        return Response({"team_id_options": options}, status=status.HTTP_200_OK)
+
     @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(
         methods=["GET"],
@@ -893,6 +1069,92 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
         return self._usage_or_spend_response(request, self.get_billing_manager().get_spend_data)
+
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/export",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        throttle_classes=[BillingExportThrottle],
+    )
+    def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        """Download the usage breakdown as CSV, honouring the requested project cap."""
+        return self._csv_export_response(request, self.get_billing_manager().get_usage_csv, "posthog_usage.csv")
+
+    @extend_schema(parameters=[BillingUsageRequestSerializer])
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend/export",
+        permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
+        throttle_classes=[BillingExportThrottle],
+    )
+    def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        """Download the spend breakdown as CSV, honouring the requested project cap."""
+        return self._csv_export_response(request, self.get_billing_manager().get_spend_csv, "posthog_spend.csv")
+
+    def _csv_export_response(
+        self,
+        request: Request,
+        csv_getter: Callable[[Organization, dict[str, Any]], Any],
+        fallback_filename: str,
+    ) -> StreamingHttpResponse:
+        """Pass an export through to the billing service and stream the file back.
+
+        The project cap is forwarded as sent, so the file matches what the person is looking at.
+        Omitting it asks for every project.
+        """
+        organization = self._get_org_required()
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
+
+        params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+        # The same narrowing as the interactive endpoints: a member who can only see some projects
+        # must not export the others. Export access is set per project too, like the page's
+        # button, so the file carries only the projects the person may export. A member who may
+        # export none of them gets a 403. An admin or owner has export access everywhere, which
+        # is the case where nothing is scoped.
+        scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
+        if scoped_team_ids is not None:
+            scoped_team_ids = self._exportable_team_ids(request, organization, scoped_team_ids)
+            if not scoped_team_ids:
+                raise PermissionDenied("You do not have permission to export data.")
+            params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
+        # No teams_map: the names go into the file as it streams back, in _rewrite_csv_labels.
+        teams_map = self._get_teams_map(organization, scoped_team_ids)
+
+        # Taken before billing is asked, so a refused export costs billing nothing, and held
+        # until the download ends: the body below gives it back.
+        slot = _take_export_stream_slot(request.user)
+        try:
+            try:
+                upstream = csv_getter(organization, params_to_pass)
+            except requests.Timeout:
+                raise BillingQueryTimeout()
+            except APIException:
+                raise
+            except Exception as e:
+                self._raise_billing_error(e, organization)
+        except BaseException:
+            _release_export_stream_slot(slot)
+            raise
+        lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
+        accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
+        # Every database read is done by now and the body does none, so the request's
+        # connection is released before the download starts.
+        response = streaming_response(
+            _released_after(_stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines), slot),
+            content_type=upstream.headers.get("Content-Type", "text/csv"),
+        )
+        if accepts_gzip:
+            response["Content-Encoding"] = "gzip"
+        patch_vary_headers(response, ("Accept-Encoding",))
+        response["Content-Disposition"] = upstream.headers.get(
+            "Content-Disposition", f'attachment; filename="{fallback_filename}"'
+        )
+        return response
 
     def _usage_or_spend_response(
         self,
@@ -908,37 +1170,82 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
             teams_map = self._get_teams_map(organization, scoped_team_ids)
-            params_to_pass["teams_map"] = teams_map
 
             if scoped_team_ids is not None:
                 params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
 
             res = billing_data_getter(organization, params_to_pass)
-            if scoped_team_ids is not None and isinstance(res, dict) and "team_id_options" in res:
-                scoped_team_id_set = set(scoped_team_ids)
-                res["team_id_options"] = [
-                    team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
-                ]
+            if isinstance(res, dict):
+                _resolve_team_labels(res.get("results"), teams_map)
+                if scoped_team_ids is not None and "team_id_options" in res:
+                    # Billing still lists every project here for older callers; a member sees only theirs.
+                    scoped_team_id_set = set(scoped_team_ids)
+                    res["team_id_options"] = [
+                        team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
+                    ]
             return Response(res, status=status.HTTP_200_OK)
+        except requests.Timeout:
+            # See BillingQueryTimeout: the person is told what to change, not shown a 500.
+            logger.warning(
+                "billing_timeseries_timeout",
+                organization_id=str(organization.id),
+                breakdowns=params_to_pass.get("breakdowns"),
+                team_ids_count=len(self._parse_team_ids(params_to_pass.get("team_ids"))),
+            )
+            raise BillingQueryTimeout()
+        except APIException:
+            raise
         except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                if detail_object.get("code") == "permission_denied":
-                    # billing evaluates the same permission from its own cache, so flag rollout
-                    # windows can still return a downstream permission denial.
-                    raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+            self._raise_billing_error(e, organization)
+
+    @staticmethod
+    def _raise_billing_error(error: Exception, organization: Organization) -> NoReturn:
+        """Raise the named exception for an error billing returned on a usage, spend or export request.
+
+        handle_billing_service_error raises with the status in its message and the parsed body as
+        the third argument. Known guidance and validation codes use controlled messages because
+        upstream detail can contain caller input or internal data. Unknown errors remain a generic
+        400 or 502. An exception of any other shape is not billing's answer and is re-raised as it is.
+        """
+        status_match = re.search(r"status code: (\d+)", str(error.args[0]) if error.args else "")
+        if not status_match:
+            raise error
+        upstream_status = int(status_match.group(1))
+        body = error.args[2] if len(error.args) > 2 else None
+        code = body.get("code") if isinstance(body, dict) else None
+        logger.warning(
+            "billing_query_error",
+            organization_id=str(organization.id),
+            upstream_status=upstream_status,
+            code=code,
+            body=str(body)[:500],
+        )
+        if code == "permission_denied":
+            # Billing evaluates the same permission from its own cache, so flag rollout windows
+            # can still return a downstream permission denial.
+            raise PermissionDenied(HasBillingUsageSpendReadAccess.message) from error
+        if isinstance(code, str) and code in BILLING_GUIDANCE_ERRORS:
+            raise BILLING_GUIDANCE_ERRORS[code]() from error
+        if upstream_status == 400 and isinstance(body, dict) and body.get("type") == "validation_error":
+            field = body.get("attr")
+            if (
+                isinstance(field, str)
+                and field in BillingUsageRequestSerializer().fields
+                and isinstance(code, str)
+                and code in BILLING_VALIDATION_ERROR_MESSAGES
+            ):
+                raise ValidationError({field: [BILLING_VALIDATION_ERROR_MESSAGES[code]]}, code=code) from error
+        if 400 <= upstream_status < 500:
+            raise BillingQueryRejected() from error
+        raise BillingServiceError() from error
+
+    def _exportable_team_ids(
+        self, request: Request, organization: Organization, team_ids: Sequence[int]
+    ) -> Sequence[int]:
+        """The given projects on which the person has editor access to exports."""
+        if not isinstance(request.user, User):
+            return sorted(team_ids)
+        return exportable_team_ids(request.user, organization, team_ids)
 
     def _scoped_team_ids_for_usage_spend_request(
         self, request: Request, organization: Organization, params_to_pass: dict[str, Any]
@@ -952,7 +1259,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             accessible_team_ids = sorted(set(accessible_team_ids).intersection(token_scoped_team_ids))
 
         if not accessible_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         requested_team_ids = self._parse_team_ids(params_to_pass.get("team_ids"))
         if not requested_team_ids:
@@ -960,7 +1267,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         scoped_team_ids = sorted(set(requested_team_ids).intersection(accessible_team_ids))
         if not scoped_team_ids:
-            raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
+            raise PermissionDenied(BILLING_PROJECT_ACCESS_DENIED_MESSAGE)
 
         return scoped_team_ids
 
@@ -1007,11 +1314,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not requested_team_ids:
             return
 
-        matching_team_ids = set(
-            Team.objects.filter(organization=organization, id__in=requested_team_ids).values_list("id", flat=True)
+        # Billing lists every project that has reported usage for the organization, so a request
+        # can name a project PostHog has since deleted. Billing scopes the read to the organization
+        # in the token, so such an id only reads that organization's own history. What must not
+        # pass is a project that belongs to another organization.
+        foreign_team_ids = (
+            Team.objects.filter(id__in=requested_team_ids)
+            .exclude(organization=organization)
+            .values_list("id", flat=True)
         )
 
-        if requested_team_ids != matching_team_ids:
+        if foreign_team_ids.exists():
             raise PermissionDenied("One or more requested projects are not in this organization.")
 
     def _get_org(self) -> Optional[Organization]:

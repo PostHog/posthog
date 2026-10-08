@@ -31,9 +31,9 @@ export function useCanViewServiceMetrics(): boolean {
 /**
  * "Show me this service's metrics", for Logs and Tracing to drop into a service row or a span.
  *
- * Metrics owns this gate rather than each caller, because the product is in private alpha behind a
- * flag: a link rendered without it lands on the waitlist screen instead of a chart, and callers
- * would each have to remember that.
+ * Metrics owns this gate rather than each caller, because the product is in alpha behind a
+ * flag: a link rendered without it lands on the feature preview gate instead of a chart, and
+ * callers would each have to remember that.
  */
 export function ViewServiceMetricsButton({
     serviceName,

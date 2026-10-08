@@ -96,7 +96,7 @@ test.describe('CRUD Survey', () => {
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
 
-        await expect(page.getByText('Display conditions summary')).toBeVisible()
-        await expect(page.locator('.FeatureConditionCard')).toContainText('Rolled out to 50% of users in this set.')
+        await page.getByRole('button', { name: 'See survey details' }).click()
+        await expect(page.getByText('1 audience rule · 50% shown', { exact: true })).toBeVisible()
     })
 })

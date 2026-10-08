@@ -1,15 +1,13 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -33,16 +31,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
     MISSING_V3_CREDENTIALS_ERROR,
+    V3_ONLY_ENDPOINT_ERROR,
     GreenhouseResumeConfig,
     greenhouse_source,
     validate_credentials as validate_greenhouse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import (
-    ENDPOINTS,
     GREENHOUSE_ENDPOINTS,
     GREENHOUSE_V1,
     GREENHOUSE_V3,
     INCREMENTAL_FIELDS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -64,7 +63,7 @@ class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GREENHOUSE,
+            name=ExternalDataSourceType.GREENHOUSE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Greenhouse",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -127,7 +126,9 @@ The API key field is only for connections still on Harvest v1, which Greenhouse 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            endpoints_for_version(self.resolve_api_version(api_version)), INCREMENTAL_FIELDS, names
+        )
 
     def validate_credentials(
         self,
@@ -144,6 +145,8 @@ The API key field is only for connections still on Harvest v1, which Greenhouse 
         # be scoped only to the endpoints the user wants. For a per-schema check, probe that
         # endpoint and surface a missing-scope error.
         if schema_name is not None and schema_name in GREENHOUSE_ENDPOINTS:
+            if schema_name not in endpoints_for_version(version):
+                return False, V3_ONLY_ENDPOINT_ERROR
             return validate_greenhouse_credentials(
                 version,
                 api_key=config.api_key,
@@ -167,6 +170,7 @@ The API key field is only for connections still on Harvest v1, which Greenhouse 
             "403 Client Error: Forbidden for url: https://harvest.greenhouse.io": "Your Greenhouse credentials do not have the required permissions. Please grant read access to this resource and try again. Harvest v3 list endpoints also require the authorizing user to be a site admin.",
             OAUTH2_PERMANENT_ERROR_MARKER: "Greenhouse authentication failed. Please check the client ID and client secret of your Harvest V3 (OAuth) credential.",
             MISSING_V3_CREDENTIALS_ERROR: None,
+            V3_ONLY_ENDPOINT_ERROR: None,
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GreenhouseResumeConfig]:

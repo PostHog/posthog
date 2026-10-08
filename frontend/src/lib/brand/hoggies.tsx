@@ -26,6 +26,15 @@ export interface HoggiePngModule {
     aspectRatio: number
 }
 
+export type HoggiePngProps = AssetSvgProps & {
+    /**
+     * Pass `eager` when the element can be `display: none` at some widths: a lazy image with no
+     * layout box has nothing to intersect, so the browser can leave it unfetched until a
+     * responsive query reveals it. Defaults to `lazy`.
+     */
+    loading?: 'lazy' | 'eager'
+}
+
 /**
  * A hoggie illustration as an `<img>` backed by the package's PNG export. Drop-in for the
  * SVG barrel component: accepts the same `className`/`style`/`size`/`title` props, reserves
@@ -34,8 +43,17 @@ export interface HoggiePngModule {
  * `aspect-ratio` and `object-fit` are inline styles, so utility classes can't override
  * them - use the `style` prop for that.
  */
-export function pngHoggie({ src, aspectRatio }: HoggiePngModule): ComponentType<AssetSvgProps> {
-    function HoggiePng({ className, style, size, title, width, height, ...rest }: AssetSvgProps): JSX.Element {
+export function pngHoggie({ src, aspectRatio }: HoggiePngModule): ComponentType<HoggiePngProps> {
+    function HoggiePng({
+        className,
+        style,
+        size,
+        title,
+        width,
+        height,
+        loading = 'lazy',
+        ...rest
+    }: HoggiePngProps): JSX.Element {
         // Mirror the SVG components' sizing: `size` (any CSS length) wins, then explicit
         // width/height, then fill the container - the last only when no className is given,
         // because inline style beats utility classes (the SVG version used a width
@@ -56,11 +74,11 @@ export function pngHoggie({ src, aspectRatio }: HoggiePngModule): ComponentType<
                 width={width}
                 height={height}
                 style={{ aspectRatio: String(aspectRatio), objectFit: 'contain', ...sizing, ...style }}
-                // Decorative illustrations: don't fetch until near the viewport, don't block
-                // paint on decode, and never compete with real content for bandwidth.
+                // Decorative illustrations: don't block paint on decode, and never compete with
+                // real content for bandwidth. By default don't fetch until near the viewport.
                 // (lowercase fetchpriority: React 18 only forwards the attribute un-camelized;
                 // aspect-ratio above reserves layout, so lazy loading causes no shift.)
-                loading="lazy"
+                loading={loading}
                 decoding="async"
                 {...{ fetchpriority: 'low' }}
                 // Callers type against the SVG prop surface; the shared subset (aria-*, data-*,

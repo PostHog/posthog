@@ -98,8 +98,8 @@ export const metricsOverviewLogic = kea<metricsOverviewLogicType>([
         },
     })),
     listeners(({ actions }) => ({
-        // A service row click lands the user in the viewer already narrowed to
-        // that service, so the picker only offers metrics it actually reports.
+        // A service row click lands in the viewer with that service already
+        // selected. The viewer reuses the filter to scope its metric picker.
         viewService: ({ serviceName }) => {
             actions.setFilterGroup(serviceFilterGroup(serviceName))
             actions.setActiveTab('viewer')

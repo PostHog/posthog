@@ -1,5 +1,4 @@
-import { Warning } from "@phosphor-icons/react";
-import { Box, Button, Callout, Flex, Text } from "@radix-ui/themes";
+import { ErrorBoundaryFallback } from "@posthog/ui/primitives/ErrorBoundaryFallback";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export interface ErrorBoundaryProps {
@@ -29,11 +28,16 @@ export interface ErrorBoundaryProps {
 
 interface State {
   error: Error | null;
+  componentStack: string | null;
   lastResetKey: unknown;
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
-  state: State = { error: null, lastResetKey: this.props.resetKey };
+  state: State = {
+    error: null,
+    componentStack: null,
+    lastResetKey: this.props.resetKey,
+  };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
@@ -44,48 +48,35 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
     state: State,
   ): Partial<State> | null {
     if (props.resetKey === state.lastResetKey) return null;
-    return { error: null, lastResetKey: props.resetKey };
+    return { error: null, componentStack: null, lastResetKey: props.resetKey };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     const suppressed = this.props.shouldSuppress?.(error) ?? false;
+    this.setState({ componentStack: errorInfo.componentStack ?? null });
     this.props.onError?.(error, {
       componentStack: errorInfo.componentStack,
       suppressed,
     });
   }
 
-  handleRetry = () => {
-    this.setState({ error: null });
+  handleRefresh = () => {
+    window.location.reload();
   };
 
   render() {
-    const { error } = this.state;
+    const { error, componentStack } = this.state;
     if (!error) return this.props.children;
     if (this.props.shouldSuppress?.(error)) return null;
     if (this.props.fallback) return this.props.fallback;
 
     return (
-      <Box p="4">
-        <Callout.Root color="red" size="2">
-          <Callout.Icon>
-            <Warning weight="fill" />
-          </Callout.Icon>
-          <Callout.Text>
-            <Flex direction="column" gap="2">
-              <Text className="font-medium">Something went wrong</Text>
-              <Text className="text-[13px] text-gray-11">
-                {error.message || "An unexpected error occurred"}
-              </Text>
-              <Flex gap="2" mt="2">
-                <Button size="1" variant="soft" onClick={this.handleRetry}>
-                  Try again
-                </Button>
-              </Flex>
-            </Flex>
-          </Callout.Text>
-        </Callout.Root>
-      </Box>
+      <ErrorBoundaryFallback
+        error={error}
+        componentStack={componentStack}
+        boundaryName={this.props.name}
+        onRefresh={this.handleRefresh}
+      />
     );
   }
 }

@@ -16,7 +16,7 @@ class AnnouncementDelivery(TeamScopedRootMixin, UUIDModel):
 
     all_teams = models.Manager()  # noqa: DJ012
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name="deliveries")
     slack_channel_id = models.CharField(max_length=64)
     slack_channel_name = models.CharField(max_length=255, blank=True, default="")

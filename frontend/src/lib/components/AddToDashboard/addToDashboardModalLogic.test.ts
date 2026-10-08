@@ -15,7 +15,7 @@ import {
     DashboardBasicType,
     DashboardType,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
     UserBasicType,
 } from '~/types'
 
@@ -23,7 +23,7 @@ import { addToDashboardModalLogic } from './addToDashboardModalLogic'
 
 const Insight1 = '1' as InsightShortId
 
-const MOCK_INSIGHT: QueryBasedInsightModel = {
+const MOCK_INSIGHT: InsightModel = {
     id: 1,
     short_id: Insight1,
     name: 'Test Insight',
@@ -56,7 +56,7 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     layouts: {},
     color: null,
     user_access_level: AccessControlLevel.Editor,
-} as QueryBasedInsightModel
+} as InsightModel
 
 const OTHER_USER_UUID = 'other-user-uuid'
 
@@ -130,7 +130,7 @@ describe('addToDashboardModalLogic', () => {
             id: 99,
             name: 'New Dashboard',
             tiles: [],
-        } as unknown as DashboardType<QueryBasedInsightModel>
+        } as unknown as DashboardType
 
         await expectLogic(logic, () => {
             dashboardsModel.actions.addDashboardSuccess(newDashboard)
@@ -144,7 +144,7 @@ describe('addToDashboardModalLogic', () => {
     })
 
     it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+        const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
             dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
@@ -198,7 +198,7 @@ describe('addToDashboardModalLogic', () => {
 
     it('when user is not loaded, dashboards with no creator are not grouped as mine', async () => {
         window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+        const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
             dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
@@ -249,7 +249,7 @@ describe('addToDashboardModalLogic', () => {
     })
 
     it('places mine pinned in the mine bucket before others pinned', async () => {
-        const insightOnlyOnDash2: QueryBasedInsightModel = {
+        const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
             dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,

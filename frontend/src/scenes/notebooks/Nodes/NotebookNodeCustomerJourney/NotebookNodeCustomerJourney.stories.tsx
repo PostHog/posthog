@@ -3,6 +3,12 @@ import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { CustomerProfileScope } from '~/types'
+
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import {
     JOURNEY_FEATURE_FLAGS,
     journeysList,
@@ -11,13 +17,7 @@ import {
     someCompletedSteps,
     optionalStepResults,
     noCompletedSteps,
-} from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
-import { urls } from 'scenes/urls'
-
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { CustomerProfileScope } from '~/types'
-
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
+} from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 
 import { notebookTestTemplate } from '../../Notebook/__mocks__/notebook-template-for-snapshot'
 import { NotebookType } from '../../types'

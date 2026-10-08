@@ -12,6 +12,8 @@ const makeConfig = (id: string): IdentityProviderConfigApi => ({
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     has_saml: true,
+    has_oidc: false,
+    has_oidc_client_secret: false,
     saml_relay_state: 'relay-state',
     has_scim: false,
     scim_base_url: `https://example.com/scim/v2/${id}`,

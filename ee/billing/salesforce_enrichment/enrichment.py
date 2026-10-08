@@ -827,7 +827,7 @@ async def enrich_accounts_chunked_async(
 
     Standard workflow that:
     1. Queries chunk of Salesforce accounts (from global Redis cache)
-    2. Enriches business domains with Harmonic API (default: 5 concurrent requests)
+    2. Enriches business domains with Harmonic API
     3. Updates Salesforce in batches of 200 using sObject Collections
 
     Args:

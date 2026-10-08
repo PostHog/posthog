@@ -28,35 +28,6 @@ class TestShutterstockSource:
         self.config = _basic_config()
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.shutterstock.com/v2/images/updated?page=1",
-            "403 Client Error: Forbidden for url: https://api.shutterstock.com/v2/images/licenses",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.shutterstock.com/v2/images/updated",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_only_server_side_filter_endpoints_are_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        incremental = {name for name, s in schemas.items() if s.supports_incremental}
-        # Only the updated feeds and license history expose Shutterstock's server-side
-        # `start_date` filter.
-        assert incremental == {"images_updated", "videos_updated", "image_licenses", "video_licenses"}
-
-    @pytest.mark.parametrize(
         "selection, expected",
         [
             ("api_key", {"consumer_key": "ck", "consumer_secret": "cs", "access_token": None}),

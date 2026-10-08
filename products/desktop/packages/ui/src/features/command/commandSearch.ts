@@ -1,4 +1,4 @@
-import type { CommandSection } from "@posthog/ui/features/command/useSearchSections";
+import type { CommandSection } from "@posthog/ui/features/command/commandRow";
 
 const RECENT_COMMAND_LIMIT = 5;
 

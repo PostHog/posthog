@@ -12,12 +12,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import {
     isDirectScoutNote,
     NOTES_FETCH_LIMIT,
     scoutNoteOriginLabel,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
+import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
 import { ScoutNoteContent } from './ScoutNoteContent'
 
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
@@ -139,19 +141,16 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
     const logic = scoutNotesLogic({ skillName })
     const { scoutNotes, fleetWideNotes, notesLoading, notesLoadFailed, notesCapped } = useValues(logic)
     const { deleteNote, loadNotes } = useActions(logic)
+    const { reportRows } = useValues(scoutDetailLogic({ skillName }))
     const [showAll, setShowAll] = useState(false)
 
     const visible = showAll ? scoutNotes : scoutNotes.slice(0, 4)
     const otherFleetNotes = skillName ? fleetWideNotes.filter((note) => !scoutNotes.includes(note)) : []
+    // Reports this scout touched in the window, so a note naming one by id can name it by title.
+    const reportsById = new Map(reportRows.map(({ report }) => [report.id.toLowerCase(), report]))
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-default">What you've told it</span>
-                <span className="flex-1" />
-                <LeaveScoutNoteButton skillName={skillName} size="xsmall" />
-            </div>
-
             {notesLoading && scoutNotes.length === 0 ? (
                 <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Loading notes…
@@ -171,7 +170,14 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
             ) : (
                 <div className="flex flex-col rounded border border-primary bg-surface-primary">
                     {visible.map((note) => (
-                        <ScoutNoteRow key={note.id} note={note} onDelete={() => deleteNote(note.id)} />
+                        <ScoutNoteRow
+                            key={note.id}
+                            note={note}
+                            content={linkReportIdsInNote(note.content, reportsById, {
+                                truncateUnmatched: !isDirectScoutNote(note),
+                            })}
+                            onDelete={() => deleteNote(note.id)}
+                        />
                     ))}
                     {scoutNotes.length > visible.length && (
                         <div className="border-t border-primary px-3 py-2">
@@ -198,7 +204,15 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
     )
 }
 
-function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => void }): JSX.Element {
+function ScoutNoteRow({
+    note,
+    content,
+    onDelete,
+}: {
+    note: ScoutNoteApi
+    content: string
+    onDelete: () => void
+}): JSX.Element {
     const direct = isDirectScoutNote(note)
     const disabledReason = noteWriteDisabledReason()
 
@@ -222,7 +236,7 @@ function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => 
                         </Tooltip>
                     )}
                 </div>
-                <ScoutNoteContent content={note.content} />
+                <ScoutNoteContent content={content} />
             </div>
             {/* Only a note someone left here is retired here. A derived one is a record of what
                 happened in the inbox, and deleting it would rewrite that. */}

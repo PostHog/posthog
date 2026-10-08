@@ -25,7 +25,9 @@ def _validate_aware_timestamp(timestamp: datetime) -> None:
 def _get_reconstructable_fields() -> frozenset[str]:
     """Derive tracked fields dynamically so new FeatureFlag fields are picked up automatically."""
     excluded = set(common_field_exclusions) | set(field_exclusions.get("FeatureFlag", []))
-    return frozenset(f.name for f in FeatureFlag._meta.get_fields() if f.name not in excluded and hasattr(f, "column"))
+    return frozenset(
+        f.name for f in FeatureFlag._meta.get_fields() if f.name not in excluded and getattr(f, "concrete", False)
+    )
 
 
 RECONSTRUCTABLE_FIELDS = _get_reconstructable_fields()

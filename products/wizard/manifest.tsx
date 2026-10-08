@@ -1,21 +1,23 @@
-/**
- * Product manifest for wizard.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Wizard',
     scenes: {
-        // Define scenes here
+        WizardRuns: {
+            import: () => import('./frontend/WizardRunsScene'),
+            projectBased: true,
+            name: 'Wizard runs',
+            description: 'Run the setup agent in the cloud, then review the changes it produces.',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
     },
     routes: {
-        // Define routes here
+        '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     },
     redirects: {},
     urls: {
-        // Define URL helpers here
+        wizardRuns: (): string => '/wizard/runs',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

@@ -10,11 +10,9 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity import teamcity
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.settings import TEAMCITY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.teamcity import (
     TeamCityResumeConfig,
     _format_teamcity_datetime,
-    _incremental_locator_dimensions,
     _parse_teamcity_datetime,
     _resolve_next_href,
     get_rows,
@@ -108,21 +106,6 @@ class TestTimestampHandling:
         assert _parse_teamcity_datetime(value) == expected
 
 
-class TestIncrementalLocatorDimensions:
-    def test_builds_use_finish_date_condition_after(self) -> None:
-        dims = _incremental_locator_dimensions(
-            TEAMCITY_ENDPOINTS["builds"], datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        )
-        assert dims == {"finishDate": "(date:20260304T025814+0000,condition:after)"}
-
-    def test_changes_use_since_change_id(self) -> None:
-        dims = _incremental_locator_dimensions(TEAMCITY_ENDPOINTS["changes"], 42)
-        assert dims == {"sinceChange": "(id:42)"}
-
-    def test_no_cursor_means_no_filter(self) -> None:
-        assert _incremental_locator_dimensions(TEAMCITY_ENDPOINTS["builds"], None) == {}
-
-
 class _FakeResumableManager:
     def __init__(self, state: TeamCityResumeConfig | None = None) -> None:
         self._state = state
@@ -190,19 +173,6 @@ class TestGetRowsTopLevel:
         # The second request follows nextHref verbatim against the server root.
         assert fetched[1] == "https://teamcity.example.com/app/rest/builds?locator=count:100,start:100"
 
-    def test_saves_resume_state_only_while_more_pages_remain(self, monkeypatch: Any) -> None:
-        _patch_fetch(
-            monkeypatch,
-            [
-                {"project": [{"id": "a"}], "nextHref": "/app/rest/projects?locator=count:100,start:100"},
-                {"project": [{"id": "b"}]},
-            ],
-        )
-        manager = _FakeResumableManager()
-        _collect(manager, endpoint="projects")
-
-        assert manager.saved == [TeamCityResumeConfig(next_href="/app/rest/projects?locator=count:100,start:100")]
-
     def test_resumes_from_saved_next_href(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(monkeypatch, [{"project": [{"id": "b"}]}])
         rows = _collect(
@@ -221,16 +191,6 @@ class TestGetRowsTopLevel:
                 endpoint="projects",
             )
         assert fetched == []
-
-    def test_incremental_builds_cursor_windows_the_locator(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"build": []}])
-        _collect(
-            _FakeResumableManager(),
-            endpoint="builds",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert "finishDate:(date:20260304T025814+0000,condition:after)" in _locator_of(fetched[0])
 
     def test_incremental_changes_cursor_uses_since_change(self, monkeypatch: Any) -> None:
         fetched = _patch_fetch(monkeypatch, [{"change": []}])

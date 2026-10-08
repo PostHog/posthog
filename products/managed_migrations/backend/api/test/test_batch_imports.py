@@ -12,6 +12,8 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
+
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
@@ -698,6 +700,81 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(batch_import.import_config["sink"]["type"], "capture")
         self.assertEqual(batch_import.import_config["sink"]["send_rate"], DEFAULT_SEND_RATE)
 
+    @parameterized.expand(
+        [
+            (
+                "project_secret",
+                {"secret_key": "project-secret"},
+                "https://data.mixpanel.com/api/2.0/export",
+                {"type": "mixpanel_auth", "secret_key_secret": "secret_key"},
+            ),
+            (
+                "service_account",
+                {"access_key": "sa-user", "secret_key": "sa-secret", "mixpanel_project_id": 12345},
+                "https://data.mixpanel.com/api/2.0/export?project_id=12345",
+                {"type": "basic_auth", "username_secret": "api_key", "password_secret": "secret_key"},
+            ),
+            (
+                "service_account_eu",
+                {
+                    "access_key": "sa-user",
+                    "secret_key": "sa-secret",
+                    "mixpanel_project_id": 12345,
+                    "is_eu_region": True,
+                },
+                "https://data-eu.mixpanel.com/api/2.0/export?project_id=12345",
+                {"type": "basic_auth", "username_secret": "api_key", "password_secret": "secret_key"},
+            ),
+        ]
+    )
+    def test_mixpanel_auth_config(self, _name, credentials, expected_base_url, expected_auth):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "mixpanel",
+                "content_type": "mixpanel",
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                **credentials,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["base_url"], expected_base_url)
+        self.assertEqual(batch_import.import_config["source"]["auth"], expected_auth)
+        assert batch_import.secrets is not None
+        self.assertEqual(batch_import.secrets["secret_key"], credentials["secret_key"])
+        if "access_key" in credentials:
+            self.assertEqual(batch_import.secrets["api_key"], credentials["access_key"])
+
+    @parameterized.expand(
+        [
+            ("missing_username", "mixpanel", {"secret_key": "sa-secret"}, "Service account username is required"),
+            (
+                "not_mixpanel",
+                "amplitude",
+                {"access_key": "key", "secret_key": "secret"},
+                "Mixpanel project ID only applies to Mixpanel migrations",
+            ),
+        ]
+    )
+    def test_mixpanel_project_id_validation(self, _name, source_type, credentials, expected_error):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": source_type,
+                "content_type": source_type,
+                "start_date": "2023-01-01T00:00:00Z",
+                "end_date": "2023-01-02T00:00:00Z",
+                "mixpanel_project_id": 12345,
+                **credentials,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(expected_error, str(response.json()))
+
     def test_amplitude_migration_includes_amplitude_specific_fields(self):
         """Test that Amplitude migrations include import_events and generate_identify_events in config"""
         response = self.client.post(
@@ -1124,6 +1201,30 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+        self.assertIn("starts with http:// or https://", response.json()["detail"])
+
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_s3_import_with_blocked_endpoint_url_returns_400(self):
+        # FORCE_URL_VALIDATION defeats both bypasses, which is what this needs: a blocked URL
+        # is well formed, so it only reaches this branch with the real check running. It must
+        # not be told to fix its scheme or drop credentials when it has neither problem.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "endpoint_url": "http://10.0.0.1/",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "endpoint_url")
+        self.assertEqual(response.json()["detail"], UNREACHABLE_HOST_MESSAGE)
 
     @override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
     @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)

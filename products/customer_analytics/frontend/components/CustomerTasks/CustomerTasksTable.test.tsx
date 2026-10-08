@@ -2,7 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -14,6 +17,7 @@ import { CustomerTasksTable } from './CustomerTasksTable'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     accountsList: jest.fn(),
+    accountsRetrieve: jest.fn(),
     customerTasksArchiveCreate: jest.fn(),
     customerTasksCreate: jest.fn(),
     customerTasksList: jest.fn(),
@@ -177,7 +181,7 @@ describe('CustomerTasksTable', () => {
             </Provider>
         )
         expect(findTableHeader(screen.getByRole('table'), 'Account')).not.toBeUndefined()
-        expect(within(filterBar(inbox.container)).queryByText('Choose member')).not.toBeNull()
+        expect(filterBar(inbox.container).querySelector('[data-attr="customer-tasks-assignee-filter"]')).not.toBeNull()
 
         cleanup()
         logic.unmount()
@@ -191,6 +195,25 @@ describe('CustomerTasksTable', () => {
         )
 
         expect(findTableHeader(accountTable.getByRole('table'), 'Account')).toBeUndefined()
-        expect(within(filterBar(accountTable.container)).queryByText('Choose member')).toBeNull()
+        expect(
+            filterBar(accountTable.container).querySelector('[data-attr="customer-tasks-assignee-filter"]')
+        ).toBeNull()
+    })
+    test('shows the due window a link asked for', async () => {
+        cleanup()
+        logic.unmount()
+        router.actions.push(urls.customerAnalyticsTasks(), { due: 'overdue' })
+        logic = customerTasksLogic({ context: 'inbox' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const inbox = render(
+            <Provider>
+                <CustomerTasksTable logic={logic} context="inbox" canViewAll />
+            </Provider>
+        )
+
+        expect(within(filterBar(inbox.container)).queryByText('Overdue')).not.toBeNull()
+        expect(within(filterBar(inbox.container)).queryByText('Any time')).toBeNull()
     })
 })

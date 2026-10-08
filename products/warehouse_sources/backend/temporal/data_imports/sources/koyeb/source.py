@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,11 +44,11 @@ class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KOYEB,
+            name=ExternalDataSourceType.KOYEB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Koyeb",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a Koyeb API token to pull your Koyeb apps, services, deployments, instances, event streams, and usage details into the PostHog Data warehouse.
+            caption="""Enter a Koyeb API token to pull your Koyeb projects, apps, services, deployments, instances, event streams, usage details, and the instance and region catalogs into the PostHog Data warehouse.
 
 Create an API token under [API settings](https://app.koyeb.com/user/settings/api) in the Koyeb console. Tokens are scoped to the organization they were created in.""",
             iconPath="/static/services/koyeb.svg",

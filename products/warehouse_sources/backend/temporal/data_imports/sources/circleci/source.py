@@ -1,15 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci import (
+    CIRCLECI_V2,
+    CIRCLECI_V3,
     CircleCIResumeConfig,
     circleci_source,
     validate_credentials as validate_circleci_credentials,
@@ -36,9 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = ("v2",)
-    default_version = "v2"
-    api_docs_url = "https://circleci.com/docs/api/v2/"
+    supported_versions = (CIRCLECI_V2, CIRCLECI_V3)
+    default_version = CIRCLECI_V3
+    api_docs_url = "https://circleci.com/docs/api/v3/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,20 +49,21 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
             "401 Client Error: Unauthorized for url: https://circleci.com": "CircleCI authentication failed. Please check that your personal API token is valid and not expired.",
             "403 Client Error: Forbidden for url: https://circleci.com": "CircleCI denied access. Please check that your token has access to the organization and its projects.",
             "404 Client Error: Not Found for url: https://circleci.com": "CircleCI resource not found. Please verify the organization slug and that your token can access it.",
+            "410 Client Error: Gone for url: https://circleci.com": "CircleCI no longer serves an API route this source uses. Please contact support to move this source to a supported CircleCI API version.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIRCLE_CI,
+            name=ExternalDataSourceType.CIRCLECI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI",
-            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, and projects into the PostHog Data warehouse.
+            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, projects, deploy components, and users into the PostHog Data warehouse.
 
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). The token has the same access to organizations and projects as your user.""",
             iconPath="/static/services/circleci.png",
             docsUrl="https://posthog.com/docs/cdp/sources/circleci",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -126,7 +127,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_circleci_credentials(config.api_token, config.org_slug)
+        return validate_circleci_credentials(config.api_token, config.org_slug, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CircleCIResumeConfig]:
         return ResumableSourceManager[CircleCIResumeConfig](inputs, CircleCIResumeConfig)
@@ -143,4 +144,5 @@ You can create a personal API token in your [CircleCI user settings](https://app
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

@@ -1,9 +1,9 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -171,6 +171,29 @@ export default meta
 // -- Organization --
 
 export const SettingsOrganizationDetails: Story = { args: { sectionId: 'organization-details' } }
+
+// A saved notice shows both the banner every member sees and the filled-in form with its preview.
+// The scene menu bar replaces the notice area, so it is off here to render the banner.
+export const SettingsOrganizationDetailsWithMemberNotice: Story = {
+    args: { sectionId: 'organization-details' },
+    parameters: {
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.SCENE_MENU_BAR),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    member_notice: {
+                        message:
+                            'We collect <b>usage data</b> from this workspace to meet our compliance obligations. <a href="https://intranet.example.com/data-policy">Read our data policy</a> to learn how we use it.',
+                        action: { label: 'Open privacy portal', url: 'https://privacy.example.com' },
+                    },
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsOrganizationMembers: Story = { args: { sectionId: 'organization-members' } }
 

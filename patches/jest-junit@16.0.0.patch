@@ -1,0 +1,16 @@
+diff --git a/utils/buildJsonResults.js b/utils/buildJsonResults.js
+index 46d2378fb08287b3f8b190a824bd30f63ad19c91..1de3a1bd2dd394d515d61a87ab8ca3ba0aa9d362 100644
+--- a/utils/buildJsonResults.js
++++ b/utils/buildJsonResults.js
+@@ -80,6 +80,11 @@ const generateTestCase = function(junitOptions, suiteOptions, tc, filepath, file
+     testCase.testcase[0]._attr.file = filepath;
+   }
+ 
++  const retryTag = tc.status === 'passed' ? 'flakyFailure' : 'rerunFailure';
++  (tc.retryReasons || []).forEach((failure) => {
++    testCase.testcase.push({ [retryTag]: strip(failure) });
++  });
++
+   // Write out all failure messages as <failure> tags
+   // Nested underneath <testcase> tag
+   if (tc.status === testFailureStatus || tc.status === testErrorStatus) {

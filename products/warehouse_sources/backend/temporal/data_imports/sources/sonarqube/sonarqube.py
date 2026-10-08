@@ -30,6 +30,12 @@ MAX_RETRY_ATTEMPTS = 5
 # worker's memory. A legitimate `ps=500` page is well under this.
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
+# Cap on the error text this source takes from a response body. That text reaches the job log and
+# the `internal_error` field of the activity input that reports a failure, and a Temporal payload
+# has a size limit, so an oversized detail would replace the status it is meant to explain. The
+# sibling sources cap their error detail at the same length.
+MAX_ERROR_DETAIL_CHARS = 500
+
 # Wall-clock ceiling on reading a single response. The per-read timeout resets on every byte,
 # so a server can drip data indefinitely and hold a shared worker; bound the whole transfer so
 # a slow-drip host is cut off. Generous enough that a legitimate page never trips it.
@@ -44,6 +50,16 @@ ISSUES_MAX_PAGES = ISSUES_MAX_RESULTS // PAGE_SIZE
 # window) indefinitely, looping forever and holding a shared import worker; cap the page count and
 # fail non-retryably if it's ever breached. 50M rows is far beyond any real instance.
 MAX_PAGES = 100_000
+
+# SonarQube Cloud is a separate product from the self-hosted Server this source targets, with its
+# own source. Its list endpoints require an `organization` parameter we never send, so every page
+# returns a 400. Both region hosts, and any subdomain of them.
+SONARQUBE_CLOUD_HOSTNAMES = ("sonarcloud.io", "sonarqube.us")
+
+SONARQUBE_CLOUD_ERROR = (
+    "This URL points to SonarQube Cloud, which this source cannot read. "
+    "Connect it with the Sonar Cloud source instead, which asks for your organization key."
+)
 
 
 class SonarqubeRetryableError(Exception):
@@ -65,6 +81,7 @@ def normalize_base_url(host: str) -> str:
     Accepts a bare host or a full URL. Bare hosts default to https; plaintext http:// is rejected
     because the token travels as a bearer header and must stay off the wire in the clear. Rejects
     anything without a hostname so the stored token can only ever be sent to the configured instance.
+    Rejects SonarQube Cloud, which this source cannot sync.
     """
     cleaned = host.strip()
     if not cleaned:
@@ -72,11 +89,19 @@ def normalize_base_url(host: str) -> str:
     if "://" not in cleaned:
         cleaned = f"https://{cleaned}"
     parsed = urlparse(cleaned)
-    if parsed.scheme != "https" or not parsed.hostname:
+    # `parsed.hostname` lowercases the host but keeps a terminal DNS dot, and `sonarcloud.io.`
+    # reaches the same server as `sonarcloud.io`. Strip the dot so the cloud check below cannot be
+    # sidestepped, and so the host we validate is the host we request.
+    hostname = (parsed.hostname or "").rstrip(".")
+    if parsed.scheme != "https" or not hostname:
         raise ValueError(f"Invalid SonarQube server URL (must be https): {host}")
+    if any(hostname == name or hostname.endswith(f".{name}") for name in SONARQUBE_CLOUD_HOSTNAMES):
+        # Cloud accepts the credential probe (/api/authentication/validate answers 200 there), so
+        # without this check setup succeeds and every list endpoint then fails with a 400.
+        raise ValueError(SONARQUBE_CLOUD_ERROR)
     # Keep scheme + netloc only; drop any path/query the user pasted so we control the API paths.
     port = f":{parsed.port}" if parsed.port else ""
-    return f"https://{parsed.hostname}{port}"
+    return f"https://{hostname}{port}"
 
 
 def hostname_of(host: str) -> str:
@@ -124,6 +149,32 @@ def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
         int(data.get("ps", PAGE_SIZE)),
         int(data.get("total", 0)),
     )
+
+
+def _error_detail(body: bytes) -> str:
+    """Return SonarQube's own explanation of a failed request.
+
+    Error responses carry ``{"errors": [{"msg": "..."}]}``. Fall back to the raw body so an
+    unexpected shape still tells the user something. The result is capped at
+    ``MAX_ERROR_DETAIL_CHARS`` because the server chooses its length.
+    """
+    try:
+        payload = json.loads(body or b"null")
+    except ValueError:
+        payload = None
+    # A misconfigured host, or a gateway in front of the instance, can put any JSON value under
+    # `errors`, so confirm it is a list before iterating it. A non-list would raise a TypeError
+    # here, which would replace the status and body this function exists to report.
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    if isinstance(errors, list):
+        messages = [str(error["msg"]) for error in errors if isinstance(error, dict) and error.get("msg")]
+        if messages:
+            return "; ".join(messages)[:MAX_ERROR_DETAIL_CHARS]
+    # Decode only the bytes the cap can use. The body is already in memory and can reach
+    # MAX_RESPONSE_BYTES, so decoding all of it would spend that much again for a string we then
+    # throw away. UTF-8 uses at most 4 bytes per character, so this slice always covers the cap.
+    text = body[: MAX_ERROR_DETAIL_CHARS * 4].decode("utf-8", "replace").strip()
+    return text[:MAX_ERROR_DETAIL_CHARS] if text else "no error message"
 
 
 def _read_bounded(response: requests.Response) -> bytes:
@@ -184,8 +235,12 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         body = _read_bounded(response)
 
         if not response.ok:
-            logger.error(f"SonarQube API error: status={response.status_code}, body={body[:500]!r}, url={url}")
-            response.raise_for_status()
+            detail = _error_detail(body)
+            logger.error(f"SonarQube API error: status={response.status_code}, detail={detail}, url={url}")
+            # Built by hand rather than with `raise_for_status()`: SonarQube sends an empty HTTP
+            # reason phrase, so the library message reads "400 Client Error:  for url: ..." and
+            # drops the server's own explanation of what is wrong.
+            raise requests.HTTPError(f"{response.status_code} Client Error: {detail} for url: {url}", response=response)
 
         return json.loads(body or b"null")
     finally:

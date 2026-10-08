@@ -4,6 +4,7 @@ import { createMemoryHistory } from 'history'
 import { testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,6 +25,7 @@ export function initKeaTests(
     organizationForWindowContext?: OrganizationType
 ): void {
     dayjs.tz.setDefault('UTC')
+    clearAllCachedHasData()
     const existingAppContext = window.POSTHOG_APP_CONTEXT
     const orgToUse = organizationForWindowContext ?? MOCK_DEFAULT_ORGANIZATION
     window.POSTHOG_APP_CONTEXT = {

@@ -1,5 +1,5 @@
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -241,7 +241,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     # read-after-write visibility issue is investigated.
     # ----------------------------------------------------------------------
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_round_trip_creates_precompute_job(self):
         self._seed_frustration_events()
         with self._enable_lazy():
@@ -255,7 +255,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "lazy path returns empty rows despite READY job. Re-enable once the "
         "read-after-write visibility issue tracked there is resolved."
     )
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_lazy_response_matches_live(self):
         """Compare rage / dead / errors per path between the live and lazy paths."""
         self._seed_frustration_events()
@@ -291,7 +291,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             }
         return out
 
-    @freeze_time("2024-01-15T12:00:00Z")
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_stale_served_enqueues_background_revalidation(self):
         # Without the `result.stale` hook this family would serve stale for the whole
         # 6h grace and never refresh (the revalidate half of stale-while-revalidate).

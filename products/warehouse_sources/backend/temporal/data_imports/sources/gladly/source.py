@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gla
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
     REPORT_ENDPOINTS,
-    REPORT_INCREMENTAL_LOOKBACK_SECONDS,
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -67,12 +65,21 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
-            # Raised by `_report_rows` when a report header is missing the columns the stream is
-            # keyed on. Gladly returns the same body for that window on a retry, so stop and tell
-            # the customer rather than replaying it.
+            # Raised by `_report_rows` when a CSV report lacks a keyed column. The same window returns
+            # the same header on a retry, so neither the sync nor the incremental-field picker can
+            # fix it. The copy names Gladly first and PostHog support as the fallback for the
+            # renamed-column case, where the report exists.
             "Gladly report is missing required columns": (
-                "Gladly returned a report without the columns this table syncs on, so there was no "
-                "data to sync. Re-enable the sync to try again, and contact support if it keeps happening."
+                "Gladly returned data that doesn't match the report this table needs, so there was "
+                "no data to sync. This usually means Gladly could not build the report for your "
+                "account. Ask Gladly support to check the report is available for your account. If "
+                "Gladly confirms it is, contact PostHog support."
+            ),
+            "Gladly report unavailable for this account": (
+                "Gladly returned an error every time PostHog asked for the report this table syncs "
+                "from, and the table has never synced. Ask Gladly support to make the report "
+                "available for your account, then re-enable this table. If Gladly confirms it is "
+                "available, contact PostHog support."
             ),
         }
 
@@ -84,17 +91,31 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         # regenerates the report and re-streams it; the resumable window state means only the
         # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
         # tracked-exception-worthy failure.
-        return {"Read timed out"}
+        #
+        # `GladlyRetryableError` (429/5xx from Gladly, raised by both `fetch` and `generate_report`)
+        # is itself retried with backoff inside gladly.py before it can ever reach here; if that
+        # budget still exhausts, Temporal's activity retry re-issues the same request or report
+        # window, so the same self-recovering reasoning applies.
+        return {"Read timed out", "Gladly returned no report", "Gladly API error (retryable)"}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Gladly returned no report": (
+                "Gladly returned an error instead of the report this table syncs from, so this run "
+                "did not finish. This is usually a short problem in Gladly's report generation. The "
+                "sync will run again on its next schedule."
+            ),
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLADLY,
+            name=ExternalDataSourceType.GLADLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Gladly",
             caption="""Connect your Gladly account to pull your customer service data into the PostHog Data warehouse.
 
-Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window, and the conversation and contact timestamps tables come from Gladly's reports as well, reaching back 90 days on their first sync.""",
+Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The conversations table is built from Gladly's Conversation Export report instead, so it is not limited to the 14-day export window. The conversation timestamps, contact timestamps, and work session events tables also come from Gladly's reports and reach back 90 days on their first sync. The teams and inboxes tables are read in full on every sync.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -158,11 +179,11 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             merge_only=REPORT_ENDPOINTS,
             should_sync_default=SHOULD_SYNC_DEFAULT,
         )
-        # Conversation-report rows restate in place as records change, so its
-        # incremental runs re-read a trailing window to catch the restatements.
+        # Conversation and work-session report rows restate in place as records
+        # change, so their incremental runs re-read a trailing window to catch
+        # the restatements.
         for schema in schemas:
-            if schema.name == "conversations":
-                schema.default_incremental_lookback_seconds = REPORT_INCREMENTAL_LOOKBACK_SECONDS
+            schema.default_incremental_lookback_seconds = INCREMENTAL_LOOKBACK_SECONDS.get(schema.name)
         return schemas
 
     def validate_credentials(
@@ -195,4 +216,5 @@ Your organization is the part of your Gladly URL before `.gladly.com`. For `myor
             if inputs.should_use_incremental_field
             else None,
             domain=config.domain,
+            schema_has_ever_synced=inputs.schema_has_ever_synced,
         )

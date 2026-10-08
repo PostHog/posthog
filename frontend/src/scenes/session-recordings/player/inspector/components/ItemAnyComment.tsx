@@ -88,6 +88,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
         <div data-attr="item-notebook-comment" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
                 <LemonButton
+                    data-attr="inspector-comment-continue-in-notebook"
                     type="secondary"
                     onClick={(e) => {
                         selectNotebook(item.data.notebookShortId)
@@ -115,6 +116,7 @@ function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.El
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-end items-center gap-x-1">
                 <LemonButton
+                    data-attr="inspector-comment-delete"
                     type="secondary"
                     onClick={() => {
                         deleteComment(item.data.id)

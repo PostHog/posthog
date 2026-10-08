@@ -2,13 +2,17 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { extractLayerIndex, PathExpansion } from 'scenes/funnels/FunnelFlowGraph/pathFlowUtils'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
 import { EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelPathType } from '~/types'
+
+import {
+    extractLayerIndex,
+    PathExpansion,
+} from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/pathFlowUtils'
 
 import { customerJourneysLogic } from './customerJourneysLogic'
 

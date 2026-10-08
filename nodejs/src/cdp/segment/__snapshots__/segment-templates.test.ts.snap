@@ -8561,7 +8561,7 @@ exports[`segment templates template segment-actions-clevertap matches expected r
       "key": "clevertapPasscode",
       "label": "CleverTap Account Passcode",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -21618,7 +21618,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
       "key": "apiToken",
       "label": "API Token",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27300,7 +27300,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "key": "api_key",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27309,7 +27309,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "key": "server_token",
       "label": "Server Token",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -31768,7 +31768,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
       "key": "apiToken",
       "label": "API Token",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -31901,7 +31901,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
       "key": "apiToken",
       "label": "API Token",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {

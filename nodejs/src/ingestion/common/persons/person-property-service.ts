@@ -32,20 +32,21 @@ export class PersonPropertyService {
     }
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
-        const [person, propertiesHandled] = await this.createOrGetPerson()
+        const [person, propertiesHandled, createAck] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return [person, Promise.resolve()]
+            return [person, createAck]
         }
-        return await this.updatePersonProperties(person)
+        const [updatedPerson, updateAck] = await this.updatePersonProperties(person)
+        return [updatedPerson, Promise.all([createAck, updateAck]).then(() => undefined)]
     }
 
     /**
-     * @returns [Person, boolean that indicates if properties were already handled or not]
+     * @returns [Person, boolean that indicates if properties were already handled or not, creation messages' produce ack]
      */
-    private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+    private async createOrGetPerson(): Promise<[InternalPerson, boolean, Promise<void>]> {
         const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
-            return [person, false]
+            return [person, false, Promise.resolve()]
         }
 
         let properties = {}
@@ -55,7 +56,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        return await this.personCreateService.createPerson(
+        const [createdPerson, created, kafkaMessages] = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -66,6 +67,7 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+        return [createdPerson, created, this.context.produceMessages(kafkaMessages)]
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {

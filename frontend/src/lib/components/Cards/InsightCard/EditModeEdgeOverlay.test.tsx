@@ -86,7 +86,7 @@ describe('EditModeEdgeOverlay', () => {
     it('renders eight edge and corner hit areas with data attr', () => {
         const { getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
 
-        const zones = getAllByTitle('Click to edit layout')
+        const zones = getAllByTitle('Drag to resize')
         expect(zones).toHaveLength(8)
         zones.forEach((zone) => {
             expect(zone).toHaveAttribute('data-attr', 'dashboard-edit-mode-from-card-edge')
@@ -106,7 +106,7 @@ describe('EditModeEdgeOverlay', () => {
         const onEnterEditMode = jest.fn()
 
         const { getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={onEnterEditMode} />)
-        const zones = getAllByTitle('Click to edit layout')
+        const zones = getAllByTitle('Drag to resize')
 
         fireEvent.mouseDown(zones[zoneIndex])
         expect(onEnterEditMode).toHaveBeenCalledTimes(1)
@@ -115,7 +115,7 @@ describe('EditModeEdgeOverlay', () => {
 
     it('reveals all resize handles while any zone is hovered', () => {
         const { container, getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
-        const zones = getAllByTitle('Click to edit layout')
+        const zones = getAllByTitle('Drag to resize')
 
         expect(container.querySelectorAll('.handle')).toHaveLength(0)
 
@@ -128,7 +128,7 @@ describe('EditModeEdgeOverlay', () => {
 
     it('keeps handles shown while moving between overlapping zones', () => {
         const { container, getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
-        const zones = getAllByTitle('Click to edit layout')
+        const zones = getAllByTitle('Drag to resize')
 
         // Enter a corner, then the adjacent edge, before leaving the corner — count must not hit zero.
         fireEvent.mouseEnter(zones[0])
@@ -147,7 +147,7 @@ describe('EditModeEdgeOverlay', () => {
         } {
             const onEnterEditMode = jest.fn()
             const { container, getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={onEnterEditMode} />)
-            const zones = getAllByTitle('Click to edit layout')
+            const zones = getAllByTitle('Drag to resize')
             const scrollable = fakeScrollableElement(SCROLLABLE_BASE)
             container.appendChild(scrollable)
             jest.spyOn(document, 'elementsFromPoint').mockImplementation((x: number, y: number) =>

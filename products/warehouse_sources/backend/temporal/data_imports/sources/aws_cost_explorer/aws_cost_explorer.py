@@ -13,6 +13,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.settings import (
     AWS_COST_EXPLORER_ENDPOINTS,
     CE_CONTENT_TYPE,
@@ -54,7 +56,9 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 class AwsCostExplorerError(Exception):
-    pass
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class AwsCostExplorerThrottledError(AwsCostExplorerError):
@@ -261,8 +265,8 @@ def error_for_response(response: requests.Response) -> AwsCostExplorerError:
     # 429/5xx are already retried by the tracked transport; only the app-level throttling codes
     # (returned as HTTP 400) need a second, bounded retry here.
     if code in THROTTLING_ERROR_CODES:
-        return AwsCostExplorerThrottledError(text)
-    return AwsCostExplorerError(text)
+        return AwsCostExplorerThrottledError(text, code)
+    return AwsCostExplorerError(text, code)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
@@ -308,6 +312,29 @@ def send_operation(
     return response.json()
 
 
+# AWS error code -> the message the setup wizard shows. AWS answers a denied `GetCostAndUsage`
+# with the calling identity's IAM ARN (and so its account id) in the response text, so the raw
+# error can never be surfaced. `AwsCostExplorerSource.get_non_retryable_errors` reuses these for
+# the sync path, keyed on the stringified error.
+VALIDATION_ERROR_MESSAGES: dict[str, str] = {
+    "UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
+    "InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
+    "SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
+    "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
+    "ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
+    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetReservationUtilization and ce:GetSavingsPlansUtilization to the IAM user or role.",
+    "DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",
+    "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
+}
+
+TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
+
+GENERIC_VALIDATION_ERROR = (
+    "AWS didn't accept the Cost Explorer request. Check the access key is active and can read Cost Explorer, "
+    "then try again."
+)
+
+
 def validate_credentials(
     aws_access_key_id: str,
     aws_secret_access_key: str,
@@ -332,7 +359,14 @@ def validate_credentials(
             payload,
         )
     except AwsCostExplorerError as error:
-        return False, str(error)
+        code = error.code or ""
+        if code in VALIDATION_ERROR_MESSAGES:
+            return False, VALIDATION_ERROR_MESSAGES[code]
+        if code in THROTTLING_ERROR_CODES or code.startswith("HTTP 5"):
+            return False, TRANSIENT_VALIDATION_ERROR
+        # An AWS code we don't have copy for: keep the detail where we can still debug from it.
+        capture_exception(error)
+        return False, GENERIC_VALIDATION_ERROR
     except Exception:
         return False, "Could not reach the AWS Cost Explorer API"
 

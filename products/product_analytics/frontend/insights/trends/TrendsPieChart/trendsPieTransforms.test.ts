@@ -1,4 +1,4 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 

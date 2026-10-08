@@ -90,10 +90,13 @@ _invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl
 _invalid_token_lock = threading.Lock()
 _PUSH_INTEGRATION_KINDS = ("firebase", "apns")
 
-VALID_PLATFORMS = ("android", "ios")
+# SDKs send a `platform` field. It is ignored: the property is keyed on app_id and the provider is
+# resolved from app_id alone. Rejecting on it cost a registration per device, because a rejected
+# device re-posts on every app open and never registers.
+
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
-# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
 # load_data_from_request decompresses it.
 MAX_BODY_BYTES = 16 * 1024
@@ -101,6 +104,8 @@ MAX_BODY_BYTES = 16 * 1024
 # Shared instance: deriving the encryption keys runs PBKDF2 (100k iterations per key) and is
 # cached on the instance, so a module-level singleton avoids re-deriving on every request.
 _encrypted_fields = EncryptedFieldMixin()
+
+DEVICE_SUBSCRIPTION_PREFIX = "$device_push_subscription_"
 
 
 # Verification-mode precedence. An app_id can match more than one integration — config identifiers
@@ -204,6 +209,23 @@ def _parse_user_agent_sdk(request: Request) -> _SdkIdentity:
     return _SdkIdentity(name=name[:64], version=version.split()[0][:32])
 
 
+def device_subscription_key(app_id: str, device_token: str) -> str:
+    """Person property key holding one device's push token.
+
+    Naming the device in the key is what lets a person hold several devices on one app; a key on the
+    app alone holds one token, and a second device on the same platform replaces the first.
+
+    The device part is a digest of the token rather than a client-supplied id, so an SDK already in
+    the field lands on the right key without shipping a new build. A device that keeps its token
+    re-registers onto the same key. A device whose token rotates lands on a new key, and the provider
+    reports the old one unregistered on the next send, which prunes it.
+
+    A colon separates the two parts. Neither a Firebase project id nor an APNs bundle id can contain
+    one, so the app part of an existing key can never be read as an app plus a device.
+    """
+    return f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}:{hashlib.sha256(device_token.encode()).hexdigest()[:16]}"
+
+
 def _api_key_fingerprint(api_key: str) -> str:
     # A stable, non-reversible fingerprint of the submitted token, so many invalid-token rejections
     # can be grouped to one source without logging the raw credential. Keyed with the server secret
@@ -240,7 +262,8 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
-        app_id=app_id[:128] if isinstance(app_id, str) else app_id,
+        # A non-string (a large array or object) is dropped rather than serialized whole.
+        app_id=app_id[:128] if isinstance(app_id, str) else None,
         detail=detail,
         sdk_name=sdk.name,
         sdk_version=sdk.version,
@@ -325,6 +348,7 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     team = Team.objects.get_team_from_cache_or_token(api_key)
@@ -339,11 +363,11 @@ def push_subscriptions(request: Request):
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
             api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     distinct_id = data.get("distinct_id")
     device_token = data.get("device_token")
-    platform = data.get("platform")
     app_id = data.get("app_id")
 
     missing_fields = [
@@ -351,7 +375,6 @@ def push_subscriptions(request: Request):
         for field_name, value in [
             ("distinct_id", distinct_id),
             ("device_token", device_token),
-            ("platform", platform),
             ("app_id", app_id),
         ]
         if not value or not isinstance(value, str)
@@ -375,19 +398,7 @@ def push_subscriptions(request: Request):
 
     assert isinstance(distinct_id, str)
     assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
-
-    if platform not in VALID_PLATFORMS:
-        return _rejection_response(
-            request,
-            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-            error_type="validation_error",
-            code="invalid_platform",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
-        )
 
     # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
     # normal case. A cache miss or outage returns None and falls through to the real query.
@@ -410,9 +421,17 @@ def push_subscriptions(request: Request):
             JsonResponse(
                 {
                     "distinct_id": distinct_id,
-                    "platform": platform,
                     "stored": False,
                     "push_enabled": False,
+                    # The status code cannot say this: a 4xx would make every SDK retry on every app
+                    # open. Without a reason in the body, a developer whose token goes nowhere sees a
+                    # success and has no way to tell the difference from a working registration.
+                    "reason": "no_push_channel_for_app_id",
+                    "detail": (
+                        f"This project has no push channel for app_id '{app_id}'. The device token was "
+                        "not stored. Add a push channel whose Firebase project id or APNs bundle id "
+                        "matches this app_id, and check the project the SDK is sending to."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             ),
@@ -422,13 +441,12 @@ def push_subscriptions(request: Request):
     verification_mode = _strictest_verification_mode(integrations)
     if verification_mode in ("optional", "required"):
         identity_token = data.get("identity_token")
-        # Public keys can live on more than one matching integration; try them all (verify picks the
-        # one that validates, then falls back to the legacy shared secret).
+        # Public keys can live on more than one matching integration; try them all.
         public_keys = [
             key for integration in integrations for key in (integration.config.get("push_identity_public_keys") or [])
         ]
         verified = isinstance(identity_token, str) and verify_push_identity_token(
-            identity_token, team, distinct_id, app_id, public_keys=public_keys
+            identity_token, distinct_id, app_id, public_keys=public_keys
         )
         PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
             mode=verification_mode,
@@ -448,17 +466,21 @@ def push_subscriptions(request: Request):
                 app_id=app_id,
             )
 
-    property_key = f"$device_push_subscription_{app_id}"
+    property_key = device_subscription_key(app_id, device_token)
+    # The app-wide key holds a single device for the whole app. A device is reachable there until it
+    # next registers, and the send path reads it, so one stored that way stays addressable.
+    legacy_property_key = f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}"
 
-    # $unset of an absent property is a no-op, so DELETE (logout) is idempotent. device_token is
-    # required for a symmetric contract but isn't matched against the stored value: logout clears
-    # this app_id's subscription regardless of which token the client last held.
+    # $unset of an absent property is a no-op, so DELETE (logout) is idempotent.
     properties: dict[str, dict[str, str] | list[str]]
     if request.method == "POST":
         properties = {"$set": {property_key: _encrypted_fields.encrypt(device_token)}}
         failure_message = "Failed to store push subscription."
     else:
-        properties = {"$unset": [property_key]}
+        # The legacy key goes with it. One device cannot tell whether that key holds its own token or
+        # another device's, so logout clears it as it always did rather than leaving a token behind
+        # that nothing can attribute.
+        properties = {"$unset": [property_key, legacy_property_key]}
         failure_message = "Failed to remove push subscription."
 
     try:
@@ -488,7 +510,6 @@ def push_subscriptions(request: Request):
         JsonResponse(
             {
                 "distinct_id": distinct_id,
-                "platform": platform,
             },
             status=status.HTTP_200_OK,
         ),

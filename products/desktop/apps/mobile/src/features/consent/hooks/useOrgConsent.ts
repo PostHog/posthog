@@ -19,7 +19,7 @@ export function useDesktopBetaTerms(organizationId: string | undefined) {
     queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
     queryFn: () => {
       if (!organizationId) throw new Error("No organization");
-      return getPostHogApiClient().areDesktopBetaTermsAccepted(organizationId);
+      return getPostHogApiClient().areDesktopBetaTermsAccepted();
     },
     enabled: isAuthenticated && !!organizationId,
     staleTime: 5 * 60 * 1000,

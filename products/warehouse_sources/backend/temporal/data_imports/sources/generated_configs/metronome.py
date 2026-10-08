@@ -7,3 +7,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class MetronomeSourceConfig(config.Config):
     api_key: str
+    usage_hourly_history_days: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )
+    usage_daily_history_months: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )

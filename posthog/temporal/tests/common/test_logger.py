@@ -8,7 +8,7 @@ import dataclasses
 from typing import cast
 
 import pytest
-import freezegun
+import time_machine
 
 from django.conf import settings
 from django.test import override_settings
@@ -31,7 +31,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -410,7 +410,7 @@ async def test_logger_binds_activity_context(
             assert info_dict["workflow_run_id"] == activity_environment.info.workflow_run_id
 
 
-@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@time_machine.travel("2023-11-02 10:00:00.123123", tick=False)
 @pytest.mark.parametrize(
     "activity_environment",
     ACTIVITY_INFOS,
@@ -553,7 +553,7 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
     )
 
     for activity in activities:
-        with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+        with time_machine.travel("2024-01-01 00:00:00", tick=False):
             if fut := activity_environment.run(activity):
                 await fut
 
@@ -636,7 +636,7 @@ class TestWorkflow:
         )
 
 
-@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@time_machine.travel("2023-11-02 10:00:00.123123", tick=False)
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_log_queue_from_workflow(queue):
     """Test whether our logger produces into a queue for async processing."""
@@ -708,7 +708,7 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
             activities=[],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+            with time_machine.travel("2024-01-01 00:00:00", tick=False):
                 await workflow_environment.client.execute_workflow(
                     TestWorkflow.run,
                     id=workflow_id,
@@ -959,3 +959,10 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_skips_produce_when_its_loop_is_closed():
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")

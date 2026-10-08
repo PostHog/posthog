@@ -2,8 +2,10 @@ from contextlib import contextmanager
 
 from django.conf import settings
 
+import redis
 import structlog
 from asgiref.sync import async_to_sync
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
@@ -18,9 +20,24 @@ IDEMPOTENCY_KEY_PREFIX = "warehouse_pipelines:processed"
 IDEMPOTENCY_TTL_SECONDS = 72 * 60 * 60  # 3 days (72 hours) same as the topic retention period
 
 
+@retry(
+    retry=retry_if_exception_type((redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.1, max=1),
+    reraise=True,
+)
+def _connect_and_ping(redis_client: redis.Redis) -> None:
+    redis_client.ping()
+
+
 @contextmanager
 def get_redis_client():
-    """Get a Redis client for the data warehouse Redis instance."""
+    """Get a Redis client for the data warehouse Redis instance.
+
+    A bare connection blip here would fall through to the delta history scan on
+    every batch until it clears, which is not cheap (see `is_batch_already_processed`).
+    Absorb a few quick retries first, same as `sync_lock._get_redis_client`.
+    """
     redis_client = None
     try:
         if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
@@ -29,7 +46,7 @@ def get_redis_client():
             )
 
         redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
+        _connect_and_ping(redis_client)
     except Exception as e:
         logger.warning(
             "Redis unavailable for idempotency check — falling back to delta history scan",

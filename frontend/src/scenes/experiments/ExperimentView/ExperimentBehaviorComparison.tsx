@@ -13,7 +13,6 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
@@ -26,6 +25,7 @@ import {
     type ExperimentSessionEventDeltaResponseApi,
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import {
     type ExperimentReplayRecording,
@@ -375,7 +375,8 @@ function HighlightList({
 /** The toggle alone, so it can sit in the tab's filter row while the shelves render below it. */
 export function ExperimentBehaviorComparisonToggle({ experiment }: { experiment: Experiment }): JSX.Element | null {
     const logic = experimentReplayTabLogic({ experiment })
-    const { behaviorComparisonAvailable, behaviorComparisonOpen } = useValues(logic)
+    const { behaviorComparisonAvailable, behaviorComparisonOpen, behaviorComparisonUnavailableReason } =
+        useValues(logic)
     const { toggleBehaviorComparison } = useActions(logic)
 
     if (!behaviorComparisonAvailable) {
@@ -391,6 +392,13 @@ export function ExperimentBehaviorComparisonToggle({ experiment }: { experiment:
             icon={<IconChevronDown className={cn('transition-transform', !behaviorComparisonOpen && '-rotate-90')} />}
             onClick={() => toggleBehaviorComparison()}
             aria-expanded={behaviorComparisonOpen}
+            // Kept visible rather than hidden, so the tab still says the shelf exists and why this
+            // experiment cannot have it.
+            disabledReason={
+                behaviorComparisonUnavailableReason === 'group_aggregated'
+                    ? "Not available for experiments that split by group. What to watch compares people's recordings."
+                    : undefined
+            }
             tooltip="Groups of recordings worth watching: behavior one variant shows more of, friction, and your metric events happening on screen."
             data-attr="experiment-behavior-comparison-toggle"
         >
@@ -414,6 +422,7 @@ export function ExperimentBehaviorComparison({
         sessionEventDeltas,
         sessionEventDeltasLoading,
         sessionEventDeltasError,
+        sessionEventDeltasErrorStatus,
         selectedWatchCard,
         loadedRecordingsById,
     } = useValues(logic)
@@ -427,7 +436,12 @@ export function ExperimentBehaviorComparison({
 
     return (
         <div className="mb-4">
-            {sessionEventDeltasError !== null ? (
+            {/* A 400 is the backend stating that this experiment cannot have a comparison, so it is
+                shown as an answer. Every other failure could pass on a second attempt, so it keeps
+                the retry. */}
+            {sessionEventDeltasError !== null && sessionEventDeltasErrorStatus === 400 ? (
+                <div className="text-xs text-secondary">{sessionEventDeltasError}</div>
+            ) : sessionEventDeltasError !== null ? (
                 <div className="flex items-center gap-2 text-xs text-secondary">
                     <span>Couldn't pick recordings to watch: {sessionEventDeltasError}</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadSessionEventDeltas()}>
@@ -480,8 +494,8 @@ function EmptyShelf({
     onAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
-        // Dated, because only the window was checked: an experiment that once captured exposure
-        // from the browser and no longer does reads the same as one that never did.
+        // Dated, because only the most recently exposed people were checked: an experiment whose
+        // earlier enrollees had sessions reads the same as one whose people never had any.
         const covered = coveredWindow(deltas)
         return (
             <LemonBanner
@@ -493,9 +507,9 @@ function EmptyShelf({
                     onClick: () => onAction('exposure_docs'),
                 }}
             >
-                Nothing to watch here. Between {covered.from} and {covered.to}, people were exposed but no exposure
-                carried a session, so there was nothing to compare. Exposures captured from a client-side SDK carry a
-                session, and exposures captured from a backend SDK don't.
+                Nothing to watch here. None of the people exposed between {covered.from} and {covered.to} had a session
+                we can see since being exposed, looking up to a day after each exposure, so there was nothing to
+                compare. Sessions only exist where a browser or mobile SDK captured events.
             </LemonBanner>
         )
     }
@@ -543,19 +557,23 @@ function WatchShelves({
     onEmptyAction: (action: ExperimentWatchEmptyAction) => void
 }): JSX.Element {
     const emptyReason = deltas.empty_reason
+    const variantCounts = deltas.variants
+        .map((variant) => `${humanFriendlyNumber(variant.persons)} in ${variant.key}`)
+        .join(', ')
     if (emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
-        // No caption: nothing was compared, so there is no covered window to name.
+        // No caption: nothing was compared, so there is no covered window to name. Once a cap bound
+        // the comparison, waiting adds nobody to it, so "check back" is the one promise to avoid.
+        const covered = coveredWindow(deltas)
         return (
             <LemonBanner type="info">
                 Too early to compare behavior: this needs at least{' '}
                 {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants, and has{' '}
-                {deltas.variants
-                    .map((variant) => `${humanFriendlyNumber(variant.persons)} in ${variant.key}`)
-                    .join(', ')}
-                .{' '}
+                {variantCounts}.{' '}
                 {ended
                     ? 'The experiment ended before enough people were exposed to compare them.'
-                    : 'Check back once more people are exposed.'}
+                    : deltas.sessions_truncated
+                      ? `Only people exposed between ${covered.from} and ${covered.to} were compared, so more time helps only if more people are exposed within a stretch that long.`
+                      : 'Check back once more people are exposed.'}
             </LemonBanner>
         )
     }
@@ -668,17 +686,13 @@ function WatchShelves({
     )
 }
 
-/** The window a response covered, worded for the caption and the dated empty state. */
-function coveredWindow(deltas: ExperimentSessionEventDeltaResponseApi): { span: string; from: string; to: string } {
-    // A window that ran out inside a single day reads wrong as two identical dates, and "Aug 3 to
-    // Aug 3" hides that only a few hours were covered.
+/** When the compared people were exposed, worded for the caption and the dated empty states. */
+function coveredWindow(deltas: ExperimentSessionEventDeltaResponseApi): { from: string; to: string } {
+    // A stretch of enrollment that fits inside a single day reads wrong as two identical dates, and
+    // "Aug 3 to Aug 3" hides that only a few hours of enrollment were compared.
     const sameDay = dayjs(deltas.date_from).isSame(dayjs(deltas.date_to), 'day')
     const format = sameDay ? 'MMM D, HH:mm' : 'MMM D'
     return {
-        // Named as a length and not only as two dates: the session ceiling can shrink the window to
-        // hours on a busy experiment, and "between Aug 8 and Aug 10" reads as the whole run to anyone
-        // who doesn't do the subtraction.
-        span: dayjs(deltas.date_from).from(dayjs(deltas.date_to), true),
         from: dayjs(deltas.date_from).format(format),
         to: dayjs(deltas.date_to).format(format),
     }
@@ -686,9 +700,9 @@ function coveredWindow(deltas: ExperimentSessionEventDeltaResponseApi): { span: 
 
 /**
  * Read before the cards, not after them: what a reader has to know to interpret a shelf is that it
- * points at recordings rather than measuring anything, and the window it actually covered. The
- * full method sits behind the info icon. `hasCards` drops the sentence about the cards above an
- * empty state, where the window still matters but there are no cards to describe.
+ * points at recordings rather than measuring anything, and which people it compared. The full
+ * method sits behind the info icon. `hasCards` drops the sentence about the cards above an empty
+ * state, where the compared people still matter but there are no cards to describe.
  */
 function ShelfCaption({
     deltas,
@@ -699,7 +713,8 @@ function ShelfCaption({
 }): JSX.Element {
     const covered = coveredWindow(deltas)
     const details = [
-        'Each variant is compared against the others on which events people did, counting each person once, in the first session they were exposed in. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
+        'Each variant is compared against the others on which events people did, counting each person once, in their first session after they were exposed and only from that moment on. Cards only appear where the difference is too big to be chance, and only with recordings that actually exist.',
+        'A card can offer any session a compared person had within a day of being exposed, so the same person can appear on it twice.',
         'Page views, autocaptures and the exposure event are never compared, since their names describe a mechanism rather than something a person did.',
         deltas.metric_events.length > 0
             ? `The events this experiment measures (${deltas.metric_events.join(', ')}) can get cards too, but a card never says how a metric moved: the Results tab states that.`
@@ -710,11 +725,8 @@ function ShelfCaption({
                   deltas.multiple_variant_persons === 1 ? 'is' : 'are'
               } left out.`
             : null,
-        deltas.used_exposure_fallback
-            ? 'Sessions are matched on the feature flag being active, since no exposure event can be matched to a recording here.'
-            : null,
         deltas.sessions_truncated
-            ? 'The experiment has more exposed sessions than one comparison covers, so the window is the most recent stretch that fits, not the whole run.'
+            ? 'The experiment has more exposed people than one comparison covers, so these are the most recently exposed people that fit, not the whole run.'
             : null,
         deltas.events_truncated ? 'The project has more event types than one comparison can rank.' : null,
     ].filter(Boolean)
@@ -724,7 +736,8 @@ function ShelfCaption({
             <span>
                 {hasCards &&
                     "These highlight which recordings might be worth watching. They don't say which variant is doing better, the way metrics do. "}
-                From about {covered.span} of recorded sessions, between {covered.from} and {covered.to}.
+                From the people exposed between {covered.from} and {covered.to}, each in their first session after being
+                exposed.
             </span>
             <Tooltip
                 title={

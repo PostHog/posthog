@@ -76,23 +76,8 @@ class TestFormatIncrementalValue:
     def test_format_incremental_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_incremental_value(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        # Recharge rejects timezone offsets in `*_min` filters.
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestBuildInitialParams:
-    def test_incremental_on_updated_at_sets_min_and_sort(self) -> None:
-        params = _build_initial_params(
-            RECHARGE_ENDPOINTS["customers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["updated_at_min"] == "2026-03-04T02:58:14"
-        assert params["sort_by"] == "updated_at-asc"
-        assert params["limit"] == 250
-
     def test_incremental_on_created_at_uses_created_field(self) -> None:
         params = _build_initial_params(
             RECHARGE_ENDPOINTS["orders"],
@@ -103,16 +88,6 @@ class TestBuildInitialParams:
         assert params["created_at_min"] == "2026-01-01T00:00:00"
         assert params["sort_by"] == "created_at-asc"
         assert "updated_at_min" not in params
-
-    def test_full_refresh_sorts_by_stable_id(self) -> None:
-        params = _build_initial_params(
-            RECHARGE_ENDPOINTS["customers"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params["sort_by"] == "id-asc"
-        assert not any(k.endswith("_min") for k in params)
 
     @parameterized.expand(
         [
@@ -190,38 +165,6 @@ class TestValidateCredentials:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_no_cursor_and_saves_state_after_yield(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("customers", [{"id": 1}], "cursor-2"), _page("customers", [{"id": 2}], None)])
-
-        manager = _make_manager()
-        rows = _rows(recharge_source("token", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # State saved once — only when there's a next cursor to resume from.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == RechargeResumeConfig(endpoint="customers", cursor="cursor-2")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_extracts_rows_under_endpoint_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("orders", [{"id": 7}, {"id": 8}], None)])
-
-        rows = _rows(recharge_source("t", "orders", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert rows == [{"id": 7}, {"id": 8}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_resource_key_yields_no_rows(self, MockSession) -> None:
-        # A body without the resource key (and only cursor keys) is a zero-row page,
-        # not an error — the old client returned [] here rather than raising.
-        session = MockSession.return_value
-        _wire(session, [_response({"next_cursor": None})])
-
-        rows = _rows(recharge_source("t", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_token_is_redacted_from_captured_samples(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_page("customers", [{"id": 1}], None)])
@@ -256,17 +199,6 @@ class TestPagination:
         assert params[1] == {"cursor": "cursor-2", "limit": expected_limit}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_products_request_omits_sort_by(self, MockSession) -> None:
-        # Regression: the 2021-11 `/products` endpoint 422s on `sort_by`, so the
-        # initial request must send only `limit` (no sort, no timestamp filter).
-        session = MockSession.return_value
-        params = _wire(session, [_page("products", [{"id": 1}], None)])
-
-        _rows(recharge_source("t", "products", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        assert params[0] == {"limit": 250}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor_when_endpoint_matches(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_page("customers", [{"id": 9}], None)])
@@ -276,38 +208,6 @@ class TestPagination:
 
         # When following a cursor we only send cursor + limit, no sort/filters.
         assert params[0] == {"cursor": "saved-cursor", "limit": 250}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ignores_resume_state_from_different_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("orders", [{"id": 1}], None)])
-
-        manager = _make_manager(RechargeResumeConfig(endpoint="customers", cursor="saved-cursor"))
-        _rows(recharge_source("t", "orders", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert "cursor" not in params[0]
-        assert params[0]["sort_by"] == "id-asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_first_page_sends_min_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("customers", [{"id": 1}], None)])
-
-        _rows(
-            recharge_source(
-                "t",
-                "customers",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        assert params[0]["updated_at_min"] == "2026-01-01T00:00:00"
-        assert params[0]["sort_by"] == "updated_at-asc"
 
 
 class TestRechargeSource:

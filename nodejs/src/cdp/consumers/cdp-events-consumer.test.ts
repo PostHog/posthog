@@ -4,6 +4,7 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -27,6 +28,7 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 
 jest.setTimeout(1000)
@@ -113,6 +115,55 @@ describe('CdpEventsConsumer', () => {
 
             const invocations2 = await processor._parseKafkaBatch(events)
             expect(invocations2).toHaveLength(2)
+        })
+    })
+
+    describe('parse failures', () => {
+        beforeEach(async () => {
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        it.each([
+            [
+                'rethrows a retriable team lookup error so the batch is retried',
+                new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
+                true,
+            ],
+            ['drops the message on a non-retriable team lookup error', new Error('event shape is wrong'), false],
+        ])('%s', async (_name, error, shouldRethrow) => {
+            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            if (shouldRethrow) {
+                await expect(processor._parseKafkaBatch(messages)).rejects.toThrow(error)
+            } else {
+                await expect(processor._parseKafkaBatch(messages)).resolves.toEqual([])
+            }
+        })
+
+        it('lets a retriable failure escape the batch handler, and processes the batch on a later attempt', async () => {
+            // The consumer stores offsets only after this handler resolves, so the handler
+            // rejecting is what leaves the batch unacknowledged. A try/catch added around
+            // _parseKafkaBatch here would swallow the rejection and silently restore the old
+            // drop-everything behaviour, which the unit assertion above cannot see.
+            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
+            const getTeam = jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            await expect(handleBatch(messages)).rejects.toThrow(error)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+            getTeam.mockRestore()
+            const { backgroundTask } = await handleBatch(messages)
+            await backgroundTask
+
+            expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
         })
     })
 
@@ -541,6 +592,262 @@ describe('CdpEventsConsumer', () => {
                         },
                     },
                 ])
+            })
+        })
+
+        describe('dead letter queue', () => {
+            const handleBatch = async (messages: any[]): Promise<void> => {
+                const connect = processor['kafkaConsumer'].connect as jest.Mock
+                const { backgroundTask } = await connect.mock.calls[0][0](messages)
+                await backgroundTask
+            }
+
+            beforeEach(() => {
+                hub.CDP_DLQ_ENABLED = true
+            })
+
+            it('parks each event whose filter throws with its own bytes, naming only the function that failed', async () => {
+                const erroringFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                const healthyFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const events = [createIncomingEvent(team.id, {}), createIncomingEvent(team.id, {})]
+
+                await handleBatch(events.map((event, index) => createKafkaMessage(event, { offset: 10 + index })))
+
+                // Two events, so a failure traced back to the wrong message parks the other event's bytes.
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(2)
+                for (const [index, event] of events.entries()) {
+                    const record = parked.find((message) => message.value?.uuid === event.uuid)
+                    expect(record?.headers).toMatchObject({
+                        dlq_step: 'filter',
+                        dlq_team_id: String(team.id),
+                        dlq_offset: String(10 + index),
+                        dlq_hog_function_ids: erroringFunction.id,
+                        dlq_class: 'drift',
+                    })
+                }
+                const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+                expect(queued.map((invocation: any) => invocation.functionId)).toEqual([
+                    healthyFunction.id,
+                    healthyFunction.id,
+                ])
+            })
+
+            it('queues nothing when the batch is abandoned because parking refused', async () => {
+                // A refusal that leaves invocations queued delivers them again on the reprocess.
+                jest.spyOn(processor['deadLetterService'], 'produceForBatch').mockRejectedValue(new Error('topic gone'))
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                    'topic gone'
+                )
+
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it("parks nothing when the failure is the owner's to fix", async () => {
+                // An unstamped throw cannot be attributed, so it is the owner's until the backfill runs.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters_unstamped,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it.each([
+                ['data', 'filters_bad_event_json' as const, JSON.stringify({ payload: '{' })],
+                // The refusal reaches the VM through the standard library, which reports it as `data`.
+                ['data', 'filters_bad_regex' as const, JSON.stringify({ payload: 'abc' })],
+                ['limit', 'filters_never_finish' as const, '{}'],
+            ])(
+                "parks nothing when a %s failure is the owner's",
+                async (_class, fixture, properties) => {
+                    // Both fail the same way on every attempt, so a replay cannot clear either.
+                    await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES[fixture],
+                    })
+
+                    await handleBatch([createKafkaMessage(createIncomingEvent(team.id, { properties }))])
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                },
+                20000
+            )
+
+            it('parks a refusal the compiler said could not happen, and says it is a bug', async () => {
+                // The stamp matches the runtime that is running, so the compiler accepted a program
+                // the VM then refused. Nothing else in the queue means what this means.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    filters: {
+                        ...HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                        bytecode_contract: currentRuntimeContractHash(),
+                    },
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_class: 'bug' })
+            })
+
+            it('parks an event that throws unexpectedly instead of failing the whole batch', async () => {
+                // Nothing in the pipeline expects this, which is the point: an unanticipated bug
+                // used to reject the batch, restart the pod, and stall the partition forever.
+                const fn = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // `mappings` is neither null nor an array, so the builder walks into `.map` on an
+                // object and throws where nothing catches it. Stands in for any shape of data or
+                // bug the per-function handling was not written for.
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeams').mockResolvedValue({
+                    [team.id]: [{ ...fn, mappings: {} as any }],
+                })
+                const event = createIncomingEvent(team.id, {})
+
+                await expect(handleBatch([createKafkaMessage(event)])).resolves.toBeUndefined()
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({
+                    dlq_step: 'process',
+                    // No function named, so a replay rebuilds all of them: none ran this time.
+                    dlq_hog_function_ids: '',
+                })
+            })
+
+            it('fails the batch rather than dropping an unexpected throw while the queue is off', async () => {
+                // The flag ships off, so without this the catch above turns every unanticipated
+                // bug into a silently dropped event instead of a batch that retries.
+                hub.CDP_DLQ_ENABLED = false
+                const fn = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeams').mockResolvedValue({
+                    [team.id]: [{ ...fn, mappings: {} as any }],
+                })
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow()
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it('parks a message it cannot parse', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([createKafkaMessage('not json at all')])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+            })
+
+            it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
+                // Also guards the ordering: the handler has to await the write. Without the await
+                // this rejects in the background and the consumer walks past the event anyway.
+                const erroring = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                expect(erroring.id).toBeDefined()
+                // Spying here returns the observer's own spy, so it is re-armed rather than
+                // restored: restoring uninstalls the observer and every later assertion in this
+                // file passes against an empty recording.
+                mockProducerObserver.produceSpy.mockImplementation(({ topic }) =>
+                    topic === 'cdp_events_dlq_test'
+                        ? Promise.reject(new Error('broker rejected the record'))
+                        : Promise.resolve()
+                )
+
+                try {
+                    await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                        'broker rejected the record'
+                    )
+                } finally {
+                    mockProducerObserver.resetKafkaProducer()
+                }
+            })
+
+            it('parks a message whose failure was not an Error, with a reason a person can read', async () => {
+                // A thrown string carries no `message`. An undefined reason fails the produce, so
+                // the partition stalls on the very message the record exists to keep.
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam').mockRejectedValue('kaboom' as any)
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_reason: 'kaboom' })
+            })
+
+            it('fails the batch on a dependency outage while parsing, rather than parking every event', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const outage: Error & { isRetriable?: boolean } = new Error('Postgres is down')
+                outage.isRetriable = true
+                const lookup = jest
+                    .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
+                    .mockRejectedValue(outage)
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                    'Postgres is down'
+                )
+
+                // The failed batch never reaches the write, so a failure recorded for it would be
+                // parked by the next batch instead.
+                lookup.mockRestore()
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+
+            it('parks nothing when every function builds', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
         })
     })

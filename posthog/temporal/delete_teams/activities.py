@@ -50,8 +50,13 @@ async def delete_groups_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_group_type_mappings_for_teams, _delete_groups_for_teams
 
-        await database_sync_to_async_pool(_delete_groups_for_teams)(inputs.team_ids)
-        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_groups_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
+        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
@@ -59,15 +64,18 @@ async def delete_team_persons_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_persons_for_teams
 
-        await database_sync_to_async_pool(_delete_persons_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_persons_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
 async def delete_batch_exports_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
-        from posthog.models.team.util import delete_batch_exports
+        from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 
-        await database_sync_to_async_pool(delete_batch_exports)(inputs.team_ids)
+        await database_sync_to_async_pool(delete_batch_exports_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
@@ -139,6 +147,19 @@ def _enqueue_clickhouse_deletion(team_ids: list[int], user_id: int) -> None:
 async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         await database_sync_to_async_pool(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
+
+
+def _is_project_pending_deletion(project_id: int) -> bool:
+    from posthog.models.project import Project
+
+    project = Project.objects.only("is_pending_deletion").filter(pk=project_id).first()
+    return project is not None and project.is_deletion_pending()
+
+
+@temporalio.activity.defn
+async def check_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> bool:
+    async with Heartbeater():
+        return await database_sync_to_async_pool(_is_project_pending_deletion)(inputs.project_id)
 
 
 @temporalio.activity.defn

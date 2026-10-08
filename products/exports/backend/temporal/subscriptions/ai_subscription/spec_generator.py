@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
 
-from django.db.models import F, Q
+from django.db.models import BigIntegerField, F, Q
+from django.db.models.functions import Coalesce
 
 import structlog
 from pydantic import ValidationError
@@ -17,7 +18,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
 
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -77,6 +78,7 @@ MAX_PINNED_EVENTS = 25
 # Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+_ESCAPED_NEWLINE_LINE_RE = re.compile(r"(?:\\n|\\r\\n)+")
 
 # Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
 # window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
@@ -92,7 +94,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 6
+AI_QUERY_PLAN_VERSION = 7
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -110,7 +112,75 @@ class StoredPlanInvalidError(Exception):
     frozen). The caller should self-heal by re-planning live rather than failing the delivery — unlike
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+@dataclass(frozen=True)
+class StoredQueryPlanEnvelope:
+    plan: QueryPlan
+    relevant_events: tuple[str, ...]
+
+
+def validate_stored_query_plan(ai_query_plan: object) -> StoredQueryPlanEnvelope:
+    """Validate untrusted JSON from the subscription row and return its reusable inputs."""
+    if not isinstance(ai_query_plan, dict):
+        raise StoredPlanInvalidError("Stored query plan envelope is malformed.")
+
+    version = ai_query_plan.get("version")
+    # bool is an int subclass in Python, but never a meaningful compatibility version.
+    if type(version) is not int:
+        raise StoredPlanInvalidError("Stored query plan version is malformed.")
+    if version != AI_QUERY_PLAN_VERSION:
+        raise StoredPlanInvalidError(
+            "Stored query plan version is stale.",
+            status=AIQueryPlanStatus.PLANNER_UPDATED,
+        )
+
+    try:
+        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
+    except ValidationError as exc:
+        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
+
+    raw_relevant_events = ai_query_plan.get("relevant_events")
+    if raw_relevant_events is None:
+        relevant_events: tuple[str, ...] = ()
+    elif isinstance(raw_relevant_events, list) and all(isinstance(event, str) for event in raw_relevant_events):
+        relevant_events = tuple(raw_relevant_events)
+    else:
+        raise StoredPlanInvalidError("Stored query plan relevant events are malformed.")
+
+    return StoredQueryPlanEnvelope(plan=plan, relevant_events=relevant_events)
+
+
+def get_ai_query_plan_status(ai_query_plan: object | None) -> AIQueryPlanStatus:
+    try:
+        validate_stored_query_plan(ai_query_plan)
+    except StoredPlanInvalidError as exc:
+        return exc.status
+    return AIQueryPlanStatus.FROZEN
+
+
+def resolve_ai_query_plan_status(
+    *,
+    initial_status: AIQueryPlanStatus,
+    freshly_planned: bool,
+    generated_plan_frozen: bool,
+) -> AIQueryPlanStatus:
+    """Resolve the immutable state recorded on a completed delivery."""
+    if not freshly_planned:
+        return AIQueryPlanStatus.FROZEN
+    if not generated_plan_frozen:
+        return AIQueryPlanStatus.NOT_FROZEN
+    if initial_status == AIQueryPlanStatus.PLANNER_UPDATED:
+        return AIQueryPlanStatus.PLANNER_UPDATED
+    return AIQueryPlanStatus.FROZEN
 
 
 @dataclass(frozen=True)
@@ -222,7 +292,10 @@ def sanitize_prompt(raw: str | None) -> str:
     if len(raw.strip()) > PROMPT_MAX_LENGTH:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
-    cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH)
+    cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH, preserve_newlines=True)
+    cleaned = "\n".join(
+        "" if _ESCAPED_NEWLINE_LINE_RE.fullmatch(line) else line for line in cleaned.split("\n")
+    ).strip()
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 
@@ -422,13 +495,16 @@ def _select_relevant_events(
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
+    # One indexed (project, event) query. Without it the planner gets no event-property schema and guesses
     # property names — the top cause of InternalHogQLError.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
     rows = (
-        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        EventProperty.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
         # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,
@@ -626,7 +702,7 @@ def build_frozen_prompt(
     user: User,
     prompt: Optional[str],
     window: ReportWindow,
-    ai_query_plan: dict,
+    ai_query_plan: object,
 ) -> EnrichedPromptSpec:
     """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
@@ -635,23 +711,20 @@ def build_frozen_prompt(
     the subscription.
     """
     cleaned = sanitize_prompt(prompt)
-    if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
-    try:
-        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
-    except ValidationError as exc:
-        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
+    stored_plan = validate_stored_query_plan(ai_query_plan)
     # Rebuild the property-aware blob from the events the plan was built against — without them the
     # frozen fixer would only see event names, not the per-event properties it needs to repair a
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
     # silently running with an empty list.
-    relevant_events = ai_query_plan.get("relevant_events") or []
     context_blob = build_context_blob(
         team,
         window,
-        relevant_events=relevant_events,
+        relevant_events=list(stored_plan.relevant_events),
         core_memory_text=_load_core_memory_text(team, user),
     )
     return EnrichedPromptSpec(
-        cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
+        cleaned_prompt=cleaned,
+        context_blob=context_blob,
+        plan=stored_plan.plan,
+        relevant_events=list(stored_plan.relevant_events),
     )

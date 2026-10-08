@@ -1,7 +1,9 @@
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -23,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
     NORTHPASS_ENDPOINTS,
     QUIZ_COMPLETED_EVENT_TYPE,
+    QUIZ_LOG_EMPTY_MESSAGE,
+    QUIZ_LOG_ENDPOINTS,
     NorthpassEndpointConfig,
 )
 
@@ -33,6 +37,35 @@ NORTHPASS_BASE_URL = "https://api.northpass.com/v2"
 NORTHPASS_HOST = "api.northpass.com"
 # Northpass doesn't publish its max page size; 100 is a conventional cap that keeps payloads small.
 PAGE_SIZE = 100
+
+
+class NorthpassQuizLogEmptyError(Exception):
+    """The sent-webhooks log served no quiz-completed event, so the quiz tables have nothing to build from."""
+
+
+class NorthpassPaginator(JSONResponsePaginator):
+    """Follow JSON:API ``links.next``, and stop on an empty page even when a next link is present.
+
+    ``/webhooks`` keeps serving a next link after its last message, so a walk that trusts the link
+    alone never ends.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="links.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
+def _require_quiz_attempts(
+    pages: Iterable[list[dict[str, Any]]], endpoint: str, attempts_seen: set[str]
+) -> Iterator[list[dict[str, Any]]]:
+    yield from pages
+    if not attempts_seen:
+        raise NorthpassQuizLogEmptyError(f"{QUIZ_LOG_EMPTY_MESSAGE}, so {endpoint} has no rows to sync")
 
 
 @dataclasses.dataclass
@@ -125,7 +158,7 @@ def _promote_relationship_ids(row: dict[str, Any], relationship_id_fields: dict[
     return row
 
 
-def _make_quiz_attempt_flattener() -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+def _make_quiz_attempt_flattener(seen: set[str]) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
     """Reshape sent-webhooks log messages into completed-quiz-attempt rows.
 
     The v2 API lists no quiz attempts directly; the quiz-completed event a ``/webhooks`` message
@@ -137,7 +170,6 @@ def _make_quiz_attempt_flattener() -> Callable[[dict[str, Any]], dict[str, Any] 
     attempt UUID, or when the attempt was already seen this run — the log stores one message per
     subscribed webhook endpoint, so the same attempt can appear more than once.
     """
-    seen: set[str] = set()
 
     def _flatten(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         message = item.get("attributes")
@@ -191,11 +223,11 @@ def _collection_params(config: NorthpassEndpointConfig) -> dict[str, Any]:
 
 
 def _collection_data_map(
-    endpoint: str,
+    endpoint: str, attempts_seen: set[str]
 ) -> Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]:
     """Bespoke row transform for a collection endpoint, or None when raw JSON:API items are fine."""
     if endpoint == "quiz_attempts":
-        return _make_quiz_attempt_flattener()
+        return _make_quiz_attempt_flattener(attempts_seen)
     return None
 
 
@@ -215,7 +247,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
         # JSON:API paginates via a `links.next` URL embedded in the response body.
-        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        "paginator": NorthpassPaginator(),
         # Pin every request to Northpass's host and refuse redirects, so a spoofed `next` link or a
         # 30x can't forward the credentialed X-Api-Key header off-host.
         "allowed_hosts": [NORTHPASS_HOST],
@@ -231,8 +263,9 @@ def _top_level_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    attempts_seen: set[str],
 ) -> Resource:
-    data_map = _collection_data_map(endpoint) or (
+    data_map = _collection_data_map(endpoint, attempts_seen) or (
         _make_relationship_flattener(config.relationship_id_fields) if config.relationship_id_fields else _flatten_item
     )
     rest_config: RESTAPIConfig = {
@@ -286,6 +319,7 @@ def _fan_out_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    attempts_seen: set[str],
 ) -> Resource:
     if config.fan_out_parent is None or config.parent_id_field is None:
         raise ValueError(f"_fan_out_source called with non-fan-out config: {config.name}")
@@ -308,7 +342,7 @@ def _fan_out_source(
                 },
                 # Parents that aren't plain JSON:API collections (the sent-webhooks log backing
                 # quiz_attempts) are reshaped before the child resolves ids from their rows.
-                "data_map": _collection_data_map(parent_name),
+                "data_map": _collection_data_map(parent_name, attempts_seen),
             },
             {
                 "name": endpoint,
@@ -360,19 +394,40 @@ def northpass_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = NORTHPASS_ENDPOINTS[endpoint]
+    attempts_seen: set[str] = set()
 
     if config.fan_out_parent is not None:
         resource = _fan_out_source(
-            api_key, endpoint, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
+            api_key,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value,
+            attempts_seen,
         )
     else:
         resource = _top_level_source(
-            api_key, endpoint, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
+            api_key,
+            endpoint,
+            config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value,
+            attempts_seen,
         )
+
+    items: Callable[[], Iterable[list[dict[str, Any]]]]
+    if endpoint in QUIZ_LOG_ENDPOINTS:
+        items = lambda: _require_quiz_attempts(resource, endpoint, attempts_seen)
+    else:
+        items = lambda: resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

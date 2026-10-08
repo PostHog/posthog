@@ -28,14 +28,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -70,7 +70,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults[new_events_schema]
@@ -102,14 +103,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -144,7 +145,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more[new_events_schema]
@@ -176,14 +178,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -218,7 +220,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global[new_events_schema]
@@ -250,14 +253,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -292,7 +295,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording[new_events_schema]
@@ -324,14 +328,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -366,7 +370,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person[new_events_schema]
@@ -398,14 +403,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -440,7 +445,8 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global[new_events_schema]
@@ -472,14 +478,14 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                               AND NOT (kv.2 = '[]'
-                                                                                                                        AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}') AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
-               event_source.`$session_id` AS session_id,
-               lagInFrame(event_source.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
-                                                               ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
+               event_source.properties.`$session_id` AS session_id,
+               lagInFrame(event_source.properties.`$session_id`, 1) OVER (PARTITION BY if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id)
+                                                                          ORDER BY toTimeZone(event_source.timestamp, 'UTC') ASC) AS prev_session_id
         FROM events_json AS event_source
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -514,6 +520,7 @@
                      optimize_rewrite_aggregate_function_with_if=0,
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+                     use_hive_partitioning=0,
+                     json_type_escape_dots_in_keys=1
   '''
 # ---

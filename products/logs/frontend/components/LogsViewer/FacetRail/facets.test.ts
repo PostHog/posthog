@@ -10,6 +10,8 @@ import {
     facetScopeSignature,
     filterFacetsByName,
     mergeSelectedIntoOptions,
+    presenceProbeKeys,
+    presenceProbeWindow,
     resolveFacets,
 } from './facets'
 
@@ -311,6 +313,45 @@ describe('facets', () => {
             // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
             const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
             expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('presenceProbeKeys', () => {
+        it('asks about every curated resource key and alias, once each', () => {
+            expect(presenceProbeKeys(CONFIGURED_FACETS)).toEqual([
+                'deployment.environment.name',
+                'deployment.environment',
+                'env',
+                'k8s.namespace.name',
+                'k8s.deployment.name',
+                'k8s.pod.name',
+                'k8s.node.name',
+                'host.name',
+            ])
+        })
+
+        // Each key in the probe must keep its facet when resolveFacets receives it.
+        it.each(presenceProbeKeys(CONFIGURED_FACETS))('a reported %s keeps a resource facet on it', (key) => {
+            const resolved = resolveFacets(CONFIGURED_FACETS, [key])
+            expect(resolved.some((f) => f.source.type === 'resourceAttribute' && f.source.key === key)).toBe(true)
+        })
+    })
+
+    describe('presenceProbeWindow', () => {
+        it.each<
+            [string, { date_from?: string | null; date_to?: string | null }, ReturnType<typeof presenceProbeWindow>]
+        >([
+            ['no selection uses the default window', {}, null],
+            ['a recent relative selection uses the default window', { date_from: '-1h' }, null],
+            ['a recent absolute selection uses the default window', { date_from: new Date().toISOString() }, null],
+            ['an older relative selection is probed as-is', { date_from: '-30d' }, { date_from: '-30d' }],
+            [
+                'an older absolute selection keeps its end',
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+            ],
+        ])('%s', (_, range, expected) => {
+            expect(presenceProbeWindow(range)).toEqual(expected)
         })
     })
 

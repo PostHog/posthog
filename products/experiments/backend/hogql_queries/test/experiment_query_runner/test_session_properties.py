@@ -1,6 +1,6 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -22,7 +22,7 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.bas
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
     @snapshot_clickhouse_queries
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_session_duration_not_multiplied_across_events(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -147,7 +147,7 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         assert control_variant.number_of_samples == 1
         assert test_variant.number_of_samples == 1
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_multiple_sessions_per_user_sums_correctly(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -236,7 +236,7 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         assert test_variant.sum == 180
         assert test_variant.number_of_samples == 1
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_session_duration_backwards_compat_without_property_type(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)

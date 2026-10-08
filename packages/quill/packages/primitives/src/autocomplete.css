@@ -107,31 +107,6 @@
         scroll-padding-block: var(--spacing, 0.25rem);
     }
 
-    /*
-     * Empty state visibility. Hide by default; show only when a sibling
-     * List has zero `[role='option']` descendants. Targets `[role='option']`
-     * rather than `[data-slot='autocomplete-item']` because base-ui's
-     * render-prop merging onto Button drops our slot attribute, but ARIA
-     * roles are always set by base-ui internally.
-     *
-     * Two selectors cover Empty placed before OR after the List in the
-     * DOM, without needing a common ancestor — works in popover mode
-     * (Default) and inline mode (CommandPalette inside Dialog).
-     *
-     * `MenuEmpty` is nested as a CHILD of `<Autocomplete.Empty>` (not
-     * passed via the `render` prop) so the parent's `display: none`
-     * collapses the whole subtree without needing `!important` to outrank
-     * `MenuEmpty`'s `inline-flex` from `buttonVariants`.
-     */
-    .quill-autocomplete__empty {
-        display: none;
-    }
-
-    .quill-autocomplete__empty:has(~ [data-slot='autocomplete-list']:not(:has([role='option']))),
-    [data-slot='autocomplete-list']:not(:has([role='option'])) ~ .quill-autocomplete__empty {
-        display: flex;
-    }
-
     .quill-autocomplete__list[data-empty] {
         padding: 0;
     }

@@ -5,7 +5,6 @@ import { IconExternal, IconList } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { identifierToHuman } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -29,7 +28,7 @@ export function isSignalsScoutExtra(value: unknown): value is Record<string, unk
         return false
     }
     const extra = value as Record<string, unknown>
-    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string' && typeof extra.confidence === 'number'
+    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string'
 }
 
 /** A single evidence row: source icon + eyebrow, the summary, and an optional deep link. */
@@ -76,13 +75,12 @@ function MonoId({ label, value, to }: { label: string; value: string; to?: strin
     )
 }
 
-/** Richest inbox card: a cross-source scout finding with confidence, hypothesis, evidence, and run metadata. */
+/** Richest inbox card: a cross-source scout finding with hypothesis, evidence, and run metadata. */
 export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element {
     const [showAllEvidence, setShowAllEvidence] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtraApi
 
-    const confidencePercent = Math.round(extra.confidence * 100)
     const hypothesis = extra.hypothesis?.trim() || signal.content
 
     const evidence = extra.evidence ?? []
@@ -107,15 +105,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
                 </Link>
             }
         >
-            {/* Confidence meter. */}
-            <div className="mb-2">
-                <div className="flex items-center justify-between text-xs text-tertiary mb-0.5">
-                    <span>Confidence</span>
-                    <span className="tabular-nums">{confidencePercent}%</span>
-                </div>
-                <LemonProgress percent={confidencePercent} />
-            </div>
-
             {/* Hypothesis — the prominent narrative of the finding. */}
             {hypothesis && (
                 <LemonMarkdown className="text-sm text-primary mb-2" disableImages>

@@ -11,6 +11,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _inline_email_styles,
     _linkify_citations,
     _render_metrics_block_html,
+    _render_metrics_slack_blocks,
     _render_section_html,
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
@@ -306,8 +307,10 @@ class TestInlineEmailStyles(SimpleTestCase):
 
 
 class TestMetricsBlockHtml(SimpleTestCase):
-    def test_renders_all_counts(self):
+    @parameterized.expand(["boolean", "numeric"])
+    def test_renders_all_counts(self, output_type: str) -> None:
         metrics = EvalReportMetrics(
+            output_type=output_type,
             total_runs=100,
             result_counts={"pass": 80, "fail": 18, "na": 2},
             period_start="2026-04-08T14:00:00+00:00",
@@ -320,6 +323,11 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertIn("2", html)  # na_count
         self.assertIn("81.63%", html)
         self.assertIn("Apr 08, 2026 14:00 UTC", html)
+        slack_text = _render_metrics_slack_blocks(metrics)[0]["text"]["text"]
+        self.assertIn("Pass: 80", slack_text)
+        self.assertIn("Fail: 18", slack_text)
+        self.assertIn("N/A: 2", slack_text)
+        self.assertIn("Pass rate: 81.63%", slack_text)
 
     def test_renders_delta_up(self):
         metrics = EvalReportMetrics(
@@ -580,6 +588,37 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_root_message_carries_the_followup_invite(self, mock_integration, mock_slack_integration):
+        # The invite goes on the root message only, so a reader meets it once per report rather
+        # than under every section. Which of its two variants renders is the shared builder's
+        # decision, tested in products/slack_app; here it only has to be attached.
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#evals"}]
+        errors = deliver_slack_report(
+            self._make_report_run(
+                sections=[
+                    ReportSection(title="Summary", content="All good."),
+                    ReportSection(title="Details", content="More detail."),
+                ]
+            ),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        root_blocks = client.chat_postMessage.call_args_list[0].kwargs["blocks"]
+        self.assertIn("@PostHog", root_blocks[-1]["elements"][0]["text"])
+        self.assertNotIn("blocks", client.chat_postMessage.call_args_list[1].kwargs)
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.models.integration.Integration")

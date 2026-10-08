@@ -1,6 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { apiValueToMathType } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import type { MathSelectorProps } from './types'
 import { useMathSelectorOptions } from './useMathSelectorOptions'

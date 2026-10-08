@@ -1,7 +1,6 @@
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
@@ -9,8 +8,8 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notebooks.backend.facade.content import (
     TipTapContent,
     TipTapNode,
+    convert_notebook_content_to_markdown,
     create_bullet_list,
-    create_empty_paragraph,
     create_heading_with_text,
     create_paragraph_with_text,
 )
@@ -31,32 +30,28 @@ class NotebookRenderContext:
     report: InvestigationReport
 
 
-def build_investigation_notebook(ctx: NotebookRenderContext) -> dict[str, Any]:
-    """Render the agent's InvestigationReport into a TipTap document.
+def build_investigation_markdown(ctx: NotebookRenderContext) -> str:
+    """Render the agent's InvestigationReport into notebook markdown.
 
     Keeps presentation concerns out of the agent loop. Embedded insight uses the
-    SavedInsightNode ph-query form so the notebook always renders current data.
+    SavedInsightNode Query form so the notebook always renders current data.
     """
     content: TipTapContent = []
 
     content.append(create_heading_with_text(f"Investigation — {ctx.alert.name}", level=1))
     content.append(create_paragraph_with_text(_summary_line(ctx)))
-    content.append(create_empty_paragraph())
 
     content.append(create_heading_with_text("Verdict", level=2))
     verdict_text = VERDICT_LABEL.get(ctx.report.verdict, ctx.report.verdict)
     content.append(create_paragraph_with_text(f"{verdict_text} — {ctx.report.summary}"))
-    content.append(create_empty_paragraph())
 
     metric_meaning = ctx.report.metric_meaning.strip()
     if metric_meaning:
         content.append(create_heading_with_text("What this metric measures", level=2))
         content.append(create_paragraph_with_text(metric_meaning))
-        content.append(create_empty_paragraph())
 
     content.append(create_heading_with_text("Source insight", level=2))
     content.append(_saved_insight_query_node(ctx.insight))
-    content.append(create_empty_paragraph())
 
     if ctx.report.hypotheses:
         content.append(create_heading_with_text("Hypotheses", level=2))
@@ -70,18 +65,16 @@ def build_investigation_notebook(ctx: NotebookRenderContext) -> dict[str, Any]:
             evidence = [e for e in hypothesis.evidence if e and e.strip()]
             if evidence:
                 content.append(create_bullet_list(evidence))
-            content.append(create_empty_paragraph())
 
     recommendations = [r for r in ctx.report.recommendations if r and r.strip()]
     if recommendations:
         content.append(create_heading_with_text("Recommendations", level=2))
         content.append(create_bullet_list(recommendations))
-        content.append(create_empty_paragraph())
 
-    content.append(create_heading_with_text("Run details", level=3, collapsed=True))
+    content.append(create_heading_with_text("Run details", level=3))
     content.append(create_paragraph_with_text(_footer_line(ctx)))
 
-    return {"type": "doc", "content": content}
+    return convert_notebook_content_to_markdown({"type": "doc", "content": content})
 
 
 def _summary_line(ctx: NotebookRenderContext) -> str:
@@ -114,7 +107,6 @@ def _saved_insight_query_node(insight: Insight) -> TipTapNode:
     return {
         "type": "ph-query",
         "attrs": {
-            "height": None,
             "title": insight.name or insight.short_id,
             "nodeId": str(uuid.uuid4()),
             "query": json.dumps(query),

@@ -1,4 +1,7 @@
+import json
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -492,6 +495,8 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
                 "$session_id": session_id,
                 "$recording_status": "disabled",
                 "$sdk_debug_replay_internal_buffer_length": 0,
+                "$session_recording_remote_config": {"sampleRate": 0.5},
+                "$set": {"email": "person@example.com"},
                 "$current_url": "https://example.com/private-path",
                 "email": "person@example.com",
             },
@@ -502,7 +507,29 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         assert properties == {
             "$recording_status": "disabled",
             "$sdk_debug_replay_internal_buffer_length": 0,
+            "$session_recording_remote_config": {"sampleRate": 0.5},
         }
+
+    def test_native_schema_filters_restricted_diagnostic_properties(self) -> None:
+        restricted = {"$recording_status", "$sdk_debug_secret"}
+        temporary_properties = json.dumps(
+            {"$recording_status": "hidden", "$sdk_debug_secret": "hidden", "$sdk_debug_visible": "visible"}
+        )
+        with (
+            patch("posthog.session_recordings.queries.session_replay_events.use_new_events_schema", return_value=True),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.get_restricted_property_names",
+                return_value=restricted,
+            ),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.sync_execute",
+                return_value=[(temporary_properties,)],
+            ) as execute,
+        ):
+            properties = get_latest_session_event_properties("session-id", self.team, self.user)
+
+        assert properties == {"$sdk_debug_visible": "visible"}
+        assert "properties.`$recording_status`" not in execute.call_args.args[0]
 
     def test_returns_none_when_session_has_no_events(self) -> None:
         session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))

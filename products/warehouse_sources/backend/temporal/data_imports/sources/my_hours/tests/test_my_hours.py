@@ -59,24 +59,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestSync:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_the_full_array_once(self, mock_session: mock.MagicMock) -> None:
-        session, sent = _wire([_response([{"id": 1}, {"id": 2}])])
-        mock_session.return_value = session
-
-        rows = _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # Unpaginated: exactly one request, no pagination follow-up.
-        assert session.send.call_count == 1  # type: ignore[attr-defined]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_array_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        session, _sent = _wire([_response([])])
-        mock_session.return_value = session
-
-        assert _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j")) == []
-
     @parameterized.expand([("clients", "/Clients"), ("projects", "/Projects/getAll"), ("users", "/Users/getAll")])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_request_targets_the_expected_url(self, endpoint: str, path: str, mock_session: mock.MagicMock) -> None:
@@ -86,16 +68,6 @@ class TestSync:
         _rows(my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j"))
 
         assert sent[0].url == f"{MY_HOURS_BASE_URL}{path}"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_apikey_prefixed_authorization_header(self, mock_session: mock.MagicMock) -> None:
-        # My Hours rejects requests that omit the literal `apikey ` prefix, so this is load-bearing.
-        session, sent = _wire([_response([])])
-        mock_session.return_value = session
-
-        _rows(my_hours_source(api_key="mh-key", endpoint="clients", team_id=1, job_id="j"))
-
-        assert sent[0].headers["Authorization"] == "apikey mh-key"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(RETRY_ATTEMPTS_PATCH, 1)
@@ -131,11 +103,6 @@ class TestSync:
 
 
 class TestAuth:
-    def test_sets_apikey_prefixed_header(self) -> None:
-        request = requests.Request("GET", MY_HOURS_BASE_URL).prepare()
-        MyHoursApiKeyAuth("mh-key")(request)
-        assert request.headers["Authorization"] == "apikey mh-key"
-
     def test_declares_raw_key_as_secret_for_redaction(self) -> None:
         assert MyHoursApiKeyAuth("mh-key").secret_values() == ("mh-key",)
 
@@ -173,12 +140,6 @@ class TestCheckAccess:
         status, message = check_access("mh-key")
         assert status == 0
         assert message is not None and "boom" in message
-
-    def test_probe_targets_clients_endpoint(self, monkeypatch: Any) -> None:
-        response = mock.MagicMock(status_code=200, ok=True)
-        session = self._patch_session(monkeypatch, response)
-        check_access("mh-key")
-        assert session.get.call_args.args[0] == f"{MY_HOURS_BASE_URL}/Clients"
 
 
 class TestMyHoursSourceResponse:

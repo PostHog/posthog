@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
@@ -323,6 +324,60 @@ class TestHogFunctionDrafts(DraftTestCase):
         stored_draft = HogFunction.objects.get(id=function_id).draft
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
+
+    @parameterized.expand([("inputs",), ("mappings",)])
+    def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
+        function_id = self._create(enabled=False)
+        payload = (
+            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"secret": True}}}
+            if field == "inputs"
+            else {
+                "mappings": [
+                    {
+                        "inputs_schema": [{"key": "message", "type": "string"}],
+                        "inputs": {"message": {"value": "example-private-input"}},
+                    }
+                ]
+            }
+        )
+
+        self._live_edit(function_id, payload)
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changes = [
+            change
+            for log in logs
+            for change in (log.detail["changes"] if log.detail else [])
+            if change["field"] == field
+        ]
+        assert changes
+        if field == "inputs":
+            assert all(change["after"]["url"] == "changed" for change in changes)
+            assert all(set(change["after"].values()) <= {"masked", "changed"} for change in changes)
+        else:
+            assert all(change["after"] == "masked" for change in changes)
+        assert all("private-input" not in str(log.detail) for log in logs)
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_site_function_transpiled_output_is_not_written_to_activity_logs(self, _mock_transpile) -> None:
+        function_id = self._create(
+            type="site_destination",
+            hog="export function onEvent() {}",
+            inputs_schema=[{"key": "url", "type": "string", "label": "Webhook URL", "required": True}],
+            inputs={"url": {"value": "https://example.com/private-input"}},
+        )
+
+        self._live_edit(function_id, {"hog": "export function onEvent() { return 1; }"})
+
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="HogFunction", item_id=function_id, activity="updated"
+        )
+        changed_fields = {change["field"] for log in logs for change in (log.detail["changes"] if log.detail else [])}
+        assert "hog" in changed_fields
+        assert "transpiled" not in changed_fields
+        assert all("private-input" not in str(log.detail) for log in logs)
 
     def test_enabling_with_a_draft_open_is_refused_for_coercible_booleans(self):
         function_id = self._create()

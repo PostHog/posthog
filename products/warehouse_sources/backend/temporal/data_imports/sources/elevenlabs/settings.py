@@ -109,6 +109,21 @@ ELEVENLABS_ENDPOINTS: dict[str, ElevenLabsEndpointConfig] = {
         sort_mode="asc",
         extra_params={"sort": "created_at_unix", "sort_direction": "asc"},
     ),
+    # Workspace-wide Conversational AI triage tickets. Mutable (status, priority, assignee, comments) with
+    # no updated-since filter, so full refresh only. The API has no sort direction param and returns
+    # newest-created first.
+    "triage_tickets": ElevenLabsEndpointConfig(
+        name="triage_tickets",
+        path="/v1/convai/triage-tickets",
+        items_key="agent_conversation_tickets",
+        cursor_param="cursor",
+        cursor_response_key="next_cursor",
+        primary_keys=["agentqa_ticket_id"],
+        page_size=100,
+        partition_key="created_at_unix_secs",
+        sort_mode="desc",
+        extra_params={"sort_by": "created_at"},
+    ),
 }
 
 ENDPOINTS = tuple(ELEVENLABS_ENDPOINTS.keys())

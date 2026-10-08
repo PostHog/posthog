@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,7 +45,7 @@ class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NETLIFY,
+            name=ExternalDataSourceType.NETLIFY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Netlify",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -121,10 +119,7 @@ Create a personal access token under **User settings > Applications > Personal a
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_netlify_credentials(config.api_token):
-            return True, None
-
-        return False, "Invalid Netlify personal access token"
+        return validate_netlify_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NetlifyResumeConfig]:
         return ResumableSourceManager[NetlifyResumeConfig](inputs, NetlifyResumeConfig)

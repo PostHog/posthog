@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 
 from posthog.schema import NativeMarketingSource
 
@@ -19,7 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 )
 from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
-    EXTERNAL_SOURCE_TYPE_TO_NATIVE,
+    get_enabled_native_integrations,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
@@ -124,7 +125,7 @@ async def get_data_source_health(
     `marketing_analytics_config.sources_map` instead of triggering another
     Postgres roundtrip. None → service loads it itself.
     """
-    targets = EXTERNAL_SOURCE_TYPE_TO_NATIVE
+    targets = await sync_to_async(get_enabled_native_integrations, thread_sensitive=False)(team)
     if source_type is not None:
         targets = {k: v for k, v in targets.items() if k == source_type}
 

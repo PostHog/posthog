@@ -16,9 +16,13 @@ For a step-by-step walkthrough of setting up your first filter, see [how to filt
 Go to **Settings → Project → Filter out internal and test users**.
 You need to be a project admin to change these settings.
 
-The filters you add here describe the people you want to exclude.
-Each entry is a property filter, and you can add as many as you need.
-An event or person is treated as internal if it matches any of them.
+Each entry you add here is a property filter describing the traffic you want to **keep**.
+When the filter is switched on, an event is shown only if it matches every entry, so write each one as a negative condition, such as `does not contain` or `not in`.
+An entry with a positive operator, such as `contains` or `equals`, keeps only the matching events and hides everything else.
+The settings page flags these as inclusive filters, but they are allowed, because occasionally you want to look at internal traffic on its own.
+
+For example, to hide your own team, add `email does not contain @example.com`.
+Adding `email contains @example.com` instead shows nothing but your team.
 
 Three kinds of entry are supported:
 
@@ -78,6 +82,12 @@ Running it the other way sets every insight to the opposite value, rather than r
 
 To recover a single insight, open its activity log.
 Each change is recorded with the insight's previous query, so you can see what it was set to and put it back by hand.
+
+## Changing the filters later
+
+Edits to the filter list apply to every query that has the toggle on, but they do not recompute results that are already cached.
+An insight, dashboard, or web analytics page you looked at before the change keeps showing the earlier result until its cache expires, which can take several hours.
+To see the effect right away, use the **Refresh** button on the insight, or the reload button in the web analytics filter bar.
 
 ## Using cohorts as filters
 

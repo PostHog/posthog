@@ -12,12 +12,6 @@ export function InboxReportContextMenu({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [activated, setActivated] = useState(false);
-  const isDismissed = report.status === "suppressed";
-  const hasMenu =
-    report.status !== "resolved" && !(isDismissed && report.refund != null);
-
-  if (!hasMenu) return <>{children}</>;
-
   return (
     <ContextMenu
       open={open}

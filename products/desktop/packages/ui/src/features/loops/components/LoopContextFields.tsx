@@ -2,7 +2,6 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { Switch } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
-import { Flex, Text } from "@radix-ui/themes";
 import { useChannels } from "../../canvas/hooks/useChannels";
 import { useDashboards } from "../../canvas/hooks/useDashboards";
 import {
@@ -16,12 +15,16 @@ interface LoopContextFieldsProps {
   value: LoopContextTargetDraft | null;
   onChange: (value: LoopContextTargetDraft | null) => void;
   disabled?: boolean;
+  /** Off for a workflow-backed loop, which posts its runs to the channel's
+   * feed but maintains no context.md and no canvas. */
+  showOutputs?: boolean;
 }
 
 export function LoopContextFields({
   value,
   onChange,
   disabled,
+  showOutputs = true,
 }: LoopContextFieldsProps) {
   const { channels } = useChannels();
   const { dashboards } = useDashboards(value?.folderId, { poll: false });
@@ -59,7 +62,7 @@ export function LoopContextFields({
   ];
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       <SettingsOptionSelect
         value={value?.folderId ?? NOT_ATTACHED_VALUE}
         options={contextOptions}
@@ -69,12 +72,8 @@ export function LoopContextFields({
         onValueChange={selectContext}
       />
 
-      {value ? (
-        <Flex
-          direction="column"
-          gap="3"
-          className="rounded-(--radius-2) border border-border bg-(--gray-1) p-3"
-        >
+      {value && showOutputs ? (
+        <div className="flex flex-col gap-3 rounded-(--radius-2) border border-border bg-(--gray-1) p-3">
           <ToggleRow
             title="Show runs in the feed"
             description="Each run appears as a card in this context's feed."
@@ -119,9 +118,9 @@ export function LoopContextFields({
               }
             />
           ) : null}
-        </Flex>
+        </div>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -139,17 +138,17 @@ function ToggleRow({
   disabled?: boolean;
 }) {
   return (
-    <Flex align="center" justify="between" gap="3">
-      <Flex direction="column" gap="0" className="min-w-0">
-        <Text className="font-medium text-[13px] text-gray-12">{title}</Text>
-        <Text className="text-[12px] text-gray-10">{description}</Text>
-      </Flex>
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-0">
+        <span className="font-medium text-[13px] text-gray-12">{title}</span>
+        <span className="text-[12px] text-gray-10">{description}</span>
+      </div>
       <Switch
         checked={checked}
         disabled={disabled}
         aria-label={title}
         onCheckedChange={onChange}
       />
-    </Flex>
+    </div>
   );
 }

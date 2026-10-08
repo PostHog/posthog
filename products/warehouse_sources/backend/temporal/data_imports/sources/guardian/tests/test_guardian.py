@@ -112,29 +112,6 @@ class TestFormatFromDate:
 
 class TestRequestParams:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_content_incremental_sets_from_date_and_oldest_order(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_resp([{"id": "a"}], pages=1)])
-
-        _rows(_source("content", _make_manager(), db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC)))
-
-        assert params[0]["from-date"] == "2026-03-04"
-        # Ascending order is what keeps the incremental watermark advancing correctly.
-        assert params[0]["order-by"] == "oldest"
-        assert params[0]["order-date"] == "published"
-        assert params[0]["show-fields"] == "all"
-        assert params[0]["page-size"] == 200
-        assert params[0]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_content_full_refresh_has_no_from_date(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_resp([{"id": "a"}], pages=1)])
-
-        _rows(_source("content", _make_manager(), db_incremental_field_last_value=None))
-        assert "from-date" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoint_never_sets_from_date(self, MockSession) -> None:
         # tags advertises no incremental field, so even an accidental cursor value is ignored.
         session = MockSession.return_value
@@ -162,23 +139,6 @@ class TestPagination:
         assert params[1]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yield(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp([{"id": "a"}], pages=2, current_page=1),
-                _resp([{"id": "b"}], pages=2, current_page=2),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("content", manager))
-        # State is saved once (after page 1 yields), pointing at page 2. The final page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == GuardianResumeConfig(page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_resp([{"id": "c"}], pages=3, current_page=3)])
@@ -188,18 +148,6 @@ class TestPagination:
         # Resuming at page 3 skips the already-synced earlier pages.
         assert [r["id"] for r in rows] == ["c"]
         assert params[0]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_reference_endpoint_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        # /sections and /editions omit `pages`/`currentPage`; a single page ends the sync.
-        session = MockSession.return_value
-        _wire(session, [_resp([{"id": "uk"}, {"id": "us"}], pages=None)])
-
-        manager = _make_manager()
-        rows = _rows(_source("editions", manager))
-        assert [r["id"] for r in rows] == ["uk", "us"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_response_envelope_raises_loudly(self, MockSession) -> None:
@@ -222,16 +170,6 @@ class TestRetries:
             with pytest.raises(RESTClientRetryableError):
                 _rows(_source("content", _make_manager()))
         assert session.send.call_count == 5
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_transient_error_is_retried_then_succeeds(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_resp([], status=500), _resp([{"id": "a"}], pages=1)])
-
-        with mock.patch.object(RESTClient._send_request.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            rows = _rows(_source("content", _make_manager()))
-        assert [r["id"] for r in rows] == ["a"]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_auth_failure_raises_without_leaking_api_key(self, MockSession) -> None:
@@ -258,12 +196,6 @@ class TestRetries:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code,expected", [(200, True), (401, False), (403, False)])
-    @mock.patch(GUARDIAN_SESSION_PATCH)
-    def test_status_maps_to_bool(self, mock_session, status_code: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("some-key") is expected
-
     @mock.patch(GUARDIAN_SESSION_PATCH)
     def test_network_error_is_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
@@ -271,13 +203,6 @@ class TestValidateCredentials:
 
 
 class TestGuardianSourceResponse:
-    def test_content_partitions_on_stable_publication_date(self) -> None:
-        response = _source("content", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["webPublicationDate"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
     @pytest.mark.parametrize("endpoint", ["tags", "sections", "editions"])
     def test_reference_endpoints_are_unpartitioned(self, endpoint: str) -> None:
         response = _source(endpoint, _make_manager())

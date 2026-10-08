@@ -62,6 +62,7 @@ def sanitize_user_text(
     *,
     none_placeholder: str = "",
     truncate_marker: str = "",
+    preserve_newlines: bool = False,
 ) -> str:
     if not value:
         return none_placeholder
@@ -71,8 +72,12 @@ def sanitize_user_text(
         previous = cleaned
         cleaned = _LLM_MARKER_RE.sub("", cleaned)
         cleaned = _TAG_RE.sub("", cleaned)
-    cleaned = _NEWLINE_RE.sub(" ", cleaned)
-    cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
+    if preserve_newlines:
+        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n").replace("\u2028", "\n").replace("\u2029", "\n")
+        cleaned = "\n".join(_WHITESPACE_RUN_RE.sub(" ", line).strip() for line in cleaned.split("\n")).strip()
+    else:
+        cleaned = _NEWLINE_RE.sub(" ", cleaned)
+        cleaned = _WHITESPACE_RUN_RE.sub(" ", cleaned).strip()
     if not cleaned:
         return none_placeholder
     if len(cleaned) > max_len:

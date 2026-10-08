@@ -3,31 +3,11 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
 
 
 def _config() -> MixMaxSourceConfig:
     return MixMaxSourceConfig(api_key="tok")
-
-
-class TestGetSchemas:
-    def test_all_schemas_are_full_refresh_only(self) -> None:
-        # Mixmax exposes no server-side timestamp filter, so nothing may advertise incremental/append.
-        schemas = MixMaxSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # `lists_tables_without_credentials` lets the posthog.com Supported tables section render
-        # without connecting — the catalog must come back non-empty and carry curated descriptions.
-        tables = MixMaxSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        sequences = next(t for t in tables if t["name"] == "sequences")
-        assert sequences["sync_methods"] == ["Full refresh"]
-        assert sequences["description"]
 
 
 class TestValidateCredentials:

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
@@ -7,13 +8,21 @@ use serde::{Deserialize, Serialize};
 /// Values are raw UTF-8 strings (PostHog Kafka messages are always JSON text).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedKafkaMessage {
-    pub topic: String,
+    pub topic: Arc<str>,
     pub partition: i32,
     pub offset: i64,
     pub timestamp: i64,
     pub key: Option<String>,
     pub value: Option<String>,
     pub headers: HashMap<String, String>,
+}
+
+impl SerializedKafkaMessage {
+    /// Approximate payload size for queue accounting: key plus value bytes,
+    /// ignoring headers and framing.
+    pub fn payload_bytes(&self) -> usize {
+        self.key.as_ref().map_or(0, String::len) + self.value.as_ref().map_or(0, String::len)
+    }
 }
 
 /// The demux's view of a message: the Kafka key is the routing key.

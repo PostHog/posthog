@@ -1,11 +1,19 @@
-from posthog.test.base import APIBaseTest
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from time import monotonic
+
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.db import close_old_connections, connection, transaction
 
 from parameterized import parameterized
 
+from posthog.api.team import TeamMarketingAnalyticsConfigSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
@@ -49,6 +57,7 @@ def goal_payload(name: str, event: str = "sign_up", **extra) -> dict:
 class TestConversionGoalWrites(APIBaseTest):
     def setUp(self):
         super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
         # Writing goals needs the same project-admin level the settings PATCH path requires.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -59,6 +68,18 @@ class TestConversionGoalWrites(APIBaseTest):
 
     def stored_goals(self) -> list[dict]:
         return TeamMarketingAnalyticsConfig.objects.get(team=self.team).conversion_goals
+
+    def test_stale_settings_save_preserves_new_goals(self) -> None:
+        stale_config = self.team.marketing_analytics_config
+        response = self.create_goal("Purchases")
+        self.assertEqual(response.status_code, 201)
+        goals = self.stored_goals()
+
+        TeamMarketingAnalyticsConfigSerializer().update(stale_config, {"filter_test_accounts": True})
+
+        stale_config.refresh_from_db()
+        self.assertTrue(stale_config.filter_test_accounts)
+        self.assertEqual(stale_config.conversion_goals, goals)
 
     def test_create_appends_without_touching_existing_goals(self):
         first = self.create_goal("Sign ups").json()["goal"]
@@ -327,6 +348,9 @@ class TestConversionGoalWrites(APIBaseTest):
     def test_another_teams_goals_are_not_reachable(self):
         goal = self.create_goal("Sign ups").json()["goal"]
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        # Without an existing row, the 404 rolls back the row that the first request creates.
+        # Team.marketing_analytics_config then returns the rolled-back row from its process-wide cache.
+        get_or_create_team_extension(other_team, TeamMarketingAnalyticsConfig)
 
         other_url = f"/api/projects/{other_team.pk}/marketing_analytics/conversion_goals"
         update = self.client.patch(
@@ -390,6 +414,7 @@ class TestConversionGoalWrites(APIBaseTest):
 class TestConversionGoalIdIsOneName(APIBaseTest):
     def setUp(self):
         super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
         self.explain_url = f"/api/projects/{self.team.pk}/marketing_analytics/explain_conversion_goal"
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -430,3 +455,44 @@ class TestConversionGoalIdIsOneName(APIBaseTest):
         delete = self.client.delete(f"{self.base_url}/{goal_id}/delete")
 
         assert (update.status_code, delete.status_code) == (200, 200), (update.json(), delete.json())
+
+
+class TestConcurrentMarketingSettingsWrites(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_settings_wait_for_goal_write_and_preserve_it(self) -> None:
+        config = self.team.marketing_analytics_config
+        backend_pid: Queue[int] = Queue()
+
+        def save_settings() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET statement_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    backend_pid.put(cursor.fetchone()[0])
+                TeamMarketingAnalyticsConfigSerializer().update(config, {"filter_test_accounts": True})
+            finally:
+                close_old_connections()
+
+        goals = [{**goal_payload("Purchases", conversion_goal_id="purchase-goal"), "name": "Purchases"}]
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                locked = TeamMarketingAnalyticsConfig.objects.select_for_update().get(pk=config.pk)
+                pending = executor.submit(save_settings)
+                pid = backend_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                with connection.cursor() as cursor:
+                    while True:
+                        cursor.execute("SELECT cardinality(pg_blocking_pids(%s)) > 0", [pid])
+                        if cursor.fetchone()[0]:
+                            break
+                        self.assertFalse(pending.done(), "settings finished before the goal transaction committed")
+                        self.assertLess(monotonic(), deadline, "settings did not wait for the configuration lock")
+                locked.conversion_goals = goals
+                locked.save(update_fields=["_conversion_goals"])
+            pending.result(timeout=10)
+
+        config.refresh_from_db()
+        self.assertTrue(config.filter_test_accounts)
+        self.assertEqual(config.conversion_goals, goals)

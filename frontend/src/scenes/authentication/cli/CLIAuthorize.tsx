@@ -9,6 +9,7 @@ import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import type { ScopeAccessLevel } from 'lib/scopes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -167,31 +168,32 @@ export function CLIAuthorize(): JSX.Element {
                                                 ) : (
                                                     filteredScopes.map(
                                                         ({ key, objectName, disabledActions, warnings, info }) => {
-                                                            const selected = formScopeRadioValues[key]
-                                                            const warningAction =
-                                                                selected === 'read' || selected === 'write'
-                                                                    ? selected
-                                                                    : null
+                                                            const value = (formScopeRadioValues[key] ??
+                                                                'none') as ScopeAccessLevel
+                                                            const disabledReason = (
+                                                                action: 'read' | 'write'
+                                                            ): string | undefined =>
+                                                                disabledActions?.includes(action)
+                                                                    ? 'Does not apply to this resource'
+                                                                    : undefined
                                                             return (
                                                                 <ScopeAccessRow
                                                                     key={key}
-                                                                    label={objectName}
-                                                                    info={info}
-                                                                    value={selected ?? 'none'}
-                                                                    onChange={(value) => setScopeRadioValue(key, value)}
-                                                                    readDisabledReason={
-                                                                        disabledActions?.includes('read')
-                                                                            ? 'Does not apply to this resource'
-                                                                            : undefined
-                                                                    }
-                                                                    writeDisabledReason={
-                                                                        disabledActions?.includes('write')
-                                                                            ? 'Does not apply to this resource'
-                                                                            : undefined
-                                                                    }
-                                                                    warning={
-                                                                        warningAction ? warnings?.[warningAction] : null
-                                                                    }
+                                                                    row={{
+                                                                        key,
+                                                                        label: objectName,
+                                                                        info,
+                                                                        value,
+                                                                        warning:
+                                                                            value === 'none'
+                                                                                ? undefined
+                                                                                : warnings?.[value],
+                                                                        disabledReasons: {
+                                                                            read: disabledReason('read'),
+                                                                            write: disabledReason('write'),
+                                                                        },
+                                                                    }}
+                                                                    onChange={setScopeRadioValue}
                                                                 />
                                                             )
                                                         }

@@ -193,7 +193,7 @@ class DatabricksIncompatibleSchemaError(DatabricksOperationError):
         )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
 
@@ -214,6 +214,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     """
 
+    data_interval_end: str
     integration_id: int
     http_path: str
     catalog: str
@@ -1019,6 +1020,7 @@ def _events_table_fields(json_type: str) -> list[DatabricksField]:
         ("event", "STRING"),
         ("properties", json_type),
         ("person_properties", json_type),
+        ("person_id", "STRING"),
         ("distinct_id", "STRING"),
         ("team_id", "BIGINT"),
         ("timestamp", "TIMESTAMP"),

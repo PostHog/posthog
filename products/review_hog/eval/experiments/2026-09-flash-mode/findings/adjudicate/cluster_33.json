@@ -1,0 +1,82 @@
+{
+    "cluster": 33,
+    "issue": "Claimed per-event cost of running the tasks-facade lookup plus review_hog resolver on every bot-authored head-changing webhook",
+    "files": [
+        "facade/api.py:504",
+        "models.py:1147",
+        "products/tasks/backend/models.py:1147",
+        "products/tasks/backend/webhooks.py:29"
+    ],
+    "august_registry_tally": "1 real of 2 verified",
+    "earlier_members": [
+        {
+            "id": "Y15",
+            "verdicts": [
+                {
+                    "source": "July judge-round1.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "pr72680_tree/products/stamphog/backend/tasks/tasks.py:199-205 \u2014 resolver is called only after `find_signal_implementation_run` returns a non-None team-matched run; lines 167-186 show four earlier exits (non-head-changing, human author, fork head, unconfigured repo). pr72680_tree/products/tasks/backend/webhooks.py:36-59 \u2014 pr_url leg queried first, branch leg is fallback only. tasks.py:891-898 \u2014 same skip path already performs GitHub API calls (_retract_stale_approvals_on_skip), dwarfing one DB lookup.",
+                    "notes": "The finding's core claim \u2014 that the review_hog resolver hook runs on every bot-authored head-changing webhook \u2014 is refuted by the code: `if run is None or run.team_id != repo_config.team_id: return _InboxCarveOut()` sits before the resolver call, so dependabot/renovate/posthog-bot pushes (no linked TaskRun) never reach it. The finding even concedes this in its own suggestion (\"it already does\"). The only genuinely new per-event cost is a single find_task_run query, gated behind bot-authorship, head-changing action, repo-native head, and a synced+enabled config, with the indexed pr_url leg dominating. That is negligible next to the GitHub API calls the same skip path already makes. Remaining substance is a micro-optimization observation, not a defect."
+                }
+            ]
+        },
+        {
+            "id": "N17",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": false,
+                    "severity": "not_an_issue",
+                    "evidence": "tasks.py:876 calls _inbox_rereview_carve_out only when skip_reason is set; tasks.py:170-185 shows the flow exits after one indexed _resolve_repo_config read unless the repo has an enabled+connected Stamphog config, so the cross-product lookup never runs for arbitrary bot PRs on unconfigured repos. find_task_run (products/tasks/backend/webhooks.py:29-90) is a bounded 2-3 indexed reads: the output__pr_url leg is served by the partial functional index task_run_output_pr_url_idx (products/tasks/backend/models.py:1147-1156), the branch leg keys on branch equality, and the wizard leg is prefix-gated off for non-wizard branches. All of it runs inside the async Celery task process_pull_request_event (tasks.py:810), not a request path. The cited caching precedent _author_lacks_write_permission (tasks.py:100-110) guards a rate-limited external GitHub API call, not local DB reads \u2014 the analogy doesn't transfer.",
+                    "notes": "The described code path exists, but the \"defect\" is a few millisecond-scale indexed local reads per bot-PR push on an async worker, gated to Stamphog-enabled repos. That's not a performance problem at realistic scale, and the proposed (repo, pr_number)-keyed negative cache would introduce a real hazard: a cached miss could mask a self-driving run created between deliveries and suppress a legitimate re-review. Premature optimization, not a defect."
+                }
+            ]
+        },
+        {
+            "id": "O19",
+            "verdicts": [
+                {
+                    "source": "July judge-round5.json",
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "tasks.py:872-876 runs _inbox_rereview_carve_out whenever skip_reason is not None on the webhook Celery task; tasks.py:169-196 shows bot-authored, same-repo-head PRs proceed to _resolve_repo_config (:179) and, on enabled+synced config, find_signal_implementation_run (:191), which calls find_task_run (facade/api.py:504). webhooks.py:68-76 branch leg filters branch= with task__repository__iexact; TaskRun.Meta.indexes (models.py:1147-1174) index output__pr_url, state__wizard_head_branch, created_at, [task,-created_at,-id], [team,stage,task] \u2014 no branch index, and TaskRun.branch is a plain CharField. No negative-result cache exists on this path. However, the finding's premise \"zero DB access before this PR\" is wrong: the pre-existing head-changing skip path (tasks.py:887-898, unchanged context in pr75215.diff) already ran _resolve_repo_config + _retract_stale_approvals_on_skip for bot PRs on synchronize/reopened. process_pull_request_event is an async @shared_task (tasks.py:809), and the branch-leg query is scoped by the repository join, so it is bounded, not a guaranteed full-table scan.",
+                    "notes": "Core claim verified: newly-introduced, uncached per-delivery DB work (one extra repo-config lookup + an unindexed branch-leg TaskRun query) for bot-PR head-changing events on Stamphog-enabled repos. But the \"zero DB access before\" premise is overstated (repo-config + approval-retraction queries already ran pre-PR on this exact path), the work runs on an async Celery worker with bounded frequency, and the pr_url leg short-circuits cheaply via its partial index. A legitimate minor inefficiency worth a negative cache and/or branch index, not a fix-now defect \u2014 down-rank should_fix \u2192 consider."
+                }
+            ]
+        }
+    ],
+    "this_experiment_findings": [
+        {
+            "id": "GC13",
+            "run": "glm-high-1bc",
+            "title": "Carve-out resolution runs several uncached DB queries on every skipped bot or draft head-changing delivery",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": "179-215",
+            "priority": "should_fix",
+            "problem": "_inbox_rereview_carve_out now executes for every head-changing delivery whose skip_reason is set, on any repo with a synced config. Each resolution costs: one repo-config read, one find_signal_implementation_run lookup, and when the run matches, the resolver's chain (a SignalReportArtefact query, a Team lookup, candidate-user resolution with identity prefetches, and a ReviewUserSettings read). For ordinary bot PRs (dependabot, renovate) the tasks lookup always misses, so every synchronize pays the full negative cost with no memoization. The branch fallback in find_task_run filters on TaskRun.branch and task__repository, neither of which is indexed, so the miss is a scan over a large task_run table rather than an index probe.",
+            "suggestion": "Cache the negative result briefly, keyed by (installation_id, repo, pr head_sha): a given head is delivered once in the normal case, so a 5-10 minute TTL absorbs redeliveries and racing receivers without ever gating a genuinely new head. Additionally, consider a short cache (60s is enough, matching the permission-cache pattern already used for _author_lacks_write_permission) for the repo-config read, and raise an index for the branch-match query with the tasks team, since this PR turns an occasional webhook lookup into a per-delivery cost on every configured repo.",
+            "match_reason": "Same claim (repo-config read + tasks-facade lookup + resolver chain paid on every skipped bot head-changing delivery, with the unindexed branch fallback) but anchored at tasks.py:179 rather than facade/api.py:504; runner-ups 23 (index only) and 12 (resolver chain only) each cover just a sub-claim.",
+            "fresh_votes": [
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "Traced from the caller, the finding overstates the cost. The code has cheap guards, and the tasks product already runs the same lookup on more traffic.\n\n1. Human drafts never reach the DB. `_inbox_rereview_carve_out` returns before any query in three cases (tasks.py:164-176):\n   - the action is not head-changing and the base was not retargeted;\n   - `_is_bot_authored(pr)` is false, so a draft from a human stops here;\n   - the head repo differs from the base repo (a fork).\n   So \"every skipped bot or draft delivery\" is wrong. Only bot-authored, repo-native, head-changing deliveries get past these checks.\n\n2. The repo-config read stops the rest for most repos. After `_resolve_repo_config` (tasks.py:179), it returns if the config is missing, disabled, has no installation, or has no `connected_by_user_id`.\n\n3. The expensive resolver chain is not paid on a miss. The resolver (report, team, candidate users, settings) runs only after `find_signal_implementation_run` finds a run for the same team (tasks.py:194-203). A dependabot or renovate PR misses, so it pays one config read plus one or two TaskRun queries. The finding's own text agrees.\n\n4. This runs in the Celery task `process_pull_request_event`, not in the webhook request. On a skip the caller already reads the config again at tasks.py:891, so one more cached read would save little.\n\n5. The same query already runs on more traffic. `products/tasks/backend/webhooks.py:159`:\n   - `handle_pull_request_event` calls the same `find_task_run(pr_url, branch, repository)`, with the same unindexed `branch` + `task__repository__iexact` filter (webhooks.py:68-73).\n   - It does this synchronously for every opened and closed PR on every repo that sends to the GitHub webhook.\n   - The `pr_url` step is indexed (`task_run_output_pr_url_idx`, models.py). The branch step is not, but that was already true before this change.\n   The carve-out adds that lookup only for synchronize, reopen and retarget events on bot PRs in repos with a StamphogRepoConfig. That is a small share of what `find_task_run` already handles.\n\n6. No trigger is shown. The finding names no measured volume or slow query, only a guess about a \"large task_run table\".",
+                    "refutation": "The refutation holds. The finding says the cost applies to every skipped bot or draft delivery. In fact, human drafts and fork PRs return before any DB work (tasks.py:164-176). Only bot-authored, repo-native, head-changing deliveries on repos with an enabled config pay anything, and that is one config read plus the `find_task_run` lookup. The resolver chain it describes runs only when a signals run matches, which is rare and intended. The same unindexed branch query already runs synchronously in `tasks/webhooks.py:159` for every opened or closed PR on every repo, so this adds only a small share of load. Asking for a negative cache and a new index is a speculative optimization, not a defect with a reachable failure."
+                },
+                {
+                    "is_real": false,
+                    "severity": null,
+                    "evidence": "Checked at /Users/woutut/.worktrees/posthog/frozen-75215. The finding says every skipped bot or draft delivery runs a heavy, uncached chain of queries. The code gates it much more tightly than that:\n- tasks.py:871-876 runs the carve-out only when skip_reason is set.\n- tasks.py:171 returns before any DB work unless the action changes the head (synchronize or reopened) or the base was retargeted.\n- tasks.py:173-176 returns for every human-authored PR, so a human draft costs nothing. The \"or draft\" part of the claim is wrong.\n- tasks.py:180-181 returns for fork PRs (head repo differs from base repo).\n- tasks.py:179-187 returns unless a repo config exists and is enabled, installed and connected.\n\nWhat a miss actually costs: one repo-config read (the same query the skip path already makes at tasks.py:891) plus one find_task_run call.\n- The pr_url leg is indexed (models.py:1153-1157, task_run_output_pr_url_idx).\n- Only the branch-plus-repository leg (webhooks.py:68-74) filters on unindexed columns. That part of the claim is true.\n- The resolver chain (SignalReportArtefact, Team, candidate users, ReviewUserSettings) runs only after a positive self-driving match (tasks.py:196-203). That is the feature working as intended, not a cost paid on a miss.\n\nThe same unindexed lookup already has a precedent: tasks/backend/webhooks.py:159 calls find_task_run with the same pr_url, branch and repository on every opened and closed PR webhook. That path has no bot, repo or config gating.\n\nThis work runs in a Celery task (process_pull_request_event), not in the webhook request, so no user-facing latency is involved.",
+                    "refutation": "The finding is overstated. Human drafts skip all DB work (tasks.py:173-176). The expensive resolver chain runs only on a real self-driving match, never on a dependabot or renovate miss. On a miss, the added cost is one indexed config read and one find_task_run call. That call only happens for bot-authored, same-repo, head-changing deliveries on enabled stamphog repos, inside a background Celery task.\n\nThe unindexed branch leg is real, but it is the same query tasks/backend/webhooks.py:159 already runs on every opened and closed PR in every repo. This change does not introduce the pattern. It adds a small slice of calls on synchronize events.\n\nNo reachable correctness defect exists. The finding shows no measured load, only a caching and indexing idea for a bounded background path. That is speculative performance tuning, not a defect."
+                },
+                {
+                    "is_real": true,
+                    "severity": "consider",
+                    "evidence": "The trigger can happen in production, but the cost is smaller than the finding says.\n\n- products/stamphog/backend/tasks/tasks.py:870-876: the carve-out runs only when `_review_skip_reason` is set.\n- tasks.py:163-172: before any database query it returns early unless the action changes the head (or the base was retargeted), the author is a bot, and the head repo equals the base repo. So human drafts cost nothing, which contradicts the finding's \"every skipped bot or draft\" wording.\n- Dependabot and renovate push branches inside the repo, and dependabot rebases send `synchronize`. On a configured repo each such delivery gets past those checks.\n- tasks.py:179: that delivery then pays for one `_resolve_repo_config` read. The skip path at tasks.py:891 already does the same read for head-changing actions, so this read is a duplicate, not a new kind of cost.\n- tasks.py:188: it also pays for one `find_signal_implementation_run` call, which runs `find_task_run` (products/tasks/backend/webhooks.py:29-97).\n- The `pr_url` lookup uses the partial index `task_run_output_pr_url_idx` (products/tasks/backend/models.py:1153-1157).\n- The branch lookup (webhooks.py:68-75) filters on `branch` and `task__repository__iexact`, and TaskRun has no index on `branch` (models.py:1081, 1147-1174). The \"unindexed\" claim is correct.\n- The resolver chain (tasks.py:196-203) runs only when a run matches. Ordinary bot PRs never match, so they never pay for it.",
+                    "refutation": "My attempt to refute it failed. No cache or index covers the branch lookup, and dependabot rebases on a configured repo do reach the code.\n\nThe attempt does shrink the impact, though:\n- The same unindexed `find_task_run` already runs on every `opened` and `closed` pull_request webhook for all PRs, human and bot, in the tasks webhook handler (products/tasks/backend/webhooks.py:159). This PR adds only bot `synchronize` and `reopened` deliveries on stamphog-configured repos. That is a small slice of load that already exists.\n- The repo-config read repeats a query the skip path already makes.\n- The expensive resolver chain never runs for dependabot or renovate.\n\nThis is a real but minor performance cost, so severity is \"consider\". The suggested per-head negative cache is heavier than the problem needs. If anything is worth doing, it is the index on (branch) or on the task repository, and that would help the existing tasks webhook too."
+                }
+            ]
+        }
+    ]
+}

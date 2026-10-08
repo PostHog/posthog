@@ -106,12 +106,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -120,12 +114,18 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -391,6 +391,15 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     ) => {
@@ -403,12 +412,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -417,7 +420,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
@@ -440,6 +448,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -688,6 +697,15 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     } // workflowLogic

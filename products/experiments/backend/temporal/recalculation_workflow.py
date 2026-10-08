@@ -11,6 +11,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
+        METRICS_RECALCULATION_WORKFLOW_NAME,
         RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS,
         RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
         RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
@@ -26,7 +27,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
 
-@temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
+@temporalio.workflow.defn(name=METRICS_RECALCULATION_WORKFLOW_NAME)
 class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
     """Recalculate all metrics for an experiment on demand.
 

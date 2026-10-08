@@ -1,3 +1,4 @@
+import re
 import base64
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -28,6 +29,11 @@ MAX_WINDOW_DAYS = 90
 # How far back the first sync of `calls` reaches when there is no incremental cursor yet.
 # Bounded so an initial backfill doesn't exhaust Gong's aggressive daily rate limit.
 DEFAULT_INITIAL_LOOKBACK_DAYS = 365
+
+
+# Gong answers a date window with nothing in it using a 404 such as "No calls found corresponding to
+# the provided filters" rather than an empty 200.
+_EMPTY_WINDOW_404 = re.compile(r"\bno [\w ]+ found\b")
 
 
 class GongRetryableError(Exception):
@@ -62,6 +68,10 @@ def _to_datetime(value: Any) -> Optional[datetime]:
     except (ValueError, TypeError, OverflowError):
         return None
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _start_of_day(value: datetime) -> datetime:
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _get_headers(access_key: str, access_key_secret: str) -> dict[str, str]:
@@ -172,10 +182,13 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise GongRetryableError(f"Gong API error (retryable): status={response.status_code}, url={url}")
 
-        # Gong's `/v2/calls` answers a date window with no processed calls using a 404
-        # ("No calls found corresponding to the provided filters") rather than an empty 200.
-        # Treat it as an empty page so the sync skips the window instead of failing.
-        if config.uses_date_window and response.status_code == 404 and "no calls" in response.text.lower():
+        # Treat an empty date window, or a parent with nothing in it, as an empty page so the sync
+        # skips it instead of failing.
+        if (
+            (config.uses_date_window or config.not_found_is_empty)
+            and response.status_code == 404
+            and _EMPTY_WINDOW_404.search(response.text.lower())
+        ):
             return {}
 
         if not response.ok:
@@ -193,11 +206,15 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out_parent and config.fan_out_param:
+        yield from _iter_fan_out_rows(config, config.fan_out_parent, config.fan_out_param, fetch_page)
     else:
         yield from _iter_cursor_rows(config, fetch_page)
 
 
-def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
+def _iter_cursor_rows(
+    config: GongEndpointConfig, fetch_page, base_params: Optional[dict[str, Any]] = None
+) -> Iterator[Any]:
     """Cursor-paginate a list endpoint until ``records.cursor`` is absent.
 
     Endpoints with no pagination (e.g. workspaces) return no cursor, so the loop exits after
@@ -205,7 +222,9 @@ def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
     """
     cursor: str | None = None
     while True:
-        params: dict[str, Any] = {"cursor": cursor} if cursor else {}
+        params: dict[str, Any] = dict(base_params or {})
+        if cursor:
+            params["cursor"] = cursor
         data = fetch_page(_build_url(config.path, params))
 
         rows = data.get(config.response_key, [])
@@ -215,6 +234,49 @@ def _iter_cursor_rows(config: GongEndpointConfig, fetch_page) -> Iterator[Any]:
         cursor = data.get("records", {}).get("cursor")
         if not cursor:
             break
+
+
+def _iter_fan_out_rows(config: GongEndpointConfig, parent_name: str, param: str, fetch_page) -> Iterator[Any]:
+    """Request the endpoint once per row of its parent endpoint.
+
+    Rows that repeat across parents, such as the company flows Gong returns for every owner, are
+    kept once by primary key. The set holds one key per distinct row, so it stays small.
+    """
+    parent_config = GONG_ENDPOINTS[parent_name]
+    primary_key = config.primary_key if isinstance(config.primary_key, tuple) else (config.primary_key,)
+    seen: set[tuple[Any, ...]] = set()
+
+    for parents in _iter_cursor_rows(parent_config, fetch_page):
+        for parent in parents:
+            if config.fan_out_parent_filter and not parent.get(config.fan_out_parent_filter):
+                continue
+            parent_value = parent.get(config.fan_out_parent_field)
+            if not parent_value:
+                continue
+
+            for rows in _iter_cursor_rows(config, fetch_page, {param: parent_value}):
+                if config.fan_out_column:
+                    rows = [{**row, config.fan_out_column: parent_value} for row in rows]
+                if config.dedupe_fan_out_rows:
+                    unseen = []
+                    for row in rows:
+                        key = tuple(row.get(column) for column in primary_key)
+                        if key not in seen:
+                            seen.add(key)
+                            unseen.append(row)
+                    rows = unseen
+                if rows:
+                    yield rows
+
+
+def _flatten_nested_rows(records: list[dict[str, Any]], nested_rows_key: str) -> list[dict[str, Any]]:
+    """Turn each item of every record's nested list into a row carrying the record's other fields."""
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        parent_fields = {key: value for key, value in record.items() if key != nested_rows_key}
+        for item in record.get(nested_rows_key) or []:
+            rows.append({**parent_fields, **item})
+    return rows
 
 
 def _iter_windowed_rows(
@@ -233,6 +295,15 @@ def _iter_windowed_rows(
     end = datetime.now(UTC)
 
     last_value = _to_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
+
+    if config.date_filter_keys:
+        # Whole-day bounds are read in the company's time zone, which can be up to a day either side
+        # of UTC. Re-read the day before the watermark, and stop before UTC yesterday so no window
+        # ends after the company's current day, which Gong rejects.
+        end = _start_of_day(end) - timedelta(days=1)
+        if last_value is not None:
+            last_value = _start_of_day(last_value) - timedelta(days=1)
+
     window_start = last_value or (end - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS))
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -243,15 +314,19 @@ def _iter_windowed_rows(
             window_start = resumed
 
     while window_start < end:
-        window_end = min(window_start + timedelta(days=MAX_WINDOW_DAYS), end)
+        window_end = min(window_start + timedelta(days=config.window_days or MAX_WINDOW_DAYS), end)
 
         if config.uses_call_id_batches:
             yield from _iter_transcript_rows(config, fetch_page, window_start, window_end)
+        elif config.date_filter_keys:
+            yield from _iter_date_filtered_rows(config, config.date_filter_keys, fetch_page, window_start, window_end)
         else:
             yield from _iter_call_rows(config, fetch_page, window_start, window_end)
 
         window_start = window_end
         resumable_source_manager.save_state(GongResumeConfig(window_start=_format_datetime(window_start)))
+        # Daily stats windows can all come back empty, and the pipeline checks for shutdown only when rows arrive.
+        resumable_source_manager.safe_point()
 
 
 def _iter_call_rows(
@@ -286,6 +361,44 @@ def _iter_call_rows(
         cursor = data.get("records", {}).get("cursor")
         if not cursor:
             break
+
+
+def _iter_date_filtered_rows(
+    config: GongEndpointConfig,
+    date_filter_keys: tuple[str, str],
+    fetch_page,
+    window_start: datetime,
+    window_end: datetime,
+) -> Iterator[Any]:
+    """Cursor-paginate one whole-day window of a `/v2/stats/...` POST endpoint."""
+    from_key, to_key = date_filter_keys
+    from_date = window_start.date().isoformat()
+    cursor: str | None = None
+
+    while True:
+        body: dict[str, Any] = {
+            "filter": {from_key: from_date, to_key: window_end.date().isoformat(), **config.extra_filter}
+        }
+        if cursor:
+            body["cursor"] = cursor
+
+        data = fetch_page(_build_url(config.path, {}), json_body=body)
+
+        rows = data.get(config.response_key, [])
+        if config.nested_rows_key:
+            rows = _flatten_nested_rows(rows, config.nested_rows_key)
+        if config.window_date_column:
+            rows = [{**row, config.window_date_column: from_date} for row in rows]
+        if rows:
+            yield rows
+
+        next_cursor = data.get("records", {}).get("cursor")
+        if not next_cursor:
+            break
+        # A repeated cursor would request the same page forever, and successful responses never hit the retry limit.
+        if next_cursor == cursor:
+            raise ValueError(f"Gong returned an unchanged pagination cursor for {config.path}")
+        cursor = next_cursor
 
 
 def _iter_transcript_rows(
@@ -397,7 +510,7 @@ def gong_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_key) if isinstance(config.primary_key, tuple) else [config.primary_key],
         # Windows are iterated oldest-first, so the cursor watermark advances correctly.
         sort_mode="asc",
         partition_count=1,

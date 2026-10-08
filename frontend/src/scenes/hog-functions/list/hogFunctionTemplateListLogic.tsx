@@ -60,6 +60,8 @@ export type HogFunctionTemplateListLogicProps = {
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
+    /** Show `manualTemplates` alone and do not fetch templates from the API. */
+    manualTemplatesOnly?: boolean
     hideComingSoonByDefault?: boolean
     customFilterFunction?: (template: HogFunctionTemplateType) => boolean
     /** Extra search params to include in the URL when navigating to create a new hog function */
@@ -91,6 +93,7 @@ export interface hogFunctionTemplateListLogicValues {
     user: UserType | null // userLogic
     filteredTemplates: HogFunctionTemplateType[]
     filters: HogFunctionTemplateListFilters
+    hasMultipleDeliveryTypes: boolean
     loading: boolean
     rawTemplates: HogFunctionTemplateType[]
     rawTemplatesLoading: boolean
@@ -140,6 +143,11 @@ export interface hogFunctionTemplateListLogicMeta {
             arg2: HogFunctionSubTemplateIdType[]
         ) => HogFunctionTemplateWithSubTemplateType[]
         templatesFuse: (templates: HogFunctionTemplateWithSubTemplateType[]) => Fuse
+        hasMultipleDeliveryTypes: (
+            templates: HogFunctionTemplateWithSubTemplateType[],
+            loading: boolean,
+            arg: HogFunctionTemplateType[]
+        ) => boolean
         filteredTemplates: (
             filters: HogFunctionTemplateListFilters,
             templates: HogFunctionTemplateWithSubTemplateType[],
@@ -167,7 +175,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         (props) =>
             `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
                 props.subTemplateIds?.join(',') ?? ''
-            }`
+            }${props.manualTemplatesOnly ? '/manual-only' : ''}`
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
     connect(() => ({
@@ -270,6 +278,23 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     keys: ['name', 'description'],
                 })
             },
+        ],
+
+        // Delivery type is only worth a column and a filter when realtime and batch templates are mixed. A list
+        // that carries manual templates while it fetches more will mix them once the fetch lands, so the column
+        // is there from the first render instead of appearing after the load.
+        hasMultipleDeliveryTypes: [
+            (s) => [
+                s.templates,
+                s.loading,
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? EMPTY_ARRAY,
+            ],
+            (
+                templates: HogFunctionTemplateWithSubTemplateType[],
+                loading: boolean,
+                manualTemplates: HogFunctionTemplateType[]
+            ): boolean =>
+                new Set(templates.map(getHogFunctionDeliveryType)).size > 1 || (loading && manualTemplates.length > 0),
         ],
 
         filteredTemplates: [

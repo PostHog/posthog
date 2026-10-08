@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -54,7 +52,7 @@ class InsightlySource(ResumableSource[InsightlySourceConfig, InsightlyResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INSIGHTLY,
+            name=ExternalDataSourceType.INSIGHTLY,
             category=DataWarehouseSourceCategory.CRM,
             label="Insightly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -95,6 +93,16 @@ The API key inherits your Insightly user's permissions, so make sure your user c
 
         return CANONICAL_DESCRIPTIONS
 
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # A fan-out endpoint saves no checkpoint, so each retry re-requests every parent's children.
+        endpoint = INSIGHTLY_ENDPOINTS.get(schema_name or "")
+        return endpoint is None or endpoint.fanout_parent is None
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # An invalid or revoked key surfaces as an HTTPError when `fetch_page` calls
@@ -119,7 +127,7 @@ The API key inherits your Insightly user's permissions, so make sure your user c
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
-                detected_primary_keys=[endpoint_config.primary_key],
+                detected_primary_keys=endpoint_config.primary_keys,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -135,7 +143,7 @@ The API key inherits your Insightly user's permissions, so make sure your user c
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        path = INSIGHTLY_ENDPOINTS[schema_name].path if schema_name in INSIGHTLY_ENDPOINTS else "/Contacts"
+        path = INSIGHTLY_ENDPOINTS[schema_name].probe_path if schema_name in INSIGHTLY_ENDPOINTS else "/Contacts"
         try:
             status = validate_insightly_credentials(config.pod, config.api_key, path)
         except ValueError as e:

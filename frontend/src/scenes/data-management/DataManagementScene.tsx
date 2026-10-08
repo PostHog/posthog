@@ -12,13 +12,13 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { Comments } from 'scenes/data-management/comments/Comments'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { CoreEventsSettings } from 'scenes/settings/environment/CoreEventsSettings'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
@@ -26,6 +26,7 @@ import { NewActionButton } from 'products/actions/frontend/components/NewActionB
 import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import { DefinitionsSceneTabs } from './DefinitionsSceneTabs'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsV2View } from './ingestion-warnings-v2/IngestionWarningsV2View'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
@@ -39,7 +40,6 @@ export enum DataManagementTab {
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
     SchemaManagement = 'schema',
-    Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     IngestionWarningsV2 = 'warnings-v2',
@@ -109,13 +109,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         content: <SchemaManagement />,
         flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
-    [DataManagementTab.Comments]: {
-        url: urls.comments(),
-        content: <Comments />,
-        label: 'Comments',
-        buttons: undefined,
-        tooltipDocLink: 'https://posthog.com/docs/data/comments',
-    },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
         label: 'History',
@@ -152,7 +145,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
                 Core events
             </TitleWithIcon>
         ),
-        content: <CoreEventsSettings />,
+        content: (
+            <SceneContent>
+                <DefinitionsSceneTabs activeKey="core-events" />
+                <CoreEventsSettings />
+            </SceneContent>
+        ),
         flag: FEATURE_FLAGS.NEW_TEAM_CORE_EVENTS,
     },
     [DataManagementTab.IngestionWarnings]: {
@@ -265,15 +263,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             name: 'Revenue analytics',
                             path: urls.revenueSettings(),
                             iconType: 'revenue_analytics',
-                        },
-                    ]
-                } else if (tab === DataManagementTab.Comments) {
-                    return [
-                        {
-                            key: Scene.Comments,
-                            name: sceneConfigurations[Scene.Comments].name,
-                            path: urls.comments(),
-                            iconType: sceneConfigurations[Scene.Comments].iconType || 'default_icon_type',
                         },
                     ]
                 } else if (tab === DataManagementTab.IngestionWarnings) {

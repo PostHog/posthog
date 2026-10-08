@@ -1,12 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+import time_machine
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.models.team.team import Team
 
 from products.marketing_analytics.backend.services.attribution_health import (
     HOGQL_GROUP_LIMIT,
@@ -41,9 +45,16 @@ class TestSuggestIntegrationByAliasToken:
         assert _suggest_integration_by_alias_token(f"{alias}_paid", _ALIAS_MAP, allowed_without) is None
 
 
-class TestGetAttributionHealth(APIBaseTest):
+class TestGetAttributionHealth(SimpleTestCase):
     def setUp(self):
         super().setUp()
+        self.team = Team(id=1)
+        flag_patcher = patch(
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
+            return_value=True,
+        )
+        self.mock_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
         from products.marketing_analytics.backend.services.native_integrations import canonical_source_aliases
 
         fetch_patcher = patch(
@@ -93,6 +104,23 @@ class TestGetAttributionHealth(APIBaseTest):
         assert meta.matched_pct == round(120 / 200 * 100, 2)
 
     @pytest.mark.asyncio
+    async def test_custom_mapping_uses_only_the_mapped_platform_paid_signals(self) -> None:
+        self.mock_fetch.return_value = [
+            _UtmRow(
+                raw_utm_source="custom-source",
+                event_count=3,
+                last_seen_at=None,
+                paid_event_count=1,
+                platform_paid_event_counts={"openai_ads": 2, "google_ads": 3},
+            ),
+        ]
+        response = await get_attribution_health(self.team, custom_source_mappings={"OpenAIAds": ["custom-source"]})
+        openai = next(e for e in response.integrations if e.integration_key == "openai_ads")
+        google = next(e for e in response.integrations if e.integration_key == "google_ads")
+        assert openai.events_matched_paid_last_7d == 2
+        assert google.events_matched_paid_last_7d == 0
+
+    @pytest.mark.asyncio
     async def test_token_variant_classified_as_likely_yours(self):
         self.mock_fetch.return_value = [
             _UtmRow(raw_utm_source="facebook_paid", event_count=50, last_seen_at=None),
@@ -135,6 +163,27 @@ class TestGetAttributionHealth(APIBaseTest):
         # Totals reflect ALL events the team had (intentional — overall context still useful).
         assert response.total_events_with_utm == 300
         assert response.total_events_matched_to_any_integration == 300
+
+    @parameterized.expand([(True, None), (False, None), (True, "TwitterAds"), (False, "TwitterAds")])
+    @pytest.mark.asyncio
+    async def test_disabled_sources_are_not_attribution_targets(self, enabled: bool, source_type: str | None) -> None:
+        self.mock_flag.return_value = enabled
+        self.mock_fetch.return_value = [
+            _UtmRow(raw_utm_source="twitter", event_count=20, last_seen_at=None),
+            _UtmRow(raw_utm_source="twitter_paid", event_count=10, last_seen_at=None),
+            _UtmRow(raw_utm_source="google", event_count=50, last_seen_at=None),
+        ]
+
+        response = await get_attribution_health(self.team, source_type=source_type)
+
+        assert any(e.integration_key == "twitter_ads" for e in response.integrations) is enabled
+        assert any(e.integration_key == "google_ads" for e in response.integrations) is (source_type is None)
+        assert response.total_events_with_utm == 80
+        assert response.total_events_matched_to_any_integration == (70 if enabled else 50)
+        assert response.total_events_unmatched == (10 if enabled else 30)
+        samples = {s.raw_value: s for s in response.all_utm_source_samples}
+        assert samples["twitter"].matched_integration == ("twitter_ads" if enabled else None)
+        assert samples["twitter_paid"].suggested_integration == ("twitter_ads" if enabled else None)
 
     @pytest.mark.asyncio
     async def test_unknown_source_type_filter_returns_empty(self):
@@ -180,6 +229,7 @@ def _pageview(
     utm_source: str | None = None,
     utm_medium: str | None = None,
     gclid: str | None = None,
+    timestamp: datetime | None = None,
 ) -> None:
     props: dict = {}
     if utm_source is not None:
@@ -193,7 +243,7 @@ def _pageview(
         event="$pageview",
         team=team,
         properties=props,
-        timestamp=timezone.now() - timedelta(hours=1),
+        timestamp=timestamp or timezone.now() - timedelta(hours=1),
     )
 
 
@@ -364,57 +414,141 @@ class TestAttributionHealthSourceTypeFilterClickhouse(ClickhouseTestMixin, BaseT
         assert response.total_events_matched_to_any_integration == 2
 
 
+@time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
-    """Paid is decided the way PostHog decides it everywhere else — the channel-type
-    rule at posthog.com/docs/data/channel-type — so a `linkedin` utm_source from an
-    organic post isn't counted as ad traffic."""
-
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self) -> None:
         super().setUp()
-        _pageview(self.team, "u1", utm_source="linkedin", utm_medium="cpc")
-        _pageview(self.team, "u2", utm_source="linkedin", utm_medium="paid-social")
-        _pageview(self.team, "u3", utm_source="linkedin", utm_medium="organic-social")
-        _pageview(self.team, "u4", utm_source="linkedin")
-        _pageview(self.team, "u5", utm_source="google", gclid="abc123")
-        # A link copied from an address bar that still held a Google click id, then
-        # shared organically. The gclid names Google Ads, not LinkedIn.
-        _pageview(self.team, "u6", utm_source="linkedin", utm_medium="social", gclid="stale123")
+        flag_patcher = patch(
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
+            return_value=True,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    @parameterized.expand(
+        [
+            ("google", "google_ads", "gclid"),
+            ("google", "google_ads", "gbraid"),
+            ("google", "google_ads", "wbraid"),
+            ("google", "google_ads", "gad_source"),
+            ("google", "google_ads", "gad_campaignid"),
+            ("chatgpt", "openai_ads", "oppref"),
+            ("bing", "bing_ads", "msclkid"),
+            ("linkedin", "linkedin_ads", "li_fat_id"),
+            ("reddit", "reddit_ads", "rdt_cid"),
+            ("snapchat", "snapchat_ads", "ScCid"),
+            ("snapchat", "snapchat_ads", "sccid"),
+            ("tiktok", "tiktok_ads", "ttclid"),
+            ("rokt", "rokt_ads", "rtid"),
+            ("pinterest", "pinterest_ads", "pp"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_platform_ad_signals_count_each_event_once(self, source: str, key: str, parameter: str) -> None:
+        value = "0" if parameter == "pp" else "example-click"
+        event_properties = [
+            {parameter: value},
+            {"$current_url": f"https://example.com/?{parameter}={value}"},
+            {parameter: value, "utm_medium": "cpc"},
+            {"utm_medium": " paid-social "},
+            {"utm_campaign": "product-guide", "utm_medium": "referral"},
+            {parameter: ""},
+            {parameter: "  ", "$current_url": f"https://example.com/?{parameter}=%20"},
+            {"msclkid" if key != "bing_ads" else "gclid": "other-platform-click"},
+        ]
+        for index, properties in enumerate(event_properties):
+            _create_event(
+                team=self.team,
+                distinct_id=f"visitor-{index}",
+                event="$pageview",
+                timestamp=timezone.now() - timedelta(hours=1),
+                properties={"utm_source": source, **properties},
+            )
+        flush_persons_and_events()
+
+        response = await get_attribution_health(self.team, custom_source_mappings={})
+
+        entry = next(e for e in response.integrations if e.integration_key == key)
+        assert entry.events_matched_last_7d == len(event_properties)
+        assert entry.events_matched_paid_last_7d == 4
+        assert entry.events_matched_tagged_medium_last_7d == 3
+
+    @parameterized.expand(
+        [
+            ("openai_referral", "chatgpt", "openai_ads", {"utm_campaign": "product-guide"}),
+            ("chatgpt_domain_referral", "chatgpt.com", "openai_ads", {"utm_campaign": "product-guide"}, 0, 0),
+            ("google_campaign", "google", "google_ads", {"utm_campaign": "spring-guide"}),
+            ("meta_click", "facebook", "meta_ads", {"fbclid": "example-click"}),
+            ("meta_url", "facebook", "meta_ads", {"$current_url": "https://example.com/?fbclid=example-click"}),
+            ("pinterest_click", "pinterest", "pinterest_ads", {"epik": "example-click"}),
+            (
+                "pinterest_earned",
+                "pinterest",
+                "pinterest_ads",
+                {"pp": "1", "utm_medium": "cpc", "epik": "example-click"},
+            ),
+            (
+                "pinterest_earned_url",
+                "pinterest",
+                "pinterest_ads",
+                {"utm_medium": "paid-social", "$current_url": "https://example.com/?pp=1"},
+            ),
+            ("snap_cookie", "snapchat", "snapchat_ads", {"_scid": "example-cookie"}),
+            ("apple_campaign", "apple", "apple_ads", {"utm_campaign": "product-guide"}),
+            ("amazon_campaign", "amazon", "amazon_ads", {"utm_campaign": "product-guide"}),
+            ("meta_paid", "facebook", "meta_ads", {"utm_medium": "cpc"}, 1),
+            ("apple_paid", "apple", "apple_ads", {"utm_medium": "cpc"}, 1),
+            ("amazon_paid", "amazon", "amazon_ads", {"utm_medium": "cpc"}, 1),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_campaigns_and_tracking_parameters_require_paid_evidence(
+        self,
+        _name: str,
+        source: str,
+        key: str,
+        properties: dict[str, str],
+        expected_paid: int = 0,
+        expected_matched: int = 1,
+    ) -> None:
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            timestamp=timezone.now() - timedelta(hours=1),
+            properties={"utm_source": source, **properties},
+        )
+        flush_persons_and_events()
+
+        response = await get_attribution_health(self.team, custom_source_mappings={})
+
+        entry = next(e for e in response.integrations if e.integration_key == key)
+        assert entry.events_matched_last_7d == expected_matched
+        assert entry.events_matched_paid_last_7d == expected_paid
+
+
+@time_machine.travel("2025-06-15", tick=False)
+class TestAttributionHealthFutureTimestampClickhouse(ClickhouseTestMixin, BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="google")
+        _pageview(self.team, "u2", utm_source="google", timestamp=timezone.now() + timedelta(days=1800))
         flush_persons_and_events()
 
     def tearDown(self) -> None:
         flush_persons_and_events()
         super().tearDown()
 
-    async def _entry(self, key: str):
+    @pytest.mark.asyncio
+    async def test_future_stamped_event_is_excluded(self) -> None:
         response = await get_attribution_health(self.team, lookback_days=30)
-        return next(e for e in response.integrations if e.integration_key == key)
 
-    @pytest.mark.asyncio
-    async def test_counts_cost_bearing_and_paid_prefixed_mediums(self) -> None:
-        linkedin = await self._entry("linkedin_ads")
-
-        assert linkedin.events_matched_last_7d == 5
-        # `cpc` by name, `paid-social` by prefix. `organic-social`, the untagged one and
-        # the stale-gclid one are not paid; four of the five carry a medium.
-        assert linkedin.events_matched_paid_last_7d == 2
-        assert linkedin.events_matched_tagged_medium_last_7d == 4
-
-    @pytest.mark.asyncio
-    async def test_a_google_click_id_does_not_make_another_platform_paid(self) -> None:
-        # gclid and gad_source name Google Ads specifically, and ride along on whatever
-        # URL carries them. Crediting them to whatever utm_source they land on would put
-        # `connect LinkedIn Ads` back in front of a team that only posts there.
-        linkedin = await self._entry("linkedin_ads")
-
-        assert linkedin.events_matched_paid_last_7d == 2
-
-    @pytest.mark.asyncio
-    async def test_a_click_id_is_paid_even_with_no_medium(self) -> None:
-        # Ad platforms attach gclid; nothing else does. Requiring utm_medium here would
-        # miss every team that relies on auto-tagging.
-        google = await self._entry("google_ads")
-
-        assert google.events_matched_paid_last_7d == 1
-        assert google.events_matched_tagged_medium_last_7d == 0
+        google = next(e for e in response.integrations if e.integration_key == "google_ads")
+        assert google.events_matched_last_7d == 1
+        assert response.total_events_with_utm == 1
+        assert google.last_event_with_matching_utm_at is not None
+        assert google.last_event_with_matching_utm_at <= timezone.now()

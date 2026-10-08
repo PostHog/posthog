@@ -7,6 +7,8 @@ class DeletionType(models.IntegerChoices):
     Group = 2
     Cohort_stale = 3
     Cohort_full = 4
+    # One event, keyed by its uuid; drained into `adhoc_events_deletion` by the Dagster deletes job.
+    Event = 5
 
 
 # This model represents deletions that should delete (other, unrelated) data async

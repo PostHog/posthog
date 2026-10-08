@@ -1,7 +1,16 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { agentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import {
+  openSettings,
+  prepareSettingsPage,
+} from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
@@ -10,7 +19,7 @@ import { useCallback, useEffect } from "react";
 const log = logger.scope("scout-deep-link");
 
 /**
- * Hook that handles scout detail deep links (`<scheme>://scout/{skillSlug}?finding={id}`,
+ * Hook that handles scout detail deep links (`<scheme>://scout/{skillName}?finding={id}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
  * and opens the agent in Settings, expanding the finding when one is supplied.
  *
@@ -20,6 +29,7 @@ const log = logger.scope("scout-deep-link");
  */
 export function useScoutDeepLink() {
   const trpcReact = useHostTRPC();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -34,24 +44,37 @@ export function useScoutDeepLink() {
     }),
   );
 
-  const openScout = useCallback((skillSlug: string, findingId?: string) => {
-    log.info(
-      `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
-    );
-    agentsPageActions().openAgent(skillSlug, { findingId });
-    openSettings("agents");
-  }, []);
+  const openScout = useCallback(
+    (skillName: string, findingId?: string) => {
+      log.info(
+        `Opening scout from deep link: skillName=${skillName} findingId=${findingId ?? "(none)"}`,
+      );
+      const destination = {
+        href: "/settings/agents",
+        appView: "settings" as const,
+      };
+      void focusOrOpenBrowserTab(tabsClient, destination).then((handled) => {
+        if (!handled) {
+          openSettings("agents");
+        } else {
+          prepareSettingsPage();
+        }
+        agentsPageActions().openAgent(skillName, { findingId });
+      });
+    },
+    [tabsClient],
+  );
 
   useEffect(() => {
-    if (pendingDeepLink.data?.skillSlug) {
-      openScout(pendingDeepLink.data.skillSlug, pendingDeepLink.data.findingId);
+    if (pendingDeepLink.data?.skillName) {
+      openScout(pendingDeepLink.data.skillName, pendingDeepLink.data.findingId);
     }
   }, [pendingDeepLink.data, openScout]);
 
   useSubscription(
     trpcReact.deepLink.onOpenScout.subscriptionOptions(undefined, {
       onData: (data) => {
-        if (data?.skillSlug) openScout(data.skillSlug, data.findingId);
+        if (data?.skillName) openScout(data.skillName, data.findingId);
       },
     }),
   );

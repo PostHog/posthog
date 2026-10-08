@@ -33,6 +33,11 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
@@ -50,11 +55,12 @@ class TestBackfillRuns(BaseTest):
                         "key": event,
                         "event_type": "events",
                         "value": "performed_event_multiple",
-                        "conditionHash": f"hash-{event}",
+                        "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                         "time_value": window_days,
                         "time_interval": "day",
                         "operator": "gte",
                         "operator_value": 2,
+                        "bytecode": _BYTECODE,
                     }
                 ],
             }
@@ -201,6 +207,100 @@ class TestBackfillRuns(BaseTest):
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
 
+    def _unseedable_cohort(self, *leaves: dict) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="unseedable",
+            cohort_type=CohortType.REALTIME,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    # The UI never writes a behavioral leaf without a time window, but the API accepts one.
+    _WINDOWLESS_LEAF = {
+        "type": "behavioral",
+        "key": "navbar starred item added",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "c8236865303eb463",
+        "event_filters": [{"key": "item_type", "type": "event", "value": "insight", "operator": "exact"}],
+        "bytecode": _BYTECODE,
+    }
+    _WINDOWED_LEAF = {
+        "type": "behavioral",
+        "key": "$pageview",
+        "event_type": "events",
+        "value": "performed_event",
+        "conditionHash": "hash-$pageview00",
+        "time_value": 7,
+        "time_interval": "day",
+        "bytecode": _BYTECODE,
+    }
+
+    @parameterized.expand(
+        [
+            ("windowless_performed_event", [_WINDOWLESS_LEAF]),
+            ("action_keyed", [{**_WINDOWED_LEAF, "event_type": "actions", "key": 42}]),
+            (
+                "sub_day_multiple",
+                [
+                    {
+                        **_WINDOWED_LEAF,
+                        "value": "performed_event_multiple",
+                        "time_interval": "hour",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+            ),
+            ("hashless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "conditionHash"}]),
+            ("short_hash", [{**_WINDOWED_LEAF, "conditionHash": "tooshort"}]),
+            ("bytecodeless", [{k: v for k, v in _WINDOWED_LEAF.items() if k != "bytecode"}]),
+            ("one_seedable_sibling", [_WINDOWED_LEAF, _WINDOWLESS_LEAF]),
+            # The dropped leaf is not behavioral, so a gate reading behavioral leaves alone admits
+            # this cohort while the catalog classifies it `excluded_has_dropped_leaf` whole.
+            (
+                "person_metadata_sibling",
+                [_WINDOWED_LEAF, {"type": "person_metadata", "key": "created_at", "value": "2026-01-01"}],
+            ),
+            (
+                "bytecodeless_person_sibling",
+                [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
+            ),
+            # Every leaf is kept, so only the tree tells these cohorts apart from a seedable one.
+            ("negated_root", [{**_WINDOWED_LEAF, "negation": True}]),
+            ("empty_group", [_WINDOWED_LEAF, {"type": "OR", "values": []}]),
+        ]
+    )
+    def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
+        # The processor excludes a cohort with any dropped leaf, so a partly seedable one is
+        # refused whole.
+        cohort = self._unseedable_cohort(*leaves)
+
+        with self.assertLogs("products.cohorts.backend.backfill.runs", level="INFO") as logs:
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.COHORT_INELIGIBLE)
+        self.assertIn("the realtime catalog", "\n".join(logs.output))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
+        seedable = self._cohort()
+        unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
+
+        with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
+            create_team_backfill_run(self.team.id, "team_enablement", [unseedable.id])
+
+        run = create_team_backfill_run(self.team.id, "team_enablement")
+
+        self.assertEqual(
+            set(
+                CohortBackfillRunCohort.objects.for_team(self.team.id)
+                .filter(run=run)
+                .values_list("cohort_id", flat=True)
+            ),
+            {seedable.id},
+        )
+
     def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
         # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
         # if the post_save receiver stops superseding, an edit leaves the seeder on a stale definition.
@@ -231,6 +331,7 @@ class TestPersonBackfillRuns(BaseTest):
         *,
         person_hashes: tuple[str | None, ...] = ("person0000000001",),
         behavioral: bool = True,
+        windowless: bool = False,
         person_metadata: bool = False,
     ) -> dict:
         values: list[dict] = [
@@ -240,21 +341,25 @@ class TestPersonBackfillRuns(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": condition_hash,
+                "bytecode": _BYTECODE,
             }
             for condition_hash in person_hashes
         ]
         if behavioral:
-            values.append(
-                {
-                    "type": "behavioral",
-                    "key": "$pageview",
-                    "event_type": "events",
-                    "value": "performed_event",
-                    "conditionHash": "behavior00000001",
-                    "time_value": 7,
-                    "time_interval": "day",
-                }
-            )
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "conditionHash": "behavior00000001",
+                "time_value": 7,
+                "time_interval": "day",
+                "bytecode": _BYTECODE,
+            }
+            if windowless:
+                # The API accepts a behavioral leaf with no time window; the catalog drops it.
+                del leaf["time_value"], leaf["time_interval"]
+            values.append(leaf)
         if person_metadata:
             values.append(
                 {
@@ -581,6 +686,10 @@ class TestPersonBackfillRuns(BaseTest):
             ("non_realtime", {"cohort_type": CohortType.BEHAVIORAL}),
             ("hashless", {"filters": "hashless"}),
             ("person_metadata", {"filters": "person_metadata"}),
+            # The seeder fails a person run for this cohort on its first tick, so a person gate
+            # admitting it would create one failed run per save.
+            ("windowless_behavioral_sibling", {"filters": "windowless"}),
+            ("negated_root", {"filters": "negated_root"}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -591,6 +700,11 @@ class TestPersonBackfillRuns(BaseTest):
             filters = self._filters(person_hashes=(None,), behavioral=False)
         elif _name == "person_metadata":
             filters = self._filters(person_metadata=True)
+        elif _name == "windowless_behavioral_sibling":
+            filters = self._filters(windowless=True)
+        elif _name == "negated_root":
+            filters = self._filters(behavioral=False)
+            filters["properties"]["values"][0]["negation"] = True
         cohort_type = overrides.pop("cohort_type", CohortType.REALTIME)
         cohort = Cohort.objects.create(
             team=self.team,
@@ -731,11 +845,12 @@ class TestCancelRuns(BaseTest):
                             "key": event,
                             "event_type": "events",
                             "value": "performed_event_multiple",
-                            "conditionHash": f"hash-{event}",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                             "time_value": 7,
                             "time_interval": "day",
                             "operator": "gte",
                             "operator_value": 2,
+                            "bytecode": _BYTECODE,
                         }
                     ],
                 }

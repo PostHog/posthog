@@ -957,6 +957,7 @@ exports[`replay/transform transform can process screenshot mutation 1`] = `
           "nextId": null,
           "node": {
             "attributes": {
+              "data-posthog-screenshot": "true",
               "data-rrweb-id": 151700670,
               "height": 914,
               "src": "data:image/png;base64,mutated-image-content",

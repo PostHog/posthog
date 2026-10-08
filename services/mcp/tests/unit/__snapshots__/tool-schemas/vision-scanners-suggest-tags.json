@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.",
+    "properties": {
+        "allow_freeform_tags": {
+            "default": false,
+            "description": "Whether the classifier may emit tags outside the fixed vocabulary.",
+            "type": "boolean"
+        },
+        "multi_label": {
+            "default": true,
+            "description": "Whether the classifier assigns multiple tags per session.",
+            "type": "boolean"
+        },
+        "prompt": {
+            "description": "The classifier's instruction prompt — the single dimension to categorize sessions by.",
+            "maxLength": 10000,
+            "type": "string"
+        },
+        "scanner_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner."
+        },
+        "tags": {
+            "description": "The categories already configured, so suggestions never duplicate one the user has.",
+            "items": {
+                "maxLength": 200,
+                "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+        }
+    },
+    "required": ["prompt"],
+    "type": "object"
+}

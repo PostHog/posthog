@@ -25,13 +25,13 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 <AlphaRelease />
 
 [Inngest](https://www.inngest.com/) is a durable workflow engine: functions are triggered by events and run with steps, retries, and flow control.
-This connector pulls your Inngest data — events, function runs, bulk cancellations, environments, inbound webhook intake endpoints, and event/signing key inventories — into the PostHog Data warehouse so you can join it with your product data.
+This connector pulls your Inngest data — events, function runs, functions, AgentKit sessions, bulk cancellations, environments, inbound webhook intake endpoints, and event/signing key inventories — into the PostHog Data warehouse so you can join it with your product data.
 
 Inngest retains event and run history for a plan-dependent window (from 24 hours up to 90 days), so a synced copy in PostHog doubles as durable history. Schedule frequent syncs to avoid gaps.
 
 ## Prerequisites
 
-You need an Inngest account and the signing key for the environment you want to sync. Signing keys authenticate both the v1 and v2 REST APIs, so no additional scopes are required. (Dashboard API keys only work with the v2 API, which does not cover events and runs, so they can't be used here.)
+You need an Inngest account and the signing key for the environment you want to sync. Signing keys authenticate both the v1 and v2 REST APIs, so no additional scopes are required. (Dashboard API keys only work with the v2 API, which does not cover events, so they can't be used here.)
 
 ## Adding a data source
 
@@ -43,7 +43,7 @@ Inngest authenticates with a per-environment signing key (it starts with `signke
 
 <SyncModes />
 
-**Events** sync append-only using the server-side `received_after` filter, backfilling up to 90 days of history on the first sync (bounded by your plan's retention). **Function runs** sync incrementally: they are discovered by walking the incoming event stream and looking up each event's runs, and each sync re-reads a trailing hour so recently-started runs pick up their final status. The other tables are small inventories with no server-side timestamp filter, so they sync as full refresh.
+**Events** sync append-only using the server-side `received_after` filter, backfilling up to 90 days of history on the first sync (bounded by your plan's retention). **Function runs** sync incrementally: they are discovered by walking the incoming event stream and looking up each event's runs, and each sync re-reads a trailing hour so recently-started runs pick up their final status. **Runs** sync incrementally on the server-side `queuedAt` filter and include every run, including cron- and invoke-triggered runs that **Function runs** misses; they also re-read a trailing hour each sync. **Session runs** look up each AgentKit session's runs one session at a time, so the table is off by default. The other tables are small inventories with no server-side timestamp filter, so they sync as full refresh.
 
 Secret values are never synced: event keys and signing keys keep only their metadata (name, environment, creation time), and webhook intake URLs — which let anyone holding them submit events — are stripped too.
 

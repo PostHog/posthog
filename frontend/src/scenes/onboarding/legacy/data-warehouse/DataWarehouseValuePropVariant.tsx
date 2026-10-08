@@ -7,7 +7,6 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
@@ -18,6 +17,7 @@ import IconZendesk from 'public/services/zendesk.png'
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/components/InlineSourceSetup'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -73,7 +73,7 @@ function DataWarehouseValuePropInner(): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
     const [phase, setPhase] = useState<'value-prop' | 'setup'>(initialOnboardingPhase)
 
-    const visibleConnectors = connectors.filter((c: SourceConfig) => !c.unreleasedSource)
+    const visibleConnectors = connectors.filter((c: SourceConfigResponseApi) => !c.unreleasedSource)
 
     const handleConnectClick = (): void => {
         posthog.capture('dwh onboarding connect clicked', { variant: 'table' })

@@ -208,7 +208,7 @@ export function SurveyDetailsPanel(): JSX.Element {
 }
 
 export function SurveyExportPanel(): JSX.Element {
-    const { survey, dataTableQuery } = useValues(surveyLogic)
+    const { survey, responsesExportQuery } = useValues(surveyLogic)
     const { startExport } = useActions(exportsLogic)
 
     // Creating an export requires editor access to the export resource.
@@ -218,13 +218,14 @@ export function SurveyExportPanel(): JSX.Element {
     )
 
     const handleExport = (format: ExporterFormat): void => {
-        if (!dataTableQuery) {
+        if (!responsesExportQuery) {
             return
         }
         startExport({
             export_format: format,
             export_context: {
-                source: dataTableQuery,
+                source: responsesExportQuery,
+                columns: responsesExportQuery.columns,
                 filename: `survey-${survey.name}-responses`,
             },
         })
@@ -232,7 +233,7 @@ export function SurveyExportPanel(): JSX.Element {
 
     return (
         <PanelSection title="Export" description="Download survey responses">
-            {dataTableQuery ? (
+            {responsesExportQuery ? (
                 <LemonMenu
                     items={[
                         {

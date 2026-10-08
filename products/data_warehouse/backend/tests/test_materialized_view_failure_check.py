@@ -87,10 +87,15 @@ class TestMaterializedViewFailureCheck(BaseTest):
         self._job(view, DataModelingJobStatus.COMPLETED, ran_at=NOW)
         assert self._detected_ids() == set()
 
-    def test_a_duckgres_shadow_success_does_not_stand_in_for_the_serving_run(self) -> None:
+    def test_a_managed_warehouse_shadow_success_does_not_stand_in_for_the_serving_run(self) -> None:
         view = self._view()
         self._job(view, DataModelingJobStatus.FAILED, ran_at=NOW - dt.timedelta(minutes=1))
-        self._job(view, DataModelingJobStatus.COMPLETED, ran_at=NOW, engine=DataModelingJobEngine.DUCKGRES)
+        self._job(
+            view,
+            DataModelingJobStatus.COMPLETED,
+            ran_at=NOW,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+        )
         assert self._detected_ids() == {str(view.id)}
 
     def test_a_view_whose_deleted_flag_was_never_written_is_still_visible(self) -> None:

@@ -77,7 +77,7 @@ async function enterDismissal(user: ReturnType<typeof userEvent.setup>) {
     screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
   );
   await user.type(
-    screen.getByPlaceholderText("Optional: add detail"),
+    screen.getByLabelText("Details (optional)"),
     "Retain this note",
   );
   await user.click(screen.getByText("Dismiss report"));
@@ -101,12 +101,33 @@ describe("useInboxReportDismissAction", () => {
     await enterDismissal(user);
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
-    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
+    expect(screen.getByLabelText("Details (optional)")).toHaveValue(
       "Retain this note",
     );
   });
 
-  it("keeps the dialog closed once the dismissal lands", async () => {
+  it("closes the dialog before the request settles", async () => {
+    let settle: (updated: SignalReport) => void = () => {};
+    mocks.updateState.mockReturnValue(
+      new Promise<SignalReport>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DismissActionHarness />, { wrapper: createWrapper() });
+
+    await enterDismissal(user);
+
+    expect(
+      screen.queryByLabelText("Details (optional)"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      settle({ ...report, status: "suppressed" });
+    });
+  });
+
+  it("keeps the dialog closed and confirms when the dismissal lands", async () => {
     mocks.updateState.mockResolvedValue({ ...report, status: "suppressed" });
     const user = userEvent.setup();
     render(<DismissActionHarness />, { wrapper: createWrapper() });
@@ -114,8 +135,9 @@ describe("useInboxReportDismissAction", () => {
     await enterDismissal(user);
 
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("1 report dismissed");
     expect(
-      screen.queryByPlaceholderText("Optional: add detail"),
+      screen.queryByLabelText("Details (optional)"),
     ).not.toBeInTheDocument();
   });
 
@@ -146,7 +168,7 @@ describe("useInboxReportDismissAction", () => {
         name: /Agent's analysis is wrong/,
       }),
     ).toBeChecked();
-    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
+    expect(screen.getByLabelText("Details (optional)")).toHaveValue(
       "Retain this note",
     );
   });

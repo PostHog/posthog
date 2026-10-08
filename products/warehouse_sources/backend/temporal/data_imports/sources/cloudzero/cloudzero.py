@@ -6,6 +6,7 @@ from dateutil import parser as dateutil_parser
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.settings import (
     DEFAULT_START_DATE,
+    LIST_ENDPOINTS,
     RESTATEMENT_WINDOW_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -13,8 +14,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+    JSONResponseCursorPaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CLOUDZERO_BASE_URL = "https://api.cloudzero.com"
 
@@ -44,6 +50,35 @@ def _rolling_incremental_start_date(value: Any) -> str:
     return _format_iso8601(dt)
 
 
+CURSOR_PAGINATOR: JSONResponseCursorPaginatorConfig = {
+    "type": "cursor",
+    "cursor_path": "pagination.cursor.next_cursor",
+    "cursor_param": "cursor",
+    "param_location": "query",
+}
+
+
+def _get_list_resource(name: str) -> EndpointResource:
+    settings = LIST_ENDPOINTS[name]
+    endpoint: Endpoint = {
+        "path": settings["path"],
+        "params": dict(settings["params"]),
+        "data_selector_required": True,
+    }
+    if settings["data_selector"] is not None:
+        endpoint["data_selector"] = settings["data_selector"]
+    if settings["paginated"]:
+        endpoint["paginator"] = CURSOR_PAGINATOR
+
+    return {
+        "name": name,
+        "table_name": settings["table_name"],
+        "write_disposition": "replace",
+        "endpoint": endpoint,
+        "table_format": "delta",
+    }
+
+
 def get_resource(
     name: str,
     should_use_incremental_field: bool,
@@ -51,21 +86,10 @@ def get_resource(
     cost_type: str,
     group_by: list[str],
 ) -> EndpointResource:
-    if name == "Dimensions":
-        return {
-            "name": "Dimensions",
-            "table_name": "dimensions",
-            "write_disposition": "replace",
-            "endpoint": {
-                "data_selector": "dimensions",
-                "path": "/v2/billing/dimensions",
-                "params": {
-                    "include_hidden": "true",
-                },
-                "data_selector_required": True,
-            },
-            "table_format": "delta",
-        }
+    if name in LIST_ENDPOINTS:
+        return _get_list_resource(name)
+    if name != "Costs":
+        raise ValueError(f"Unknown CloudZero endpoint: {name}")
 
     params: dict[str, Any] = {
         "start_date": (
@@ -97,12 +121,7 @@ def get_resource(
             "path": "/v2/billing/costs",
             "params": params,
             "data_selector_required": True,
-            "paginator": {
-                "type": "cursor",
-                "cursor_path": "pagination.cursor.next_cursor",
-                "cursor_param": "cursor",
-                "param_location": "query",
-            },
+            "paginator": CURSOR_PAGINATOR,
         },
         "table_format": "delta",
     }
@@ -163,9 +182,26 @@ def cloudzero_source(
     )
 
 
-def validate_credentials(api_key: str) -> bool:
-    res = make_tracked_session(redact_values=(api_key,)).get(
+# Shared with `CloudzeroSource.get_non_retryable_errors` so the same rejection reads the same way
+# whether it surfaces while connecting the source or mid-sync.
+KEY_REJECTED_MESSAGE = (
+    "CloudZero rejected your API key. Check the key is correct and has the read scopes for the "
+    "tables you want to sync, then reconnect."
+)
+# `validate_via_probe` reports a transport failure as a `None` status, so anything CloudZero did not
+# answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
+# that fails the same way.
+PROBE_FAILED_MESSAGE = "PostHog couldn't check your API key with CloudZero. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
         f"{CLOUDZERO_BASE_URL}/v2/billing/dimensions",
         headers={"Authorization": api_key},
     )
-    return res.status_code == 200
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, KEY_REJECTED_MESSAGE
+    return False, PROBE_FAILED_MESSAGE

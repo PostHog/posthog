@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from posthog.temporal.oauth import has_write_scopes, resolve_scopes
@@ -11,12 +13,16 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
     HUMAN_TRIGGER_SOURCES,
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
     RESOLUTION_RUNTIME_ADAPTER,
     REVIEW_ARMS_BY_TIER,
     REVIEW_MCP_SCOPES,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -27,9 +33,11 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewTier,
     is_below_human_tier,
     resolve_review_arm,
+    review_arm_for_mode,
     select_review_tier,
+    validation_arm_for_mode,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_INBOX
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     LLMProvider,
@@ -84,7 +92,11 @@ def test_sandbox_fallback_runtime_is_a_registry_supported_combo(
     assert get_provider_for_runtime_adapter(adapter) == LLMProvider.ANTHROPIC
 
 
-@pytest.mark.parametrize("arm", [pytest.param(arm, id=tier.value) for tier, arm in REVIEW_ARMS_BY_TIER.items()])
+@pytest.mark.parametrize(
+    "arm",
+    [pytest.param(arm, id=tier.value) for tier, arm in REVIEW_ARMS_BY_TIER.items()]
+    + [pytest.param(FLASH_ARM, id="flash")],
+)
 def test_tier_arm_is_a_registry_supported_combo(arm: ReviewArm) -> None:
     # Same lock as the pinned combos, per tier: a bad combo is persisted onto every report in the
     # tier and fails only mid-review in prod. A Codex arm without "full-access" stalls every
@@ -150,12 +162,12 @@ def test_only_tiers_cheaper_than_human_lift_on_a_human_trigger(tier: ReviewTier,
     assert is_below_human_tier(tier) is expected
 
 
-def test_human_triggers_cover_every_trigger_but_the_inbox() -> None:
+def test_human_triggers_exclude_automatic_triggers() -> None:
     # The set is spelled out in constants.py (persistence cannot import the temporal package). A
     # trigger added to types.py but not here would leave a person's ask on a cheap tier, so the
     # expected set is derived from the module rather than spelled out a second time.
     every_trigger = {value for name, value in vars(trigger_types).items() if name.startswith("TRIGGER_")}
-    assert HUMAN_TRIGGER_SOURCES == every_trigger - {TRIGGER_INBOX}
+    assert HUMAN_TRIGGER_SOURCES == every_trigger - {TRIGGER_INBOX, TRIGGER_AUTOMATIC}
 
 
 # A registry-valid arm that differs from the default pins on every field, so honored-verbatim
@@ -168,6 +180,14 @@ _SONNET_ARM = ReviewArm(
     initial_permission_mode=None,
 )
 
+# The reviewer pin a report persisted before the model bump, sticky for that report's life.
+_LEGACY_CODEX_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-5.6-sol",
+    reasoning_effort=ReasoningEffort.XHIGH,
+    initial_permission_mode="full-access",
+)
+
 
 @pytest.mark.parametrize(
     "persisted,expected",
@@ -176,6 +196,18 @@ _SONNET_ARM = ReviewArm(
         pytest.param((None, None, None, None), DEFAULT_REVIEW_ARM, id="null-bundle"),
         # A persisted assignment that differs from the default pins is honored verbatim.
         pytest.param(("claude", "claude-sonnet-5", "xhigh", None), _SONNET_ARM, id="persisted-claude-arm"),
+        # An in-flight report keeps the previous reviewer pin. Deregistering the legacy model would
+        # move every such report onto the bumped default mid-review instead.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "xhigh", "full-access"), _LEGACY_CODEX_ARM, id="persisted-legacy-codex-arm"
+        ),
+        # The cheap tier's effort too: narrowing the legacy model's effort list would lift an
+        # in-flight cheap report to the full-strength default and cost money.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "low", "full-access"),
+            replace(_LEGACY_CODEX_ARM, reasoning_effort=ReasoningEffort.LOW),
+            id="persisted-legacy-codex-cheap-tier",
+        ),
         # A model that outlived its registration must degrade to the default reviewer, not send an
         # unroutable pin into a paid sandbox turn. Pinned at "high" deliberately: the Codex effort
         # registry accepts any unknown model at <=high, so only the membership check catches this.
@@ -200,3 +232,30 @@ def test_review_mcp_scopes_open_a_session_and_stay_read_only() -> None:
     assert "user:read" in resolved
     assert "llm_skill:read" in resolved
     assert not has_write_scopes(REVIEW_MCP_SCOPES)
+
+
+@pytest.mark.parametrize(
+    "review_mode,effort,expected_review,expected_validation",
+    [
+        # A flash turn swaps both seats; a full turn keeps the report's own arm and the validator pins.
+        # A helper that read the pins for flash would run the expensive review under a cheap label
+        # and the analytics events, which share these helpers, would misprice every flash turn.
+        pytest.param(REVIEW_MODE_FLASH, "medium", FLASH_ARM, FLASH_ARM, id="flash-medium"),
+        pytest.param(
+            REVIEW_MODE_FLASH,
+            "xhigh",
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            id="flash-xhigh",
+        ),
+        pytest.param(
+            REVIEW_MODE_FULL, "xhigh", REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2], DEFAULT_VALIDATION_ARM, id="full"
+        ),
+    ],
+)
+def test_mode_helpers_pick_both_seats(
+    review_mode: str, effort: str, expected_review: ReviewArm, expected_validation: ReviewArm
+) -> None:
+    persisted = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
+    assert review_arm_for_mode(review_mode, persisted, flash_reasoning_effort=effort) == expected_review
+    assert validation_arm_for_mode(review_mode, flash_reasoning_effort=effort) == expected_validation

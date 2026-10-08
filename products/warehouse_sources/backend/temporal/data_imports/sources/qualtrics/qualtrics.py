@@ -418,6 +418,9 @@ def _iter_collection(
 
     while True:
         if pages >= MAX_PAGES:
+            # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+            if resumable_source_manager is not None:
+                resumable_source_manager.safe_point()
             raise QualtricsPaginationLimitError(
                 f"Qualtrics pagination exceeded {MAX_PAGES} pages without terminating: {first_url}"
             )

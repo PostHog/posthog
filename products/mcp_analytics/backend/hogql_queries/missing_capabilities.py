@@ -29,6 +29,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     display_person_properties,
     mcp_query_date_range,
     validate_mcp_analytics_access,
@@ -43,10 +44,6 @@ MAX_LIMIT = 500
 
 # Both the result column and search expression use this property so they cannot drift.
 _REPORT_TEXT = "toString(properties.$mcp_intent)"
-
-# Conversation id, same resolution as the tool-call surfaces: the SDK's own
-# $mcp_session_id when set, else the ambient $session_id.
-_CONVERSATION_ID = "coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))"
 
 
 class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
@@ -102,10 +99,15 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         # The harness fragments are HogQL text from mcp_harness; parse them to AST and inject
         # as placeholders so nothing is string-interpolated. The token is computed once as a
         # column in the inner query and the label buckets that column, per mcp_harness's contract.
+        # The sort keys carry their own names because an outer ORDER BY on a name that the events
+        # table also defines makes HogQL synthesize a suffixed column, such as `uuid_0`, while the
+        # sort description still asks for `uuid`, and ClickHouse then rejects the sort. Naming the
+        # timestamp separately also stops the outer projection from shadowing it, so the sort
+        # compares timestamps rather than the strings the outer column holds.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS timestamp,
+                toString(sort_ts) AS timestamp,
                 intent,
                 {harness_label} AS harness,
                 session_id,
@@ -114,8 +116,8 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 person_name
             FROM (
                 SELECT
-                    timestamp,
-                    uuid,
+                    timestamp AS sort_ts,
+                    uuid AS sort_uuid,
                     {report_text} AS intent,
                     {conversation_id} AS session_id,
                     distinct_id,
@@ -126,7 +128,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC, uuid DESC
+            ORDER BY sort_ts DESC, sort_uuid DESC
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={
@@ -134,7 +136,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),
-                "conversation_id": parse_expr(_CONVERSATION_ID),
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),
                 # Over-fetch one row to detect the next page without a separate count query.
                 "limit": ast.Constant(value=self.limit + 1),

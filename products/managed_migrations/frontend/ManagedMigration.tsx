@@ -335,9 +335,59 @@ export function ManagedMigration(): JSX.Element {
                         />
                     )}
 
-                {usesIamRole ? null : managedMigration.source_type === 'mixpanel' ? (
+                {managedMigration.source_type === 'mixpanel' && (
+                    <LemonField name="mixpanel_auth_method" label="Authentication">
+                        <LemonSegmentedButton
+                            value={managedMigration.mixpanel_auth_method}
+                            onChange={(value) => setManagedMigrationValue('mixpanel_auth_method', value)}
+                            options={[
+                                { value: 'service_account', label: 'Service account' },
+                                { value: 'project_secret', label: 'Project secret' },
+                            ]}
+                            size="small"
+                        />
+                    </LemonField>
+                )}
+
+                {usesIamRole ? null : managedMigration.source_type === 'mixpanel' &&
+                  managedMigration.mixpanel_auth_method === 'service_account' ? (
+                    <>
+                        <div className="flex gap-4">
+                            <LemonField
+                                name="mixpanel_service_account_username"
+                                label="Service account username"
+                                className="flex-1"
+                            >
+                                <LemonInput />
+                            </LemonField>
+
+                            <LemonField
+                                name="mixpanel_service_account_secret"
+                                label="Service account secret"
+                                className="flex-1"
+                            >
+                                <LemonInput type="password" />
+                            </LemonField>
+                        </div>
+                        <div className="text-secondary text-xs -mt-2">
+                            Create a service account under Organization settings → Service accounts in Mixpanel, and
+                            give it access to the project you're importing. See{' '}
+                            <Link to="https://docs.mixpanel.com/reference/service-accounts" target="_blank">
+                                Mixpanel's docs
+                            </Link>
+                            .
+                        </div>
+                        <LemonField
+                            name="mixpanel_project_id"
+                            label="Project ID"
+                            help="Find this under Project settings → Project Details in Mixpanel."
+                        >
+                            <LemonInput type="number" min={1} placeholder="1234567" />
+                        </LemonField>
+                    </>
+                ) : managedMigration.source_type === 'mixpanel' ? (
                     <LemonField
-                        name="secret_key"
+                        name="mixpanel_project_secret"
                         label="Project secret"
                         help={
                             <span>

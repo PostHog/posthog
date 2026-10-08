@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -196,7 +196,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_services_honors_sub_day_date_range(self):
         # The fixture has 1003 logs on 2025-12-16 across 12 services, but only the
         # 10:32 batch (100 logs from cdp-legacy-events-consumer) falls in this
@@ -210,7 +210,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(windowed["services"][0]["service_name"], "cdp-legacy-events-consumer")
         self.assertEqual(windowed["services"][0]["log_count"], 100)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_services_normalizes_flat_filter_group_from_mcp(self):
         # MCP tools send `filterGroup` as a flat list of property filters (see
         # `_normalize_filter_group`'s docstring), not the nested PropertyGroupFilter shape
@@ -236,7 +236,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         services = response.json()["services"]
         self.assertEqual({s["service_name"] for s in services}, {"cdp-legacy-events-consumer"})
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_sparkline_covers_exactly_the_returned_services(self):
         # Exact equality holds because the fixture's 12 services fit within
         # SPARKLINE_SERVICES_LIMIT; past the limit only the top services get a trend.
@@ -247,9 +247,6 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(service_names)
         self.assertEqual(sparkline_services, service_names)
 
-    # The tests below pass absolute date ranges instead of freezing time: the first
-    # request of a test process imports the URLconf, and transitively pydantic.v1,
-    # whose date subclasses cannot be built while freezegun has datetime.date patched.
     def test_cap_limits_services_but_not_total_count(self):
         with patch.object(services_query_runner, "SERVICES_LIMIT", 5):
             result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")

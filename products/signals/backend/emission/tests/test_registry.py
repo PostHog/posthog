@@ -55,13 +55,20 @@ def _build_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | 
         result.columns = []
         return result
 
+    # A source with a scope gets an allowlist, so its scope expression is parsed by this sweep too.
+    source_config = {config.scope_config_key: ["scope-1", "scope-2"]} if config.scope_config_key else {}
     with patch(
         "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
     ):
         data_warehouse_record_fetcher(
             team=MagicMock(),
             config=config,
-            context={"table_name": "source.table", "last_synced_at": last_synced_at, "extra": {}},
+            context={
+                "table_name": "source.table",
+                "last_synced_at": last_synced_at,
+                "extra": {},
+                "source_config": source_config,
+            },
         )
     return captured["query"]
 
@@ -208,6 +215,14 @@ class TestSignalSourceTableConfigValidation:
         config = SignalSourceTableConfig(**_BASE_FIELDS)
         assert config.summarization_prompt is None
         assert config.description_summarization_threshold_chars is None
+
+    @pytest.mark.parametrize(
+        "fields",
+        [{"scope_field": "JSONExtractString(team, 'id')"}, {"scope_config_key": "linear_team_ids"}],
+    )
+    def test_rejects_half_a_scope_pair(self, fields):
+        with pytest.raises(ValidationError, match="scope_field and scope_config_key must both be set or both be None"):
+            SignalSourceTableConfig(**{**_BASE_FIELDS, **fields})
 
 
 # Captured at import, before the _clean_registry fixture can touch it.

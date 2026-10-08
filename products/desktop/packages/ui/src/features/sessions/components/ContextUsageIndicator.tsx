@@ -34,7 +34,10 @@ export function ContextUsageIndicator({
   originProduct,
   focused = true,
 }: ContextUsageIndicatorProps) {
-  const costEnabled = originProduct === "user_created";
+  const costEnabled =
+    originProduct === "user_created" ||
+    originProduct === "loop" ||
+    originProduct === "workflow";
   const costVisible = useFeatureFlag(TASK_COST_VISIBLE_FLAG);
   const { data: fetchedTaskUsage } = useTaskUsage(
     taskId,
@@ -45,7 +48,7 @@ export function ContextUsageIndicator({
   const showCost = taskUsage !== undefined;
   const showCostText = showCost && costVisible;
   const costText = showCostText ? (
-    <Text className="select-none font-medium text-[13px] text-gray-11 tabular-nums">
+    <Text className="select-none font-medium text-[13px] text-muted-foreground tabular-nums">
       {formatCostUsd(taskUsage.total_cost_usd)}
     </Text>
   ) : null;

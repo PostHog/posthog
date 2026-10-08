@@ -20,14 +20,22 @@
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
+        "max_result_chars": {
+            "description": "Per-tile character budget for 'optimized' output, truncation marker included. A longer table keeps its header and both ends, and names how many rows were dropped from the middle. Defaults to 2000; pass 0 for the whole table, or 200 or more, since a smaller budget cannot carry the marker. Ignored when output_format is 'json'. Any value above zero is also held down to what the response has left of its 30000 character budget, and tiles past that budget are not run.",
+            "type": "number"
+        },
         "output_format": {
-            "description": "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.",
+            "description": "'optimized' (default) returns LLM-friendly formatted text per insight, bounded by max_result_chars. 'json' returns the raw query result objects, unbounded.",
             "enum": ["json", "optimized"],
             "type": "string"
         },
         "refresh": {
             "description": "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.",
             "enum": ["blocking", "force_blocking", "force_cache"],
+            "type": "string"
+        },
+        "tile_ids": {
+            "description": "Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.",
             "type": "string"
         },
         "variables_override": {

@@ -1,7 +1,7 @@
 import json
 from math import floor
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
@@ -94,7 +94,7 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp="2021-12-01T00:00:00Z",
         )
 
-    @freeze_time("2021-12-04T19:20:00Z")
+    @time_machine.travel("2021-12-04T19:20:00Z", tick=False)
     def test_ingestion_warnings_api(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings")
         assert response.status_code == status.HTTP_200_OK
@@ -163,7 +163,7 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-    @freeze_time("2021-12-04T19:20:00Z")
+    @time_machine.travel("2021-12-04T19:20:00Z", tick=False)
     def test_ingestion_warnings_api_search_by_type(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings?q=another_type")
         assert response.status_code == status.HTTP_200_OK
@@ -185,7 +185,7 @@ class TestIngestionWarningsAPI(ClickhouseTestMixin, APIBaseTest):
             ]
         }
 
-    @freeze_time("2021-12-04T19:20:00Z")
+    @time_machine.travel("2021-12-04T19:20:00Z", tick=False)
     def test_ingestion_warnings_api_search_by_id(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/ingestion_warnings?q=x-uuid")
         assert response.status_code == status.HTTP_200_OK

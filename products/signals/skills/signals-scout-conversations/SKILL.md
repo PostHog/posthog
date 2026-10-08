@@ -1,5 +1,6 @@
 ---
 name: signals-scout-conversations
+scout-display-name: Conversations
 description: >
   Signals scout for PostHog Conversations (support inbox). Watches `$conversation_*` ticket-
   lifecycle events for SLA breach steps, first-response latency blowouts, backlog imbalance, and

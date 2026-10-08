@@ -13,6 +13,11 @@ class TestSanitizeIdentifier(BaseTest):
     def test_keywords(self):
         self.assertEqual(_sanitize_identifier("await"), "__x_await")
         self.assertEqual(_sanitize_identifier("class"), "__x_class")
+        # The compiler emits these for the ordering comparisons, so a program must not declare them.
+        self.assertEqual(_sanitize_identifier("__lt"), "__x___lt")
+        self.assertEqual(_sanitize_identifier("__lte"), "__x___lte")
+        self.assertEqual(_sanitize_identifier("__gt"), "__x___gt")
+        self.assertEqual(_sanitize_identifier("__gte"), "__x___gte")
 
     def test_internal_conflicts(self):
         self.assertEqual(_sanitize_identifier("__x_internal"), "__x___x_internal")
@@ -31,7 +36,7 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("1 and 2"), "!!(1 && 2)")
         self.assertEqual(to_js_expr("1 or 2"), "!!(1 || 2)")
         self.assertEqual(to_js_expr("not true"), "(!true)")
-        self.assertEqual(to_js_expr("1 < 2"), "(1 < 2)")
+        self.assertEqual(to_js_expr("1 < 2"), "__lt(1, 2)")
         self.assertEqual(to_js_expr("properties.bla"), '__getProperty(__getGlobal("properties"), "bla", true)')
 
     def test_javascript_string_functions(self):
@@ -49,10 +54,10 @@ class TestJavaScript(BaseTest):
     def test_comparison_operations(self):
         self.assertEqual(to_js_expr("3 = 4"), "(3 == 4)")
         self.assertEqual(to_js_expr("3 != 4"), "(3 != 4)")
-        self.assertEqual(to_js_expr("3 < 4"), "(3 < 4)")
-        self.assertEqual(to_js_expr("3 <= 4"), "(3 <= 4)")
-        self.assertEqual(to_js_expr("3 > 4"), "(3 > 4)")
-        self.assertEqual(to_js_expr("3 >= 4"), "(3 >= 4)")
+        self.assertEqual(to_js_expr("3 < 4"), "__lt(3, 4)")
+        self.assertEqual(to_js_expr("3 <= 4"), "__lte(3, 4)")
+        self.assertEqual(to_js_expr("3 > 4"), "__gt(3, 4)")
+        self.assertEqual(to_js_expr("3 >= 4"), "__gte(3, 4)")
 
     def test_javascript_create_query_error(self):
         with self.assertRaises(QueryError) as e:
@@ -79,8 +84,10 @@ class TestJavaScript(BaseTest):
 
     def test_if_else(self):
         code = to_js_program("if (1 < 2) { return true } else { return false }")
-        expected_code = "if ((1 < 2)) {\n    return true;\n} else {\n    return false;\n}"
-        self.assertEqual(code.strip(), expected_code.strip())
+        expected_code = "if (__lt(1, 2)) {\n    return true;\n} else {\n    return false;\n}"
+        self.assertTrue(code.strip().endswith(expected_code), code)
+        # A null on either side of an ordering comparison is false, so the helper is part of the program.
+        self.assertIn("function __lt (a, b)", code)
 
     def test_declare_local(self):
         compiler = JavaScriptCompiler()
@@ -166,14 +173,15 @@ class TestJavaScript(BaseTest):
         return fibonacci(6);
         """)
         expected_js = """function fibonacci(number) {
-    if ((number < 2)) {
+    if (__lt(number, 2)) {
             return number;
         } else {
             return (fibonacci((number - 1)) + fibonacci((number - 2)));
         }
 }
 return fibonacci(6);"""
-        self.assertEqual(js_code.strip(), expected_js.strip())
+        self.assertTrue(js_code.strip().endswith(expected_js.strip()), js_code)
+        self.assertIn("function __lt (a, b)", js_code)
 
     def test_javascript_hogqlx(self):
         code = to_js_expr("<Sparkline data={[1,2,3]} />")

@@ -23,15 +23,15 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         warn("DataWarehouseViewLink is deprecated, use DataWarehouseJoin", DeprecationWarning, stacklevel=2)
         super().__init__(*args, **kwargs)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.CharField(max_length=128)
     from_join_key = models.CharField(max_length=400)
-    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE)
+    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE, related_name="+")
     to_join_key = models.CharField(max_length=400)
 
 
 class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_table_name = models.CharField(max_length=400)
     source_table_key = models.CharField(max_length=400)
     joining_table_name = models.CharField(max_length=400)

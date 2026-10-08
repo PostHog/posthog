@@ -1,9 +1,11 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { mswDecorator } from '~/mocks/browser'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NotebookType } from '../types'
+import { mswDecorator } from '~/mocks/browser'
+import { MockSignature } from '~/mocks/utils'
+
 import notebook12345Json from './__mocks__/notebook-12345.json'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
@@ -67,6 +69,16 @@ const kernelStatus = (overrides: Record<string, unknown> = {}): Record<string, u
     ...overrides,
 })
 
+// The notebook arrives over the mocked API rather than through notebookLogic's
+// cachedNotebook prop. That prop marks the notebook as shared, and notebookKernelInfoLogic
+// skips its whole load for a shared notebook, so every story here would snapshot an empty
+// "Kernel status is unavailable" panel.
+const apiMocks = (kernelOverrides: Record<string, unknown> = {}): Record<string, MockSignature> => ({
+    [`/api/projects/:team_id/notebooks/${SHORT_ID}`]: notebook12345Json,
+    [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus(kernelOverrides),
+    '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,
+})
+
 const meta: Meta<typeof NotebookKernelInfo> = {
     title: 'Scenes-App/Notebooks/Kernel info',
     component: NotebookKernelInfo,
@@ -74,10 +86,7 @@ const meta: Meta<typeof NotebookKernelInfo> = {
     // Its price column is the piece most at risk of wrapping when a preset name grows.
     decorators: [
         (Story) => (
-            <BindLogic
-                logic={notebookLogic}
-                props={{ shortId: SHORT_ID, cachedNotebook: notebook12345Json as unknown as NotebookType }}
-            >
+            <BindLogic logic={notebookLogic} props={{ shortId: SHORT_ID }}>
                 <div className="w-[20rem]">
                     <Story />
                 </div>
@@ -94,42 +103,22 @@ export default meta
 type Story = StoryObj<typeof NotebookKernelInfo>
 
 export const RunningOnAPreset: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus(),
-                '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,
-            },
-        }),
-    ],
+    decorators: [mswDecorator({ get: apiMocks() })],
+}
+
+export const FreeCompute: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] },
+    decorators: [mswDecorator({ get: apiMocks() })],
 }
 
 export const TunedByHand: Story = {
     decorators: [
         mswDecorator({
-            get: {
-                [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus({
-                    cpu_cores: 6,
-                    memory_gb: 32,
-                    hourly_price: 2,
-                    preset_key: null,
-                }),
-                '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,
-            },
+            get: apiMocks({ cpu_cores: 6, memory_gb: 32, hourly_price: 2, preset_key: null }),
         }),
     ],
 }
 
 export const StoppedOnDocker: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus({
-                    backend: 'docker',
-                    status: 'stopped',
-                }),
-                '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,
-            },
-        }),
-    ],
+    decorators: [mswDecorator({ get: apiMocks({ backend: 'docker', status: 'stopped' }) })],
 }

@@ -27,7 +27,10 @@
 #   SKILLS_TARBALL — path to the runner-rendered skills tarball (.tar.gz)
 # Optional env:
 #   AGENT_VERSION  — @posthog/agent version to install in-box (default: latest)
-#   BOX_CPUS / BOX_MEM_MIB / BOX_DISK_GIB — seed box shape (default 4 / 16384 / 64)
+#   BOX_CPUS / BOX_MEM_MIB / BOX_DISK_GIB — seed box shape (default 4 / 20480 / 64)
+#   BOX_MEM_BOOT_MIB — boot memory (MiB) for a pluggable-memory golden: the box
+#     boots this small and hot-adds guest RAM up to BOX_MEM_MIB on demand. Blank
+#     (default) bakes a fixed-size golden at BOX_MEM_MIB.
 #
 # On success prints a single parseable line to stdout:
 #   BAKED_SNAPSHOT_ID=<id>
@@ -40,18 +43,20 @@ set -euo pipefail
 : "${SKILLS_TARBALL:?SKILLS_TARBALL is required (path to rendered-skills tarball)}"
 AGENT_VERSION="${AGENT_VERSION:-latest}"
 BOX_CPUS="${BOX_CPUS:-4}"
-BOX_MEM_MIB="${BOX_MEM_MIB:-16384}"
+BOX_MEM_MIB="${BOX_MEM_MIB:-20480}"
+BOX_MEM_BOOT_MIB="${BOX_MEM_BOOT_MIB:-}"
 BOX_DISK_GIB="${BOX_DISK_GIB:-64}"
 
 log() { printf '[tasks-bake] %s\n' "$*" >&2; }
 
 GIT_GUARD="$IMAGES_DIR/git-guard.sh"
 GH_GUARD="$IMAGES_DIR/gh-guard.sh"
+HOGLI_SHIM="$IMAGES_DIR/hogli-shim.sh"
 CPU_SAMPLER="$IMAGES_DIR/cpu_billing_sampler.py"
 SETUP_SCRIPT="$IMAGES_DIR/hogland/setup-golden.sh"
 INSTALL_SKILLS="$IMAGES_DIR/install-skills.sh"
 
-for f in "$GIT_GUARD" "$GH_GUARD" "$CPU_SAMPLER" "$SETUP_SCRIPT" "$INSTALL_SKILLS" "$SKILLS_TARBALL" "${SSH_KEY}.pub"; do
+for f in "$GIT_GUARD" "$GH_GUARD" "$HOGLI_SHIM" "$CPU_SAMPLER" "$SETUP_SCRIPT" "$INSTALL_SKILLS" "$SKILLS_TARBALL" "${SSH_KEY}.pub"; do
     test -f "$f" || { log "FAIL: required file missing: $f"; exit 1; }
 done
 
@@ -103,7 +108,16 @@ fi
 # fix the snapshot's machine shape to the task sandbox shape. --no-connect keeps
 # create non-interactive. --name gives teardown a handle that survives never
 # learning the id.
-log "creating seed box (cold boot, $BOX_CPUS cpu / $BOX_MEM_MIB MiB / $BOX_DISK_GIB GiB)"
+# When BOX_MEM_BOOT_MIB is set (and below the cap), the box boots small and
+# hot-adds guest RAM up to BOX_MEM_MIB via virtio-mem; the golden snapshot pins
+# that geometry, so every restored task box inherits it. Blank => fixed-size.
+mem_boot_args=()
+if [[ -n "$BOX_MEM_BOOT_MIB" ]]; then
+    mem_boot_args+=(--memory-boot-mib "$BOX_MEM_BOOT_MIB")
+    log "creating seed box (cold boot, $BOX_CPUS cpu / boot ${BOX_MEM_BOOT_MIB}->cap $BOX_MEM_MIB MiB / $BOX_DISK_GIB GiB)"
+else
+    log "creating seed box (cold boot, $BOX_CPUS cpu / $BOX_MEM_MIB MiB / $BOX_DISK_GIB GiB)"
+fi
 create_rc=0
 # --kind posthog-tasks-golden: an UNREGISTERED kind carries no server-side idle
 #   TTL, so the box is never reaped mid-bake. A registered kind like `ci` expires
@@ -124,6 +138,7 @@ box_json=$(
         --access-type ssh-private \
         --cpus "$BOX_CPUS" \
         --memory-mib "$BOX_MEM_MIB" \
+        ${mem_boot_args[@]+"${mem_boot_args[@]}"} \
         --disk-gib "$BOX_DISK_GIB" \
         --disk-mbps 0 \
         --disk-iops 0 \
@@ -192,6 +207,7 @@ deliver() {
 # under /tmp for setup-golden.sh to consume.
 deliver "$GIT_GUARD"      /opt/posthog/bin/git                        0755
 deliver "$GH_GUARD"       /opt/posthog/bin/gh                         0755
+deliver "$HOGLI_SHIM"     /opt/posthog/bin/hogli                      0755
 deliver "$CPU_SAMPLER"    /usr/local/bin/posthog-cpu-billing-sampler  0755
 deliver "$SKILLS_TARBALL" /tmp/golden-skills.tar.gz                   0644
 deliver "$INSTALL_SKILLS" /tmp/install-skills.sh                      0755

@@ -1,7 +1,11 @@
+mod common;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+use common_kafka_consumer::Partition;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -10,8 +14,11 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+use common::key_table_batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::types::SerializedKafkaMessage;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::routing::RoutingStrategy;
+use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
 
 // ---- FakeWorker ----
@@ -91,7 +98,7 @@ fn fast_config() -> WorkerRegistryConfig {
 
 fn make_msg(key: &str) -> SerializedKafkaMessage {
     SerializedKafkaMessage {
-        topic: "test".to_string(),
+        topic: "test".into(),
         partition: 0,
         offset: 0,
         timestamp: 0,
@@ -466,4 +473,71 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
     assert!(!dispatcher.has_deferred("batch-2"));
 
     token.cancel();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
+    let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        registry,
+        RoutingStrategy::BinPack,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
+        transport,
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+    );
+
+    let mut accumulator = Accumulator::default();
+    accumulator.push(Partition(0), make_msg("a").into());
+    batcher.submit(accumulator);
+    // No await between submit and purge: the batcher task receives both
+    // before it runs, and discards the submission when it applies the purge.
+    batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
+
+    match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
+        Err(_) => {}
+        Ok(Some(error)) => panic!("revoked work must not report a routing failure: {error}"),
+        Ok(None) => panic!("batcher error channel closed unexpectedly"),
+    }
+}
+
+#[tokio::test]
+async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
+    let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        registry,
+        RoutingStrategy::BinPack,
+    ));
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::OffsetFromHttp(0),
+        1,
+        Duration::from_secs(30),
+    ));
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
+        transport,
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+    );
+
+    drop(batcher);
+
+    let completion = tokio::time::timeout(Duration::from_millis(100), outputs.completions.recv())
+        .await
+        .expect("dropping the batcher must not leave an idle retry task retaining its senders");
+    assert!(
+        completion.is_none(),
+        "an idle dropped batcher cannot produce a completion"
+    );
+    assert!(
+        outputs.errors.recv().await.is_none(),
+        "all output senders close with the dropped batcher"
+    );
 }

@@ -1,0 +1,23 @@
+{% from "_macros.jinja" import cite_in, learned_preferences, pick_media, rate_notability %}Summarize this session as one exposed session of an A/B experiment.{% if experiment %}
+
+The experiment under test:
+- Name: {{ experiment.name }}{% if experiment.description %}
+- Hypothesis: {{ experiment.description }}{% endif %}
+- Feature flag: {{ experiment.feature_flag_key }}
+- Variants:{% for variant in experiment.variants %}
+  - `{{ variant.key }}` ({{ variant.rollout_percentage }}% rollout){% if variant.description %}: {{ variant.description }}{% endif %}{% endfor %}{% if experiment.primary_metric_names %}
+- Primary metrics: {{ experiment.primary_metric_names | join(', ') }}{% endif %}{% endif %}{% if session_variant %}
+
+This session's user was exposed to the `{{ session_variant }}` variant. Judge the session with that variant's experience in mind: describe how the user moves through the surface the experiment changes, and whether the variant's change helps, hinders, or goes unnoticed. Never guess at what another variant would have shown.{% endif %}{% if user_prompt %}
+
+Additional context from the team operating the product being recorded:
+{{ user_prompt }}{% endif %}
+{{ learned_preferences(scanner_rules) }}
+
+`title` is a short, plain-text headline, up to 120 characters (citations go in `summary`, not the title).{% if user_prompt %} If the context above specifies a naming convention or format for observations, `title` must follow it exactly (an observation's name is its title).{% endif %} `summary` should be {{ length_guidance }}. Lead the summary with what happened around the experiment's surface; general session context comes after.
+
+{{ cite_in('summary') }}
+
+{{ rate_notability() }}
+
+{{ pick_media() }}

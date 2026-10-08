@@ -20,6 +20,7 @@ import dns.resolver
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+from dns.rdtypes.txtbase import TXTBase
 
 from posthog.schema import DomainConnectProviderName
 
@@ -102,14 +103,18 @@ def build_sync_apply_url(
     redirect_uri: str | None = None,
     private_key: RSAPrivateKey | None = None,
     key_id: str | None = None,
+    group_ids: tuple[str, ...] = (),
 ) -> str:
     """Build a Domain Connect synchronous apply URL.
 
     Constructs the URL that the user's browser is redirected to in order to
     approve DNS record changes at their provider.
 
-    If host is provided, it is included as a protocol-level parameter (used with
-    hostRequired templates to scope the template to a specific subdomain).
+    If host is provided, it is included as a protocol-level parameter. The provider
+    prefixes it to the host of each template record, which scopes the template to a
+    subdomain. Templates that set hostRequired must get one.
+
+    If group_ids is set, the provider applies only those template groups instead of all of them.
 
     If private_key is provided, the query string is signed with RS256 and
     sig= / key= parameters are appended (required by providers like Cloudflare).
@@ -120,6 +125,8 @@ def build_sync_apply_url(
     if host:
         params["host"] = host
     params.update(variables)
+    if group_ids:
+        params["groupId"] = ",".join(group_ids)
     if redirect_uri:
         params["redirect_uri"] = redirect_uri
 
@@ -203,10 +210,31 @@ def get_available_providers() -> list[dict[str, str]]:
 
 
 # --- Context resolvers ---
-# Each resolver returns (domain, service_id, variables) for a specific use case.
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, dict[str, str]]:
+@frozen
+class DomainConnectContext:
+    """The Domain Connect parameters for one use case.
+
+    Discovery and provider settings are always keyed on `root_domain`, because the
+    `_domainconnect` TXT record lives at the registrable domain and never at a
+    subdomain. `host` is the subdomain prefix, which scopes the template records to
+    the part of the zone the user configured. Keep the two apart, or a subdomain
+    fails discovery at its DNS provider.
+    """
+
+    root_domain: str
+    host: str
+    service_id: str
+    variables: dict[str, str]
+    group_ids: tuple[str, ...] = ()
+
+
+# Cloudflare ignores TXT conflict matching and would publish a second, invalidating DMARC record.
+EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
+
+
+def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
@@ -222,7 +250,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
     verification_result = email_integration.verify()
 
     dns_records = verification_result.get("dnsRecords", [])
-    domain = instance.config.get("domain", "")
+    domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
     mail_from_subdomain = instance.config.get("mail_from_subdomain", "feedback")
 
     verify_token = ""
@@ -251,15 +279,24 @@ def resolve_email_context(integration_id: int, team_id: int) -> tuple[str, str, 
         "mailFromSub": mail_from_subdomain,
         "sesRegion": ses_region,
     }
-    return (domain, service_id, variables)
+    group_ids = (
+        () if _dmarc_absence_confirmed(instance.config.get("domain", "")) else EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC
+    )
+    # The template variables are bare SES tokens and a subdomain label, so they stay
+    # the same when the records move from the full sender domain to root plus host.
+    return DomainConnectContext(
+        root_domain=domain_parts.root_domain,
+        host=domain_parts.host,
+        service_id=service_id,
+        variables=variables,
+        group_ids=group_ids,
+    )
 
 
-def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[str, str, str, dict[str, str]]:
+def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> DomainConnectContext:
     """Resolve Domain Connect parameters for a proxy record.
 
     Extracts the root domain and host from the proxy record's full domain.
-    Returns (domain, service_id, host, variables) — host is a protocol-level
-    parameter (for hostRequired templates), not a template variable.
     """
     from posthog.models import ProxyRecord
 
@@ -270,7 +307,12 @@ def resolve_proxy_context(proxy_record_id: str, organization_id: str) -> tuple[s
     variables = {
         "target": record.target_cname,
     }
-    return (domain_parts.root_domain, service_id, domain_parts.host, variables)
+    return DomainConnectContext(
+        root_domain=domain_parts.root_domain,
+        host=domain_parts.host,
+        service_id=service_id,
+        variables=variables,
+    )
 
 
 def generate_apply_url(
@@ -280,6 +322,7 @@ def generate_apply_url(
     host: str | None = None,
     provider_endpoint: str | None = None,
     redirect_uri: str | None = None,
+    group_ids: tuple[str, ...] = (),
 ) -> str:
     """Generate a Domain Connect apply URL, either via auto-discovery or a specific provider.
 
@@ -322,7 +365,23 @@ def generate_apply_url(
         redirect_uri=redirect_uri,
         private_key=signing_key,
         key_id=key_id,
+        group_ids=group_ids,
     )
+
+
+def _txt_value(rdata: TXTBase) -> str:
+    return "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
+
+
+def _dmarc_absence_confirmed(domain: str) -> bool:
+    try:
+        answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
+        return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return True
+    except Exception:
+        logger.warning("DMARC lookup failed for %s", domain, exc_info=True)
+        return False
 
 
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
@@ -333,10 +392,9 @@ def _lookup_domain_connect_endpoint(domain: str) -> str | None:
     try:
         answers = dns.resolver.resolve(f"_domainconnect.{domain}", "TXT")
         for rdata in answers:
-            # TXT records come as a list of strings; join them
-            txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+            txt_value = _txt_value(rdata)
             if txt_value:
-                return txt_value.strip()
+                return txt_value
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
         pass
     except Exception:

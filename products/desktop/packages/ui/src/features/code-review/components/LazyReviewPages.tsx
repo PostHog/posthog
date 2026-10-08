@@ -1,5 +1,5 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { lazy, type ReactNode, Suspense } from "react";
 import { loadCloudReviewPage, loadReviewPage } from "./preloadReviewPages";
 
@@ -9,17 +9,9 @@ import { loadCloudReviewPage, loadReviewPage } from "./preloadReviewPages";
 const ReviewPageLazy = lazy(loadReviewPage);
 const CloudReviewPageLazy = lazy(loadCloudReviewPage);
 
-function ReviewFallback(): ReactNode {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <DotsCircleSpinner />
-    </div>
-  );
-}
-
 export function LazyReviewPage({ task }: { task: Task }): ReactNode {
   return (
-    <Suspense fallback={<ReviewFallback />}>
+    <Suspense fallback={<LoadingState />}>
       <ReviewPageLazy task={task} />
     </Suspense>
   );
@@ -27,7 +19,7 @@ export function LazyReviewPage({ task }: { task: Task }): ReactNode {
 
 export function LazyCloudReviewPage({ task }: { task: Task }): ReactNode {
   return (
-    <Suspense fallback={<ReviewFallback />}>
+    <Suspense fallback={<LoadingState />}>
       <CloudReviewPageLazy task={task} />
     </Suspense>
   );

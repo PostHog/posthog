@@ -56,6 +56,13 @@ _MAX_REPO_CHARS = 140
 # report-persist guard (`_reviewer_selection_written_since`) to detect a mid-run correction.
 WRONG_REPO_CONTENT_NEEDLE = f'"reason":"{DISMISSAL_REASON_WRONG_REPO}"'
 
+# The reason a scout's `edit_report` correction records on the repo_selection artefact it writes,
+# with the matching needle. Only that write path sets this reason, and the row is attributed to the
+# scout's task, so it carries a null `created_by`: the persist guard cannot recognize the correction
+# by attribution and matches the content instead.
+SCOUT_REPOSITORY_REASON = "Repository set by a scout through edit_report."
+SCOUT_REPOSITORY_CONTENT_NEEDLE = f'"reason":"{SCOUT_REPOSITORY_REASON}"'
+
 
 @frozen
 class RepoCorrection:

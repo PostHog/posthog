@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -168,6 +170,35 @@ def _window_params(
     return {"from": from_date.isoformat(), "to": today.isoformat()}
 
 
+@frozen
+class _FiscalQuarter:
+    year: int
+    quarter: int
+
+
+def _recent_quarters(count: int, today: date) -> list[_FiscalQuarter]:
+    """The `count` most recently completed calendar quarters, newest first."""
+    year, quarter = today.year, (today.month - 1) // 3 + 1
+    quarters: list[_FiscalQuarter] = []
+    for _ in range(count):
+        quarter -= 1
+        if quarter == 0:
+            year, quarter = year - 1, 4
+        quarters.append(_FiscalQuarter(year=year, quarter=quarter))
+    return quarters
+
+
+def _period_params(config: FinancialModellingEndpointConfig) -> list[dict[str, str]]:
+    """One params overlay per request a symbol needs — a single empty overlay unless the endpoint
+    only answers for one quarter at a time."""
+    if not config.quarters_lookback:
+        return [{}]
+    return [
+        {"year": str(period.year), "quarter": str(period.quarter)}
+        for period in _recent_quarters(config.quarters_lookback, datetime.now(UTC).date())
+    ]
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -188,15 +219,18 @@ def get_rows(
         if start_index:
             logger.debug(f"Financial Modeling Prep: resuming {endpoint} from symbol index {start_index}")
 
+        periods = _period_params(config)
+
         for offset, symbol in enumerate(symbols[start_index:]):
             index = start_index + offset
-            params: dict[str, Any] = {"symbol": symbol, **config.extra_params, **window}
-            data = _fetch_page(session, config.path, params, api_key, logger)
-            for row in _extract_rows(data, config.response_key):
-                row.setdefault("symbol", symbol)
-                batcher.batch(row)
-                if batcher.should_yield():
-                    yield batcher.get_table()
+            for period in periods:
+                params: dict[str, Any] = {"symbol": symbol, **config.extra_params, **window, **period}
+                data = _fetch_page(session, config.path, params, api_key, logger)
+                for row in _extract_rows(data, config.response_key):
+                    row.setdefault("symbol", symbol)
+                    batcher.batch(row)
+                    if batcher.should_yield():
+                        yield batcher.get_table()
 
             # Flush this symbol's rows before advancing the bookmark, so a crash re-fetches only from
             # the next symbol (whose rows are not yet persisted) rather than dropping buffered rows.

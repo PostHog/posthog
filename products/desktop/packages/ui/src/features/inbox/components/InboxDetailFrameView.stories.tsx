@@ -4,23 +4,32 @@ import {
   ClockCounterClockwiseIcon,
   EyeSlashIcon,
   FileTextIcon,
-  GitPullRequestIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  ReceiptIcon,
   TerminalIcon,
   UsersThreeIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
 import {
+  inboxStoryImplementations,
   inboxStoryReport,
   inboxStorySignal,
 } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { SignalsList } from "@posthog/ui/features/inbox/components/SignalsList";
+import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
+import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { expect, waitFor } from "storybook/test";
+import { ReportFeedbackFooter } from "./detail/ReportFeedbackFooter";
+import { InboxStoryData } from "./InboxStoryData";
 
 const report = inboxStoryReport();
 const signals = [
@@ -34,7 +43,7 @@ const signals = [
 ];
 
 const pageAt = (width: number) => (Story: () => ReactNode) => (
-  <div className="min-h-[760px] bg-gray-1" style={{ width }}>
+  <div className="min-h-[760px] w-full bg-gray-1" style={{ maxWidth: width }}>
     <Story />
   </div>
 );
@@ -42,12 +51,33 @@ const pageAt = (width: number) => (Story: () => ReactNode) => (
 const meta: Meta<typeof InboxDetailFrameView> = {
   title: "Inbox/Reports/Single report",
   component: InboxDetailFrameView,
+  tags: ["inbox"],
   parameters: { layout: "fullscreen" },
-  decorators: [pageAt(1360)],
+  decorators: [
+    pageAt(1360),
+    (Story, context) => (
+      <InboxStoryData report={context.args.report}>
+        <Story />
+      </InboxStoryData>
+    ),
+  ],
+  render: (args) => (
+    <InboxDetailFrameView
+      {...args}
+      belowSummary={
+        args.belowSummary === undefined ? (
+          <ReportVerdictBanner report={args.report} />
+        ) : (
+          args.belowSummary
+        )
+      }
+      footer={
+        <ReportFeedbackFooter key={args.report.id} report={args.report} />
+      }
+    />
+  ),
   args: {
     report,
-    backTo: "/inbox/reports",
-    backLabel: "Back to reports",
     fallbackTitle: "Untitled report",
     primaryAction: (
       <>
@@ -65,39 +95,11 @@ const meta: Meta<typeof InboxDetailFrameView> = {
         </Button>
       </>
     ),
-    showMetadata: false,
-    summarySection: { Icon: FileTextIcon, title: "Report summary" },
+    showMetadata: true,
+    summarySection: { Icon: FileTextIcon, title: "Summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
-    runRepository: "PostHog/posthog",
-    belowSummary: (
-      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[15px] text-gray-12">
-            Needs your decision
-          </span>
-          <span className="text-[14px] text-gray-11">
-            The agent can fix this with code and open a pull request. The report
-            reopens if the problem comes back.
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Button type="button" variant="primary">
-            <GitPullRequestIcon />
-            Implement
-          </Button>
-          <Button type="button" variant="outline">
-            <ChatCircleIcon />
-            Ask about it
-          </Button>
-          <Button type="button" variant="outline">
-            <EyeSlashIcon />
-            Dismiss…
-          </Button>
-        </div>
-      </div>
-    ),
     children: (
       <>
         <DetailSection
@@ -155,39 +157,32 @@ type Story = StoryObj<typeof InboxDetailFrameView>;
 
 export const EvidenceFirst: Story = {};
 
+export const LikelyAlreadyFixed: Story = {
+  args: { report: inboxStoryReport({ already_addressed: true }) },
+};
+
 export const WaitingForInput: Story = {
-  args: {
-    report: inboxStoryReport({
-      status: "pending_input",
-      actionability: "requires_human_input",
-    }),
-    belowSummary: (
-      <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[15px] text-gray-12">
-            Waiting on you
-          </span>
-          <span className="text-[14px] text-gray-11">
-            Review the recommendation. Start an implementation task to add
-            direction and choose a model, or ask for more context.
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Button type="button" variant="primary">
-            <GitPullRequestIcon />
-            Implement
-          </Button>
-          <Button type="button" variant="outline">
-            <ChatCircleIcon />
-            Ask about it
-          </Button>
-          <Button type="button" variant="outline">
-            <EyeSlashIcon />
-            Dismiss…
-          </Button>
-        </div>
-      </div>
-    ),
+  args: { report: inboxStoryImplementations[2].report },
+};
+
+export const CreatingPr: Story = {
+  args: { report: inboxStoryImplementations[0].report },
+};
+
+export const FailedTask: Story = {
+  args: { report: inboxStoryImplementations[1].report },
+};
+
+export const Feedback: Story = {
+  play: async ({ canvas, userEvent }): Promise<void> => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "This report was useful" }),
+    );
+    await expect(canvas.getByText("Thanks for the feedback")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Add a note" }));
+    await expect(
+      canvas.getByRole("textbox", { name: "Add a note about this report" }),
+    ).toBeVisible();
   },
 };
 
@@ -209,5 +204,120 @@ export const LongTitle: Story = {
 };
 
 export const Narrow: Story = {
-  decorators: [pageAt(720)],
+  decorators: [pageAt(520)],
+};
+
+const prUrl = "https://github.com/example/project/pull/42";
+
+export const WithPullRequest: Story = {
+  decorators: [
+    (Story, context) => {
+      const trpc = useHostTRPC();
+      const queryClient = useQueryClient();
+      queryClient.setQueryData(trpc.git.getPrInfoByUrl.queryKey({ prUrl }), {
+        number: 42,
+        title: "Coalesce pending cohort calculations",
+        body: "Keep only the newest queued calculation.",
+        author: null,
+        state: "open",
+        merged: false,
+        draft: context.parameters.draft ?? false,
+        mergeable: true,
+        mergeStateStatus: "clean",
+        baseRefName: "main",
+        headRefName: "fix-cohort-queue",
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+      });
+      queryClient.setQueryData(trpc.git.getPrChecks.queryKey({ prUrl }), [
+        {
+          name: "Unit tests",
+          bucket: context.parameters.failing ? "fail" : "pass",
+          link: null,
+          workflow: "Tests",
+          description: null,
+        },
+      ]);
+      queryClient.setQueryData(trpc.git.getPrChangedFiles.queryKey({ prUrl }), [
+        {
+          path: "src/cohortQueue.ts",
+          status: "modified",
+          linesAdded: 1,
+          linesRemoved: 1,
+          patch:
+            "diff --git a/src/cohortQueue.ts b/src/cohortQueue.ts\n--- a/src/cohortQueue.ts\n+++ b/src/cohortQueue.ts\n@@ -1,3 +1,3 @@\n export function enqueue(cohortId: string) {\n-  return queue.add(cohortId);\n+  return queue.replacePending(cohortId);\n }\n",
+        },
+      ]);
+      return <Story />;
+    },
+  ],
+  args: {
+    report: inboxStoryReport({ implementation_pr_url: prUrl }),
+    primaryAction: (
+      <>
+        <Button variant="outline" size="sm">
+          Open in GitHub
+        </Button>
+        <Button variant="outline" size="sm">
+          <ChatCircleIcon />
+          Chat
+        </Button>
+        <Button variant="outline" size="sm">
+          <EyeSlashIcon />
+          Dismiss
+        </Button>
+        <Button variant="outline" size="sm">
+          <ReceiptIcon />
+          Refund
+        </Button>
+      </>
+    ),
+    secondaryTab: {
+      label: "Changed code",
+      content: <PrFilesChangedSection prUrl={prUrl} bare />,
+    },
+    belowSummary: <PrDecisionBlock prUrl={prUrl} />,
+    children: (
+      <DetailSection Icon={UsersThreeIcon} title="Reviewers" collapsible>
+        <p className="text-[13px] text-gray-11">Example reviewer</p>
+      </DetailSection>
+    ),
+  },
+};
+
+export const DraftPullRequest: Story = {
+  ...WithPullRequest,
+  parameters: { draft: true },
+};
+
+export const FailingPullRequest: Story = {
+  ...WithPullRequest,
+  parameters: { failing: true },
+};
+
+export const ChangedCode: Story = {
+  ...WithPullRequest,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await userEvent.click(
+      await canvas.findByRole("tab", { name: "Changed code" }),
+    );
+    await expect(await canvas.findByText("1 file changed")).toBeVisible();
+    await waitFor(() => {
+      const diffText = Array.from(canvasElement.querySelectorAll("*"))
+        .map((element) => element.shadowRoot?.textContent ?? "")
+        .join(" ");
+      expect(diffText).toContain("queue.replacePending");
+    });
+  },
+};
+
+export const NarrowPullRequest: Story = {
+  ...WithPullRequest,
+  decorators: [...(WithPullRequest.decorators ?? []), pageAt(520)],
+};
+
+export const NarrowChangedCode: Story = {
+  ...ChangedCode,
+  decorators: [...(WithPullRequest.decorators ?? []), pageAt(520)],
 };

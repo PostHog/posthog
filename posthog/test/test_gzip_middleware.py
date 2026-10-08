@@ -1,6 +1,5 @@
 from posthog.test.base import APIBaseTest
 from pytest import raises
-from unittest import skip
 
 from rest_framework import status
 
@@ -20,15 +19,6 @@ class TestGzipMiddleware(APIBaseTest):
 
             contentEncoding = response.headers.get("Content-Encoding", None)
             self.assertEqual(contentEncoding, None)
-
-    @skip("fails in CI, but covered by test in test_clickhouse_session_recording")
-    def test_compresses_when_on_allow_list(self) -> None:
-        with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "/home"]):
-            response = self._get_path("/home")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            contentEncoding = response.headers.get("Content-Encoding", None)
-            self.assertEqual(contentEncoding, "gzip")
 
     def test_no_compression_for_unsuccessful_requests_to_paths_on_the_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "snapshots$"]):

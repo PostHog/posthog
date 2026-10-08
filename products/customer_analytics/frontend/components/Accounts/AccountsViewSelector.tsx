@@ -15,32 +15,42 @@ import {
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { accountsViewsLogic } from './accountsViewsLogic'
 
 export function AccountsViewSelector(): JSX.Element {
-    const { views, currentView, isDirty, viewsLoading, canEditCurrentView, user } = useValues(accountsViewsLogic)
-    const { selectView, updateView, setViewToDelete, setViewToRename, setIsCreating } = useActions(accountsViewsLogic)
+    const {
+        views,
+        currentView,
+        currentViewId,
+        currentViewName,
+        isDirty,
+        viewsLoading,
+        viewsLoaded,
+        viewsLoadError,
+        awaitingSavedView,
+    } = useValues(accountsViewsLogic)
+    const { selectView, updateView, setViewToDelete, setViewToEdit, setIsCreating, loadViews } =
+        useActions(accountsViewsLogic)
 
     const menuItems: LemonMenuItems = [
         {
-            items: views.map((view) => {
-                const canEdit = view.created_by === user?.id
-                return {
-                    label: view.name,
-                    icon: <ViewVisibilityIcon view={view} />,
-                    active: currentView?.id === view.id,
-                    onClick: () => selectView(view.id),
-                    ...(canEdit && {
+            items: views.map(
+                (view) =>
+                    ({
+                        label: view.name,
+                        icon: <ViewVisibilityIcon view={view} />,
+                        active: currentView?.id === view.id,
+                        onClick: () => selectView(view.id),
                         sideAction: {
                             icon: <IconPencil />,
                             tooltip: 'Manage view',
                             dropdown: {
                                 overlay: (
                                     <>
-                                        <LemonButton size="small" fullWidth onClick={() => setViewToRename(view.id)}>
-                                            Rename
+                                        <LemonButton size="small" fullWidth onClick={() => setViewToEdit(view.id)}>
+                                            Edit
                                         </LemonButton>
                                         <LemonButton
                                             size="small"
@@ -54,28 +64,51 @@ export function AccountsViewSelector(): JSX.Element {
                                 ),
                             },
                         },
-                    }),
-                } as LemonMenuItem
-            }),
+                    }) as LemonMenuItem
+            ),
         },
         {
-            items: [{ label: 'Save as new view...', icon: <IconPlus />, onClick: () => setIsCreating(true) }],
+            items: [
+                {
+                    label: 'Save as new view...',
+                    icon: <IconPlus />,
+                    onClick: () => setIsCreating(true),
+                    disabledReason: awaitingSavedView ? 'Wait for saved views to load' : undefined,
+                },
+            ],
         },
     ]
 
     return (
         <div className="flex items-center gap-2">
-            {views.length > 0 ? (
+            {viewsLoadError && (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    status="danger"
+                    onClick={loadViews}
+                    loading={viewsLoading}
+                    data-attr="accounts-retry-views"
+                >
+                    Couldn't load views. Retry
+                </LemonButton>
+            )}
+            {views.length > 0 || currentViewId || !viewsLoaded || viewsLoadError ? (
                 <LemonMenu items={menuItems} closeOnClickInside>
-                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {currentView ? (
-                            <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        sideIcon={<IconChevronDown />}
+                        icon={
+                            currentView ? (
                                 <ViewVisibilityIcon view={currentView} />
-                                <span className="ml-2">{currentView.name}</span>
-                            </>
-                        ) : (
-                            'Select view'
-                        )}
+                            ) : currentViewId ? (
+                                <span className="h-4 w-4" aria-hidden />
+                            ) : undefined
+                        }
+                        data-attr="accounts-select-view"
+                    >
+                        {currentView?.name ?? currentViewName ?? 'Select view'}
                     </LemonButton>
                 </LemonMenu>
             ) : (
@@ -84,6 +117,8 @@ export function AccountsViewSelector(): JSX.Element {
                     size="small"
                     type="secondary"
                     onClick={() => setIsCreating(true)}
+                    loading={viewsLoading && awaitingSavedView}
+                    disabledReason={awaitingSavedView ? 'Wait for saved views to load' : undefined}
                     data-attr="accounts-save-view"
                 >
                     Save current view
@@ -95,7 +130,6 @@ export function AccountsViewSelector(): JSX.Element {
                     size="small"
                     type="secondary"
                     tooltip="Update this view with the current configuration"
-                    disabledReason={!canEditCurrentView ? 'You can only edit views you created' : undefined}
                     loading={viewsLoading}
                     onClick={() => updateView({ id: currentView.id, updates: {} })}
                     data-attr="accounts-update-view"
@@ -104,28 +138,34 @@ export function AccountsViewSelector(): JSX.Element {
                 </LemonButton>
             )}
 
-            <CreateViewModal />
-            <RenameViewModal />
+            <ViewModal />
             <DeleteViewModal />
         </div>
     )
 }
 
-function CreateViewModal(): JSX.Element {
-    const { isCreating, isNewViewFormSubmitting } = useValues(accountsViewsLogic)
-    const { submitNewViewForm, resetNewViewForm, setIsCreating } = useActions(accountsViewsLogic)
+function ViewModal(): JSX.Element {
+    const { isCreating, viewToEdit, isViewFormSubmitting, viewsLoading } = useValues(accountsViewsLogic)
+    const { submitViewForm, resetViewForm, setIsCreating, setViewToEdit } = useActions(accountsViewsLogic)
+    const isEditing = !!viewToEdit
+    const isSaving = isViewFormSubmitting || viewsLoading
 
     const close = (): void => {
         setIsCreating(false)
-        resetNewViewForm()
+        setViewToEdit(null)
+        resetViewForm()
     }
 
     return (
         <LemonModal
-            isOpen={isCreating}
+            isOpen={isCreating || isEditing}
             onClose={close}
-            title="Save as new view"
-            description="Save the current filters, columns, ordering, and overview tiles as a reusable view"
+            title={isEditing ? 'Edit view' : 'Save as new view'}
+            description={
+                isEditing
+                    ? undefined
+                    : 'Save the current filters, columns, ordering, and overview tiles as a reusable view'
+            }
             footer={
                 <>
                     <LemonButton type="secondary" onClick={close}>
@@ -133,19 +173,23 @@ function CreateViewModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={submitNewViewForm}
-                        loading={isNewViewFormSubmitting}
-                        disabledReason={isNewViewFormSubmitting ? 'Saving…' : undefined}
+                        onClick={submitViewForm}
+                        loading={isSaving}
+                        disabledReason={isSaving ? 'Saving…' : undefined}
                     >
-                        Save view
+                        {isEditing ? 'Save changes' : 'Save view'}
                     </LemonButton>
                 </>
             }
         >
-            <Form logic={accountsViewsLogic} formKey="newViewForm">
+            <Form logic={accountsViewsLogic} formKey="viewForm">
                 <div className="space-y-4">
                     <LemonField name="name" label="View name">
-                        <LemonInput placeholder="e.g. Enterprise accounts" autoFocus onPressEnter={submitNewViewForm} />
+                        <LemonInput
+                            placeholder="e.g. Enterprise accounts"
+                            autoFocus
+                            onPressEnter={isSaving ? undefined : submitViewForm}
+                        />
                     </LemonField>
                     <LemonField name="visibility" label="Visibility">
                         <LemonSegmentedButton
@@ -162,48 +206,8 @@ function CreateViewModal(): JSX.Element {
     )
 }
 
-function RenameViewModal(): JSX.Element {
-    const { views, viewToRename, viewsLoading } = useValues(accountsViewsLogic)
-    const { setViewToRename, submitRenameViewForm, resetRenameViewForm } = useActions(accountsViewsLogic)
-    const view = views.find((v) => v.id === viewToRename)
-
-    const close = (): void => {
-        setViewToRename(null)
-        resetRenameViewForm()
-    }
-
-    return (
-        <LemonModal
-            isOpen={!!viewToRename}
-            onClose={close}
-            title="Rename view"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={close}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={submitRenameViewForm}
-                        loading={viewsLoading}
-                        disabledReason={viewsLoading ? 'Saving…' : undefined}
-                    >
-                        Rename
-                    </LemonButton>
-                </>
-            }
-        >
-            <Form logic={accountsViewsLogic} formKey="renameViewForm">
-                <LemonField name="name" label="View name">
-                    <LemonInput placeholder={view?.name} autoFocus onPressEnter={submitRenameViewForm} />
-                </LemonField>
-            </Form>
-        </LemonModal>
-    )
-}
-
 function DeleteViewModal(): JSX.Element {
-    const { views, viewToDelete } = useValues(accountsViewsLogic)
+    const { views, viewToDelete, viewsLoading } = useValues(accountsViewsLogic)
     const { deleteView, setViewToDelete } = useActions(accountsViewsLogic)
     const view = views.find((v) => v.id === viewToDelete)
 
@@ -224,9 +228,10 @@ function DeleteViewModal(): JSX.Element {
                         onClick={() => {
                             if (viewToDelete) {
                                 deleteView({ id: viewToDelete })
-                                setViewToDelete(null)
                             }
                         }}
+                        loading={viewsLoading}
+                        disabledReason={viewsLoading ? 'Deleting…' : undefined}
                     >
                         Delete
                     </LemonButton>

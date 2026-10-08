@@ -40,7 +40,7 @@ describe('organizations-get', () => {
                 slug: 'org-b',
                 membership_level: 1,
                 enforce_2fa: true,
-                is_hipaa: true,
+                has_signed_baa: true,
             },
         ]
         const list = vi.fn().mockResolvedValue({ success: true, data: orgs })
@@ -55,7 +55,7 @@ describe('organizations-get', () => {
             expect(org).not.toHaveProperty('customer_id')
             expect(org).not.toHaveProperty('available_product_features')
             expect(org).not.toHaveProperty('enforce_2fa')
-            expect(org).not.toHaveProperty('is_hipaa')
+            expect(org).not.toHaveProperty('has_signed_baa')
         }
     })
 

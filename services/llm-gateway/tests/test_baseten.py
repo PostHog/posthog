@@ -84,6 +84,23 @@ def test_inject_baseten_params_forces_streaming_usage() -> None:
     assert kwargs["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
 
 
+@pytest.mark.parametrize(
+    ("param", "requested", "sent"),
+    [
+        ("max_tokens", 1, 2),
+        ("max_tokens", 4096, 4096),
+        ("max_completion_tokens", 1, 2),
+        ("max_output_tokens", 1, 2),
+    ],
+)
+def test_inject_baseten_params_raises_token_limit_to_baseten_minimum(param: str, requested: int, sent: int) -> None:
+    kwargs: dict[str, Any] = {"model": GLM_MODEL, param: requested}
+
+    _inject_baseten_params(kwargs, "https://inference.baseten.co/v1", "test-key")
+
+    assert kwargs[param] == sent
+
+
 def test_ensure_baseten_configured_requires_api_key() -> None:
     with pytest.raises(HTTPException) as exc_info:
         ensure_baseten_configured(Settings())

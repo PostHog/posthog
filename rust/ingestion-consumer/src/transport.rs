@@ -141,7 +141,7 @@ mod tests {
 
     fn message_with_value(offset: i64, value_len: usize) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "t".to_string(),
+            topic: "t".into(),
             partition: 0,
             offset,
             timestamp: 0,

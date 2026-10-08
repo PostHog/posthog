@@ -1,7 +1,7 @@
 import json
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
 
@@ -171,7 +171,7 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
             "service_name": service,
         }
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_auto_baseline_mines_the_same_window_a_week_earlier(self) -> None:
         # Wiring no pure test can catch: the baseline window must be the resolved current
         # window shifted -7d, with the query's filters carried over, and the whole diff
@@ -206,7 +206,7 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
 
         assert run_patterns_diff(self.team, query, None) == results
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_explicit_baseline_range_is_used_verbatim(self) -> None:
         self._insert(
             [

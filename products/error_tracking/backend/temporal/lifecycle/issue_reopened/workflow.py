@@ -1,7 +1,7 @@
 import json
-from datetime import timedelta
+import asyncio
 
-from temporalio import common, workflow
+from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -10,15 +10,56 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
     IssueReopenedWorkflowInputs,
     IssueReopenedWorkflowResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.policies import (
+    ACTIVITY_RETRY_POLICY,
+    ACTIVITY_START_TO_CLOSE_TIMEOUT,
+    ALERT_DISPATCH_PATCH,
+    ALERT_DISPATCH_RETRY_POLICY,
+    ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+)
 
 WORKFLOW_NAME = "error-tracking-issue-reopened"
 
-ACTIVITY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=15),
-    maximum_attempts=10,
-)
-ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
+
+async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -> None:
+    """Alert, internal event and signal for a reopened issue.
+
+    Shared with the issue-created workflow, which reaches this state when auto-merge moves a
+    new fingerprint onto a dormant issue.
+    """
+    # Patched: executions in flight when this activity shipped replay the old sequence.
+    # Dispatch runs alongside the other side effects and is always awaited, so a
+    # failure on either side never suppresses the other. Its open-ended retry covers
+    # a Temporal outage; starts are idempotent on the notification id.
+    dispatch = (
+        asyncio.create_task(
+            workflow.execute_activity(
+                "dispatch_issue_reopened_alert_activity",
+                inputs,
+                schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ALERT_DISPATCH_RETRY_POLICY,
+            )
+        )
+        if workflow.patched(ALERT_DISPATCH_PATCH)
+        else None
+    )
+    try:
+        await workflow.execute_activity(
+            "emit_issue_reopened_internal_event_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+        await workflow.execute_activity(
+            "emit_issue_reopened_signal_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
+    finally:
+        if dispatch is not None:
+            await dispatch
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -39,16 +80,5 @@ class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: IssueReopenedWorkflowInputs) -> IssueReopenedWorkflowResult:
-        await workflow.execute_activity(
-            "emit_issue_reopened_internal_event_activity",
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-        await workflow.execute_activity(
-            "emit_issue_reopened_signal_activity",
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
+        await run_issue_reopened_side_effects(inputs)
         return IssueReopenedWorkflowResult(notified=True)

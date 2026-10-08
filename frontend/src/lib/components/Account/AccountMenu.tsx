@@ -198,7 +198,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 }}
                             >
                                 <IconReceipt />
-                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
+                                Billing & Usage
                             </Link>
                         </DropdownMenuItem>
                     ) : null}

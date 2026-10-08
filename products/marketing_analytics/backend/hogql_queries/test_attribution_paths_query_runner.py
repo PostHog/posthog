@@ -405,13 +405,18 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
     # Same three shapes as the attribution table: direct read, alias normalization, classifier.
     @parameterized.expand(
         [
-            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN),
-            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE),
-            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL),
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, False),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE, False),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, False),
+            ("shared_campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, True),
+            ("shared_source", MarketingAnalyticsAttributionBreakdown.SOURCE, True),
+            ("shared_channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, True),
         ]
     )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_attribution_paths_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
+    def test_attribution_paths_sql(
+        self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown, live_resolution: bool
+    ) -> None:
         query = MarketingAnalyticsAttributionPathsQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -419,8 +424,11 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
             properties=[],
         )
         runner = MarketingAnalyticsAttributionPathsQueryRunner(query=query, team=self.team)
+        runner.config.live_session_resolution_enabled = live_resolution
         context = runner._shared_hogql_context
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._live_session_resolution_used == live_resolution
         sql = printed[0] if isinstance(printed, tuple) else printed
-        assert pretty_print_in_tests(sql, self.team.pk) == self.snapshot
+        pretty = pretty_print_in_tests(sql, self.team.pk)
+        assert pretty == self.sql_snapshot(pretty)

@@ -21,11 +21,15 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
+from products.customer_analytics.backend.presentation.views.ownership_serializers import (
+    ExternalAccountOwnershipSerializer,
+)
+from products.customer_analytics.backend.presentation.views.serializers import AccountPropertiesField
 
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
     "Successful authentications on the account routes called by CDP workflow actions, by auth method",
-    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | scoped_jwt
+    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | project_secret_api_key | scoped_jwt
 )
 
 
@@ -56,6 +60,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "churned_at": account.churned_at,
         "ignored_at": account.ignored_at,
         "properties": account.properties,
+        "ownership": ExternalAccountOwnershipSerializer(account.ownership).data,
         "tags": account.tags,
         "relationships": account.relationships,
         "custom_properties": account.custom_properties,
@@ -67,6 +72,10 @@ _UPDATE_ERROR_RESPONSES = {
     contracts.ExternalAccountUpdateError.INVALID_PROPERTIES: (
         "Invalid account properties",
         status.HTTP_400_BAD_REQUEST,
+    ),
+    contracts.ExternalAccountUpdateError.ROLE_MANAGED: (
+        "This relationship is controlled in Customer analytics and can't be changed by a workflow",
+        status.HTTP_409_CONFLICT,
     ),
     # A server fault (the facade's blanket except), not a client error: 500 keeps the CDP
     # fetch layer retrying instead of failing the workflow permanently.
@@ -150,7 +159,25 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
         max_length=400,
         help_text=(
             "External ID (group key) for the account. An account with this ID already existing is a no-op. "
-            "The account name is derived from the matching group's `name` property, falling back to this ID."
+            "Without a `name`, the account name is derived from the matching group's `name` property, "
+            "falling back to this ID."
+        ),
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Name for a new account. Ignored when the account already exists. Blank means no name.",
+    )
+    properties = AccountPropertiesField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, "
+            "metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account "
+            "already exists."
         ),
     )
 
@@ -238,8 +265,12 @@ def handle_account_create(request: Request, team: Team) -> Response:
         account, created = facade.create_external_account(
             team,
             external_id=external_id,
+            name=data.get("name") or None,
+            properties=data.get("properties"),
             workflow_id=_workflow_id_from_request(request),
         )
+    except facade.AccountPropertiesValidationError as exc:
+        return Response({"error": f"Invalid account properties: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
     except facade.AccountConflictError:
         # Lost a concurrent-create race; the account exists now, so honor no-op semantics.
         existing = facade.get_external_account(team.id, external_id)

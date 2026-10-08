@@ -12,8 +12,10 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     DecimalDatabaseField,
     FieldOrTable,
+    FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringDatabaseField,
 )
 
@@ -42,8 +44,8 @@ class ExpectedView:
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
 
     class Meta:
         constraints = [
@@ -355,6 +357,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # for viewset in DataWarehouseManagedViewSet.objects.iterator():
         #     viewset.sync_views()
         # ```
+
+        # ClickHouse rejects Nullable() around Array and Map, so these return before the nullable wrap.
+        if isinstance(field, FloatArrayDatabaseField):
+            return "Array(Float64)"
+        if isinstance(field, MapStringDatabaseField):
+            return "Map(String, String)"
 
         if isinstance(field, StringDatabaseField):
             type = "String"

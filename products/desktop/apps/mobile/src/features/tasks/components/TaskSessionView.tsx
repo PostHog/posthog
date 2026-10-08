@@ -1,3 +1,5 @@
+import { POSTHOG_NOTIFICATIONS } from "@posthog/core/sessions/acpNotifications";
+import { formatProcessKilledNotice } from "@posthog/core/sessions/processKilledNotice";
 import { pickThinkingActivity } from "@posthog/core/sessions/thinkingActivities";
 import {
   ArrowDown,
@@ -5,6 +7,7 @@ import {
   CaretRight,
   CloudArrowDown,
   Robot,
+  Warning,
 } from "phosphor-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -92,7 +95,14 @@ interface ToolData {
 
 interface ParsedMessage {
   id: string;
-  type: "user" | "agent" | "thought" | "tool" | "connecting" | "thinking";
+  type:
+    | "user"
+    | "agent"
+    | "thought"
+    | "tool"
+    | "connecting"
+    | "thinking"
+    | "process_killed";
   content: string;
   ts?: number;
   toolData?: ToolData;
@@ -276,6 +286,7 @@ interface EventProcessorState {
   agentMessageCount: number;
   thoughtMessageCount: number;
   userMessageCount: number;
+  processKilledCount: number;
   toolMessages: Map<string, ParsedMessage>;
   // Maps agent toolCallId → agent ParsedMessage for nesting children
   agentTools: Map<string, ParsedMessage>;
@@ -297,6 +308,7 @@ function createProcessorState(): EventProcessorState {
     agentMessageCount: 0,
     thoughtMessageCount: 0,
     userMessageCount: 0,
+    processKilledCount: 0,
     toolMessages: new Map(),
     agentTools: new Map(),
     processedIdx: 0,
@@ -370,6 +382,25 @@ function processNewEvents(
 
   for (let i = state.processedIdx; i < events.length; i++) {
     const event = events[i];
+
+    if (event.type === "acp_message") {
+      const msg = event.message as { method?: string; params?: unknown };
+      if (msg.method === POSTHOG_NOTIFICATIONS.PROCESS_KILLED) {
+        const notice = formatProcessKilledNotice(msg.params);
+        if (notice) {
+          flushPending();
+          state.messages.push({
+            id: `process-killed-${state.processKilledCount++}`,
+            type: "process_killed",
+            content: notice,
+            ts: event.ts,
+          });
+          state.lastAgentMsgIdx = null;
+        }
+      }
+      continue;
+    }
+
     if (event.type !== "session_update") continue;
 
     const parsed = parseSessionNotification(event.notification);
@@ -538,6 +569,18 @@ function CollapsedThought({ content }: { content: string }) {
           )}
         </View>
       )}
+    </View>
+  );
+}
+
+function ProcessKilledNotice({ message }: { message: string }) {
+  const themeColors = useThemeColors();
+  return (
+    <View className="flex-row items-start gap-2 px-4 py-1">
+      <Warning size={14} color={themeColors.status.warning} />
+      <Text className="flex-1 text-[13px] text-gray-11 leading-4">
+        {message}
+      </Text>
     </View>
   );
 }
@@ -977,6 +1020,8 @@ export function TaskSessionView({
           );
         case "thought":
           return <CollapsedThought content={item.content} />;
+        case "process_killed":
+          return <ProcessKilledNotice message={item.content} />;
         case "tool":
           if (!item.toolData) return null;
           if (

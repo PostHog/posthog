@@ -6,8 +6,13 @@ import type { BoxPlotSeries } from '../types'
  *  bar-chart pattern of resolving "which sub-band is under the cursor" with a
  *  value-axis-agnostic check, so hovering above (or below) a tall whisker still
  *  selects the right box. */
-export function cursorInsideBoxBand(box: { x: number; width: number }, cursor: { x: number }): boolean {
-    return cursor.x >= box.x && cursor.x <= box.x + box.width
+export function cursorInsideBoxBand(
+    box: { x: number; width: number },
+    cursor: { x: number; y: number },
+    horizontal = false
+): boolean {
+    const bandCoord = horizontal ? cursor.y : cursor.x
+    return bandCoord >= box.x && bandCoord <= box.x + box.width
 }
 
 export interface SeriesKeysAtCursorArgs<Meta> {
@@ -17,6 +22,8 @@ export interface SeriesKeysAtCursorArgs<Meta> {
     cursor: { x: number; y: number }
     scales: BarScaleSet
     grouped: boolean
+    /** Bands run along y instead of x. */
+    horizontal?: boolean
 }
 
 /** Returns the set of series keys whose box (at the given x-label) contains the cursor
@@ -25,7 +32,7 @@ export interface SeriesKeysAtCursorArgs<Meta> {
  *  series. Uses `computeBoxBand` (band-axis only) — value-axis math is for the highlight
  *  pass, not the hit-test. */
 export function seriesKeysAtCursor<Meta>(args: SeriesKeysAtCursorArgs<Meta>): Set<string> {
-    const { series, label, dataIndex, cursor, scales, grouped } = args
+    const { series, label, dataIndex, cursor, scales, grouped, horizontal = false } = args
     const hits = new Set<string>()
     for (const s of series) {
         if (s.visibility?.excluded) {
@@ -36,7 +43,7 @@ export function seriesKeysAtCursor<Meta>(args: SeriesKeysAtCursorArgs<Meta>): Se
             continue
         }
         const band = computeBoxBand(s.key, label, scales, grouped)
-        if (band && cursorInsideBoxBand(band, cursor)) {
+        if (band && cursorInsideBoxBand(band, cursor, horizontal)) {
             hits.add(s.key)
         }
     }

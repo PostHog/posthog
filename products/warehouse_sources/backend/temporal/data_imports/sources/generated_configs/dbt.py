@@ -12,3 +12,4 @@ class DbtSourceConfig(config.Config):
     api_token: str
     region: Literal["us", "emea", "au"] = config.value(default="us")
     custom_base_url: str | None = None
+    discovery_api_url: str | None = None

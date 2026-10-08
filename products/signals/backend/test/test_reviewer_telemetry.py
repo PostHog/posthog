@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from unittest.mock import patch
 
@@ -26,6 +28,8 @@ def test_captures_linkable_unlinkable_split(organization, team):
     user = User.objects.create(email="linked@example.com")
     OrganizationMembership.objects.create(user=user, organization=organization)
     UserSocialAuth.objects.create(user=user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+    unlinked_member = User.objects.create(email="nogh@example.com")
+    OrganizationMembership.objects.create(user=unlinked_member, organization=organization)
 
     with patch(
         "products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture"
@@ -34,6 +38,9 @@ def test_captures_linkable_unlinkable_split(organization, team):
             team_id=team.id,
             report_id="report-1",
             github_logins=["OctoCat", "ghost-contrib", " ", "octocat"],
+            # A member with no GitHub, an invented uuid the generic artefact API would still store,
+            # and the member again in a different spelling: resolved and deduped like logins.
+            user_uuids=[str(unlinked_member.uuid), str(uuid4()), str(unlinked_member.uuid).upper()],
             source="pipeline",
         )
 
@@ -44,11 +51,13 @@ def test_captures_linkable_unlinkable_split(organization, team):
     assert props["team_id"] == team.id
     assert props["report_id"] == "report-1"
     assert props["source"] == "pipeline"
-    assert props["suggested_count"] == 2
+    assert props["suggested_count"] == 4
     assert props["linkable_logins"] == ["octocat"]
     assert props["unlinkable_logins"] == ["ghost-contrib"]
-    assert props["linkable_count"] == 1
-    assert props["unlinkable_count"] == 1
+    assert props["linkable_count"] == 2
+    assert props["unlinkable_count"] == 2
+    assert props["user_uuid_only_count"] == 1
+    assert props["unlinkable_user_uuid_count"] == 1
     assert props["all_unlinkable"] is False
 
 

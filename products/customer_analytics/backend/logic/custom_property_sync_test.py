@@ -3,6 +3,8 @@ from unittest.mock import Mock, patch
 
 from django.apps import apps
 
+from parameterized import parameterized
+
 from products.customer_analytics.backend.logic.custom_property_sync import (
     _read_view,
     sync_custom_properties_for_account,
@@ -79,10 +81,14 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
 
     def test_missing_column_marks_source_error_and_skips(self):
         source = self._source(self.mrr_def, "does_not_exist")
+        current = CustomPropertyValue.objects.create(
+            team=self.team, account=self.acme, definition=self.mrr_def, value_num=100.0
+        )
         result = self._sync([(100.0, "acme")])
 
         assert result.written == 0
         assert str(source.id) in result.source_errors
+        assert self._active(self.acme, self.mrr_def).id == current.id
 
     def test_deleted_view_returns_not_found(self):
         self._source(self.mrr_def, "mrr")
@@ -94,13 +100,26 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert result.view_found is False
         assert result.written == 0
 
-    def test_skips_null_values(self):
+    @parameterized.expand([("unset", None), ("zero", 0.0), ("positive", 100.0)])
+    def test_null_clears_only_the_matched_value_and_preserves_history(self, _name, initial_value):
         self._source(self.mrr_def, "mrr")
-        # selected columns are sorted: mrr, org_id
+        initial_rows = [(200.0, "globex")]
+        if initial_value is not None:
+            initial_rows.append((initial_value, "acme"))
+        self._sync(initial_rows)
+
         result = self._sync([(None, "acme")])
 
-        assert result.written == 0
-        assert not CustomPropertyValue.objects.filter(definition=self.mrr_def, account=self.acme).exists()
+        assert result.written == int(initial_value is not None)
+        assert result.source_errors == {}
+        history = CustomPropertyValue.objects.filter(definition=self.mrr_def, account=self.acme)
+        assert not history.filter(is_deleted=False).exists()
+        assert history.filter(is_deleted=True).count() == int(initial_value is not None)
+        assert self._active(self.globex, self.mrr_def).value_num == 200.0
+
+        assert self._sync([(None, "acme")]).written == 0
+        assert self._sync([(0.0, "acme")]).written == 1
+        assert self._active(self.acme, self.mrr_def).value_num == 0.0
 
     def test_skips_null_keys(self):
         self._source(self.mrr_def, "mrr")

@@ -120,17 +120,23 @@ def _latest_vintage_join(table_name: str, identity_keys: list[str], vintage_colu
     # Restricts the table to the newest restatement of each report date. A restatement
     # republishes its report date in full, so a dimension tuple the newest one omits is gone
     # rather than unchanged: reading a value for it from an older vintage would resurrect it.
+    # When a snapshot row ties with an ongoing row at that vintage, the ongoing row wins. The
+    # tie-break only looks at the newest vintage: an ongoing row in an older vintage must not
+    # discard a report date the snapshot alone carries at the newest one.
     keys = [*identity_keys, _REPORT_DATE_COLUMN]
     key_list = ", ".join(keys)
     conditions = " AND ".join(f"raw.{key} = latest.{key}" for key in [*keys, vintage_column])
     return (
         f"FROM {table_name} AS raw\n"
         "INNER JOIN (\n"
-        f"    SELECT {key_list}, max({vintage_column}) AS {vintage_column}\n"
+        f"    SELECT {key_list}, {vintage_column}, max(_line >= 0) AS has_ongoing_row\n"
         f"    FROM {table_name}\n"
-        f"    GROUP BY {key_list}\n"
+        f"    WHERE ({key_list}, {vintage_column}) IN (\n"
+        f"        SELECT {key_list}, max({vintage_column}) FROM {table_name} GROUP BY {key_list}\n"
+        "    )\n"
+        f"    GROUP BY {key_list}, {vintage_column}\n"
         ") AS latest\n"
-        f"    ON {conditions}"
+        f"    ON {conditions} AND (latest.has_ongoing_row = 0 OR raw._line >= 0)"
     )
 
 

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
@@ -14,7 +15,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EntityTypes, FilterType } from '~/types'
 
@@ -22,6 +23,10 @@ import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/comp
 import { isPageviewWithoutFilters } from 'products/customer_analytics/frontend/utils'
 
 import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
+
+function reportCustomerAnalyticsDashboardEventPickerClicked({ event }: { event: string }): void {
+    posthog.capture('customer analytics dashboard event picker clicked', { event })
+}
 
 export interface EventSelectorProps {
     caption?: string
@@ -35,7 +40,7 @@ export interface EventSelectorProps {
 function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
-    const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
+
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,

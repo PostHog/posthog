@@ -575,13 +575,32 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.severityLevels, ["error"])
         self.assertEqual(query.limit, 15)
 
+    @parameterized.expand(
+        [
+            ("invalid_severity", {"severityLevels": ["critical"]}),
+            ("filters_list", ["invalid"]),
+            ("filters_string", "invalid"),
+            ("filters_empty_list", []),
+            ("filters_empty_string", ""),
+            ("filters_false", False),
+            ("filters_zero", 0),
+            ("date_range_list", {"dateRange": ["invalid"]}),
+            ("date_range_string", {"dateRange": "invalid"}),
+            ("date_range_empty_list", {"dateRange": []}),
+            ("date_range_empty_string", {"dateRange": ""}),
+            ("date_range_false", {"dateRange": False}),
+            ("date_range_zero", {"dateRange": 0}),
+        ]
+    )
     @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
-    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(self, mock_runner_cls: MagicMock) -> None:
+    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(
+        self, _name: str, filters: Any, mock_runner_cls: MagicMock
+    ) -> None:
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False}
         )
         # `filters` has no inner schema validation on write, so a stored level outside the enum is possible.
-        view = LogsView.objects.create(team=self.team, name="Bad view", filters={"severityLevels": ["critical"]})
+        view = LogsView.objects.create(team=self.team, name="Bad view", filters=filters)
 
         # In-process so the lookup sees the view (see test_runs_logs_widget_with_saved_view). A malformed
         # view degrades to the widget's own config rather than raising.

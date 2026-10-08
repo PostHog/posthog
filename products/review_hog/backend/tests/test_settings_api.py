@@ -1,9 +1,13 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.api.settings import ReviewUserSettingsSerializer
 from products.review_hog.backend.models import ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
@@ -15,6 +19,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/settings/"
 
     def test_get_creates_the_row_with_defaults(self) -> None:
@@ -28,8 +33,12 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "review_labeled_prs": True,
             "resolve_comments": True,
+            "celebrate_clean_reviews": True,
+            "review_authored_prs": False,
+            "flash_reasoning_effort": "medium",
             "urgency_threshold": "consider",
-            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
+            "can_trigger_reviews": True,
+            "show_internal_features": False,
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
@@ -39,7 +48,14 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         # stops accepting it (e.g. marked read-only) would silently no-op the switch.
         res = self.client.patch(
             self.url,
-            {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True, "resolve_comments": False},
+            {
+                "urgency_threshold": "must_fix",
+                "stamphog_review_inbox_prs": True,
+                "resolve_comments": False,
+                "review_authored_prs": True,
+                "flash_reasoning_effort": "xhigh",
+                "celebrate_clean_reviews": False,
+            },
             format="json",
         )
 
@@ -49,7 +65,17 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert row.urgency_threshold == "must_fix"
         assert row.stamphog_review_inbox_prs is True
         assert row.resolve_comments is False
+        assert row.review_authored_prs is True
+        assert row.flash_reasoning_effort == "xhigh"
+        assert row.celebrate_clean_reviews is False
         assert row.review_labeled_prs is True  # untouched field keeps its default
+
+        disabled = self.client.patch(self.url, {"review_authored_prs": False}, format="json")
+
+        assert disabled.status_code == 200
+        disabled_row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert disabled_row.review_authored_prs is False
+        assert disabled_row.flash_reasoning_effort == "xhigh"
 
     @parameterized.expand(
         [
@@ -73,9 +99,11 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             connected_by_user_id=connected_by_user_id,
         )
 
-        res = self.client.get(self.url)
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            res = self.client.get(self.url)
 
         assert res.status_code == 200
+        assert res.json()["show_internal_features"] is True
         assert res.json()["stamphog_connected"] is expected
 
     def test_patch_rejects_an_unknown_threshold(self) -> None:
@@ -85,13 +113,19 @@ class TestReviewUserSettingsAPI(APIBaseTest):
     def test_settings_are_per_user(self) -> None:
         # One user's opt-out must not leak into a teammate's row — the gate reads the PR author's.
         other = User.objects.create_and_join(self.organization, "other-settings@posthog.com", None)
-        self.client.patch(self.url, {"review_labeled_prs": False}, format="json")
+        self.client.patch(
+            self.url,
+            {"review_labeled_prs": False, "review_authored_prs": True, "flash_reasoning_effort": "xhigh"},
+            format="json",
+        )
 
         self.client.force_login(other)
         res = self.client.get(self.url)
 
         assert res.status_code == 200
         assert res.json()["review_labeled_prs"] is True
+        assert res.json()["review_authored_prs"] is False
+        assert res.json()["flash_reasoning_effort"] == "medium"
 
     def test_get_seeds_the_authoring_skill_idempotently(self) -> None:
         # The settings GET is the tab's always-called endpoint, so it must make the authoring guide
@@ -104,18 +138,44 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert rows.count() == 1
         assert rows.get().version == 1
 
-    def test_environment_url_resolves_to_the_canonical_team(self) -> None:
+    def test_environment_flag_access_uses_the_url_team_but_settings_use_the_parent(self) -> None:
         # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a
         # raw-id create kwarg used to contradict each other: the row landed on the parent, the get
         # never matched, and every call after the first 500ed on the unique constraint.
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         url = f"/api/projects/{env.id}/review_hog/settings/"
+        enabled_project_id = str(self.team.id)
 
-        first = self.client.get(url)
-        second = self.client.patch(url, {"urgency_threshold": "must_fix"}, format="json")
+        def enabled_for_project(
+            key: str,
+            _distinct_id: str,
+            *,
+            group_properties: dict[str, dict[str, str]] | None = None,
+            **_kwargs: object,
+        ) -> bool:
+            return key == "review-hog" and (group_properties or {}).get("project", {}).get("id") == enabled_project_id
+
+        with patch("posthoganalytics.feature_enabled", side_effect=enabled_for_project):
+            parent = self.client.patch(self.url, {"urgency_threshold": "should_fix"}, format="json")
+            assert parent.status_code == 200
+            assert self.client.get(url).status_code == 403
+
+            enabled_project_id = str(env.id)
+            first = self.client.get(url)
+            second = self.client.patch(url, {"urgency_threshold": "must_fix"}, format="json")
 
         assert first.status_code == 200
+        assert first.json()["urgency_threshold"] == "should_fix"
         assert second.status_code == 200
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.team_id == self.team.id
         assert row.urgency_threshold == "must_fix"
+
+
+class TestReviewUserSettingsValidation(SimpleTestCase):
+    @parameterized.expand(["low", "high"])
+    def test_flash_effort_rejects_values_outside_its_supported_choices(self, effort: str) -> None:
+        serializer = ReviewUserSettingsSerializer(data={"flash_reasoning_effort": effort}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "flash_reasoning_effort" in serializer.errors

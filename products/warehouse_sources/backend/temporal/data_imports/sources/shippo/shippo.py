@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -117,16 +117,51 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
     return data
 
 
+def _page_number(url: str) -> Optional[int]:
+    raw = parse_qs(urlsplit(url).query).get("page", [None])[0]
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _is_pagination_cap(error: requests.HTTPError, url: str) -> bool:
+    """Was this 404 Shippo refusing a page number past its pagination depth limit?
+
+    Shippo keeps advertising a `next` link past the deepest page its list endpoints will
+    serve, and answers that page with 404 instead of an empty result set. Only a paged URL
+    can hit that limit, so a 404 on the unpaged first page is still a real failure.
+    """
+    response = getattr(error, "response", None)
+    if response is None or response.status_code != 404:
+        return False
+    page = _page_number(url)
+    return page is not None and page > 1
+
+
 def _paginate(
     session: requests.Session,
     first_url: str,
     window_start: str | None,
+    endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShippoResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = first_url
     while url:
-        data = _fetch_page(session, _validate_pagination_url(url), logger)
+        validated_url = _validate_pagination_url(url)
+        try:
+            data = _fetch_page(session, validated_url, logger)
+        except requests.HTTPError as error:
+            if not _is_pagination_cap(error, validated_url):
+                raise
+            logger.warning(
+                f"Shippo did not return page {_page_number(validated_url)} of {endpoint}. "
+                "Shippo limits how deep you can page through a list endpoint, so this table may be missing some records."
+            )
+            return
         items: list[dict[str, Any]] = data["results"]
         if items:
             yield items
@@ -183,7 +218,7 @@ def get_rows(
                         "object_created_lte": _format_datetime(window_end),
                     },
                 )
-            yield from _paginate(session, first_url, start_iso, logger, resumable_source_manager)
+            yield from _paginate(session, first_url, start_iso, endpoint, logger, resumable_source_manager)
 
             window_start = window_end
             resumable_source_manager.save_state(
@@ -195,7 +230,7 @@ def get_rows(
             logger.debug(f"Shippo: resuming {endpoint} from {first_url}")
         else:
             first_url = _build_url(config.path, {"results": PAGE_SIZE})
-        yield from _paginate(session, first_url, None, logger, resumable_source_manager)
+        yield from _paginate(session, first_url, None, endpoint, logger, resumable_source_manager)
 
 
 def shippo_source(

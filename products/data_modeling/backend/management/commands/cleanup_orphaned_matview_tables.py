@@ -54,11 +54,10 @@ def table_shared_with_live_query(saved_query: DataWarehouseSavedQuery) -> bool:
 def has_live_dependents(saved_query: DataWarehouseSavedQuery) -> bool:
     """Whether any live saved query depends on *any* of this query's nodes.
 
-    `delete_node_from_dag` deletes every Node the query has, but the `HasDependentsError` guard it
-    relies on only inspects one arbitrary node (`get_dependent_saved_queries` does a `.first()`). A
-    query with nodes in several DAGs — the exact population `consolidate_dags` exists for — can
-    therefore pass that guard while a real dependent sits in another DAG, and the cascade would
-    delete its edge and revert the table underneath it. Check the full blast radius first.
+    `delete_node_from_dag` refuses the delete on the same condition. This is the cheap pre-filter
+    for it: a query with a live dependent is skipped before the delete takes an advisory lock on
+    every DAG the query has a node in. Nodes in several DAGs is the population `consolidate_dags`
+    exists for.
     """
     nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query)
     return (

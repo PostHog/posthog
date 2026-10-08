@@ -1,19 +1,20 @@
 import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
-import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { sourceConnectSceneLogic } from './sourceConnectSceneLogic'
 
-const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
+const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     Postgres: {
         name: 'Postgres',
         iconPath: '',
         caption: '',
         fields: [{ type: 'text', name: 'host', label: 'Host', required: true, placeholder: '' }],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
     Hubspot: {
         name: 'Hubspot',
         iconPath: '',
@@ -27,7 +28,7 @@ const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
                 kind: 'hubspot',
             },
         ],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
     Stripe: {
         name: 'Stripe',
         iconPath: '',
@@ -69,7 +70,7 @@ const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
                 ],
             },
         ],
-    } as unknown as SourceConfig,
+    } as unknown as SourceConfigResponseApi,
 }
 
 describe('sourceConnectSceneLogic', () => {

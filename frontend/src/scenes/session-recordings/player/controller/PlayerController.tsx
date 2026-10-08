@@ -180,7 +180,13 @@ function SkipToNext(): JSX.Element | null {
     )
 }
 
-export function Screenshot({ className }: { className?: string }): JSX.Element {
+export function Screenshot({
+    className,
+    'data-attr': dataAttr,
+}: {
+    className?: string
+    'data-attr'?: string
+}): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
@@ -196,7 +202,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
                 </>
             }
             icon={<IconCamera className={cn('text-xl', className)} />}
-            data-attr="replay-screenshot-png"
+            data-attr={dataAttr ?? 'replay-screenshot-png'}
             tooltipPlacement="top"
         />
     )

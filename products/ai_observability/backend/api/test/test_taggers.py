@@ -1,14 +1,19 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, PropertyDefinition, Team, User
+from posthog.models.event.util import bulk_create_events
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.provider_keys import LLMProvider
 from products.ai_observability.backend.models.taggers import Tagger, TaggerType
 
@@ -49,6 +54,21 @@ def _make_tagger_config(**overrides):
 
 
 class TestTaggersApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
+
+    def test_feature_flag_gates_the_api_server_side(self):
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_unauthenticated_user_cannot_access_taggers(self):
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/taggers/")
@@ -143,6 +163,41 @@ class TestTaggersApi(APIBaseTest):
         names = [t["name"] for t in response.data["results"]]
         assert "Tagger 1" in names
         assert "Tagger 2" in names
+
+    @parameterized.expand(
+        [
+            ("default", None, "-created_at"),
+            ("created_at_ascending", "created_at", "created_at"),
+        ]
+    )
+    def test_list_pages_are_stable_when_taggers_share_a_created_at(
+        self, _name: str, order_by: str | None, expected_order: str
+    ) -> None:
+        for index in range(5):
+            Tagger.objects.create(
+                name=f"Tagger {index}",
+                tagger_config=_make_tagger_config(),
+                team=self.team,
+                created_by=self.user,
+            )
+        Tagger.objects.filter(team=self.team).update(created_at="2026-01-01T00:00:00Z")
+
+        paged_ids = []
+        for offset in range(5):
+            query = {"limit": "1", "offset": str(offset)}
+            if order_by is not None:
+                query["order_by"] = order_by
+            response = self.client.get(f"/api/environments/{self.team.id}/taggers/", query)
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.append(response.data["results"][0]["id"])
+
+        expected_ids = [
+            str(tagger_id)
+            for tagger_id in Tagger.objects.filter(team=self.team)
+            .order_by(expected_order, "id")
+            .values_list("id", flat=True)
+        ]
+        assert paged_ids == expected_ids
 
     def test_can_get_single_tagger(self):
         tagger = Tagger.objects.create(
@@ -380,6 +435,12 @@ class TestTaggersAccessControl(APIBaseTest):
     # that Evaluations and Datasets inherit from.
     def setUp(self) -> None:
         super().setUp()
+        feature_flag_patch = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        feature_flag_patch.start()
+        self.addCleanup(feature_flag_patch.stop)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -469,3 +530,49 @@ class TestTaggersAccessControl(APIBaseTest):
         )
         assert edit_response.status_code == status.HTTP_200_OK
         assert edit_response.data["name"] == "Renamed by editor"
+
+
+class TestTaggerPreviewPropertyAccess(ClickhouseTestMixin, APIBaseTest):
+    def test_hog_preview_masks_member_restricted_properties(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        reader = self._create_user("restricted-tagger-reader@example.com")
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="private_note", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "tagger-test-person",
+                    "timestamp": datetime.now(UTC),
+                    "properties": {"private_note": "private-tagger-input", "public_note": "public-tagger-input"},
+                }
+            ]
+        )
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            for user, can_read_private in ((self.user, True), (reader, False)):
+                self.client.force_login(user)
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/taggers/test_hog/",
+                    {
+                        "source": "print(properties.private_note); print(properties.public_note); return []",
+                        "sample_count": 1,
+                    },
+                    format="json",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.data
+                assert len(response.data["results"]) == 1
+                result = response.data["results"][0]
+                assert result["error"] is None
+                assert "public-tagger-input" in result["reasoning"]
+                assert ("private-tagger-input" in result["reasoning"]) is can_read_private

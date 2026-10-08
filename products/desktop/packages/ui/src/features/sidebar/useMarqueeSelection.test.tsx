@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { act } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTaskSelectionStore } from "./taskSelectionStore";
 import {
   SESSION_ROW_ATTRIBUTE,
@@ -9,20 +9,41 @@ import {
 
 const ROW_HEIGHT = 20;
 
-function Harness() {
+function Harness({
+  startOnRows,
+  onRowClick,
+}: {
+  startOnRows?: boolean;
+  onRowClick?: () => void;
+}) {
   const ref = { current: null } as { current: HTMLDivElement | null };
-  return <List innerRef={ref} />;
+  return (
+    <List innerRef={ref} startOnRows={startOnRows} onRowClick={onRowClick} />
+  );
 }
 
-function List({ innerRef }: { innerRef: { current: HTMLDivElement | null } }) {
-  const rect = useMarqueeSelection(innerRef);
+function List({
+  innerRef,
+  startOnRows,
+  onRowClick,
+}: {
+  innerRef: { current: HTMLDivElement | null };
+  startOnRows?: boolean;
+  onRowClick?: () => void;
+}) {
+  const rect = useMarqueeSelection(innerRef, { startOnRows });
   return (
     <div ref={innerRef} data-testid="anchor">
       <button type="button" data-testid="search">
         Search
       </button>
       {["a", "b", "c"].map((id) => (
-        <button key={id} type="button" {...{ [SESSION_ROW_ATTRIBUTE]: id }}>
+        <button
+          key={id}
+          type="button"
+          onClick={onRowClick}
+          {...{ [SESSION_ROW_ATTRIBUTE]: id }}
+        >
           {id}
         </button>
       ))}
@@ -141,6 +162,20 @@ describe("useMarqueeSelection", () => {
     drag(rows[2], 50, 5, { altKey: true });
 
     expect(selected()).toEqual(["a", "b", "c"]);
+  });
+
+  it("starts from a row in a list that allows it, and keeps the row from opening", () => {
+    const onRowClick = vi.fn();
+    const { container } = render(
+      <Harness startOnRows onRowClick={onRowClick} />,
+    );
+    const { rows } = layout(container);
+
+    drag(rows[2], 50, 5);
+    rows[0].click();
+
+    expect(selected()).toEqual(["a", "b", "c"]);
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 
   it("ignores a press on a control in the list", () => {

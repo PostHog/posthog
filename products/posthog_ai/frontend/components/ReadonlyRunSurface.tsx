@@ -16,7 +16,7 @@ const Lazy = lazyWithRetry(() => import('./ReadonlyRunSurfaceImpl'))
 /**
  * Prepackaged read-only run surface, code-split behind a `RunLogSkeleton` fallback. This is the common
  * embed: the inbox detail views (`ArtefactTaskRun` / `AgentRunDetail` / `ReportTasksSection`) drop it in.
- * It renders the run thread (and, for a live run, the meta bars) with no composer and no approval prompt;
+ * It renders the run thread (with the context-usage footer for a live run) with no composer and no approval prompt;
  * see `ReadonlyRunSurfaceImpl` for the layout. For a custom layout, compose the `RunSurface` compound
  * directly (api/runSurface).
  */

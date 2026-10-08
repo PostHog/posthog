@@ -1,12 +1,13 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { InsightActorsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 export interface StickinessChartClickDeps {
     context?: QueryContext<InsightVizNode>

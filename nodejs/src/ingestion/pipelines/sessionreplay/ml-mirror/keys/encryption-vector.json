@@ -1,0 +1,41 @@
+{
+    "context": {
+        "teamId": 7,
+        "organizationId": "00000000-0000-4000-8000-000000000007",
+        "sessionId": "01994569-4380-7000-8000-000000000007"
+    },
+    "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+    "data": "c3ludGhldGljIGludGVyb3BlcmFiaWxpdHkgcGF5bG9hZA==",
+    "envelope": {
+        "v": 3,
+        "context": {
+            "teamId": 7,
+            "organizationId": "00000000-0000-4000-8000-000000000007",
+            "sessionId": "01994569-4380-7000-8000-000000000007",
+            "kind": "rrweb"
+        },
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "ciphertext": "VofNdzJNKisZYCoynzKNY51Zko7W/PgZW6enwYKcLNfQw1APuYhuzy8mpJ3qd2oMKRc="
+    },
+    "seal": {
+        "teamMonthKey": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=",
+        "identity": {
+            "teamId": 7,
+            "sessionId": "01994569-4380-7000-8000-000000000007"
+        },
+        "sessionKey": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=",
+        "nonce": "eeEJEciFIDqBWFNk",
+        "sealedKey": "vxp6SKFXDX5P4p/OXPmke/ahZKBw1+rUcA5OsFanqN665rxNb8kUZPLXQoafeWnv"
+    },
+    "frame": {
+        "kind": "rrweb",
+        "codec": "brotli",
+        "data": "c3ludGhldGljIGZyYW1lZCBpbnRlcm9wZXJhYmlsaXR5IHBheWxvYWQ=",
+        "body": "HygAAES3eb27X9WggVTQnvUglgykkNw6NL6P9hILOhuTcTpNcijjhedGAw==",
+        "aad": "{\"context\":{\"codec\":\"brotli\",\"kind\":\"rrweb\",\"organizationId\":\"00000000-0000-4000-8000-000000000007\",\"sessionId\":\"01994569-4380-7000-8000-000000000007\",\"teamId\":7},\"v\":3}",
+        "nonce": "BQUFBQUFBQUFBQUF",
+        "ciphertext": "/dmHKJUqBo5bKIjQBDlZKqJmng9XTp69EU4XsO4pmM1D8Gg3wEdelERWWQ==",
+        "tag": "pBSmiL+q29L2YGDlD1NubQ==",
+        "frame": "QUlTUjAzAKl7ImNvbnRleHQiOnsiY29kZWMiOiJicm90bGkiLCJraW5kIjoicnJ3ZWIiLCJvcmdhbml6YXRpb25JZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNyIsInNlc3Npb25JZCI6IjAxOTk0NTY5LTQzODAtNzAwMC04MDAwLTAwMDAwMDAwMDAwNyIsInRlYW1JZCI6N30sInYiOjN9BQUFBQUFBQUFBQUF/dmHKJUqBo5bKIjQBDlZKqJmng9XTp69EU4XsO4pmM1D8Gg3wEdelERWWaQUpoi/qtvS9mBg5Q9Tbm0="
+    }
+}

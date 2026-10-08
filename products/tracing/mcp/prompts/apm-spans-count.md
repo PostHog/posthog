@@ -1,6 +1,10 @@
 Return a scalar count of trace spans matching a filter set. Use this as a cheap pre-flight before `query-apm-spans` — if the count is large, narrow the filters (or set `excludeAttributes`) before pulling rows.
 
-All parameters must be nested inside a `query` object.
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
 
 # When to use
 
@@ -13,8 +17,6 @@ This counts **spans**, not traces. A single trace contains many spans, so a coun
 If the count would scan too much data (a wide date range with no filters), the tool returns a 400 asking you to narrow the window or add filters — narrow the `dateRange` or add `serviceNames` / `statusCodes` / `filterGroup`, then retry.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 
@@ -34,6 +36,8 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 ## query.filterGroup
 
 Property filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.
+
+A `span` filter on `duration` takes a value in milliseconds. For example, `{ "key": "duration", "operator": "gt", "type": "span", "value": "30000" }` counts spans longer than 30 seconds.
 
 # Examples
 

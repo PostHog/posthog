@@ -17,7 +17,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
@@ -31,6 +30,7 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -274,8 +274,8 @@ class TestErrorHandling:
     )
 
     async def test_hogql_queries_fail_terminally_if_per_query_resource_limit_reached(self, batch_export):
-        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit should be
-        fail as a non-retryable error (re-running it would not produce a different result).
+        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit is a user
+        error, so it should fail the run but not the Temporal activity or the workflow.
         """
         inputs = DummyExportInputs(
             team_id=batch_export.team_id,
@@ -290,7 +290,7 @@ class TestErrorHandling:
             "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
             new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
         ):
-            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+            run = await self._run_workflow(inputs, expect_workflow_failure=False)
 
         assert run.status == "Failed"
         assert run.latest_error is not None

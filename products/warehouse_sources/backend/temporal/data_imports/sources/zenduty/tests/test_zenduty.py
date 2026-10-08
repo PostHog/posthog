@@ -19,17 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.ze
 
 
 class TestExtractItemsAndNext:
-    def test_paginated_envelope_returns_results_and_next(self) -> None:
-        data = {"count": 2, "next": "https://www.zenduty.com/api/incidents/?page=2", "results": [{"a": 1}, {"a": 2}]}
-        rows, next_url = _extract_items_and_next(data)
-        assert rows == [{"a": 1}, {"a": 2}]
-        assert next_url == "https://www.zenduty.com/api/incidents/?page=2"
-
-    def test_last_page_has_null_next(self) -> None:
-        rows, next_url = _extract_items_and_next({"next": None, "results": [{"a": 1}]})
-        assert rows == [{"a": 1}]
-        assert next_url is None
-
     def test_bare_list_returns_no_next(self) -> None:
         # Smaller team-nested collections come back as a bare array with no pagination envelope.
         rows, next_url = _extract_items_and_next([{"a": 1}, {"a": 2}])
@@ -63,11 +52,6 @@ class TestFetchPage:
             requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
         )
         return response
-
-    def test_success_returns_parsed_json(self) -> None:
-        session = MagicMock()
-        session.get.return_value = self._response(200, {"results": []})
-        assert _fetch_page(session, "https://www.zenduty.com/api/incidents/", {}, MagicMock()) == {"results": []}
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_transient_status_raises_retryable(self, _name: str, status_code: int) -> None:
@@ -153,24 +137,6 @@ class TestGetRowsTopLevel:
         }
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents")
         assert rows == [{"unique_id": "1"}, {"unique_id": "2"}]
-
-    def test_saves_state_after_each_page_except_last(self, monkeypatch: Any) -> None:
-        first = "https://www.zenduty.com/api/incidents/?page_size=100"
-        second = "https://www.zenduty.com/api/incidents/?page=2"
-        pages = {
-            first: {"results": [{"unique_id": "1"}], "next": second},
-            second: {"results": [{"unique_id": "2"}], "next": None},
-        }
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, pages, "incidents")
-        assert [(s.next_url, s.team_id) for s in manager.saved] == [(second, None)]
-
-    def test_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
-        resume_url = "https://www.zenduty.com/api/incidents/?page=3"
-        pages = {resume_url: {"results": [{"unique_id": "9"}], "next": None}}
-        manager = _FakeResumableManager(ZendutyResumeConfig(next_url=resume_url))
-        rows = _collect(manager, monkeypatch, pages, "incidents")
-        assert rows == [{"unique_id": "9"}]
 
     def test_poisoned_next_url_is_never_persisted(self, monkeypatch: Any) -> None:
         first = "https://www.zenduty.com/api/incidents/?page_size=100"

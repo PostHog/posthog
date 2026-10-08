@@ -1,7 +1,7 @@
 import os
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -41,7 +41,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, 0),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_date_range(self, _name, date_range, expected):
         response = self._count({"dateRange": date_range})
         self.assertEqual(response["count"], expected)
@@ -54,7 +54,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             (["info", "error"], 945),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_severity_filter(self, severities, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "severityLevels": severities})
         self.assertEqual(response["count"], expected)
@@ -67,17 +67,17 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             (["nonexistent-service-xyz"], 0),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_service_filter(self, services, expected):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "serviceNames": services})
         self.assertEqual(response["count"], expected)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_search_term_matches_body_text(self):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "searchTerm": "connection refused"})
         self.assertEqual(response["count"], 1)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_defaults_date_range_to_last_hour(self):
         # No dateRange in request; default should be -1h relative to frozen "now".
         # Fixture's latest timestamp is 2025-12-18T02:00Z — outside the last hour.
@@ -104,7 +104,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_count_matches_sparkline_sum(self, _name, date_range, filters):
         # Cross-verify: sum of sparkline bucket counts should equal the scalar count
         # for the same query. Catches drift between the two endpoints' WHERE handling.

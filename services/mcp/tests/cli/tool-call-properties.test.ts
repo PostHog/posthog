@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildToolCallProperties } from '@/cli/tool-call-properties'
+import { MCPToolResultError } from '@/lib/errors'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -16,6 +17,7 @@ describe('buildToolCallProperties', () => {
         success: false,
         output_format: 'text',
         error_message: 'API error: {"detail": "secret notebook content …"}',
+        error: new Error('Private backend error details'),
         input: { markdown: 'private caller-supplied text' },
     }
 
@@ -68,14 +70,29 @@ describe('buildToolCallProperties', () => {
             { error_status: 502 },
             { error_class: 'api_error', error_status: 502, $mcp_error_type: 'api_5xx', $mcp_error_status: 502 },
         ],
+        [
+            'backend validation failure',
+            { error: new MCPToolResultError('Private SQL input', 'validation') },
+            { error_class: 'error', $mcp_error_type: 'validation' },
+        ],
+        [
+            'backend query timeout',
+            { error: new MCPToolResultError('Private query details', 'timeout') },
+            { error_class: 'error', $mcp_error_type: 'timeout' },
+        ],
+        [
+            'backend query memory failure',
+            { error: new MCPToolResultError('Private query details', 'memory_limit') },
+            { error_class: 'error', $mcp_error_type: 'memory_limit' },
+        ],
     ])('classifies a %s without carrying the message', (_name, extra, expected) => {
-        expect(buildToolCallProperties('feature-flag-get-all', { ...base, ...extra })).toEqual({
-            tool_name: 'feature-flag-get-all',
-            $mcp_tool_name: 'feature-flag-get-all',
+        expect(buildToolCallProperties('execute-sql', { ...base, ...extra })).toEqual({
+            tool_name: 'execute-sql',
+            $mcp_tool_name: 'execute-sql',
             $mcp_duration_ms: 42,
             $mcp_is_error: true,
             output_format: 'text',
-            ...catalogMetadata('feature-flag-get-all'),
+            ...catalogMetadata('execute-sql'),
             ...expected,
         })
     })

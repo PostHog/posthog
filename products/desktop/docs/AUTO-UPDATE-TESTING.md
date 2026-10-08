@@ -119,7 +119,7 @@ A real Forge build picks up an electron-builder build through its own updater, e
 
 ### How the old build is produced
 
-`build-old-forge.sh` checks the last Forge release out into an isolated git worktree and builds it there, so the current branch checkout is untouched. The pinned commit is `cb0ca68db` (`v0.55.132`), the last release before the electron-builder migration. Override with `OLD_FORGE_REF` if needed.
+`build-old-forge.sh` checks the last Forge release out into an isolated git worktree and builds it there, so the current branch checkout is untouched. The pinned commit is `cb0ca68db` (`v0.55.132`), the last release before the electron-builder migration. That commit predates the monorepo import, so the script fetches it from the archived `PostHog/code` repository when it is not already in the local object store. Override the commit with `OLD_FORGE_REF` and the source repository with `OLD_FORGE_REMOTE` if needed.
 
 It is a genuine `electron-forge package` build, not a rebuild with electron-builder, because the whole point is the built-in Squirrel.Mac client that shipped to users. It is signed with the same identity the new build uses (Forge resolves the identity by name from a keychain, so the script imports `CSC_LINK` into a temp keychain and derives `APPLE_CODESIGN_IDENTITY`). Both Forge and electron-builder use bundle id `com.posthog.array`, so the designated requirements match and the swap is allowed.
 
@@ -164,6 +164,8 @@ gh workflow run "Desktop Update E2E (macOS)"
 ```
 
 It builds the `2.0.0` feed and the baseline `1.0.0` app, runs the baseline spec via `playwright.update.config.ts`, then builds the old Forge `1.0.0` app and runs the Forge spec via `playwright.update-forge.config.ts`. Each leg asserts exactly one test actually ran, so a missing feed or a silent skip fails the job. The Forge leg runs after the baseline so a flake in the (riskier) old-build step can never mask the baseline result.
+
+A failing run posts to `#alerts-devex` in Slack, because nobody watches a nightly.
 
 Every run renders a proof summary per leg on the run page and uploads, on pass or fail: both proof manifests, main log and Squirrel ShipIt cache (artifact `update-e2e-macos`), plus the signed builds as their own artifacts (`update-old-build-1.0.0`, `update-new-build-2.0.0`, `update-old-forge-build-1.0.0`) you can pull as shown above.
 

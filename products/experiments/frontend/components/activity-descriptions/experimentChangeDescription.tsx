@@ -1,0 +1,355 @@
+import clsx from 'clsx'
+import { deepEqual as equal } from 'fast-equals'
+import { match } from 'ts-pattern'
+
+import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
+import { dayjs } from 'lib/dayjs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
+import { urls } from 'scenes/urls'
+
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import { Experiment, ExperimentConclusion } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
+
+import { getMetricChanges } from './metricChangeDescriptions'
+
+const ExperimentConclusionTag = ({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element => (
+    <div className="font-semibold inline-flex items-center gap-2">
+        <div className={clsx('w-2 h-2 rounded-full', CONCLUSION_DISPLAY_CONFIG[conclusion]?.color || '')} />
+        <span>{CONCLUSION_DISPLAY_CONFIG[conclusion]?.title || conclusion}</span>
+    </div>
+)
+
+/**
+ * if an id is provided, it returns a link to the experiemt. Otherwise, just the name.
+ */
+export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.Element | string => {
+    if (id) {
+        return <Link to={urls.experiment(id)}>{name}</Link>
+    }
+    return name || '(unknown)'
+}
+
+/**
+ * we pick the allowed properties, and shoehorn in deleted because it's missing from the type
+ */
+type AllowedExperimentFields = Pick<
+    Experiment,
+    | 'conclusion'
+    | 'conclusion_comment'
+    | 'status'
+    | 'start_date'
+    | 'end_date'
+    | 'metrics'
+    | 'metrics_secondary'
+    | 'exposure_criteria'
+    | 'parameters'
+    | 'running_time_calculation'
+    | 'excluded_variants'
+    | 'primary_metrics_ordered_uuids'
+    | 'secondary_metrics_ordered_uuids'
+    | 'archived'
+    | 'description'
+> & {
+    deleted: boolean
+}
+
+const RUNNING_TIME_CALCULATION_KEYS = [
+    'minimum_detectable_effect',
+    'recommended_running_time',
+    'recommended_sample_size',
+    'exposure_estimate_config',
+]
+
+/** Strip the running-time calculator keys, which are mirrored into `parameters` while that field is deprecated. */
+function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
+}
+
+const DERIVED_RUNNING_TIME_KEYS = ['recommended_running_time', 'recommended_sample_size']
+
+/** Strip the derived calculator outputs so only deliberate input edits (MDE, exposure estimate) count. */
+function withoutDerivedRunningTimeKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !DERIVED_RUNNING_TIME_KEYS.includes(key)
+        )
+    )
+}
+
+function describeExcludedVariantsChange(before: string[] | undefined, after: string[] | undefined): string | null {
+    const beforeSet = new Set(before ?? [])
+    const afterSet = new Set(after ?? [])
+    const added = [...afterSet].filter((k) => !beforeSet.has(k))
+    const removed = [...beforeSet].filter((k) => !afterSet.has(k))
+
+    if (added.length === 0 && removed.length === 0) {
+        return null
+    }
+    const parts: string[] = []
+    if (added.length === 1) {
+        parts.push(`excluded variant ${added[0]} from analysis`)
+    } else if (added.length > 1) {
+        parts.push(`excluded variants ${added.join(', ')} from analysis`)
+    }
+    if (removed.length === 1) {
+        parts.push(`re-included variant ${removed[0]} in analysis`)
+    } else if (removed.length > 1) {
+        parts.push(`re-included variants ${removed.join(', ')} in analysis`)
+    }
+    return parts.join(' and ')
+}
+
+/**
+ * Detect a metric reorder. The ordering array is a display hint, so an add or remove can leave it
+ * out of sync with the metrics, and the next drag rewrites it from the metrics on screen. Without a
+ * move, that rewrite keeps the surviving uuids in their old relative order and appends the newly
+ * listed ones, so a diff of that shape is left to the `metrics` field matcher. Repeats are ignored
+ * because display order ignores them too.
+ */
+const describeMetricReorder = (before: unknown, after: unknown, description: string): string | null => {
+    const b = [...new Set((before as string[] | null) ?? [])]
+    const a = [...new Set((after as string[] | null) ?? [])]
+    const bSet = new Set(b)
+    const aSet = new Set(a)
+    const membershipOnlyRewrite = [...b.filter((uuid) => aSet.has(uuid)), ...a.filter((uuid) => !bSet.has(uuid))]
+    return equal(membershipOnlyRewrite, a) ? null : description
+}
+
+export const getExperimentChangeDescription = (
+    experimentChange: ActivityChange
+): string | JSX.Element | (string | JSX.Element)[] | null => {
+    /**
+     * a little type assertion to force field into the allowed experiment fields
+     */
+    return match(experimentChange as ActivityChange & { field: keyof AllowedExperimentFields })
+        .with({ field: 'start_date' }, ({ action, before, after }) => {
+            /**
+             * id start date is created, the experiment has been launched
+             */
+            if (action === 'created' && before === null && after !== null) {
+                return 'launched experiment:'
+            }
+
+            /**
+             * if start date has changed, we report how much time was added or removed
+             */
+            if (action === 'changed' && before !== null && after !== null) {
+                const beforeDate = dayjs(before as string)
+                const afterDate = dayjs(after as string)
+
+                if (beforeDate.isValid() && afterDate.isValid()) {
+                    const diff = afterDate.diff(beforeDate, 'minute')
+                    const duration = dayjs.duration(Math.abs(diff), 'minute')
+                    const sign = diff > 0 ? 'moved the start date forward' : 'moved the start date back'
+
+                    return `${sign} by ${duration.humanize()}`
+                }
+            }
+
+            /**
+             * a start_date clear rewrites the whole row to the 'reset' activity in the backend
+             * handler, so this only renders for rows logged before that rewrite shipped
+             */
+            if (action === 'deleted') {
+                return 'reset experiment:'
+            }
+
+            return 'changed the start date'
+        })
+        .with({ field: 'end_date' }, ({ action, before, after }) => {
+            /**
+             * if end date is created, the experiment has been stopped
+             */
+            if (action === 'created' && before === null && after !== null) {
+                return 'stopped experiment'
+            }
+
+            if (action === 'deleted') {
+                return 'removed the end date of'
+            }
+
+            return 'changed the end date'
+        })
+        .with({ field: 'conclusion' }, ({ action, before, after }) => {
+            /**
+             * if conclusion was creted, the experiment was closed. This is usually
+             * acompanied by the end date creation
+             */
+            if (action === 'created' && before === null) {
+                return (
+                    <span>
+                        completed it as <ExperimentConclusionTag conclusion={after as ExperimentConclusion} />:
+                    </span>
+                )
+            }
+
+            if (action === 'changed' && after !== null) {
+                return (
+                    <span>
+                        changed the conclusion to <ExperimentConclusionTag conclusion={after as ExperimentConclusion} />
+                    </span>
+                )
+            }
+
+            if (action === 'deleted') {
+                return 'removed the conclusion of'
+            }
+
+            return 'changed the conclusion'
+        })
+        .with({ field: 'archived' }, ({ after }) =>
+            after === true ? 'archived experiment:' : 'unarchived experiment:'
+        )
+        .with({ field: 'description' }, () => 'updated the description')
+        .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
+        .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'metrics_secondary', action: 'changed' }, ({ before, after }) =>
+            getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'primary_metrics_ordered_uuids', action: 'changed' }, ({ before, after }) =>
+            describeMetricReorder(before, after, 'reordered the primary metrics')
+        )
+        .with({ field: 'secondary_metrics_ordered_uuids', action: 'changed' }, ({ before, after }) =>
+            describeMetricReorder(before, after, 'reordered the secondary metrics')
+        )
+        .with({ field: 'exposure_criteria' }, ({ before, after }) => {
+            /**
+             * exposure criteria is by default `{filter_test_accounts: true}`,
+             * meaning that we use `feature_flag_called` as the event and
+             * first seen as the varian handling.
+             *
+             * if the experiment has a `null` exposure criteria, a created action is logged.
+             */
+            const typedAfter = after as ExperimentExposureCriteria
+            const typedBefore = before as ExperimentExposureCriteria
+
+            const changes: (string | JSX.Element | null)[] = Object.keys(after || {}).map((key) =>
+                match(key as keyof ExperimentExposureCriteria)
+                    .with('filterTestAccounts', () => {
+                        if (typedAfter?.filterTestAccounts === typedBefore?.filterTestAccounts) {
+                            return null
+                        }
+
+                        return typedAfter?.filterTestAccounts
+                            ? 'added the test account filter'
+                            : 'removed the test account filter'
+                    })
+                    .with('multiple_variant_handling', () => {
+                        if (typedAfter?.multiple_variant_handling === typedBefore?.multiple_variant_handling) {
+                            return null
+                        }
+
+                        return typedAfter?.multiple_variant_handling === 'first_seen'
+                            ? 'changed the variant handling to "first seen"'
+                            : 'changed the variant handling to "exclude from analysis"'
+                    })
+                    .with('exposure_config', () => {
+                        const afterConfig = typedAfter?.exposure_config
+                        const beforeConfig = typedBefore?.exposure_config
+
+                        if (equal(afterConfig, beforeConfig)) {
+                            return null
+                        }
+
+                        if (afterConfig) {
+                            const displayName = getExposureConfigDisplayName(afterConfig)
+                            return (
+                                <span>
+                                    set the exposure configuration to <LemonTag color="purple">{displayName}</LemonTag>
+                                </span>
+                            )
+                        }
+                        return null
+                    })
+                    .with('activation_config', () => {
+                        const afterConfig = typedAfter?.activation_config
+                        const beforeConfig = typedBefore?.activation_config
+
+                        if (equal(afterConfig, beforeConfig)) {
+                            return null
+                        }
+
+                        if (afterConfig) {
+                            const displayName = getExposureConfigDisplayName(afterConfig)
+                            return (
+                                <span>
+                                    set the activation event to <LemonTag color="purple">{displayName}</LemonTag>
+                                </span>
+                            )
+                        }
+                        return null
+                    })
+                    .exhaustive()
+            )
+
+            // Check if exposure_config was removed (returning to default)
+            if (typedBefore?.exposure_config && !typedAfter?.exposure_config) {
+                changes.push(
+                    <span>
+                        set the exposure configuration to the <LemonTag color="purple">$feature_flag_called</LemonTag>{' '}
+                        default
+                    </span>
+                )
+            }
+            if (typedBefore?.activation_config && !typedAfter?.activation_config) {
+                changes.push('removed the activation event')
+            }
+
+            return changes.filter(Boolean) as (string | JSX.Element)[]
+        })
+        .with({ field: 'parameters' }, ({ before, after }) => {
+            const summary = describeExcludedVariantsChange(
+                (before as { excluded_variants?: string[] } | null)?.excluded_variants,
+                (after as { excluded_variants?: string[] } | null)?.excluded_variants
+            )
+            if (summary) {
+                return summary
+            }
+            // A pure calculator-key sync is already described by the running_time_calculation change
+            if (equal(withoutRunningTimeCalculationKeys(before), withoutRunningTimeCalculationKeys(after))) {
+                return null
+            }
+            return 'updated parameters'
+        })
+        .with({ field: 'running_time_calculation' }, ({ before, after }) => {
+            // Opening the calculator re-saves the recomputed outputs, so they drift as exposure
+            // data changes — a row only earns its place when a calculator input was edited.
+            if (equal(withoutDerivedRunningTimeKeys(before), withoutDerivedRunningTimeKeys(after))) {
+                return null
+            }
+            return 'updated the running time calculation'
+        })
+        .with({ field: 'excluded_variants' }, () => {
+            // The change is described by the `parameters` matcher, which the backend keeps
+            // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
+        })
+        .with({ field: 'status' }, () => {
+            // Status only moves together with a lifecycle change (launch, stop, pause), and those
+            // already produce their own descriptions, so an "updated status" clause adds nothing.
+            return null
+        })
+        .with({ field: 'conclusion_comment' }, () => {
+            // The describer renders the comment text as the row's extended description instead.
+            return null
+        })
+        .otherwise(({ field, action }) => {
+            // Fallback for unhandled fields - ensures all activity is visible
+            const fieldName = field.replace(/_/g, ' ')
+            return match(action)
+                .with('created', () => `added ${fieldName}`)
+                .with('deleted', () => `removed ${fieldName}`)
+                .with('changed', () => `updated ${fieldName}`)
+                .otherwise(() => `modified ${fieldName}`)
+        })
+}

@@ -10,7 +10,6 @@ from products.marketing_analytics.backend.demo.world import EVENT_DEMO_BOOKED, E
 MARKETING_FEATURE_FLAGS = (
     "marketing-analytics",
     "marketing-analytics-utm-audit",
-    "marketing-analytics-drill-down",
     "marketing-analytics-extended-drill-down",
     "marketing-analytics-multi-touch-attribution",
     "marketing-analytics-ai",

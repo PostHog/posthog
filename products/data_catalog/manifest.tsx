@@ -28,7 +28,8 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-        dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
+            `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -36,10 +37,15 @@ export const manifest: ProductManifest = {
         {
             path: 'Data catalog',
             intents: [ProductKey.DATA_CATALOG],
-            category: ProductItemCategory.ANALYTICS,
-            iconType: 'data_warehouse',
+            category: ProductItemCategory.DATA,
+            iconType: 'data_catalog',
+            iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
             href: urls.dataCatalog(),
-            tags: ['beta'],
+            searchKeywords: ['semantic layer', 'metrics'],
+            searchTabs: [
+                { name: 'Relationships', href: urls.dataCatalog('relationships') },
+                { name: 'Certifications', href: urls.dataCatalog('certifications') },
+            ],
             sceneKey: 'DataCatalog',
         },
     ],

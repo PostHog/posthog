@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
+from products.ai_observability.backend.llm.decisions import DecisionClient
 from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -81,21 +82,27 @@ class Client:
     @classmethod
     def validate_key(cls, provider: str, api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an API key for a provider. Returns (state, error_message)."""
+        if provider == "system_one":
+            return DecisionClient.validate_key(api_key, **kwargs)
         return _get_provider(provider).validate_key(api_key, **kwargs)
 
     @classmethod
     def list_models(cls, provider: str, api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available models for a provider."""
+        if provider == "system_one":
+            return [kwargs["model"]] if kwargs.get("model") else []
         return _get_provider(provider).list_models(api_key, **kwargs)
 
     @classmethod
     def recommended_models(cls, provider: str) -> set[str]:
         """Return the set of curated/recommended model IDs for a provider."""
+        if provider == "system_one":
+            return set()
         return _get_provider(provider).recommended_models()
 
 
 def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
-    """Get provider by name. For Azure, reads extra config from provider_key."""
+    """Get provider by name. Azure and OpenAI-compatible read extra config from provider_key."""
     from typing import cast
 
     from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
@@ -104,6 +111,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter
     from products.ai_observability.backend.llm.providers.minimax import MiniMaxAdapter
     from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
+    from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
     from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
@@ -134,5 +142,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
                     api_version=config.get("api_version", DEFAULT_API_VERSION),
                 ),
             )
+        case "openai_compatible":
+            config = provider_key.encrypted_config if provider_key else {}
+            return cast("Provider", OpenAICompatibleAdapter(base_url=config.get("base_url", "")))
         case _:
             raise UnsupportedProviderError(name)

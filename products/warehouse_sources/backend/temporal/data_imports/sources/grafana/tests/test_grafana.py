@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana im
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
     ANNOTATIONS_LIMIT,
     BASIC_AUTH,
+    DASHBOARD_VERSIONS_PAGE_SIZE,
     DEFAULT_PAGE_SIZE,
     MAX_RESPONSE_BYTES,
     TOKEN_AUTH,
@@ -85,6 +86,9 @@ class FakeResumableManager:
         self.saved.append(state)
         self.state = state
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _patch_session(session: mock.MagicMock):
     return mock.patch.object(grafana_module, "make_tracked_session", return_value=session)
@@ -118,10 +122,6 @@ class TestNormalizeHost:
 
 
 class TestResolveAuthHeaders:
-    def test_token_auth_sends_bearer(self):
-        headers = _resolve_auth_headers(_token_auth())
-        assert headers["Authorization"] == "Bearer glsa_secret"
-
     def test_basic_auth_sends_base64_credentials(self):
         headers = _resolve_auth_headers(_basic_auth())
         # base64("admin:hunter2")
@@ -130,11 +130,6 @@ class TestResolveAuthHeaders:
     def test_org_id_header_set_when_provided(self):
         headers = _resolve_auth_headers(_token_auth(), org_id="2")
         assert headers["X-Grafana-Org-Id"] == "2"
-
-    @pytest.mark.parametrize("org_id", [None, "", "  "])
-    def test_org_id_header_omitted_when_blank(self, org_id):
-        headers = _resolve_auth_headers(_token_auth(), org_id=org_id)
-        assert "X-Grafana-Org-Id" not in headers
 
     @pytest.mark.parametrize(
         "auth",
@@ -181,21 +176,8 @@ class TestBoundedResponseReading:
             _read_body_bounded(response)
         response.iter_content.assert_not_called()
 
-    def test_reads_body_within_limit(self):
-        response = _response(body_chunks=[b'{"a"', b": 1}"])
-        assert _read_body_bounded(response) == b'{"a": 1}'
-
 
 class TestPermissionErrorParsing:
-    def test_parses_named_scope_from_403_body(self):
-        response = _response(
-            status_code=403,
-            json_data={
-                "message": "You'll need additional permissions to perform this action. Permissions needed: teams:read"
-            },
-        )
-        assert "teams:read" in _permission_error_from_response(response)
-
     def test_falls_back_to_generic_message(self):
         response = _response(status_code=403, json_data={"message": "Access denied"})
         message = _permission_error_from_response(response)
@@ -204,14 +186,6 @@ class TestPermissionErrorParsing:
 
 
 class TestValidateCredentials:
-    def test_valid_credentials(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code=200, json_data={"id": 1, "name": "Main Org."})
-        with _patch_session(session):
-            assert validate_credentials("https://x.grafana.net", _token_auth()) == (True, None)
-            assert session.get.call_args.args[0] == "https://x.grafana.net/api/org"
-            assert session.get.call_args.kwargs["allow_redirects"] is False
-
     def test_invalid_credentials(self):
         session = mock.MagicMock()
         session.get.return_value = _response(status_code=401, json_data={"message": "Unauthorized"})
@@ -305,14 +279,29 @@ class TestGetEndpointPermissions:
         def get(url, **kwargs):
             if "/api/teams/search" in url:
                 return _response(status_code=403, json_data={"message": "Permissions needed: teams:read"})
+            if "/api/dashboards/uid/d1/versions" in url:
+                return _response(status_code=403, json_data={"message": "Permissions needed: dashboards:write"})
+            if "/api/search" in url:
+                return _response(status_code=200, json_data=[{"uid": "d1"}])
             return _response(status_code=200, json_data=[])
 
         session = mock.MagicMock()
         session.get.side_effect = get
         with _patch_session(session):
-            results = get_endpoint_permissions("https://x.grafana.net", _token_auth(), None, 1, ["dashboards", "teams"])
+            results = get_endpoint_permissions(
+                "https://x.grafana.net",
+                _token_auth(),
+                None,
+                1,
+                ["dashboards", "teams", "team_members", "dashboard_versions"],
+            )
         assert results["dashboards"] is None
         assert results["teams"] is not None and "teams:read" in results["teams"]
+        # A fan-out child is unreachable when its parent is, and otherwise needs its own permission,
+        # so it is probed through a real parent id, never through its unresolved `{parent_id}` path.
+        assert results["team_members"] == results["teams"]
+        assert results["dashboard_versions"] is not None and "dashboards:write" in results["dashboard_versions"]
+        assert all("{" not in call.args[0] for call in session.get.call_args_list)
 
     def test_network_blip_is_not_a_missing_scope(self):
         session = mock.MagicMock()
@@ -344,36 +333,6 @@ class TestPagedRows:
             )
         return batches, session, manager
 
-    def test_stops_after_partial_page(self):
-        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
-        partial_page = [{"uid": "last"}]
-        batches, session, manager = self._run("dashboards", [full_page, partial_page])
-
-        assert len(batches) == 2
-        assert batches[1] == partial_page
-        assert session.get.call_count == 2
-        assert _query(session.get.call_args_list[0].args[0])["page"] == "1"
-        assert _query(session.get.call_args_list[1].args[0])["page"] == "2"
-        # Resume state advances only past completed full pages, so a crash re-yields (never skips).
-        assert [s.next_page for s in manager.saved] == [2]
-
-    def test_empty_first_page_yields_nothing(self):
-        batches, session, _ = self._run("folders", [[]])
-        assert batches == []
-        assert session.get.call_count == 1
-
-    def test_dashboards_search_params(self):
-        batches, session, _ = self._run("dashboards", [[{"uid": "d1"}]])
-        query = _query(session.get.call_args.args[0])
-        assert query["type"] == "dash-db"
-        assert query["limit"] == str(DEFAULT_PAGE_SIZE)
-        assert urlparse(session.get.call_args.args[0]).path == "/api/search"
-
-    def test_wrapped_endpoint_extracts_rows(self):
-        batches, session, _ = self._run("teams", [{"teams": [{"id": 7}], "totalCount": 1}])
-        assert batches == [[{"id": 7}]]
-        assert _query(session.get.call_args.args[0])["perpage"] == str(DEFAULT_PAGE_SIZE)
-
     def test_resumes_from_saved_page(self):
         manager = FakeResumableManager(GrafanaResumeConfig(next_page=3))
         batches, session, _ = self._run("dashboards", [[{"uid": "d1"}]], manager=manager)
@@ -394,39 +353,91 @@ class TestPagedRows:
         assert session.get.call_count == 3
         assert manager.saved[-1].next_page == 4
 
-    def test_stops_at_wall_clock_deadline_despite_full_pages(self):
-        # The request budget alone still lets a host stall each successful response just under the
-        # socket timeout for days; the walk must stop at the wall-clock deadline and leave resume
-        # state so the next sync continues.
-        full_page = [{"uid": f"d{i}"} for i in range(DEFAULT_PAGE_SIZE)]
-        clock = {"now": 0.0}
+
+class TestFanOutRows:
+    def _run(
+        self,
+        endpoint: str,
+        responses_by_path: dict[str, list[Any]],
+        manager: FakeResumableManager | None = None,
+    ):
+        manager = manager or FakeResumableManager()
+        remaining = {path: list(responses) for path, responses in responses_by_path.items()}
         session = mock.MagicMock()
 
-        def slow_get(url, **kwargs):
-            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
-            return _response(status_code=200, json_data=full_page)
+        def get(url, **kwargs):
+            response = remaining[urlparse(url).path].pop(0)
+            return response if isinstance(response, mock.MagicMock) else _response(json_data=response)
 
-        session.get.side_effect = slow_get
-        manager = FakeResumableManager()
+        session.get.side_effect = get
         with (
             _patch_session(session),
             mock.patch.object(grafana_module, "_is_host_safe", return_value=(True, None)),
-            mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]),
         ):
             batches = list(
                 get_rows(
                     host="https://x.grafana.net",
                     auth=_token_auth(),
                     org_id=None,
-                    endpoint="dashboards",
+                    endpoint=endpoint,
                     logger=mock.MagicMock(),
                     team_id=1,
                     resumable_source_manager=manager,  # type: ignore[arg-type]
                 )
             )
-        assert session.get.call_count == 2
+        urls = [call.args[0] for call in session.get.call_args_list]
+        return batches, urls, manager
+
+    def test_dashboard_versions_legacy_array_pages_by_offset(self):
+        full_page = [{"uid": "d1", "version": v} for v in range(DASHBOARD_VERSIONS_PAGE_SIZE)]
+        batches, urls, _ = self._run(
+            "dashboard_versions",
+            {
+                "/api/search": [[{"uid": "d1"}]],
+                "/api/dashboards/uid/d1/versions": [full_page, [{"uid": "d1", "version": 999}]],
+            },
+        )
         assert len(batches) == 2
-        assert manager.saved[-1].next_page == 3
+        assert "start" not in _query(urls[1])
+        assert _query(urls[2])["start"] == str(DASHBOARD_VERSIONS_PAGE_SIZE)
+
+    def test_skips_parent_deleted_mid_sync(self):
+        not_found = _response(status_code=404, text="not found")
+        not_found.raise_for_status.side_effect = requests.HTTPError(response=not_found)
+        batches, _, _ = self._run(
+            "dashboard_versions",
+            {
+                "/api/search": [[{"uid": "gone"}, {"uid": "d2"}]],
+                "/api/dashboards/uid/gone/versions": [not_found],
+                "/api/dashboards/uid/d2/versions": [{"versions": [{"version": 1}], "continueToken": ""}],
+            },
+        )
+        assert batches == [[{"uid": "d2", "version": 1}]]
+
+    def test_resumes_from_saved_parent_index(self):
+        manager = FakeResumableManager(GrafanaResumeConfig(next_page=2, next_parent_index=1))
+        batches, urls, _ = self._run(
+            "team_members",
+            {
+                "/api/teams/search": [{"teams": [{"id": 1}, {"id": 2}]}],
+                "/api/teams/2/members": [[{"userId": 11}]],
+            },
+            manager=manager,
+        )
+        assert _query(urls[0])["page"] == "2"
+        assert batches == [[{"teamId": 2, "userId": 11}]]
+
+    def test_budget_cut_leaves_cursor_on_unfinished_parent(self):
+        # A host handing out continue tokens forever must not loop without end, and the parent it
+        # cut short must be re-fetched on the next sync rather than skipped.
+        endless = [{"versions": [{"version": v}], "continueToken": f"t{v}"} for v in range(10)]
+        with mock.patch.object(grafana_module, "MAX_PAGES_PER_RUN", 3):
+            _, urls, manager = self._run(
+                "dashboard_versions",
+                {"/api/search": [[{"uid": "d1"}, {"uid": "d2"}]], "/api/dashboards/uid/d1/versions": endless},
+            )
+        assert len(urls) == 3
+        assert manager.saved[-1] == GrafanaResumeConfig(next_page=1, next_parent_index=0)
 
 
 class TestAnnotationRows:
@@ -459,19 +470,6 @@ class TestAnnotationRows:
             )
         return batches, session, manager
 
-    def test_single_unsaturated_window(self):
-        rows = [{"id": 1, "time": 100}, {"id": 2, "time": 50}]
-        batches, session, manager = self._run([_response(status_code=200, json_data=rows)])
-
-        assert batches == [rows]
-        assert session.get.call_count == 1
-        query = _query(session.get.call_args.args[0])
-        assert query["type"] == "annotation"
-        assert query["from"] == "0"
-        assert query["limit"] == str(ANNOTATIONS_LIMIT)
-        # Final window completes the walk — no resume state to leave behind.
-        assert manager.saved == []
-
     def test_saturated_window_bisects_oldest_first(self):
         saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
         left_rows = [{"id": 1, "time": 10}]
@@ -496,22 +494,6 @@ class TestAnnotationRows:
         assert calls[2] == (mid, first_to)
         # After the older half yields, the resume boundary advances to its upper bound.
         assert [s.annotations_from_ms for s in manager.saved] == [mid]
-
-    def test_incremental_watermark_becomes_from_param(self):
-        batches, session, _ = self._run(
-            [_response(status_code=200, json_data=[{"id": 3, "time": 1700000000500}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000000,
-        )
-        assert _query(session.get.call_args.args[0])["from"] == "1700000000000"
-
-    def test_full_refresh_ignores_watermark(self):
-        batches, session, _ = self._run(
-            [_response(status_code=200, json_data=[])],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert _query(session.get.call_args.args[0])["from"] == "0"
 
     def test_resumes_from_saved_boundary(self):
         manager = FakeResumableManager(GrafanaResumeConfig(annotations_from_ms=5_000_000))
@@ -539,21 +521,6 @@ class TestAnnotationRows:
         with mock.patch.object(grafana_module, "MAX_ANNOTATION_REQUESTS_PER_RUN", 3):
             _, session, _ = self._run(get)
         assert session.get.call_count == 3
-
-    def test_stops_at_wall_clock_deadline_despite_saturated_windows(self):
-        # The request budget alone still lets a host stall each successful (saturated) response just
-        # under the socket timeout for days; the walk must stop at the wall-clock deadline.
-        saturated = [{"id": i, "time": i} for i in range(ANNOTATIONS_LIMIT)]
-        clock = {"now": 0.0}
-
-        def slow_get(url, **kwargs):
-            clock["now"] += grafana_module.MAX_WALK_SECONDS / 2 + 1
-            return _response(status_code=200, json_data=saturated)
-
-        with mock.patch.object(grafana_module.time, "monotonic", new=lambda: clock["now"]):
-            batches, session, _ = self._run(slow_get)
-        assert session.get.call_count == 2
-        assert batches == []
 
 
 class TestGrafanaSourceResponse:

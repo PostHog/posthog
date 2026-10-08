@@ -84,21 +84,24 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
+    savedConfig,
     selectedIntegration,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    savedConfig?: Record<string, any> | null
     selectedIntegration?: IntegrationType | null
 }): JSX.Element {
     const destination = batchExportConfigForm.destination
     const definition = destination ? DESTINATIONS[destination] : undefined
 
     return (
-        <div className="flex flex-col gap-y-4 max-w-200">
+        <div className="flex flex-col gap-y-4">
             {definition && (
                 <definition.Fields
                     isNew={isNew}
                     formValues={batchExportConfigForm}
+                    savedConfig={savedConfig}
                     selectedIntegration={selectedIntegration}
                 />
             )}

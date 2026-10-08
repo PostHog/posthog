@@ -10,12 +10,12 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_NAME_PREFIX } from '~/ingestion/common/ai-event-types'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
-import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
+import { createAllowEventPrefixStep } from '~/ingestion/common/steps/allow-events'
 import {
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -43,6 +43,8 @@ import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/e
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
+import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createEventUsageBeforeBatchStep,
@@ -87,6 +89,8 @@ export interface AiIngestionPipelineConfig {
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
     eventSchemaEnforcementEnabled: boolean
+    teamsPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
@@ -135,6 +139,8 @@ export function createAiIngestionPipeline<
         overflowLaneTTLRefreshService,
         concurrentBatches,
         eventSchemaEnforcementEnabled,
+        teamsPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         eventSchemaEnforcementManager,
         topHog,
         aiBlobStore,
@@ -157,7 +163,7 @@ export function createAiIngestionPipeline<
             )
             // Header-only steps: allow only AI events, apply token restrictions.
             .parseHeaders()
-            .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+            .pipe(createAllowEventPrefixStep(AI_EVENT_NAME_PREFIX))
             .pipe(
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
@@ -170,6 +176,7 @@ export function createAiIngestionPipeline<
             // Kafka message key — the partition key capture computed. Cookieless
             // events count under token:client_ip.
             .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
@@ -187,6 +194,7 @@ export function createAiIngestionPipeline<
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
             // Read-only batch person fetch (no person writes). The personhog
             // client retries transient gRPC errors for ~150ms; this outer
             // retry absorbs longer blips that would otherwise crash the

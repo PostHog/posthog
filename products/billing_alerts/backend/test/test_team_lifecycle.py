@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.destinations import (
+from products.alerts.backend.facade.destinations import (
     soft_delete_alert_destinations_for_alerts as shared_soft_delete_destinations,
 )
 from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
@@ -69,7 +69,7 @@ class TestBillingAlertTeamLifecycle(BaseTest):
         )
 
         with patch(
-            "products.alerts.backend.destinations.soft_delete_alert_destinations_for_alerts",
+            "products.billing_alerts.backend.facade.api.soft_delete_alert_destinations_for_alerts",
             wraps=shared_soft_delete_destinations,
         ) as soft_delete_destinations:
             self.team.delete()

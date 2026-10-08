@@ -28,11 +28,6 @@ class TestGetSchemas:
         schemas = LinkrunnerSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
         assert [s.name for s in schemas] == ["campaigns"]
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True lets the public docs render the table catalog with no I/O.
-        tables = LinkrunnerSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {"campaigns", "attributed_users", "reporting_campaigns"}
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])

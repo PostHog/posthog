@@ -496,7 +496,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                void proxyRecordsDestroy(values.currentOrganizationId, id)
+                await proxyRecordsDestroy(values.currentOrganizationId, id)
                 const newRecords = [...values.proxyRecords].map((r) => ({
                     ...r,
                     status: r.id === id ? 'deleting' : r.status,

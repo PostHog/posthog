@@ -223,6 +223,8 @@ export function useRunLoop(loopId: string) {
       void queryClient.invalidateQueries({
         queryKey: loopsKeys.hogFlow(projectId, loopId),
       });
+      // The list shows each loop's last run, so it goes stale when a run fires.
+      invalidateLoopLists(queryClient, projectId);
     },
   });
 }

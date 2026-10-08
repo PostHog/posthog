@@ -1,7 +1,7 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CompareLabelType, EntityTypes } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
 

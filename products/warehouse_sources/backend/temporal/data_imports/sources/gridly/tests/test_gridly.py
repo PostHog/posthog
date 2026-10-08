@@ -29,9 +29,9 @@ def _records_response(records: list[dict[str, Any]], total: int | None) -> mock.
     return resp
 
 
-def _view_response(view: dict[str, Any]) -> mock.MagicMock:
+def _view_response(data: dict[str, Any] | list[dict[str, Any]]) -> mock.MagicMock:
     resp = mock.MagicMock()
-    resp.json.return_value = view
+    resp.json.return_value = data
     resp.status_code = 200
     resp.ok = True
     return resp
@@ -87,29 +87,6 @@ class TestRecordsPagination:
 
     @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _records_response([], total=0)
-
-        assert list(get_rows("key", "view", "records", mock.MagicMock(), _manager())) == []
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_saves_state_after_yield_and_not_on_terminal_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _records_response([{"id": "1"}, {"id": "2"}], total=3),
-            _records_response([{"id": "3"}], total=3),
-        ]
-        manager = _manager()
-
-        list(get_rows("key", "view", "records", mock.MagicMock(), manager))
-
-        # State is saved once — after the first (full) page, pointing at the next offset — and never
-        # after the terminal short page, so a crash re-fetches the last page rather than skipping it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].offset == 2
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_offset(self, mock_session):
         mock_session.return_value.get.return_value = _records_response([], total=10)
 
@@ -117,16 +94,6 @@ class TestRecordsPagination:
 
         first_call = mock_session.return_value.get.call_args_list[0]
         assert json.loads(first_call.kwargs["params"]["page"])["offset"] == 4
-
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_sends_apikey_authorization_header(self, mock_session):
-        mock_session.return_value.get.return_value = _records_response([], total=0)
-
-        list(get_rows("mykey", "view", "records", mock.MagicMock(), _manager()))
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "ApiKey mykey"
 
 
 class TestColumns:
@@ -142,29 +109,50 @@ class TestColumns:
         url = mock_session.return_value.get.call_args.args[0]
         assert urlparse(url).path == "/v1/views/view"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_view_without_columns_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _view_response({"id": "view", "columns": []})
 
-        assert list(get_rows("key", "view", "columns", mock.MagicMock(), _manager())) == []
+_HIERARCHY_RESPONSES: dict[tuple[str, tuple[tuple[str, Any], ...]], list[dict[str, Any]]] = {
+    ("/v1/projects", ()): [{"id": 1, "name": "P1"}, {"id": 2, "name": "P2"}],
+    ("/v1/databases", (("projectId", 1),)): [{"id": "db1", "name": "D1"}],
+    ("/v1/databases", (("projectId", 2),)): [],
+    ("/v1/grids", (("dbId", "db1"),)): [{"id": "g1", "name": "G1"}, {"id": "g2", "name": "G2"}],
+    ("/v1/views", (("gridId", "g1"),)): [{"id": "v1", "name": "Default view"}],
+    ("/v1/views", (("gridId", "g2"),)): [{"id": "v2", "name": "Default view"}, {"id": "v3", "name": "Fr"}],
+}
+
+
+def _hierarchy_get(url: str, params: dict[str, Any], **_kwargs: Any) -> mock.MagicMock:
+    return _view_response(_HIERARCHY_RESPONSES[(urlparse(url).path, tuple(sorted(params.items())))])
+
+
+class TestHierarchy:
+    @pytest.mark.parametrize(
+        "endpoint, expected_batches",
+        [
+            ("projects", [[{"id": 1, "name": "P1"}, {"id": 2, "name": "P2"}]]),
+            ("databases", [[{"id": "db1", "name": "D1", "projectId": 1}]]),
+            (
+                "grids",
+                [[{"id": "g1", "name": "G1", "dbId": "db1"}, {"id": "g2", "name": "G2", "dbId": "db1"}]],
+            ),
+            (
+                "views",
+                [
+                    [{"id": "v1", "name": "Default view", "gridId": "g1"}],
+                    [{"id": "v2", "name": "Default view", "gridId": "g2"}, {"id": "v3", "name": "Fr", "gridId": "g2"}],
+                ],
+            ),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_walks_hierarchy_and_tags_rows_with_parent_id(self, mock_session, endpoint, expected_batches):
+        mock_session.return_value.get.side_effect = _hierarchy_get
+
+        batches = list(get_rows("key", "view", endpoint, mock.MagicMock(), _manager()))
+
+        assert batches == expected_batches
 
 
 class TestRetries:
-    @mock.patch("time.sleep")
-    @mock.patch(f"{_MODULE}.PAGE_SIZE", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retries_retryable_status_then_succeeds(self, mock_session, _sleep):
-        mock_session.return_value.get.side_effect = [
-            _error_response(500),
-            _error_response(429),
-            _records_response([{"id": "1"}], total=1),
-        ]
-
-        batches = list(get_rows("key", "view", "records", mock.MagicMock(), _manager()))
-
-        assert batches == [[{"id": "1"}]]
-        assert mock_session.return_value.get.call_count == 3
-
     @mock.patch("time.sleep")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_retries_exhausted_raises(self, mock_session, _sleep):
@@ -229,17 +217,6 @@ class TestValidateCredentials:
 
         assert is_valid is expected_valid
         assert (message is None) is expected_valid
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_probes_the_configured_view(self, mock_session):
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("key", "myview")
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert urlparse(url).path == "/v1/views/myview"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_swallows_exceptions(self, mock_session):

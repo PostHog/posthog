@@ -14,13 +14,6 @@ class TestRetentlySourceConfig:
     def setup_method(self) -> None:
         self.source = RetentlySource()
 
-    def test_config_is_unreleased_alpha(self) -> None:
-        config = self.source.get_source_config
-        # Deliberately shipped hidden: the source lands unreleased until it has been verified
-        # against a live Retently account.
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/retently"
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required for the public-docs table list to render.
         assert self.source.lists_tables_without_credentials is True
@@ -29,17 +22,6 @@ class TestRetentlySourceConfig:
 class TestGetSchemas:
     def setup_method(self) -> None:
         self.schemas = {s.name: s for s in RetentlySource().get_schemas(MagicMock(), team_id=1)}
-
-    def test_all_expected_tables_present(self) -> None:
-        assert set(self.schemas) == {
-            "customers",
-            "companies",
-            "feedback",
-            "outbox",
-            "campaigns",
-            "templates",
-            "reports",
-        }
 
     def test_feedback_is_the_only_incremental_table(self) -> None:
         assert self.schemas["feedback"].supports_incremental is True

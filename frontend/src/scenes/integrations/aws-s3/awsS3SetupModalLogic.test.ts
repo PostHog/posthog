@@ -13,7 +13,7 @@ describe('awsS3SetupModalLogic', () => {
 
     useMocks({
         get: {
-            '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+            '/api/projects/:team_id/integrations/': () => [200, { results: [] }],
         },
     })
 

@@ -6,7 +6,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
-use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking};
+use crate::core::types::notification::{
+    IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking, SeveritySource,
+};
 use crate::modes::notifications::config::NotificationsConfig;
 
 #[derive(Clone, Copy)]
@@ -144,6 +146,7 @@ struct IssueCreatedWorkflowInput<'a> {
     event_uuid: Uuid,
     event_timestamp: &'a str,
     assignee: Option<&'a str>,
+    severity_source: Option<SeveritySource>,
 }
 
 impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
@@ -157,6 +160,7 @@ impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
             event_uuid: notification.event_uuid,
             event_timestamp: &notification.event_timestamp,
             assignee: notification.assignee.as_deref(),
+            severity_source: notification.severity_source,
         }
     }
 }
@@ -282,6 +286,7 @@ mod tests {
             event_uuid: Uuid::now_v7(),
             event_timestamp: "2026-07-21T12:00:00Z".to_string(),
             assignee: None,
+            severity_source: Some(SeveritySource::Heuristic),
         }
     }
 
@@ -320,6 +325,9 @@ mod tests {
             serde_json::to_value(IssueReopenedWorkflowInput::from(&issue_reopened())).unwrap(),
             serde_json::to_value(IssueSpikingWorkflowInput::from(&issue_spiking())).unwrap(),
         ];
+        // The Python issue-created workflow reads this field by name to decide whether a
+        // model may replace the severity.
+        assert_eq!(values[0]["severity_source"], "heuristic");
 
         for value in values {
             assert_eq!(value["team_id"], 42);

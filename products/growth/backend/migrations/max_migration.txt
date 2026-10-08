@@ -1,1 +1,1 @@
-0008_icpscoringconfig
+0010_icp_scoring_rules

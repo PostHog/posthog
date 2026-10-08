@@ -23,7 +23,7 @@ const meta: Meta<StoryArgs> = {
 
         useStorybookMocks({
             get: {
-                '/api/environments/:id/integrations': { results: integrated ? [mockIntegration] : [] },
+                '/api/projects/:id/integrations': { results: integrated ? [mockIntegration] : [] },
                 '/api/instance_settings': {
                     results: instanceConfigured ? SLACK_INSTANCE_SETTINGS : [],
                 },
@@ -58,7 +58,7 @@ const renderFullPage = ({ integrations }: { integrations: IntegrationType[] }): 
     useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
     useStorybookMocks({
         get: {
-            '/api/environments/:id/integrations': { results: integrations },
+            '/api/projects/:id/integrations': { results: integrations },
             '/api/instance_settings': { results: SLACK_INSTANCE_SETTINGS },
         },
     })

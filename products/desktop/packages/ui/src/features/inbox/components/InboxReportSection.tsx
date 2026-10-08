@@ -1,6 +1,7 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -62,9 +63,7 @@ export function InboxReportSection({
       </button>
       {open &&
         (isLoading ? (
-          <div className="flex justify-center py-3">
-            <Spinner />
-          </div>
+          <LoadingState className="py-3" />
         ) : reports.length === 0 ? (
           <p className="px-1 py-2 text-[13.5px] text-gray-10">{emptyNote}</p>
         ) : (

@@ -2,11 +2,10 @@ import {
   ArrowSquareOut,
   CheckCircle,
   Circle,
-  CircleNotch,
   XCircle,
 } from "@phosphor-icons/react";
 import { Button, Text } from "@posthog/quill";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 export type StepStatus = "pending" | "in_progress" | "completed" | "failed";
@@ -18,25 +17,16 @@ export interface Step {
   detail?: string;
 }
 
-interface StepIconProps {
-  status: StepStatus;
-  size?: number;
-}
-
-export function StepIcon({ status, size = 14 }: StepIconProps) {
+export function StepIcon({ status }: { status: StepStatus }) {
   switch (status) {
     case "in_progress":
-      return (
-        <Spin className="text-blue-9">
-          <CircleNotch size={size} />
-        </Spin>
-      );
+      return <Spinner size="md" className="text-blue-9" />;
     case "completed":
-      return <CheckCircle size={size} weight="fill" className="text-green-9" />;
+      return <CheckCircle size={14} weight="fill" className="text-green-9" />;
     case "failed":
-      return <XCircle size={size} weight="fill" className="text-red-9" />;
+      return <XCircle size={14} weight="fill" className="text-red-9" />;
     default:
-      return <Circle size={size} className="text-gray-8" />;
+      return <Circle size={14} className="text-gray-8" />;
   }
 }
 

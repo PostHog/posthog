@@ -46,7 +46,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
     }
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
             {showLiveUserCount && (
                 <LiveUserCount
                     docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
@@ -72,8 +72,10 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 tooltipPlacement="top"
                 onClick={() => setShouldFilterTestAccounts(!shouldFilterTestAccounts)}
                 data-attr="web-analytics-filter-test-accounts"
+                aria-label="Filter test accounts"
             >
-                Filter test accounts <LemonSwitch checked={shouldFilterTestAccounts} className="ml-1" />
+                <span className="hidden @min-[30rem]/main-content:inline">Filter test accounts</span>
+                <LemonSwitch checked={shouldFilterTestAccounts} className="ml-1" />
             </LemonButton>
             {hasFeatureFlag && (
                 <Popover
@@ -125,7 +127,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                         onMouseLeave={() => setShowPopover(false)}
                     >
                         <IconBolt className={isUsingNewEngine ? 'text-warning' : 'text-muted'} />
-                        <span className="text-sm font-medium">
+                        <span className="hidden @min-[30rem]/main-content:inline text-sm font-medium whitespace-nowrap">
                             {isUsingNewEngine ? 'New Query Engine' : 'Regular Query Engine'}
                         </span>
                         <LemonSwitch checked={!!isUsingNewEngine} onChange={handleToggleEngine} size="small" />

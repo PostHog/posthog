@@ -23,27 +23,22 @@ class TestSalesforceSourceNonRetryableErrors:
             f"Expected '{error_message}' to match a non-retryable pattern"
         )
 
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "Tunnel connection failed: 502 Bad gateway",
-            "Tunnel connection failed: 503 Service Unavailable",
-            "Tunnel connection failed: 504 Gateway Timeout",
-            "HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded "
-            "with url: /services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
-            "OSError('Tunnel connection failed: 502 Bad gateway')))",
-        ],
-    )
-    def test_token_refresh_proxy_tunnel_failure_is_retryable(self, error_message):
-        # salesforce_refresh_access_token builds its own tracked session, so a proxy CONNECT
-        # failure during token refresh surfaces here as a bare OSError/ProxyError once
-        # DEFAULT_RETRY's in-process attempts are exhausted. It's an egress-proxy blip Temporal's
-        # activity retry recovers from, so it must stay out of error tracking as noise.
-        retryable_errors = self.source.get_retryable_errors()
-
-        assert any(pattern in error_message for pattern in retryable_errors), (
-            f"Expected '{error_message}' to match a retryable pattern"
+    def test_not_found_is_non_retryable_with_a_curated_message(self):
+        # An org still on the previous Salesforce release answers 404 to every path of the pinned
+        # version, so the raw error stores the instance url and the SOQL query verbatim.
+        error_message = (
+            "404 Client Error: Not Found for url: https://example.my.salesforce.com"
+            "/services/data/v67.0/query?q=SELECT+FIELDS%28ALL%29+FROM+Contact"
         )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        matched = [pattern for pattern in non_retryable_errors if pattern in error_message]
+        assert matched == ["404 Client Error: Not Found for url"]
+
+        friendly = non_retryable_errors[matched[0]]
+        assert friendly is not None
+        assert "salesforce.com" not in friendly
+        assert "404" not in friendly
 
 
 class TestSalesforceSourceVersions:
@@ -51,7 +46,6 @@ class TestSalesforceSourceVersions:
         self.source = SalesforceSource()
 
     def test_new_sources_default_to_v67(self):
-        # New sources (no pin) must be created on the current API version.
         assert self.source.default_version == "v67.0"
         assert self.source.resolve_api_version(None) == "v67.0"
 

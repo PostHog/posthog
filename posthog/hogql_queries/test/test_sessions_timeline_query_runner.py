@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch
 
@@ -633,7 +633,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        with freeze_time("2023-10-01T16:00:00Z"):
+        with time_machine.travel("2023-10-01T16:00:00Z", tick=False):
             runner = self._create_runner(SessionsTimelineQuery())
             response = runner.calculate()
 

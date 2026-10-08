@@ -21,7 +21,11 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 }));
 
 import { useMarkTaskActivityRead } from "./useMarkTaskActivityRead";
-import { TASK_ACTIVITY_QUERY_KEY, useTaskActivity } from "./useTaskActivity";
+import {
+  TASK_ACTIVITY_QUERY_KEY,
+  TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+  useTaskActivity,
+} from "./useTaskActivity";
 
 function activity(overrides: Partial<TaskActivity>): TaskActivity {
   return {
@@ -45,7 +49,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("task activity hooks", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -57,7 +61,24 @@ describe("task activity hooks", () => {
   afterEach(() => {
     queryClient.clear();
     focusManager.setFocused(undefined);
+    vi.useRealTimers();
   });
+
+  const refreshTriggers: Array<[string, () => void]> = [
+    [
+      "the app regains focus",
+      (): void => {
+        act(() => focusManager.setFocused(false));
+        act(() => focusManager.setFocused(true));
+      },
+    ],
+    [
+      "an Activity surface opens",
+      (): void => {
+        renderHook(() => useTaskActivity(), { wrapper });
+      },
+    ],
+  ];
 
   it("loads every activity page", async () => {
     mockClient.getTaskActivity
@@ -98,50 +119,58 @@ describe("task activity hooks", () => {
     });
   });
 
-  it.each([
-    [
-      "the app regains focus",
-      (): void => {
-        act(() => focusManager.setFocused(false));
-        act(() => focusManager.setFocused(true));
-      },
-    ],
-    [
-      "an Activity surface opens",
-      (): void => {
-        renderHook(() => useTaskActivity(), { wrapper });
-      },
-    ],
-  ])("refreshes activity when %s", async (_name, refresh) => {
-    mockClient.getTaskActivity
-      .mockResolvedValueOnce({ results: [], unread_count: 0 })
-      .mockResolvedValueOnce({
-        results: [
-          activity({
-            id: "comment-activity-1",
-            latest_comment_id: "comment-1",
-          }),
-        ],
+  it.each(refreshTriggers)(
+    "refreshes stale activity when %s",
+    async (_name, refresh) => {
+      mockClient.getTaskActivity
+        .mockResolvedValueOnce({ results: [], unread_count: 0 })
+        .mockResolvedValueOnce({
+          results: [
+            activity({
+              id: "comment-activity-1",
+              latest_comment_id: "comment-1",
+            }),
+          ],
+          unread_count: 1,
+        });
+
+      const hook = renderHook(() => useTaskActivity(), { wrapper });
+      await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+      expect(hook.result.current.items).toEqual([]);
+      expect(mockClient.getTaskActivity).toHaveBeenCalledOnce();
+
+      vi.setSystemTime(Date.now() + TASK_ACTIVITY_REFETCH_INTERVAL_MS + 1);
+      refresh();
+
+      await waitFor(() =>
+        expect(hook.result.current.items[0]).toMatchObject({
+          id: "comment-activity-1",
+          commentId: "comment-1",
+        }),
+      );
+      expect(mockClient.getTaskActivity).toHaveBeenCalledTimes(2);
+      expect(hook.result.current.unreadCount).toBe(1);
+    },
+  );
+
+  it.each(refreshTriggers)(
+    "reuses fresh activity when %s",
+    async (_name, refresh) => {
+      mockClient.getTaskActivity.mockResolvedValue({
+        results: [activity({})],
         unread_count: 1,
       });
 
-    const hook = renderHook(() => useTaskActivity(), { wrapper });
-    await waitFor(() =>
-      expect(mockClient.getTaskActivity).toHaveBeenCalledOnce(),
-    );
-    expect(hook.result.current.items).toEqual([]);
+      const hook = renderHook(() => useTaskActivity(), { wrapper });
+      await waitFor(() => expect(hook.result.current.items).toHaveLength(1));
 
-    refresh();
+      refresh();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
-    await waitFor(() =>
-      expect(hook.result.current.items[0]).toMatchObject({
-        id: "comment-activity-1",
-        commentId: "comment-1",
-      }),
-    );
-    expect(mockClient.getTaskActivity).toHaveBeenCalledTimes(2);
-    expect(hook.result.current.unreadCount).toBe(1);
-  });
+      expect(mockClient.getTaskActivity).toHaveBeenCalledOnce();
+      expect(hook.result.current.items).toHaveLength(1);
+    },
+  );
 
   it("does not optimistically clear activity newer than the marker", async () => {
     const page: TaskActivityPage = {

@@ -12,7 +12,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -55,7 +55,12 @@ import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | HogInvocationResultsOutput
+    | WarehouseSourceWebhooksOutput
+    | CdpEventsDlqOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -152,6 +157,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_STATE_LOCK_TTL'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
+        | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
@@ -180,6 +186,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'MESSAGE_ASSETS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_DLQ_ENABLED'
+        | 'CDP_DLQ_BATCH_FAIL_RATIO'
+        | 'CDP_EVENTS_DLQ_TOPIC'
+        | 'CDP_EVENTS_DLQ_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -526,7 +536,8 @@ export function createCdpCoreServices(
         cohortMembershipRepository,
         deps.integrationManager,
         hogFlowDuplicateObserver,
-        cdpUsageReporter
+        cdpUsageReporter,
+        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

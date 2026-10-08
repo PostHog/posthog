@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_target_row' */ SELECT person_id, person_uuid FROM lifecycle_op_person WHERE op_id = $1 AND role = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c22610b4e38fce3127722dfe1e65880b5ead6f11eb125e99eb40f73b63fed602"
+}

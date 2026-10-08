@@ -24,6 +24,10 @@ import { detectTextDbnet, loadDbnet } from '../src/dbnet.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { decodeSrc } from '../src/src-image.ts'
 
+// src-image.ts loads image-input.ts, which blocks every loader except PNG, JPEG, GIF and WebP for the whole process.
+// This script draws its frames as SVG, so it unblocks the SVG loader again.
+sharp.unblock({ operation: ['VipsForeignLoadSvg'] })
+
 const FRAME_W = 1280
 const FRAME_H = 720
 const PHRASE = 'Account 4242 4242 4242 4242'

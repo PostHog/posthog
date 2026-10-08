@@ -7,7 +7,7 @@ use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     iter,
     num::NonZeroUsize,
@@ -19,6 +19,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, raise_for_err},
 };
@@ -27,6 +28,10 @@ pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 const FINISH_UPLOAD_ERROR_MESSAGE: &str =
     "Failed to finalize symbol upload; maps were not attached";
 pub const DEFAULT_UPLOAD_CONCURRENCY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+/// Chunks per `bulk_check_upload` request. A check carries only ids and hashes, so it can cover
+/// far more chunks per round trip than a start batch, whose size is bounded by how many
+/// presigned URLs the client can consume before they expire.
+const CHECK_BATCH_SIZE: usize = 1000;
 
 #[derive(Error, Debug)]
 pub enum UploadError {
@@ -51,8 +56,9 @@ pub struct SymbolSetUpload {
     pub content_hash: Option<String>,
 }
 
-/// Coalesce uploads that share a chunk_id, keeping the first occurrence. Bulk start rejects a
-/// batch with a repeated id, before it filters out the chunks the server already has.
+/// Coalesce uploads that share a chunk_id, keeping the first occurrence. The check and start
+/// requests reject a batch with a repeated id, before they filter out the chunks the server
+/// already has.
 pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
     let mut seen = std::collections::HashSet::new();
     let mut deduped = Vec::with_capacity(uploads.len());
@@ -115,7 +121,45 @@ struct StartUploadResponseData {
     /// Standard-endpoint presigned POST, sent when `presigned_url` targets the
     /// S3 transfer-acceleration endpoint. Absent on older servers.
     fallback_presigned_url: Option<PresignedUrl>,
+    /// Presigned PUT, signed for exactly the `content_length` we declared. Preferred over the
+    /// POST form: presigned POST is an AWS S3 extension, and S3-compatible stores that lack it
+    /// (Cloudflare R2 answers `501 NotImplemented`) can accept an upload no other way.
+    /// Absent on servers that predate it.
+    #[serde(default)]
+    presigned_put_url: Option<String>,
+    /// Standard-endpoint presigned PUT, sent when `presigned_put_url` targets the
+    /// S3 transfer-acceleration endpoint.
+    #[serde(default)]
+    fallback_presigned_put_url: Option<String>,
     symbol_set_id: String,
+}
+
+/// One place an attempt can send the chunk to.
+#[derive(Debug, Clone, Copy)]
+enum UploadTarget<'a> {
+    /// Raw bytes to the object key, with a `Content-Length` the signature covers.
+    Put(&'a str),
+    /// A `multipart/form-data` POST policy to the bucket root. AWS S3 only.
+    Post(&'a PresignedUrl),
+}
+
+impl StartUploadResponseData {
+    /// The primary target and its fallback. A server that sent a PUT gets the PUT, because it
+    /// works on every store; the POST form stays for servers that did not.
+    fn upload_targets(&self) -> (UploadTarget<'_>, Option<UploadTarget<'_>>) {
+        match self.presigned_put_url.as_deref() {
+            Some(put_url) => (
+                UploadTarget::Put(put_url),
+                self.fallback_presigned_put_url
+                    .as_deref()
+                    .map(UploadTarget::Put),
+            ),
+            None => (
+                UploadTarget::Post(&self.presigned_url),
+                self.fallback_presigned_url.as_ref().map(UploadTarget::Post),
+            ),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -125,7 +169,7 @@ pub struct PresignedUrl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BulkUploadStartRequest {
+struct BulkUploadRequest {
     symbol_sets: Vec<CreateSymbolSetRequest>,
     /// When true, allow overwriting symbol sets whose content has changed.
     #[serde(default)]
@@ -138,6 +182,17 @@ struct BulkUploadStartRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BulkUploadStartResponse {
     id_map: HashMap<String, StartUploadResponseData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BulkUploadCheckResponse {
+    chunk_ids_to_upload: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HashedUpload<'a> {
+    upload: &'a SymbolSetUpload,
+    content_hash: &'a str,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,26 +355,37 @@ fn upload_inner(
         })
         .collect();
 
-    for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
-        info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        // Hash each payload once, across the pool — the same hash is sent in the
-        // start request and used to confirm the upload when finishing.
-        let content_hashes: Vec<String> = thread_pool.install(|| {
-            batch
-                .par_iter()
-                .map(|u| {
-                    u.content_hash
-                        .clone()
-                        .unwrap_or_else(|| content_hash([&u.data]))
-                })
-                .collect()
-        });
-        let start_response = start_upload(batch, &content_hashes, force, skip_on_conflict)?;
+    // Hash each payload once, across the pool. The same hash is sent in the check and
+    // start requests and used to confirm the upload when finishing.
+    let content_hashes: Vec<String> = thread_pool.install(|| {
+        upload_requests
+            .par_iter()
+            .map(|u| {
+                u.content_hash
+                    .clone()
+                    .unwrap_or_else(|| content_hash([&u.data]))
+            })
+            .collect()
+    });
+    let hashed: Vec<HashedUpload> = upload_requests
+        .iter()
+        .zip(content_hashes.iter())
+        .map(|(upload, content_hash)| HashedUpload {
+            upload,
+            content_hash,
+        })
+        .collect();
 
-        let id_map: HashMap<_, _> = batch
+    let to_upload = check_uploads(&hashed, force, skip_on_conflict);
+    summary.skipped_already_present += hashed.len() - to_upload.len();
+
+    for (i, batch) in to_upload.chunks(batch_size).enumerate() {
+        info!("Starting upload of batch {i}, {} symbol sets", batch.len());
+        let start_response = start_upload(batch, force, skip_on_conflict)?;
+
+        let id_map: HashMap<&str, HashedUpload> = batch
             .iter()
-            .zip(content_hashes.iter())
-            .map(|(u, hash)| (u.chunk_id.as_str(), (u, hash)))
+            .map(|hashed| (hashed.upload.chunk_id.as_str(), *hashed))
             .collect();
 
         summary.skipped_already_present += batch.len() - start_response.id_map.len();
@@ -335,22 +401,21 @@ fn upload_inner(
                 .into_par_iter()
                 .map(|(chunk_id, data)| {
                     debug!("uploading chunk {}", chunk_id);
-                    let (upload, content_hash) = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
+                    let hashed = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
-                    upload_to_s3(
-                        transport,
-                        &data.presigned_url,
-                        data.fallback_presigned_url.as_ref(),
-                        &upload.data,
-                    )?;
-                    Ok((data.symbol_set_id, (*content_hash).clone()))
+                    let (target, fallback_target) = data.upload_targets();
+                    upload_to_s3(transport, target, fallback_target, &hashed.upload.data)?;
+                    Ok((data.symbol_set_id, hashed.content_hash.to_string()))
                 })
                 .collect()
         });
 
         let content_hashes = res?;
+        if content_hashes.is_empty() {
+            continue;
+        }
         let uploaded = content_hashes.len();
 
         finish_upload(content_hashes)?;
@@ -360,27 +425,128 @@ fn upload_inner(
     Ok(())
 }
 
-fn start_upload(
-    symbol_sets: &[&SymbolSetUpload],
-    content_hashes: &[String],
+/// Ask the server which chunks it still needs, so the chunks it already holds never occupy a
+/// start batch.
+fn check_uploads<'a>(
+    uploads: &[HashedUpload<'a>],
     force: bool,
     skip_on_conflict: bool,
-) -> Result<BulkUploadStartResponse, UploadError> {
-    let client = &context().client;
+) -> Vec<HashedUpload<'a>> {
+    needed_uploads(uploads, |batch| {
+        check_upload(batch, force, skip_on_conflict)
+    })
+}
 
-    let request = BulkUploadStartRequest {
-        symbol_sets: symbol_sets
+/// Keep the chunks that `check` reports as needed. A check that gives no usable answer costs
+/// only the round trips it would have saved, so the batches answered before it keep their
+/// result, and every chunk from the unanswered batch on is kept without a check.
+fn needed_uploads<'a>(
+    uploads: &[HashedUpload<'a>],
+    check: impl Fn(&[HashedUpload<'a>]) -> Option<Vec<String>>,
+) -> Vec<HashedUpload<'a>> {
+    if uploads.is_empty() {
+        return Vec::new();
+    }
+    let mut to_upload = Vec::new();
+    for (i, batch) in uploads.chunks(CHECK_BATCH_SIZE).enumerate() {
+        let Some(needed) = check(batch) else {
+            to_upload.extend(uploads[i * CHECK_BATCH_SIZE..].iter().copied());
+            break;
+        };
+        let needed: HashSet<String> = needed.into_iter().collect();
+        to_upload.extend(
+            batch
+                .iter()
+                .filter(|hashed| needed.contains(&hashed.upload.chunk_id))
+                .copied(),
+        );
+    }
+    info!(
+        "Server needs {} of {} chunk(s) ({} already present)",
+        to_upload.len(),
+        uploads.len(),
+        uploads.len() - to_upload.len()
+    );
+    to_upload
+}
+
+fn bulk_upload_request(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> BulkUploadRequest {
+    BulkUploadRequest {
+        symbol_sets: batch
             .iter()
-            .zip(content_hashes.iter())
-            .map(|(s, hash)| CreateSymbolSetRequest {
-                chunk_id: s.chunk_id.clone(),
-                release_id: s.release_id.clone(),
-                content_hash: hash.clone(),
+            .map(|hashed| CreateSymbolSetRequest {
+                chunk_id: hashed.upload.chunk_id.clone(),
+                release_id: hashed.upload.release_id.clone(),
+                content_hash: hashed.content_hash.to_string(),
+                content_length: hashed.upload.data.len() as u64,
             })
             .collect(),
         force,
         skip_on_conflict,
-    };
+    }
+}
+
+/// How the server answered one check request. A 4xx is deterministic, so it ends the retry
+/// loop without counting as a transport failure.
+enum CheckOutcome {
+    Answered(BulkUploadCheckResponse),
+    Rejected(ClientError),
+}
+
+fn check_upload(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> Option<Vec<String>> {
+    let client = &context().client;
+    let request = bulk_upload_request(batch, force, skip_on_conflict);
+    check_upload_with(retry_policy(500, 2, 3), || {
+        let url = client.project_url("error_tracking/symbol_sets/bulk_check_upload")?;
+        let response = client.send_post(url, |req| req.json(&request))?;
+        Ok(response.json()?)
+    })
+}
+
+/// Drives one check request through `send` under the retry policy `delays`. The check only saves
+/// round trips over sending every chunk to `bulk_start_upload`, so every failure degrades to
+/// that: a server that predates the endpoint rejects it as an unknown action, and a conflict
+/// the check reports is raised again by the start request.
+fn check_upload_with<I, F>(delays: I, mut send: F) -> Option<Vec<String>>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut() -> Result<BulkUploadCheckResponse, ClientError>,
+{
+    let res = retry(delays, |_| match send() {
+        Ok(response) => Ok(CheckOutcome::Answered(response)),
+        Err(e @ ClientError::ApiError(400..=499, _, _)) => Ok(CheckOutcome::Rejected(e)),
+        Err(e) => Err(e),
+    });
+
+    match res {
+        Ok(CheckOutcome::Answered(response)) => Some(response.chunk_ids_to_upload),
+        Ok(CheckOutcome::Rejected(ClientError::ApiError(status @ 403..=405, _, body))) => {
+            info!("The server does not support upload checks. Sending every chunk.");
+            debug!("Upload check rejected with status {status}: {body}");
+            None
+        }
+        Ok(CheckOutcome::Rejected(e)) | Err(e) => {
+            warn!("Upload check failed: {e}. Sending every chunk.");
+            None
+        }
+    }
+}
+
+fn start_upload(
+    batch: &[HashedUpload],
+    force: bool,
+    skip_on_conflict: bool,
+) -> Result<BulkUploadStartResponse, UploadError> {
+    let client = &context().client;
+    let request = bulk_upload_request(batch, force, skip_on_conflict);
 
     let res = retry(retry_policy(500, 2, 3), |_| {
         client.send_post(
@@ -456,8 +622,8 @@ impl EndpointRouter {
 
 fn upload_to_s3(
     transport: &UploadTransport,
-    presigned_url: &PresignedUrl,
-    fallback_presigned_url: Option<&PresignedUrl>,
+    presigned_url: UploadTarget<'_>,
+    fallback_presigned_url: Option<UploadTarget<'_>>,
     data: &[u8],
 ) -> Result<()> {
     let mut router = EndpointRouter::default();
@@ -475,19 +641,27 @@ fn upload_to_s3(
         let use_fallback = target_fallback.is_some();
         let target = target_fallback.unwrap_or(presigned_url);
 
-        let mut form = Form::new();
-        for (key, value) in &target.fields {
-            form = form.text(key.clone(), value.clone());
-        }
-        // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
-        // only treat a multipart part as a file upload when Content-Disposition
-        // carries a filename. Without it the part is parsed as a form field, which
-        // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
-        // AWS S3 accepts both forms.
-        let part = Part::bytes(data.to_vec()).file_name("file");
-        form = form.part("file", part);
+        let request = match target {
+            // The body length must match the signed `Content-Length` exactly, so the whole
+            // chunk goes in one owned buffer rather than a stream of unknown length.
+            UploadTarget::Put(url) => transport.client.put(url).body(data.to_vec()),
+            UploadTarget::Post(post) => {
+                let mut form = Form::new();
+                for (key, value) in &post.fields {
+                    form = form.text(key.clone(), value.clone());
+                }
+                // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
+                // only treat a multipart part as a file upload when Content-Disposition
+                // carries a filename. Without it the part is parsed as a form field, which
+                // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
+                // AWS S3 accepts both forms.
+                let part = Part::bytes(data.to_vec()).file_name("file");
+                form = form.part("file", part);
+                transport.client.post(&post.url).multipart(form)
+            }
+        };
 
-        let response = match transport.client.post(&target.url).multipart(form).send() {
+        let response = match request.send() {
             Ok(response) => response,
             Err(e) => {
                 router.record_transport_error(use_fallback);
@@ -623,6 +797,10 @@ struct CreateSymbolSetRequest {
     chunk_id: String,
     release_id: Option<String>,
     content_hash: String,
+    /// Byte count of the chunk this client will send. The server signs it into a presigned PUT,
+    /// which replaces the presigned POST policy's `content-length-range` condition. Servers that
+    /// predate the field ignore it and answer with a presigned POST only.
+    content_length: u64,
 }
 
 fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterator<Item = Duration> {
@@ -663,8 +841,11 @@ where
 mod tests {
     use super::*;
     use std::{
+        cell::Cell,
         fmt::Debug,
-        sync::{Arc, Mutex, MutexGuard},
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{mpsc, Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
@@ -788,10 +969,273 @@ mod tests {
     }
 
     #[test]
+    fn needed_uploads_keeps_the_results_of_the_checks_that_answered() {
+        let uploads: Vec<SymbolSetUpload> = (0..CHECK_BATCH_SIZE * 2 + 1)
+            .map(|i| SymbolSetUpload {
+                chunk_id: format!("chunk-{i}"),
+                release_id: None,
+                data: Vec::new(),
+                content_hash: None,
+            })
+            .collect();
+        let hashed: Vec<HashedUpload> = uploads
+            .iter()
+            .map(|upload| HashedUpload {
+                upload,
+                content_hash: "hash",
+            })
+            .collect();
+
+        let checks = Cell::new(0);
+        let to_upload = needed_uploads(&hashed, |batch| {
+            let checked = checks.get();
+            checks.set(checked + 1);
+            // The server needs one chunk of the first batch, then stops answering.
+            (checked == 0).then(|| vec![batch[0].upload.chunk_id.clone()])
+        });
+
+        let chunk_ids: Vec<&str> = to_upload
+            .iter()
+            .map(|hashed| hashed.upload.chunk_id.as_str())
+            .collect();
+
+        assert_eq!(checks.get(), 2);
+        assert_eq!(chunk_ids.len(), CHECK_BATCH_SIZE + 2);
+        assert_eq!(chunk_ids[0], "chunk-0");
+        assert_eq!(chunk_ids[1], format!("chunk-{CHECK_BATCH_SIZE}"));
+        assert_eq!(
+            chunk_ids[chunk_ids.len() - 1],
+            format!("chunk-{}", CHECK_BATCH_SIZE * 2)
+        );
+    }
+
+    #[test]
+    fn upload_check_retries_server_failures_and_stops_on_rejections() {
+        // `check_upload_with` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+
+        fn reply(status: u16) -> Result<BulkUploadCheckResponse, ClientError> {
+            if status == 200 {
+                return Ok(BulkUploadCheckResponse {
+                    chunk_ids_to_upload: vec!["chunk".to_string()],
+                });
+            }
+            Err(ClientError::ApiError(
+                status,
+                Box::new(reqwest::Url::parse("https://example.com/check").unwrap()),
+                "{}".to_string(),
+            ))
+        }
+
+        // (name, status per attempt, expects the answer, expected attempts)
+        let cases: Vec<(&str, Vec<u16>, bool, usize)> = vec![
+            (
+                "answers after two server failures",
+                vec![503, 503, 200],
+                true,
+                3,
+            ),
+            (
+                "gives up after three server failures",
+                vec![503, 503, 503],
+                false,
+                3,
+            ),
+            ("does not retry an unknown action", vec![403, 200], false, 1),
+            ("does not retry a conflict", vec![400, 200], false, 1),
+        ];
+
+        for (name, statuses, expects_answer, expected_attempts) in cases {
+            let mut statuses = statuses.into_iter();
+            let mut attempts = 0;
+            let result = check_upload_with(iter::repeat_n(Duration::ZERO, 3), || {
+                attempts += 1;
+                reply(
+                    statuses
+                        .next()
+                        .expect("more attempts than scripted replies"),
+                )
+            });
+
+            let expected = expects_answer.then(|| vec!["chunk".to_string()]);
+            assert_eq!(result, expected, "{name}");
+            assert_eq!(attempts, expected_attempts, "{name}");
+        }
+    }
+
+    #[test]
     fn start_upload_response_parses_without_fallback_presigned_url() {
         let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
         let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
         assert!(parsed.id_map["chunk"].fallback_presigned_url.is_none());
+    }
+
+    #[test]
+    fn start_upload_response_parses_without_presigned_put_url() {
+        // A server that predates the PUT sends the POST form only, and the client must still
+        // upload rather than fail to parse the response.
+        let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+        let data = &parsed.id_map["chunk"];
+        assert!(data.presigned_put_url.is_none());
+
+        let (target, fallback) = data.upload_targets();
+        assert!(matches!(target, UploadTarget::Post(_)));
+        assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn upload_prefers_the_presigned_put_when_the_server_sends_one() {
+        // Presigned POST is an AWS extension; stores such as Cloudflare R2 refuse it. So the
+        // PUT wins whenever it is offered, and its own fallback comes with it.
+        let json = r#"{"id_map":{"chunk":{
+            "presigned_url":{"url":"https://post.example.com/","fields":{}},
+            "fallback_presigned_url":{"url":"https://post-fallback.example.com/","fields":{}},
+            "presigned_put_url":"https://put.example.com/key",
+            "fallback_presigned_put_url":"https://put-fallback.example.com/key",
+            "symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+
+        let (target, fallback) = parsed.id_map["chunk"].upload_targets();
+        assert!(matches!(
+            target,
+            UploadTarget::Put("https://put.example.com/key")
+        ));
+        assert!(matches!(
+            fallback,
+            Some(UploadTarget::Put("https://put-fallback.example.com/key"))
+        ));
+    }
+
+    /// Serves exactly one HTTP request from a loopback port, answers 200, and hands the request
+    /// head and body back. Object storage is the only thing that ever sees an upload request, so
+    /// this stands in for it to assert what actually goes on the wire.
+    fn serve_one_request() -> (String, mpsc::Receiver<(String, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+        let (sender, receiver) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept upload connection");
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 8192];
+
+            let head_end = loop {
+                if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break position + 4;
+                }
+                let read = stream.read(&mut chunk).expect("read request head");
+                assert_ne!(read, 0, "connection closed before the request head ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            };
+
+            let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+            let body_len: usize = head
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().expect("numeric content-length"))
+                })
+                .expect("an upload request always declares its length");
+
+            while buffer.len() < head_end + body_len {
+                let read = stream.read(&mut chunk).expect("read request body");
+                assert_ne!(read, 0, "connection closed before the body ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("write response");
+            sender
+                .send((head, buffer[head_end..head_end + body_len].to_vec()))
+                .expect("hand the request back to the test");
+        });
+
+        (format!("http://{address}"), receiver)
+    }
+
+    fn test_transport() -> UploadTransport {
+        UploadTransport {
+            client: Client::new(),
+            accelerated_unreachable: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn upload_to_s3_puts_the_raw_bytes_under_the_declared_length() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let url = format!("{base_url}/symbolsets/chunk");
+
+        upload_to_s3(&test_transport(), UploadTarget::Put(&url), None, &data).unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("PUT /symbolsets/chunk "), "{head}");
+        // The signature covers content-length, so a body of another size is refused outright.
+        assert!(
+            head.to_lowercase()
+                .contains(&format!("content-length: {}", data.len())),
+            "{head}"
+        );
+        assert_eq!(body, data);
+    }
+
+    #[test]
+    fn upload_to_s3_posts_the_multipart_form_against_an_older_server() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let presigned = PresignedUrl {
+            url: format!("{base_url}/"),
+            fields: HashMap::from([("key".to_string(), "symbolsets/chunk".to_string())]),
+        };
+
+        upload_to_s3(
+            &test_transport(),
+            UploadTarget::Post(&presigned),
+            None,
+            &data,
+        )
+        .unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("POST / "), "{head}");
+        assert!(
+            head.to_lowercase()
+                .contains("content-type: multipart/form-data"),
+            "{head}"
+        );
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("name=\"key\""), "{body}");
+        // Go-based S3 implementations only treat a part as a file when it carries a filename.
+        assert!(body.contains("filename=\"file\""), "{body}");
+        assert!(body.contains("symbol set bytes"), "{body}");
+    }
+
+    #[test]
+    fn start_request_declares_the_chunk_length() {
+        // The server signs this number into the presigned PUT, so it must be the exact body size.
+        let upload = SymbolSetUpload {
+            chunk_id: "chunk".to_string(),
+            release_id: None,
+            data: vec![7; 321],
+            content_hash: None,
+        };
+        let hashed = HashedUpload {
+            upload: &upload,
+            content_hash: "hash",
+        };
+
+        let request = bulk_upload_request(&[hashed], false, false);
+
+        assert_eq!(request.symbol_sets[0].content_length, 321);
     }
 
     #[test]

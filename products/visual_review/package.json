@@ -19,8 +19,10 @@
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
-        "@posthog/react": "*",
+        "@posthog/react": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "react": "*"
     }

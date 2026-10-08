@@ -5,12 +5,13 @@ import { IconArrowLeft } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+
+import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 export function BackToSource(): JSX.Element | null {
     const { aggregationLabel } = useValues(groupsModel)

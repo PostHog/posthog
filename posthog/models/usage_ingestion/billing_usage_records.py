@@ -27,9 +27,9 @@ def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
     )
 
 
-# Every producer stamps `timestamp` from its own clock when it flushes, never from anything a
-# customer sends, which is what lets toDate(timestamp) sit in the sorting key. Sourcing it from
-# event data would hand a customer control over whether their records deduplicate.
+# Event-derived producers use trusted server capture time when available; aggregate producers use
+# their emission clock. Never use customer-supplied timestamps, which would let a customer control
+# whether their records deduplicate.
 BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     schema_version UInt8,
     record_id String,

@@ -8,7 +8,7 @@ import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdow
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
@@ -16,7 +16,7 @@ import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
 interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'placement' | 'moreButtonOverlay'> {
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile: DashboardTile
     placement: DashboardPlacement
     dashboardId?: number | null
     onEdit: () => void

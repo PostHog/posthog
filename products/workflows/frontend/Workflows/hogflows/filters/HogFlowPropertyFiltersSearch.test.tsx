@@ -90,12 +90,17 @@ describe('HogFlowPropertyFilters search', () => {
         fireEvent.change(screen.getByTestId('taxonomic-filter-searchfield'), { target: { value: query } })
     }
 
+    async function selectWorkflowVariablesCategory(): Promise<void> {
+        fireEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+        fireEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-workflow_variables'))
+    }
+
     it('shows workflow variables in the dedicated tab', async () => {
         setWorkflowVariables([ORDER_ID_VARIABLE, CART_TOTAL_VARIABLE])
         renderFilters()
 
         await openTaxonomicFilter()
-        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        await selectWorkflowVariablesCategory()
 
         await waitFor(() => {
             expect(screen.getAllByText('order_id').length).toBeGreaterThan(0)
@@ -108,7 +113,7 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        await selectWorkflowVariablesCategory()
         search('cart')
 
         await waitFor(() => {
@@ -136,7 +141,7 @@ describe('HogFlowPropertyFilters search', () => {
         renderFilters()
 
         await openTaxonomicFilter()
-        fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
+        await selectWorkflowVariablesCategory()
         search('zzznonexistent')
 
         await waitFor(() => {

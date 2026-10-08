@@ -1,5 +1,7 @@
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
@@ -21,12 +23,32 @@ TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
+# After SIGTERM plus the grace, the worker exits when every activity that still runs is one the
+# Temporal server already closed (timed out, and retried on another worker if attempts remain).
+# Off by default: without it, such an activity holds the worker for the full graceful shutdown timeout.
+TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED: bool = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED", False, type_cast=str_to_bool
+)
+TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS: float = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS", 180.0, type_cast=float
+)
 MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
-TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
-TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
+# Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
+# pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
+# pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
+ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
+TEMPORAL_TARGET_MEMORY_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_MEMORY_USAGE", None, optional=True, type_cast=float
+)
+TEMPORAL_TARGET_CPU_USAGE: float | None = get_from_env(
+    "TEMPORAL_TARGET_CPU_USAGE", None, optional=True, type_cast=float
+)
+TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
+)
 
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
@@ -79,12 +101,23 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_C
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # Per-product per-run cap overrides as a JSON object of ai_product to dollars. A product
 # entry beats the team override and the default: run cost tracks the kind of work, and
-# implementation runs regularly outspend every other stage. Each interactive cap clears its
-# observed ceiling with room for the holds, because a person is waiting and nothing retries
-# behind a cap that binds mid-run. Suggestion runs stay on the default.
+# implementation runs regularly outspend every other stage. Each interactive cap and the
+# workflows cap clear their observed ceiling with room for the holds, because nothing
+# retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
+# Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_implementation": "20",
+    "signals_inbox": "75",
+    "signals_chat": "30",
+    "slack_app": "75",
+    "workflows": "75",
+    "posthog_ai": "75",
+    "posthog_code": "500",
+}
+# A JSON object merged onto the defaults per product. Malformed JSON is captured at mint and
+# leaves the defaults in force.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
-    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30"}',
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", ""
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
@@ -102,6 +135,7 @@ SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRA
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard
 # run and the token carries the wizard's scope ceiling. Empty disables cloud wizard runs.
 WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID: str = get_from_env("WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID", "")
+LOCAL_WIZARD_ROOT: str | None = get_from_env("LOCAL_WIZARD_ROOT", None, optional=True)
 
 # When True, cloud-to-cloud resume can create legacy Modal filesystem snapshots
 # at end-of-run. Modal filesystem image storage is not EU-compliant, so this is
@@ -125,6 +159,12 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
 TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
     False,
+    type_cast=str_to_bool,
+)
+
+TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED: bool = get_from_env(
+    "TASKS_SANDBOX_MEMORY_WATCHDOG_ENABLED",
+    True,
     type_cast=str_to_bool,
 )
 
@@ -224,6 +264,34 @@ DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehous
 # Post-sync table metadata (semantic enrichment + column statistics) runs on its own worker so this
 # best-effort work can't starve the import pipeline.
 DATA_WAREHOUSE_METADATA_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-metadata-task-queue")
+# A data import that leaves a worker which is shutting down runs again without using a retry
+# attempt. Turn this on only when every worker on the queue has the code that reads the hand-off
+# fields of the import activity: an older worker ignores them and reuses the first attempt's run id.
+DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED", False, type_cast=str_to_bool
+)
+# An incremental import that was interrupted continues after the last batch it queued, instead of
+# after the watermark the job started with.
+DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
+)
+# At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
+# nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
+# hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
+# hand-offs frequent and they must not use the retry attempts.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED", False, type_cast=str_to_bool
+)
+# How long a source has, after the shutdown starts, to hand off by itself before the pipeline preempts it.
+# Keep it above the read timeout of a source request, so a healthy source hands off first and
+# preemption is only the backstop.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
+)
+# Restore unfinished append runs only after all extract and load workers have this implementation.
+DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
+)
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
@@ -245,6 +313,11 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing Wizard runs
+# to a dedicated, separately-scalable worker takes two steps in order: deploy a worker fleet
+# polling "wizard-task-queue", then set this env on the dispatching services. Setting it first
+# strands runs on a pollerless queue until the workflow execution timeout closes them.
+WIZARD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("WIZARD_TASK_QUEUE", "general-purpose-task-queue"))
 WIZARD_RUN_ARTIFACTS_S3_BUCKET = os.getenv("WIZARD_RUN_ARTIFACTS_S3_BUCKET", "")
 TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
 TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
@@ -259,6 +332,25 @@ TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
+# Keep the smoke fleets separate in local development as well as deployed environments.
+ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
+ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
+ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
+# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# Insight alert checks allowed to run against ClickHouse at once, across every team.
+ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
+if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no alert check ever starts"
+    )
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # The XGBoost-based session surfacing scoring sweep runs on the session-replay
@@ -270,6 +362,12 @@ SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
+# Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
+# evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate
+# page crosses a Temporal activity boundary as one payload, capped at about 2 MiB.
+# A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
+# less ClickHouse work for the same backfill.
+LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.
@@ -278,6 +376,12 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
+# env var still registers the autoresearch coordinator schedule on the queue that fleet polls.
+AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "self-driving-task-queue"))
+# Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
+# env var still registers the ranking sweep schedule on the queue that fleet polls.
+SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "self-driving-task-queue"))
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
 # share pods with the latency-sensitive alerting workers.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(

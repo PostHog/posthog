@@ -167,7 +167,7 @@ const constructValuesEndpoint = (
     let basePath: string
 
     if (type === PropertyDefinitionType.Session) {
-        basePath = `api/environments/${teamId}/${type}s/values`
+        basePath = `api/projects/${teamId}/${type}s/values`
     } else if (type === PropertyDefinitionType.FlagValue) {
         // FlagValue is project-scoped, so use the project-scoped endpoint
         basePath = `api/projects/${teamId}/${type}/values`
@@ -441,6 +441,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.fetchAllPendingDefinitions()
         },
         fetchAllPendingDefinitions: async (_, breakpoint) => {
+            // The reads below touch this logic's own reducer, and a request can outlive it: an
+            // unmount detaches the path, and storybook swaps the whole store between stories.
+            // `breakpoint()` is not the guard, because it would drop a slower reply (see below).
+            const startedOn = propertyDefinitionsModel.findMounted()
             // take 10ms to debounce property definition requests, preventing a lot of small queries
             await breakpoint(10)
             if (values.pendingProperties.length === 0) {
@@ -518,6 +522,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         })
                     }
 
+                    if (propertyDefinitionsModel.findMounted() !== startedOn) {
+                        return
+                    }
+
                     for (const propertyDefinition of propertyDefinitions.results) {
                         newProperties[`${type}/${propertyDefinition.name}`] = propertyDefinition
                     }
@@ -534,6 +542,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     actions.updatePropertyDefinitions(newProperties)
                 }
             } catch {
+                if (propertyDefinitionsModel.findMounted() !== startedOn) {
+                    return
+                }
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {
@@ -586,6 +597,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                     constructValuesEndpoint(
                         endpoint,

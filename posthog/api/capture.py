@@ -36,9 +36,11 @@ from requests.exceptions import RequestException
 from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
+    CAPTURE_AI_INTERNAL_URL,
     CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
     CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
+    CAPTURE_V1_AI_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
@@ -53,25 +55,25 @@ logger = structlog.get_logger(__name__)
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
+# `_capture_batch_impl` sends every event with this prefix to capture-ai.
+AI_EVENT_NAME_PREFIX = "$ai_"
+
 # --------------------------------------------------------------------------- #
 # Constants
 # --------------------------------------------------------------------------- #
 
 SDK_INFO = "posthog-capture-v1-internal/1.0"
 
-# v1 Options struct fields and their legacy property counterparts.
+# The option keys capture-rs v1 expects, and the legacy property each one replaces.
 _OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
     "cookieless_mode": "$cookieless_mode",
     "disable_skew_correction": "$ignore_sent_at",
     "product_tour_id": "$product_tour_id",
     "process_person_profile": "$process_person_profile",
 }
-_VALID_OPTION_KEYS = frozenset(_OPTIONS_TO_LEGACY_PROPERTY.keys())
 
-# Extra legacy aliases that must also be stripped from properties.
-_EXTRA_LEGACY_ALIASES: dict[str, str] = {
-    "disable_skew_correction": "disable_skew_adjustment",
-}
+# Longest reason from the capture response that `verdict_summary` shows, matching the posthog-rs SDK.
+_MAX_REPORTED_REASON_CHARS = 64
 
 _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
@@ -87,7 +89,7 @@ CAPTURE_V1_BATCH_SUBMITTED = Counter(
 CAPTURE_V1_REQUEST_SUBMITTED = Counter(
     "capture_v1_internal_request_submitted",
     "HTTP POST requests to capture v1 endpoint (one per attempt, retries included).",
-    labelnames=["event_source"],
+    labelnames=["event_source", "lane"],
 )
 CAPTURE_V1_EVENT_SUBMITTED = Counter(
     "capture_v1_internal_event_submitted",
@@ -102,7 +104,7 @@ CAPTURE_V1_EVENT_RESULT = Counter(
 CAPTURE_V1_REQUEST_FAILED = Counter(
     "capture_v1_internal_request_failed",
     "Whole-request failures from capture v1 endpoint.",
-    labelnames=["event_source", "status_code"],
+    labelnames=["event_source", "status_code", "lane"],
 )
 CAPTURE_V1_RESUBMIT = Counter(
     "capture_v1_internal_resubmit",
@@ -111,8 +113,13 @@ CAPTURE_V1_RESUBMIT = Counter(
 )
 CAPTURE_V1_OPTION_CONFLICT = Counter(
     "capture_v1_internal_option_conflict",
-    "Typed option input disagreed with a legacy property; explicit won.",
+    "An explicit option or field disagreed with its legacy property; the explicit value won.",
     labelnames=["event_source", "field"],
+)
+CAPTURE_V1_EVENTS_REROUTED = Counter(
+    "capture_v1_internal_events_rerouted",
+    "Events whose name put them on the other lane than the entry point the caller used.",
+    labelnames=["event_source", "from_lane"],
 )
 
 # --------------------------------------------------------------------------- #
@@ -137,9 +144,25 @@ class CaptureInternalError(Exception):
         return self.status_code == HTTPStatus.PAYMENT_REQUIRED
 
 
-@dataclass
+@frozen
+class RequestFailure:
+    """One HTTP submission that failed as a whole; its events are in ``unaccounted``."""
+
+    lane: str
+    status_code: int
+    error: dict[str, Any]
+    event_count: int
+
+
+# Mutable on purpose: _submit_batch_chunk and _merge_results build it up in place.
+@dataclass(frozen=False)
 class CaptureInternalResult:
-    """Aggregated outcome of a (possibly multi-round) v1 batch submission."""
+    """Outcome of one v1 batch submission across all of its requests.
+
+    Every submitted uuid lands in exactly one of ``ok``, ``dropped``, ``warnings``,
+    ``retried`` or ``unaccounted``. A multi-request batch can be partially acked, so
+    retry only ``unaccounted`` and ``retried`` uuids, never the whole batch.
+    """
 
     status_code: int
     results: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -150,6 +173,7 @@ class CaptureInternalResult:
     warnings: list[str] = field(default_factory=list)
     retried: list[str] = field(default_factory=list)
     unaccounted: list[str] = field(default_factory=list)
+    request_failures: list[RequestFailure] = field(default_factory=list)
 
     def succeeded(self) -> bool:
         return self.error is None and not self.dropped and not self.retried and not self.unaccounted
@@ -161,9 +185,13 @@ class CaptureInternalResult:
 
     def raise_for_status(self) -> None:
         if self.error:
+            acked = len(self.ok) + len(self.warnings)
+            scope = "partial-request" if acked else "whole-request"
+            lanes = ", ".join(f"{rf.lane} {rf.status_code}" for rf in self.request_failures) or str(self.status_code)
             raise CaptureInternalError(
-                f"capture internal whole-request failure ({self.status_code}): "
-                f"{self.error.get('error', 'unknown')}: {self.error.get('error_description', '')}",
+                f"capture internal {scope} failure ({lanes}): "
+                f"{self.error.get('error', 'unknown')}: {self.error.get('error_description', '')}; "
+                f"{acked} events acked, {len(self.unaccounted)} unaccounted",
                 status_code=self.status_code,
             )
         failures = len(self.dropped) + len(self.retried) + len(self.unaccounted)
@@ -173,6 +201,33 @@ class CaptureInternalResult:
                 f"{len(self.retried)} exhausted retries, {len(self.unaccounted)} unaccounted",
                 status_code=0,
             )
+
+    def verdict_summary(self) -> str:
+        """Every ``drop`` and ``retry`` reason with its count on one line, for example
+        ``drop/invalid_options=2, retry/not_persisted=1``.
+
+        ``raise_for_status`` reports only totals; log this line when the reasons matter.
+        Drops come first, then retries, each by count and then by reason. It is empty when
+        nothing was dropped or retried.
+        """
+        parts: list[str] = []
+        for verdict, uids in (("drop", self.dropped), ("retry", self.retried)):
+            tally: dict[str, int] = {}
+            for uid in uids:
+                entry = self.results.get(uid)
+                reason = _reported_reason(entry.get("details") if isinstance(entry, dict) else None)
+                tally[reason] = tally.get(reason, 0) + 1
+            for reason, count in sorted(tally.items(), key=lambda item: (-item[1], item[0])):
+                parts.append(f"{verdict}/{reason}={count}")
+        return ", ".join(parts)
+
+
+def _reported_reason(details: Any) -> str:
+    """Clip a reason from the capture response and drop unprintable characters so it cannot break the summary line."""
+    reason = ""
+    if isinstance(details, str):
+        reason = "".join(ch for ch in details if ch.isprintable())[:_MAX_REPORTED_REASON_CHARS]
+    return reason if reason.strip() else "unspecified"
 
 
 # --------------------------------------------------------------------------- #
@@ -204,19 +259,24 @@ def _resolve_scalar(
     field: str,
     event_source: str,
 ) -> Any:
-    """Return *explicit* if set, else *legacy*; log + count when both are set and disagree."""
+    """Return *explicit* if set, else *legacy*; count when both are set and disagree.
+
+    A conflict is only counted, never logged: a busy caller would log it once per event.
+    """
     if explicit is not None:
         if legacy is not None and legacy != explicit:
-            logger.warning(
-                "capture_internal option conflict",
-                event_source=event_source,
-                field=field,
-                explicit=explicit,
-                legacy=legacy,
-            )
             CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field=field).inc()
         return explicit
     return legacy
+
+
+@frozen
+class EventIdentity:
+    """The two fields the routing checks had to read, kept named so a caller
+    cannot swap them: both are strings."""
+
+    event_name: str
+    distinct_id: str
 
 
 @frozen
@@ -233,30 +293,22 @@ def _normalize_options_and_properties(
     process_person_profile: bool,
     event_source: str,
 ) -> NormalizedEventParts:
-    """Separate typed ``options``/fields from free-form ``properties``.
+    """Separate ``options`` and top-level fields from free-form ``properties``.
+
+    Options pass through unchanged, including keys capture-rs does not know yet: capture-rs
+    validates the values and ignores unknown keys, so checking them here would only drift
+    from its rules. Each legacy property is always removed and fills its option only when
+    the option is missing or ``None``, the same as the posthog-rs SDK.
 
     Returns a ``NormalizedEventParts``. The caller's dicts are never mutated.
     """
     raw_options: dict[str, Any] = event_dict.get("options") or {}
     props: dict[str, Any] = dict(event_dict.get("properties") or {})
 
-    unknown = set(raw_options.keys()) - _VALID_OPTION_KEYS
-    if unknown:
-        raise CaptureInternalError(f"capture_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
-
-    options: dict[str, Any] = {}
-
+    options: dict[str, Any] = dict(raw_options)
     for opt_key, legacy_prop in _OPTIONS_TO_LEGACY_PROPERTY.items():
-        explicit = raw_options.get(opt_key)
         legacy = props.pop(legacy_prop, None)
-
-        alias = _EXTRA_LEGACY_ALIASES.get(opt_key)
-        if alias:
-            alias_val = props.pop(alias, None)
-            if legacy is None:
-                legacy = alias_val
-
-        resolved = _resolve_scalar(explicit, legacy, field=opt_key, event_source=event_source)
+        resolved = _resolve_scalar(raw_options.get(opt_key), legacy, field=opt_key, event_source=event_source)
         if resolved is not None:
             options[opt_key] = resolved
 
@@ -274,17 +326,10 @@ def _normalize_options_and_properties(
     )
 
     # Function-level override: when the caller says no person processing,
-    # force it even if the event-level option disagrees (but log the conflict).
+    # force it even if the event-level option disagrees (and count the conflict).
     if not process_person_profile:
         existing = options.get("process_person_profile")
         if existing not in (None, False):
-            logger.warning(
-                "capture_internal option conflict",
-                event_source=event_source,
-                field="process_person_profile",
-                explicit=f"function_param={process_person_profile}",
-                legacy=existing,
-            )
             CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="process_person_profile").inc()
         options["process_person_profile"] = False
 
@@ -296,14 +341,73 @@ def _normalize_options_and_properties(
 # --------------------------------------------------------------------------- #
 
 
-def _validate_batch_inputs(events: list[dict[str, Any]], *, token: str, event_source: str) -> None:
+def _lane_label(ai_lane: bool) -> str:
+    return "ai" if ai_lane else "analytics"
+
+
+def _lane_fn_name(ai_lane: bool) -> str:
+    """Name the entry point the caller actually used, so an error points at their code."""
+    return "capture_ai_internal" if ai_lane else "capture_internal"
+
+
+def _validate_batch_inputs(
+    events: list[dict[str, Any]], *, token: str, event_source: str, ai_lane: bool = False
+) -> None:
     """Validate required batch-level inputs. Raises CaptureInternalError on failure."""
+    fn = _lane_fn_name(ai_lane)
     if not event_source:
-        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
+        raise CaptureInternalError(f"{fn}: event_source is required (identifies the submitting call site)")
     if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): API token is required")
     if not events:
-        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+        raise CaptureInternalError(f"{fn} ({event_source}): at least one event is required")
+
+
+def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> EventIdentity:
+    """Every client-side rejection lives here so a batch is cleared before its first chunk publishes.
+
+    ``ai_lane`` only names the entry point in error messages; the wire lane is chosen
+    per event from the `$ai_` prefix.
+    """
+    fn = _lane_fn_name(ai_lane)
+
+    event_name = ev.get("event", "")
+    if not isinstance(event_name, str) or not event_name:
+        raise CaptureInternalError(f"{fn} ({event_source}): event name is required and must be a non-empty string")
+
+    if event_name in SESSION_RECORDING_EVENT_NAMES:
+        raise CaptureInternalError(
+            f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+        )
+
+    # Normalization would otherwise fail on these inside a worker, after other chunks published.
+    for key in ("properties", "options"):
+        value = ev.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise CaptureInternalError(f"{fn} ({event_source}, {event_name}): {key} must be a dict")
+
+    distinct_id: str = ev.get("distinct_id", "")
+    if not distinct_id:
+        props = ev.get("properties") or {}
+        distinct_id = props.get("distinct_id", "")
+    if not distinct_id:
+        raise CaptureInternalError(f"{fn} ({event_source}, {event_name}): distinct_id is required")
+
+    return EventIdentity(event_name=event_name, distinct_id=distinct_id)
+
+
+def _validate_batch_events(events: list[dict[str, Any]], *, event_source: str, ai_lane: bool) -> None:
+    """Validate every event and reject duplicate uuids: results are keyed by uuid, so a
+    duplicate would overwrite one event's outcome."""
+    fn = _lane_fn_name(ai_lane)
+    seen_uuids: set[str] = set()
+    for ev in events:
+        _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
+        event_uuid = ev.get("event_uuid") or ev.get("uuid")
+        if event_uuid:
+            if event_uuid in seen_uuids:
+                raise CaptureInternalError(f"{fn} ({event_source}): duplicate event_uuid {event_uuid!r} in batch")
+            seen_uuids.add(event_uuid)
 
 
 def prepare_capture_internal_batch(
@@ -313,33 +417,23 @@ def prepare_capture_internal_batch(
     event_source: str,
     historical_migration: bool = False,
     process_person_profile: bool = False,
+    ai_lane: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Build a v1 batch envelope from caller-supplied event dicts.
 
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
+
+    ``ai_lane`` only names the entry point in error messages; the envelope is the
+    same on both lanes.
     """
-    _validate_batch_inputs(events, token=token, event_source=event_source)
+    _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
 
     batch: list[dict[str, Any]] = []
     uuids: list[str] = []
 
     for ev in events:
-        event_name: str = ev.get("event", "")
-        if not event_name:
-            raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
-
-        if event_name in SESSION_RECORDING_EVENT_NAMES:
-            raise CaptureInternalError(
-                f"capture_internal ({event_source}): '{event_name}' is a replay event; use the replay capture path"
-            )
-
-        distinct_id: str = ev.get("distinct_id", "")
-        if not distinct_id:
-            props = ev.get("properties") or {}
-            distinct_id = props.get("distinct_id", "")
-        if not distinct_id:
-            raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct_id is required")
+        identity = _validate_event(ev, event_source=event_source, ai_lane=ai_lane)
 
         event_uuid: str = ev.get("event_uuid") or ev.get("uuid") or str(uuid4())
         uuids.append(event_uuid)
@@ -359,9 +453,9 @@ def prepare_capture_internal_batch(
         )
 
         entry: dict[str, Any] = {
-            "event": event_name,
+            "event": identity.event_name,
             "uuid": event_uuid,
-            "distinct_id": distinct_id,
+            "distinct_id": identity.distinct_id,
             "timestamp": timestamp_str,
             "properties": parts.properties,
         }
@@ -397,6 +491,7 @@ def _submit_batch_chunk(
     process_person_profile: bool,
     max_attempts: int,
     timeout: float,
+    ai_lane: bool = False,
 ) -> CaptureInternalResult:
     """Submit a single chunk of events to the v1 batch endpoint with retry logic.
 
@@ -409,9 +504,16 @@ def _submit_batch_chunk(
         event_source=event_source,
         historical_migration=historical_migration,
         process_person_profile=process_person_profile,
+        ai_lane=ai_lane,
     )
 
-    url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+    # A different deployment, not just a different path: `/i/v1/ai/events` is
+    # mounted only on capture-ai.
+    if ai_lane:
+        url = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
+    else:
+        url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+    lane = _lane_label(ai_lane)
 
     CAPTURE_V1_BATCH_SUBMITTED.labels(event_source=event_source).inc()
     CAPTURE_V1_EVENT_SUBMITTED.labels(event_source=event_source).inc(len(uuids))
@@ -429,6 +531,10 @@ def _submit_batch_chunk(
         for uid in uuid_to_event:
             aggregated.setdefault(uid, {"result": "unaccounted"})
         result = CaptureInternalResult(status_code=status_code, results=aggregated, error=error)
+        if error is not None:
+            result.request_failures.append(
+                RequestFailure(lane=lane, status_code=status_code, error=error, event_count=len(pending_batch))
+            )
         for uid, entry in aggregated.items():
             status = entry.get("result", "ok")
             if status == "ok":
@@ -465,14 +571,15 @@ def _submit_batch_chunk(
                 "batch": pending_batch,
             }
 
-            CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source=event_source).inc()
+            CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source=event_source, lane=lane).inc()
             try:
                 resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
             except RequestException as exc:
-                CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
+                CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport", lane=lane).inc()
                 logger.warning(
                     "capture_internal_transport_error",
                     event_source=event_source,
+                    lane=lane,
                     request_id=headers.get("PostHog-Request-Id", ""),
                     batch_size=len(pending_batch),
                     error=str(exc),
@@ -483,6 +590,7 @@ def _submit_batch_chunk(
                 CAPTURE_V1_REQUEST_FAILED.labels(
                     event_source=event_source,
                     status_code=str(resp.status_code),
+                    lane=lane,
                 ).inc()
                 try:
                     error_body = resp.json()
@@ -494,6 +602,7 @@ def _submit_batch_chunk(
                 logger.warning(
                     "capture_internal_request_failed",
                     event_source=event_source,
+                    lane=lane,
                     request_id=headers.get("PostHog-Request-Id", ""),
                     status_code=resp.status_code,
                     batch_size=len(pending_batch),
@@ -510,14 +619,20 @@ def _submit_batch_chunk(
                     {"error": "invalid_json", "error_description": "could not parse 200 body"},
                 )
 
-            results_map: dict[str, Any] = body.get("results", {})
+            results_map = body.get("results", {}) if isinstance(body, dict) else None
+            if not isinstance(results_map, dict):
+                # Raising here would lose this chunk's uuids; _finalize marks them unaccounted.
+                return _finalize(
+                    resp.status_code,
+                    {"error": "invalid_response", "error_description": "200 body is not a results object"},
+                )
 
             retry_uuids: list[str] = []
             for uid in list(uuid_to_event.keys()):
                 if uid in aggregated:
                     continue
                 entry = results_map.get(uid)
-                if entry is None:
+                if not isinstance(entry, dict):
                     continue
                 clamped = entry.get("result", "ok")
                 if clamped not in _KNOWN_RESULT_STATUSES:
@@ -547,19 +662,186 @@ def _submit_batch_chunk(
 
 
 def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInternalResult:
-    """Merge results from multiple chunk submissions into a single result."""
+    """Merge the results of several requests (chunks, lanes) into one.
+
+    ``error`` comes from the first failed request, rewritten to ``partial_request_failure``
+    when another request was acked so a caller does not resend the acked events.
+    """
     merged = CaptureInternalResult(status_code=200)
+    any_acked_request = False
     for cr in chunk_results:
         if cr.error is not None and merged.error is None:
             merged.error = cr.error
             merged.status_code = cr.status_code
+        if cr.error is None:
+            any_acked_request = True
+        merged.request_failures.extend(cr.request_failures)
         merged.results.update(cr.results)
         merged.ok.extend(cr.ok)
         merged.dropped.extend(cr.dropped)
         merged.warnings.extend(cr.warnings)
         merged.retried.extend(cr.retried)
         merged.unaccounted.extend(cr.unaccounted)
+    if merged.error is not None and any_acked_request:
+        first = merged.error
+        merged.error = {
+            "error": "partial_request_failure",
+            "error_description": (
+                f"{len(merged.request_failures)} of {len(chunk_results)} requests failed; "
+                f"first: {first.get('error', 'unknown')}: {first.get('error_description', '')}"
+            ),
+        }
     return merged
+
+
+def _with_event_uuid(ev: dict[str, Any]) -> dict[str, Any]:
+    """Return ``ev`` with a uuid. It copies ``ev`` when it generates one, so the caller's dict is not changed."""
+    if ev.get("event_uuid") or ev.get("uuid"):
+        return ev
+    return {**ev, "uuid": str(uuid4())}
+
+
+def _submit_chunks(
+    *,
+    lanes: list[tuple[list[dict[str, Any]], bool]],
+    token: str,
+    event_source: str,
+    historical_migration: bool,
+    process_person_profile: bool,
+    max_attempts: int,
+    timeout: float,
+) -> CaptureInternalResult:
+    """Submit every lane's chunks over one shared worker pool.
+
+    Lanes go to different deployments, so a mixed batch runs them concurrently; sharing
+    the pool keeps it within the connection budget of a single-lane batch.
+    """
+    chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
+    chunks: list[tuple[list[dict[str, Any]], bool]] = [
+        (lane_events[i : i + chunk_size], lane_is_ai)
+        for lane_events, lane_is_ai in lanes
+        for i in range(0, len(lane_events), chunk_size)
+    ]
+
+    def _submit_chunk(chunk_events: list[dict[str, Any]], ai_lane: bool) -> CaptureInternalResult:
+        return _submit_batch_chunk(
+            events=chunk_events,
+            token=token,
+            event_source=event_source,
+            historical_migration=historical_migration,
+            process_person_profile=process_person_profile,
+            max_attempts=max_attempts,
+            timeout=timeout,
+            ai_lane=ai_lane,
+        )
+
+    # Hot path: one lane, one chunk, so skip the pool.
+    if len(chunks) == 1:
+        return _submit_chunk(*chunks[0])
+
+    # A chunk whose worker raises must still report its events, so fix every uuid before fan-out.
+    chunks = [([_with_event_uuid(ev) for ev in chunk_events], ai_lane) for chunk_events, ai_lane in chunks]
+
+    logger.info(
+        "capture_batch_internal_chunked",
+        event_source=event_source,
+        total_events=sum(len(lane_events) for lane_events, _ in lanes),
+        chunks=len(chunks),
+        events_per_lane={_lane_label(lane_is_ai): len(lane_events) for lane_events, lane_is_ai in lanes},
+        chunk_size=chunk_size,
+        max_workers=CAPTURE_INTERNAL_MAX_WORKERS,
+    )
+
+    chunk_results: list[CaptureInternalResult] = []
+    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_submit_chunk, chunk, ai_lane): (i, ai_lane) for i, (chunk, ai_lane) in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            chunk_idx, ai_lane = futures[future]
+            try:
+                chunk_results.append(future.result())
+            except Exception as exc:
+                logger.exception(
+                    "capture_batch_internal_chunk_error",
+                    event_source=event_source,
+                    lane=_lane_label(ai_lane),
+                    chunk=chunk_idx,
+                    error=str(exc),
+                )
+                error = {"error": "chunk_exception", "error_description": str(exc)}
+                chunk_uuids = [ev.get("event_uuid") or ev["uuid"] for ev in chunks[chunk_idx][0]]
+                chunk_results.append(
+                    CaptureInternalResult(
+                        status_code=0,
+                        results={uid: {"result": "unaccounted"} for uid in chunk_uuids},
+                        error=error,
+                        unaccounted=chunk_uuids,
+                        request_failures=[
+                            RequestFailure(
+                                lane=_lane_label(ai_lane),
+                                status_code=0,
+                                error=error,
+                                event_count=len(chunks[chunk_idx][0]),
+                            )
+                        ],
+                    )
+                )
+
+    return _merge_results(chunk_results)
+
+
+def _capture_batch_impl(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    historical_migration: bool,
+    process_person_profile: bool,
+    max_attempts: int,
+    timeout: float,
+    ai_lane: bool,
+) -> CaptureInternalResult:
+    """Shared body of capture_batch_internal and capture_batch_ai_internal.
+
+    The wire lane follows the event name, not ``ai_lane``: capture-ai drops a non-AI
+    event as `misrouted_event`, and capture-analytics would give an `$ai_*` event person
+    processing. Reroutes are counted so a call site on the wrong entry point is visible.
+    """
+    _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
+
+    # Reject the whole batch before either lane publishes a chunk.
+    _validate_batch_events(events, event_source=event_source, ai_lane=ai_lane)
+
+    ai_events = [ev for ev in events if ev["event"].startswith(AI_EVENT_NAME_PREFIX)]
+    analytics_events = [ev for ev in events if not ev["event"].startswith(AI_EVENT_NAME_PREFIX)]
+
+    rerouted = analytics_events if ai_lane else ai_events
+    if rerouted:
+        from_lane = _lane_label(ai_lane)
+        CAPTURE_V1_EVENTS_REROUTED.labels(event_source=event_source, from_lane=from_lane).inc(len(rerouted))
+        logger.info(
+            "capture_internal_rerouted",
+            event_source=event_source,
+            entry_point=_lane_fn_name(ai_lane),
+            from_lane=from_lane,
+            rerouted_events=len(rerouted),
+            total_events=len(events),
+        )
+
+    return _submit_chunks(
+        lanes=[
+            (lane_events, lane_is_ai)
+            for lane_events, lane_is_ai in ((analytics_events, False), (ai_events, True))
+            if lane_events
+        ],
+        token=token,
+        event_source=event_source,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
+        timeout=timeout,
+    )
 
 
 def capture_batch_internal(
@@ -594,25 +876,38 @@ def capture_batch_internal(
         pre-chunk — the API handles this transparently.  Small batches (<=200 events)
         are submitted directly with zero threading overhead.
 
-        Each chunk gets its own retry budget (``max_attempts``).  If one chunk fails
-        entirely (transport error), its events appear in ``unaccounted``; other chunks'
-        results are preserved.
+        Each chunk gets its own retry budget (``max_attempts``) and its own ``timeout``.
+        If one chunk fails entirely (transport error), its events appear in
+        ``unaccounted``; other chunks' results are preserved and ``error["error"]`` reads
+        ``partial_request_failure``.  Retry only ``unaccounted`` and ``retried`` uuids,
+        never the whole batch, or the acked events are ingested twice.
+
+        A batch that mixes `$ai_`-prefixed and other names is one request per lane;
+        both lanes' chunks share the same worker pool and run concurrently.
 
     Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT SUPPORTED
     and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
     to the capture-rs /s/ endpoint.
 
-    event.options reference (typed options replacing legacy $-prefixed properties):
-    ┌─────────────────────────┬────────────────────────────┬──────────────┐
-    │ options key             │ replaces legacy property   │ default      │
-    ├─────────────────────────┼────────────────────────────┼──────────────┤
-    │ cookieless_mode         │ $cookieless_mode           │ None/omitted │
-    │ disable_skew_correction │ $ignore_sent_at            │ None/omitted │
-    │                         │ (alias: disable_skew_      │              │
-    │                         │  adjustment)               │              │
-    │ product_tour_id         │ $product_tour_id           │ None/omitted │
-    │ process_person_profile  │ $process_person_profile    │ see below    │
-    └─────────────────────────┴────────────────────────────┴──────────────┘
+    Events with an `$ai_`-prefixed name are sent to the AI lane (see capture_ai_internal)
+    and counted as rerouted; the rest of the batch goes to the analytics lane as usual.
+    A uuid that appears twice in one batch is rejected before anything is sent.
+
+    event.options reference (the keys capture-rs expects, each replacing a legacy
+    $-prefixed property):
+    ┌─────────────────────────┬────────────────────────────┬────────────────────────┐
+    │ options key             │ replaces legacy property   │ value                  │
+    ├─────────────────────────┼────────────────────────────┼────────────────────────┤
+    │ cookieless_mode         │ $cookieless_mode           │ bool                   │
+    │ disable_skew_correction │ $ignore_sent_at            │ bool                   │
+    │ product_tour_id         │ $product_tour_id           │ non-empty str          │
+    │ process_person_profile  │ $process_person_profile    │ bool (see below)       │
+    └─────────────────────────┴────────────────────────────┴────────────────────────┘
+
+    Options pass through unchanged, and this module does not check their values.
+    capture-rs validates them: it drops an event whose expected option it cannot read
+    (per-event result ``invalid_options``) and ignores keys it does not know. ``None``
+    counts as not set.
 
     Additional top-level event fields (also extracted from properties):
     ┌─────────────────────────┬────────────────────────────┬──────────────┐
@@ -622,15 +917,16 @@ def capture_batch_internal(
     │ window_id               │ $window_id                 │ None/omitted │
     └─────────────────────────┴────────────────────────────┴──────────────┘
 
-    When both a typed key AND its legacy $-property are present, the typed key wins
-    (a warning metric ``capture_v1_internal_option_conflict`` is emitted).  The legacy
-    property is always stripped from ``properties`` regardless.
+    When an option and its legacy $-property are both set, the option wins and
+    ``capture_v1_internal_option_conflict`` counts the conflict; nothing is logged.  The
+    legacy property is always removed from ``properties``, and it fills the option only
+    when the option is missing or ``None``.
 
     process_person_profile interaction:
         The batch-level ``process_person_profile`` param acts as a SAFETY RAIL.  When
         False (default), it forces ``options.process_person_profile = False`` for EVERY
-        event in the batch — even if the event's own options dict says True (a warning
-        is logged on conflict).  Only when the batch-level param is True does the
+        event in the batch — even if the event's own options dict says True (the
+        conflict is counted).  Only when the batch-level param is True does the
         per-event ``options.process_person_profile`` value get respected as-is.  This
         prevents accidental expensive person profile updates from internal tooling.
 
@@ -641,9 +937,9 @@ def capture_batch_internal(
             - ``properties`` (dict): event properties (required; can be empty)
             Optional per-event fields:
             - ``timestamp`` (str | datetime): defaults to now UTC if absent
-            - ``options`` (dict): typed options per table above
+            - ``options`` (dict): event options per table above, sent unchanged
             - ``session_id``, ``window_id`` (str): top-level fields per table above
-            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
+            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh random UUID (v4)
         token: API token to submit events on behalf of (required; overrides individual
             event tokens)
         event_source: observability tag indicating the internal module/codepath submitting
@@ -665,63 +961,21 @@ def capture_batch_internal(
 
     Raises:
         CaptureInternalError: on client-side validation failures (missing/empty event_source,
-            missing token, empty batch, replay event names, unknown option keys) or
-            HTTP/transport errors.  The exception carries a ``.status_code`` attribute
+            missing token, empty batch, replay event names, non-dict ``options`` or
+            ``properties``) or HTTP/transport errors.  The exception carries a ``.status_code`` attribute
             (the HTTP status from capture-rs, or 0 for client-side/transport errors).
     """
     # Validate early so we fail fast before chunking/fan-out, not inside a worker thread.
-    _validate_batch_inputs(events, token=token, event_source=event_source)
-
-    chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
-
-    def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
-        return _submit_batch_chunk(
-            events=chunk_events,
-            token=token,
-            event_source=event_source,
-            historical_migration=historical_migration,
-            process_person_profile=process_person_profile,
-            max_attempts=max_attempts,
-            timeout=timeout,
-        )
-
-    # Hot path: small batch — submit directly, no threading overhead.
-    if len(events) <= chunk_size:
-        return _submit_chunk(events)
-
-    # Large batch: chunk and fan out concurrently.
-    chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
-    logger.info(
-        "capture_batch_internal_chunked",
+    return _capture_batch_impl(
+        events=events,
+        token=token,
         event_source=event_source,
-        total_events=len(events),
-        chunks=len(chunks),
-        chunk_size=chunk_size,
-        max_workers=CAPTURE_INTERNAL_MAX_WORKERS,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
+        timeout=timeout,
+        ai_lane=False,
     )
-
-    chunk_results: list[CaptureInternalResult] = []
-    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
-        futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
-        for future in as_completed(futures):
-            chunk_idx = futures[future]
-            try:
-                chunk_results.append(future.result())
-            except Exception as exc:
-                logger.exception(
-                    "capture_batch_internal_chunk_error",
-                    event_source=event_source,
-                    chunk=chunk_idx,
-                    error=str(exc),
-                )
-                chunk_results.append(
-                    CaptureInternalResult(
-                        status_code=0,
-                        error={"error": "chunk_exception", "error_description": str(exc)},
-                    )
-                )
-
-    return _merge_results(chunk_results)
 
 
 def _parse_retry_after(header_value: Optional[str]) -> float:
@@ -738,6 +992,56 @@ def _parse_retry_after(header_value: Optional[str]) -> float:
 # --------------------------------------------------------------------------- #
 # Convenience single-event wrapper
 # --------------------------------------------------------------------------- #
+
+
+def _capture_single_impl(
+    *,
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[str | datetime],
+    properties: Optional[dict[str, Any]],
+    options: Optional[dict[str, Any]],
+    session_id: Optional[str],
+    window_id: Optional[str],
+    event_uuid: Optional[str],
+    process_person_profile: bool,
+    historical_migration: bool,
+    timeout: float,
+    ai_lane: bool,
+) -> CaptureInternalResult:
+    """Shared body of capture_internal and capture_ai_internal.
+
+    The lane is not a public argument: callers pick it by choosing an entry point,
+    so there is exactly one way to reach each lane.
+    """
+    event_dict: dict[str, Any] = {
+        "event": event_name,
+        "distinct_id": distinct_id,
+        "properties": properties or {},
+    }
+    if timestamp is not None:
+        event_dict["timestamp"] = timestamp
+    if options is not None:
+        event_dict["options"] = options
+    if session_id is not None:
+        event_dict["session_id"] = session_id
+    if window_id is not None:
+        event_dict["window_id"] = window_id
+    if event_uuid is not None:
+        event_dict["event_uuid"] = event_uuid
+
+    return _capture_batch_impl(
+        events=[event_dict],
+        token=token,
+        event_source=event_source,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        max_attempts=CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+        timeout=timeout,
+        ai_lane=ai_lane,
+    )
 
 
 def capture_internal(
@@ -786,14 +1090,15 @@ def capture_internal(
         timestamp: the timestamp of the event (optional; will be set to now UTC if absent).
             Accepts datetime objects or ISO8601 strings.
         properties: event properties to submit with the event (optional; can be empty).
-            Legacy ``$``-prefixed keys that map to typed options are automatically
+            Legacy ``$``-prefixed keys that map to options are automatically
             extracted and stripped — see the options table in capture_batch_internal.
-        options: typed event options dict (optional).  See the options reference table in
-            capture_batch_internal for valid keys, legacy equivalents, and defaults.
+        options: event options dict (optional), sent unchanged.  See the options reference
+            table in capture_batch_internal for the keys capture-rs expects and their legacy
+            properties.
         session_id: session ID (optional). Preferred over ``$session_id`` in properties.
         window_id: window ID (optional). Preferred over ``$window_id`` in properties.
-        event_uuid: optional deterministic UUID to assign to the event (default: capture-rs
-            assigns a fresh UUIDv7).  Use when the caller needs a stable, queryable event
+        event_uuid: optional deterministic UUID to assign to the event (default: a fresh
+            random UUID (v4)).  Use when the caller needs a stable, queryable event
             UUID — e.g. to link back to the event from an admin UI.  Must be a parseable
             UUID string.
         process_person_profile: batch-level safety rail (default: False).  When False,
@@ -815,27 +1120,109 @@ def capture_internal(
             ``.status_code`` attribute (HTTP status from capture-rs, or 0 for client-side/
             transport errors) so callers can propagate into their own HTTP responses.
     """
-    event_dict: dict[str, Any] = {
-        "event": event_name,
-        "distinct_id": distinct_id,
-        "properties": properties or {},
-    }
-    if timestamp is not None:
-        event_dict["timestamp"] = timestamp
-    if options is not None:
-        event_dict["options"] = options
-    if session_id is not None:
-        event_dict["session_id"] = session_id
-    if window_id is not None:
-        event_dict["window_id"] = window_id
-    if event_uuid is not None:
-        event_dict["event_uuid"] = event_uuid
+    return _capture_single_impl(
+        token=token,
+        event_name=event_name,
+        event_source=event_source,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+        options=options,
+        session_id=session_id,
+        window_id=window_id,
+        event_uuid=event_uuid,
+        process_person_profile=process_person_profile,
+        historical_migration=historical_migration,
+        timeout=timeout,
+        ai_lane=False,
+    )
 
-    return capture_batch_internal(
-        events=[event_dict],
+
+def capture_ai_internal(
+    *,
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[str | datetime] = None,
+    properties: Optional[dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
+    event_uuid: Optional[str] = None,
+    process_person_profile: bool = False,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_ai_internal is capture_internal for the AI lane.  Use it for every `$ai_*`
+    event submitted from the Django app on behalf of a customer team.
+
+    Same arguments, return value, retry behaviour and per-event result semantics as
+    capture_internal — see its docstring.  The difference is the destination:
+    `/i/v1/ai/events` on capture-ai rather than `/i/v1/analytics/events` on
+    capture-analytics.  That deployment is configured for AI traffic: an 8MiB per-event
+    ceiling instead of 983040 bytes, and a direct produce to the AI topic.
+
+    A non-`$ai_` name passed here goes to the analytics lane, and an `$ai_` name
+    passed to capture_internal goes to the AI lane; each reroute is counted
+    (``capture_v1_internal_events_rerouted``). Prefer the matching entry point: it
+    keeps ``historical_migration`` and the ``session_id`` / ``window_id`` arguments off
+    AI events.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+
+    Args:
+        see capture_internal.  ``session_id`` / ``window_id`` are not offered as arguments,
+        but a ``$session_id`` or ``$window_id`` property still moves to the top-level
+        field, as on the analytics lane.
+
+    Returns:
+        CaptureInternalResult with per-event outcome, exactly as capture_internal.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures or HTTP/transport errors.
+    """
+    return _capture_single_impl(
+        token=token,
+        event_name=event_name,
+        event_source=event_source,
+        distinct_id=distinct_id,
+        timestamp=timestamp,
+        properties=properties,
+        options=options,
+        session_id=None,
+        window_id=None,
+        event_uuid=event_uuid,
+        process_person_profile=process_person_profile,
+        historical_migration=False,
+        timeout=timeout,
+        ai_lane=True,
+    )
+
+
+def capture_batch_ai_internal(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    process_person_profile: bool = False,
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_batch_ai_internal is capture_batch_internal for the AI lane.
+
+    Same chunking, concurrency, retry rounds and per-event result merging — see
+    capture_batch_internal's docstring.  An event without an `$ai_` prefixed name is
+    sent to the analytics lane instead and counted as rerouted; see capture_ai_internal.
+
+    ``historical_migration`` is not offered: AI backfills do not run through this path.
+    """
+    return _capture_batch_impl(
+        events=events,
         token=token,
         event_source=event_source,
-        historical_migration=historical_migration,
+        historical_migration=False,
         process_person_profile=process_person_profile,
+        max_attempts=max_attempts,
         timeout=timeout,
+        ai_lane=True,
     )

@@ -4,7 +4,7 @@ import {
   resolveCheckResultAction,
 } from "@posthog/core/settings/updateStatus";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Spinner, Switch } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   SettingsCard,
@@ -13,6 +13,7 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -126,7 +127,7 @@ export function UpdatesSection() {
   const statusLine = updateStatus.message && (
     <span className="inline-flex items-center gap-1">
       {updateStatus.type === "info" && checkingForUpdates && (
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
       )}
       {updateStatus.type === "success" && (
         <CheckCircle size={13} weight="fill" className="text-green-9" />

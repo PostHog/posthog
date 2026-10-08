@@ -40,15 +40,16 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -115,6 +116,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -137,6 +139,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -228,6 +231,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -255,6 +259,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -313,15 +318,16 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -388,6 +394,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -410,6 +417,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -501,6 +509,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -528,6 +537,7 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -586,15 +596,16 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -661,6 +672,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -683,6 +695,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -774,6 +787,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -801,6 +815,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -859,15 +874,16 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                     'site_app',
                     'transformation',
                     'transformation_log',
+                    'legacy_destination',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
         ),
     name: zod
         .string()
@@ -938,6 +954,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()),
+                bytecode_contract: zod.string(),
                 order: zod.number(),
                 transpiled: zod.unknown(),
             })
@@ -960,6 +977,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -1057,6 +1075,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()),
+                            bytecode_contract: zod.string(),
                             order: zod.number(),
                             transpiled: zod.unknown(),
                         })
@@ -1084,6 +1103,7 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
                         bytecode_error: zod.string().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -1164,15 +1184,16 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'site_app',
                             'transformation',
                             'transformation_log',
+                            'legacy_destination',
                         ])
                         .describe(
-                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log\n\* `legacy_destination` - Legacy Destination'
                 ),
             name: zod
                 .string()
@@ -1296,6 +1317,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                         bytecode: zod.array(zod.unknown()),
+                        bytecode_contract: zod.string(),
                         order: zod.number(),
                         transpiled: zod.unknown(),
                     })
@@ -1324,6 +1346,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
+                    bytecode_contract: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -1421,6 +1444,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                         .optional()
                                         .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                                     bytecode: zod.array(zod.unknown()),
+                                    bytecode_contract: zod.string(),
                                     order: zod.number(),
                                     transpiled: zod.unknown(),
                                 })
@@ -1450,6 +1474,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             })
                             .optional(),
                     })

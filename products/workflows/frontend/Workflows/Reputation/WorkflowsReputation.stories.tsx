@@ -10,72 +10,85 @@ import { WorkflowsReputation } from './WorkflowsReputation'
 
 const reputationEndpoint = '/api/projects/:team_id/hog_flows/reputation'
 
-// A fortnight where Gmail starts filtering us halfway through while everyone else stays fine.
-// This is the shape the project-wide rates hide, so it's what the stories are built around.
-function gmailSeries(): TeamEmailReputationResponseApi['isps'][number]['daily'] {
-    return Array.from({ length: 14 }, (_, day) => {
-        const filtered = day >= 7
-        return {
-            date: `2026-08-${String(day + 1).padStart(2, '0')}`,
-            emails_sent: 6000,
-            delivery_rate: filtered ? 0.42 : 0.97,
-            bounce_rate: 0.008,
-        }
-    })
-}
-
-function steadySeries(deliveryRate: number): TeamEmailReputationResponseApi['isps'][number]['daily'] {
-    return Array.from({ length: 14 }, (_, day) => ({
-        date: `2026-08-${String(day + 1).padStart(2, '0')}`,
-        emails_sent: 900,
-        delivery_rate: deliveryRate,
-        bounce_rate: 0.004,
-    }))
-}
-
 const baseResponse: TeamEmailReputationResponseApi = {
     aws: { health: 'healthy', sending_status: 'ENABLED', findings: [] },
     reputation: { bounce_rate: 0.0062, complaint_rate: 0.0001, emails_sent: 115025 },
-    workflows: [],
+    workflows: [
+        {
+            hog_flow_id: '0199c0de-0000-7000-8000-000000000001',
+            hog_flow_name: 'Weekly digest',
+            emails_sent: 42000,
+            bounce_rate: 0.006,
+            complaint_rate: 0.0012,
+            email_sending_paused: false,
+            email_sending_paused_at: null,
+            email_sending_paused_reason: '',
+        },
+        {
+            // Under the complaint floor: 0.56% here is one complaint in 180 sends, so the rate
+            // shows without a verdict. The bounce rate clears its own, much lower, floor.
+            hog_flow_id: '0199c0de-0000-7000-8000-000000000002',
+            hog_flow_name: 'Trial nudge',
+            emails_sent: 180,
+            bounce_rate: 0.011,
+            complaint_rate: 0.0056,
+            email_sending_paused: false,
+            email_sending_paused_at: null,
+            email_sending_paused_reason: '',
+        },
+    ],
     isps: [
         {
             isp: 'Gmail',
             emails_sent: 84000,
             delivery_rate: 0.69,
             bounce_rate: 0.008,
+            transient_bounce_rate: 0.29,
             // Gmail runs no feedback loop, so a complaint rate here would be unmeasurable.
             complaint_rate: null,
+            complaint_base: 0,
             unavailable: [],
-            daily: gmailSeries(),
         },
         {
             isp: 'ExchangeOnline',
             emails_sent: 12600,
             delivery_rate: 0.98,
             bounce_rate: 0.004,
+            transient_bounce_rate: 0.012,
             complaint_rate: 0.0004,
+            complaint_base: 11800,
             unavailable: [],
-            daily: steadySeries(0.98),
         },
         {
             isp: 'Icloud',
             emails_sent: 8100,
-            // Steady, but steadily poor: the case an auto-scaled axis would draw as a flat line
-            // indistinguishable from a healthy provider.
             delivery_rate: 0.45,
             bounce_rate: 0.012,
+            transient_bounce_rate: 0.53,
             complaint_rate: null,
+            complaint_base: 0,
             unavailable: [],
-            daily: steadySeries(0.45),
         },
         {
             isp: 'Yahoo',
             emails_sent: 6300,
             delivery_rate: 0.96,
             bounce_rate: 0.006,
+            transient_bounce_rate: 0.03,
             complaint_rate: 0.0011,
+            complaint_base: 900,
             unavailable: [],
-            daily: steadySeries(0.96),
+        },
+        {
+            // Too little volume to rate: one bounce here would read as 12.5%.
+            isp: 'Aol',
+            emails_sent: 8,
+            delivery_rate: 1,
+            bounce_rate: 0,
+            transient_bounce_rate: 0,
+            complaint_rate: 0,
+            complaint_base: 8,
+            unavailable: [],
         },
     ],
     isp_shared_domains: [],

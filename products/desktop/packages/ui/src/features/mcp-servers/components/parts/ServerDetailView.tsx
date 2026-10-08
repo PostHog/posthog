@@ -30,13 +30,14 @@ import {
 } from "@posthog/ui/features/mcp-servers/components/parts/statusBadge";
 import { ToolRow } from "@posthog/ui/features/mcp-servers/components/parts/ToolRow";
 import { useMcpInstallationTools } from "@posthog/ui/features/mcp-servers/hooks/useMcpInstallationTools";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Badge,
   Button,
   Flex,
   IconButton,
   Separator,
-  Spinner,
   Switch,
   Text,
   TextField,
@@ -160,7 +161,7 @@ export function ServerDetailView({
                   onClick={onReauthorize}
                   disabled={isReauthorizing}
                 >
-                  {isReauthorizing ? <Spinner size="1" /> : null}
+                  {isReauthorizing ? <Spinner size="sm" /> : null}
                   Reconnect
                 </Button>
               ) : null
@@ -172,7 +173,7 @@ export function ServerDetailView({
                 disabled={isInstalling}
               >
                 {isInstalling ? (
-                  <Spinner size="1" />
+                  <Spinner size="sm" />
                 ) : (
                   <DownloadSimple size={12} />
                 )}
@@ -303,7 +304,7 @@ export function ServerDetailView({
                   onClick={refresh}
                 >
                   {refreshPending ? (
-                    <Spinner size="1" />
+                    <Spinner size="sm" />
                   ) : (
                     <ArrowClockwise size={12} weight="bold" />
                   )}
@@ -313,9 +314,7 @@ export function ServerDetailView({
           </Flex>
 
           {isLoading ? (
-            <Flex align="center" justify="center" py="6">
-              <Spinner size="2" />
-            </Flex>
+            <LoadingState className="py-6" />
           ) : visibleTools.length === 0 ? (
             <Flex
               align="center"
@@ -326,7 +325,7 @@ export function ServerDetailView({
               className="rounded border border-gray-6 border-dashed"
             >
               {refreshPending ? (
-                <Spinner size="1" />
+                <Spinner size="sm" />
               ) : (
                 <>
                   <Text className="font-medium text-sm">

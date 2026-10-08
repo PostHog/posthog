@@ -123,14 +123,6 @@ def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> l
                 " | ".join(meta),
                 "",
                 "<details>",
-                "<summary><strong>Why we think it's a valid issue</strong></summary>",
-                "<br>",
-                "",
-                validation.argumentation,
-                "",
-                "</details>",
-                "",
-                "<details>",
                 "<summary><strong>Issue description</strong></summary>",
                 "<br>",
                 "",
@@ -138,14 +130,20 @@ def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> l
                 "",
                 "</details>",
                 "",
-                "<details>",
-                "<summary><strong>Suggested fix</strong></summary>",
-                "<br>",
-                "",
-                issue.suggestion,
-                "",
-                "</details>",
-                "",
             ]
         )
+        # A single-agent finding has no suggestion text: its description ends with the fix direction.
+        if issue.suggestion.strip():
+            lines.extend(
+                [
+                    "<details>",
+                    "<summary><strong>Suggested fix</strong></summary>",
+                    "<br>",
+                    "",
+                    issue.suggestion,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
     return lines

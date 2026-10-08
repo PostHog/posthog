@@ -1,10 +1,12 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   reports: [] as SignalReport[],
   selection: null as { kind: "report"; id: string; reportId: string } | null,
+  clearSelection: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
@@ -14,6 +16,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useInboxActivityPreview", () => ({
   useInboxActivityPreview: () => ({ reports: mocks.reports }),
 }));
 vi.mock("@posthog/ui/features/canvas/stores/activityDetailStore", () => ({
+  clearActivitySelection: mocks.clearSelection,
   useActivitySelection: () => mocks.selection,
 }));
 vi.mock("@posthog/ui/features/tasks/useResolvedTask", () => ({
@@ -30,14 +33,17 @@ vi.mock("@posthog/ui/features/inbox/components/ReportDetail", () => ({
     reportId,
     cachedReport,
     statusRedirect,
+    headerTrailingAction,
   }: {
     reportId: string;
     cachedReport?: SignalReport;
     statusRedirect?: boolean;
+    headerTrailingAction?: ReactNode;
   }) => (
     <div data-testid="report-detail">
       {reportId}:{cachedReport?.title}:
       {statusRedirect === false ? "instant" : "loading"}
+      {headerTrailingAction}
     </div>
   ),
 }));
@@ -48,6 +54,7 @@ describe("ActivityDetailPane", () => {
   beforeEach(() => {
     mocks.reports = [];
     mocks.selection = null;
+    mocks.clearSelection.mockClear();
   });
 
   it("renders a selected feed report immediately from the preview data", () => {
@@ -68,5 +75,8 @@ describe("ActivityDetailPane", () => {
     expect(screen.getByTestId("report-detail")).toHaveTextContent(
       "report-1:Checkout conversion dropped:instant",
     );
+
+    fireEvent.click(screen.getByLabelText("Close activity item"));
+    expect(mocks.clearSelection).toHaveBeenCalledOnce();
   });
 });

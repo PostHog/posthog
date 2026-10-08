@@ -19,6 +19,9 @@ Usage:
     # Check if any changed files affect a worker
     python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "posthog/utils.py posthog/unrelated_file.py"
     # Output: {"affected": true, "matching_files": ["posthog/utils.py"]}
+
+    # Read a NUL-delimited changed-file list
+    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes-file /tmp/changed-files
 """
 
 import os
@@ -91,6 +94,10 @@ def check_if_changes_affect_entrypoint(
     return bool(matching), sorted(matching)
 
 
+def read_changed_files(path: Path) -> list[str]:
+    return [os.fsdecode(filename) for filename in path.read_bytes().split(b"\0") if filename]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Find all local Python dependencies for a given entrypoint module.",
@@ -101,10 +108,17 @@ def main():
         "entrypoint",
         help="Module path to analyze (e.g., products.exports.backend.temporal.subscriptions)",
     )
-    parser.add_argument(
+    changed_files_group = parser.add_mutually_exclusive_group()
+    changed_files_group.add_argument(
         "--check-changes",
         metavar="FILES",
         help="Space-separated list of changed files to check against dependencies",
+    )
+    changed_files_group.add_argument(
+        "--check-changes-file",
+        type=Path,
+        metavar="PATH",
+        help="Read a NUL-delimited list of changed files from this path",
     )
 
     args = parser.parse_args()
@@ -122,8 +136,12 @@ def main():
         graph = build_import_graph(LOCAL_PACKAGES)
         sys.stderr.write("Import graph built successfully.\n")
 
-        if args.check_changes:
-            changed_files = args.check_changes.split()
+        if args.check_changes is not None or args.check_changes_file is not None:
+            changed_files = (
+                args.check_changes.split()
+                if args.check_changes is not None
+                else read_changed_files(args.check_changes_file)
+            )
             affected, matching = check_if_changes_affect_entrypoint(graph, args.entrypoint, changed_files)
             sys.stdout.write(json.dumps({"affected": affected, "matching_files": matching}) + "\n")
         else:
@@ -133,7 +151,7 @@ def main():
     except Exception as e:
         sys.stderr.write(f"Error detecting dependency relationship: {e}\n")
         sys.stderr.write("Falling back to assuming all changes affect the entrypoint.\n")
-        if args.check_changes:
+        if args.check_changes is not None or args.check_changes_file is not None:
             # Err on the side of re-building in case we run into an error.
             sys.stdout.write(json.dumps({"affected": True, "matching_files": []}) + "\n")
         else:

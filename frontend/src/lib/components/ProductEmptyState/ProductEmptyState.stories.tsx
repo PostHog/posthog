@@ -1,4 +1,8 @@
 import { Meta } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { Mocks } from '~/mocks/utils'
 
@@ -11,6 +15,8 @@ import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptySt
 import { alertsEmptyState } from 'products/alerts/frontend/emptyState/alertsEmptyState'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 import { businessKnowledgeEmptyState } from 'products/business_knowledge/frontend/emptyState/businessKnowledgeEmptyState'
+import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
+import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/transformationsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
@@ -20,10 +26,10 @@ import { dataCatalogEmptyState } from 'products/data_catalog/frontend/emptyState
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
 import { endpointsEmptyState } from 'products/endpoints/frontend/emptyState/endpointsEmptyState'
+import { engineeringAnalyticsEmptyState } from 'products/engineering_analytics/frontend/emptyState/engineeringAnalyticsEmptyState'
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
-import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
@@ -31,14 +37,15 @@ import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsE
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { pulseEmptyState } from 'products/pulse/frontend/emptyState/pulseEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
 import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
-import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
+import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -75,6 +82,24 @@ export const MCPAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateS
     'needs-setup',
     { mocks: mcpSignalMocks(false) }
 )
+
+export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmptyStateStory(
+    mcpAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: mcpSignalMocks(false), containerWidth: 520 }
+)
+
+export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
+    ...MCPAnalyticsNeedsSetup,
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, snapshotTargetSelector: 'body' },
+    },
+    play: async ({ canvasElement }) => {
+        const trigger = await within(canvasElement).findByRole('button', { name: 'Install with your agent' })
+        await userEvent.click(trigger)
+        await screen.findByRole('dialog')
+    },
+}
 
 export const MCPAnalyticsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     mcpAnalyticsEmptyState,
@@ -162,16 +187,6 @@ export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStor
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
 })
 
-export const UserInterviewsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
-    userInterviewsEmptyState,
-    'needs-setup',
-    { mocks: { get: { '/api/projects/:team_id/user_interview_topics/': [200, emptyEntityList] } } }
-)
-
-export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
-    mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
-})
-
 export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     productToursEmptyState,
     'needs-setup',
@@ -196,6 +211,17 @@ export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     }
 )
 
+// A scene narrowed by the side panel (or a small window): the preview stacks under the copy
+// instead of sharing the row, so neither is squeezed into a column too narrow to read.
+export const FeatureFlagsNarrowScene: ProductEmptyStateStory = productEmptyStateStory(
+    featureFlagsEmptyState,
+    'needs-setup',
+    {
+        containerWidth: 600,
+        mocks: { get: { '/api/projects/:team_id/feature_flags/': [200, emptyEntityList] } },
+    }
+)
+
 // AI observability detection is binary (no waiting-for-data middle state).
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
@@ -204,25 +230,34 @@ export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptySta
 
 // Replay vision detection is binary too (a scanner is the unit of setup); its
 // detection logic polls the scanner stats endpoint, so answer it with zeros.
+const replayVisionScannerStatsMocks: Mocks = {
+    get: {
+        '/api/projects/:team_id/vision/scanners/stats/': {
+            total: 0,
+            enabled: 0,
+            by_type: {
+                monitor: { enabled: 0, total: 0 },
+                classifier: { enabled: 0, total: 0 },
+                scorer: { enabled: 0, total: 0 },
+                summarizer: { enabled: 0, total: 0 },
+            },
+        },
+    },
+}
+
 export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     replayVisionEmptyState,
     'needs-setup',
-    {
-        mocks: {
-            get: {
-                '/api/projects/:team_id/vision/scanners/stats/': {
-                    total: 0,
-                    enabled: 0,
-                    by_type: {
-                        monitor: { enabled: 0, total: 0 },
-                        classifier: { enabled: 0, total: 0 },
-                        scorer: { enabled: 0, total: 0 },
-                        summarizer: { enabled: 0, total: 0 },
-                    },
-                },
-            },
-        },
-    }
+    { mocks: replayVisionScannerStatsMocks }
+)
+
+// Replay vision is the one product with `hedgehogPlacement: 'beside'`. Below the width the
+// wide illustration needs, it falls back to the small hedgehog above the product name, so
+// the pitch keeps a readable column instead of being squeezed next to the artwork.
+export const ReplayVisionNarrowScene: ProductEmptyStateStory = productEmptyStateStory(
+    replayVisionEmptyState,
+    'needs-setup',
+    { containerWidth: 1100, mocks: replayVisionScannerStatsMocks }
 )
 
 // Actions detection lists actions on mount - answer "none yet".
@@ -292,6 +327,27 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     'waiting-for-data',
     { mocks: errorTrackingMocks }
 )
+
+// The `error-tracking` wizard subcommand is flag-gated: with the flag on the terminal card
+// is the only call to action and the autocapture opt-in leaves the screen.
+const errorTrackingNeedsSetupNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'needs-setup', {
+    mocks: errorTrackingMocks,
+})
+export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
+    ...errorTrackingNeedsSetupNewWizard,
+    parameters: {
+        ...errorTrackingNeedsSetupNewWizard.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
+
+export const ErrorTrackingWaitingForDataNewWizard: ProductEmptyStateStory = {
+    ...ErrorTrackingWaitingForData,
+    parameters: {
+        ...ErrorTrackingWaitingForData.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
 
 // Logs detection asks the has-logs API on mount - answer "none yet".
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
@@ -376,6 +432,49 @@ export const DataCatalogNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
 export const NotebooksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(notebooksEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/notebooks/': [200, { count: 0, results: [] }] } },
 })
+
+// Pulse detection counts briefs on mount; its run button also reads the focus configs.
+export const PulseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(pulseEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/pulse/briefs/': [200, emptyEntityList],
+            '/api/projects/:team_id/pulse/brief_configs/': [200, emptyEntityList],
+        },
+    },
+})
+
+// Destinations detection counts hog functions, legacy plugin destinations, and batch
+// exports on mount - answer "none yet" to each.
+export const DestinationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    destinationsEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/hog_functions/': [200, emptyEntityList],
+                '/api/projects/:team_id/pipeline_destination_configs/': [200, emptyEntityList],
+                // nosemgrep: no-environments-api-urls-frontend -- batch exports are env-scoped, so the msw mock must match /api/environments to intercept them
+                '/api/environments/:team_id/batch_exports/': [200, emptyEntityList],
+            },
+        },
+    }
+)
+
+// Transformations detection counts transformation hog functions on mount - answer "none yet".
+export const TransformationsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    transformationsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } } }
+)
+
+// Engineering analytics detection lists GitHub sources on mount - answer "none yet".
+export const EngineeringAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    engineeringAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/engineering_analytics/sources/': [200, []] } } }
+)
+
+export const HeatmapsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(heatmapsEmptyState, 'needs-setup')
 
 // Data warehouse detection lists sources and tables on mount - answer "none yet".
 export const DataWarehouseNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(

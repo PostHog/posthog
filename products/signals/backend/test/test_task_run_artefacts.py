@@ -13,9 +13,11 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportTask,
 )
 from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -169,7 +171,8 @@ class TestTaskRunArtefacts(BaseTest):
             report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         ).exists()
         assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(task.id)]
-        assignment = SignalReportAssignment.all_teams.get(report=report)
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.TASK
         assert assignment.actor_task_id == task.id
 
@@ -177,25 +180,56 @@ class TestTaskRunArtefacts(BaseTest):
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
 
-    def test_task_run_pr_is_copied_to_the_assignment(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_task_run_pr_is_linked_to_the_claim(self, attach_after_merge):
         report = self._report()
         task = self._task()
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        if attach_after_merge:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={
+                    "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                    "pr_state": "merged",
+                    "pr_merged": True,
+                },
+            )
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.RESOLVED
 
         TaskRun.objects.create(
             team=self.team,
             task=task,
             status=TaskRun.Status.COMPLETED,
-            output={"pr_url": "https://github.com/PostHog/posthog/pull/42", "pr_state": "open"},
+            output={
+                "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                "pr_state": "merged",
+                "pr_merged": True,
+                "pr_urls": ["https://github.com/PostHog/posthog/pull/42", "https://github.com/example/app/pull/43"],
+            },
         )
 
-        assignment = SignalReportAssignment.all_teams.get(report=report)
-        assert assignment.pr_url == "https://github.com/PostHog/posthog/pull/42"
-        assert assignment.repository == "posthog/posthog"
-        assert assignment.pr_number == 42
-        assert assignment.pr_state == SignalReportAssignment.PrState.OPEN
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=42)
+        assert pr.url == "https://github.com/PostHog/posthog/pull/42"
+        assert pr.repository == "posthog/posthog"
+        assert pr.number == 42
+        assert pr.state == SignalReportAssignment.PrState.MERGED
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type="pull_request", claim_id=assignment.claim_id
+            ).count()
+            == 2
+        )
 
-    def test_task_pr_sync_preserves_each_assignments_existing_state(self):
+    def test_task_pr_sync_preserves_shared_merged_state(self):
         merged_report = self._report()
         new_report = self._report()
         task = self._task()
@@ -203,7 +237,9 @@ class TestTaskRunArtefacts(BaseTest):
             record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
 
         pr_url = "https://github.com/PostHog/posthog/pull/42"
-        SignalReportAssignment.all_teams.filter(report=merged_report).update(
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=merged_report,
             pr_url=pr_url,
             repository="posthog/posthog",
             pr_number=42,
@@ -217,12 +253,9 @@ class TestTaskRunArtefacts(BaseTest):
             pr_url=pr_url,
         )
 
-        merged_assignment = SignalReportAssignment.all_teams.get(report=merged_report)
-        new_assignment = SignalReportAssignment.all_teams.get(report=new_report)
-        assert merged_assignment.pr_state == SignalReportAssignment.PrState.MERGED
-        assert merged_assignment.pr_merged is True
-        assert new_assignment.pr_state == SignalReportAssignment.PrState.UNKNOWN
-        assert new_assignment.pr_merged is False
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=42)
+        assert pr.state == "merged"
+        assert SignalReportArtefact.objects.filter(pull_request=pr).values("report_id").distinct().count() == 2
 
     def test_record_implementation_task_declared_billing_exemption_marks_report(self):
         # A caller that knows its origin is PostHog-system freezes the exemption in the same

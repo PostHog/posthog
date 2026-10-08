@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { subscriptionLogic } from '../../components/Subscriptions/subscriptionLogic'
@@ -27,9 +26,8 @@ export function SubscriptionsSceneModal(): JSX.Element | null {
         dashboardLoading: newSubscriptionDashboardLoading,
     } = useValues(newSubscriptionTargetLogic)
     const { reset: resetNewSubscriptionTarget } = useActions(newSubscriptionTargetLogic)
-    const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
 
-    const isWizard = subscriptionModalId === 'new' && subscriptionWizardExperimentEnabled
+    const isWizard = subscriptionModalId === 'new'
     const insightTarget = newSubscriptionTarget?.kind === 'insight' ? newSubscriptionTarget : null
     const dashboardTargetPending = newSubscriptionTarget?.kind === 'dashboard' && !newSubscriptionDashboard
     // A dashboard that failed to load leaves nothing to send, so the picker comes back.

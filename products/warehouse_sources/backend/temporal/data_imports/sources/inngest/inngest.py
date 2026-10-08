@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import (
     INNGEST_DEFAULT_VERSION,
     INNGEST_ENDPOINTS,
+    V2_MAX_PAGE_SIZE,
     InngestEndpointConfig,
 )
 
@@ -309,6 +311,36 @@ def _drop_redacted_fields(item: dict[str, Any], redacted_fields: tuple[str, ...]
     return item
 
 
+def _iter_v2_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    path: str,
+    params: Optional[dict[str, Any]] = None,
+    cursor: str | None = None,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Page a v2 list endpoint via its `page.cursor` / `page.hasMore` envelope.
+
+    Yields (page items, next cursor); the next cursor is None on the final page.
+    """
+    while True:
+        request_params = {**(params or {}), **({"cursor": cursor} if cursor else {})}
+        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger, params=request_params or None)
+        items = [item for item in payload.get("data") or [] if isinstance(item, dict)]
+        page = payload.get("page") or {}
+        next_cursor = page.get("cursor")
+        has_more = bool(page.get("hasMore")) and bool(next_cursor) and next_cursor != cursor
+        yield items, next_cursor if has_more else None
+        if not has_more:
+            break
+        cursor = next_cursor
+
+
+def _page_params(config: InngestEndpointConfig) -> dict[str, Any]:
+    # Endpoints without a page size keep the server default: their maxima are undocumented.
+    return {"limit": config.page_size} if config.page_size else {}
+
+
 def _get_v2_list_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -316,25 +348,131 @@ def _get_v2_list_rows(
     config: InngestEndpointConfig,
     path: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Page a v2 list endpoint via its `page.cursor` / `page.hasMore` envelope.
-
-    No `limit` is passed: the documented defaults vary per endpoint and the maxima are
-    undocumented, so we accept the server default — these are small inventory lists.
-    """
-    cursor: str | None = None
-    while True:
-        params = {"cursor": cursor} if cursor else None
-        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger, params=params)
-        items = payload.get("data") or []
-        rows = [_drop_redacted_fields(item, config.redacted_fields) for item in items if isinstance(item, dict)]
+    for items, _ in _iter_v2_pages(session, headers, logger, path, _page_params(config)):
+        rows = [_drop_redacted_fields(item, config.redacted_fields) for item in items]
         if rows:
             yield rows
 
-        page = payload.get("page") or {}
-        next_cursor = page.get("cursor")
-        if not page.get("hasMore") or not next_cursor or next_cursor == cursor:
-            break
-        cursor = next_cursor
+
+def _normalize_v2_run(run: dict[str, Any]) -> dict[str, Any]:
+    output = run.get("output")
+    if output is not None and not isinstance(output, str):
+        run["output"] = json.dumps(output)
+    return run
+
+
+def _get_v2_run_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: InngestEndpointConfig,
+    path: str,
+    resumable_source_manager: ResumableSourceManager[InngestResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """List every run (event, cron and invoke triggered) over a pinned queuedAt window, oldest first.
+
+    The resume state reuses the events walk's fields: `cursor` is the v2 page cursor and
+    `received_after`/`received_before` hold the pinned `from`/`until` bounds.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.received_after and resume.received_before:
+        window: SyncWindow[str] = SyncWindow(start=resume.received_after, end=resume.received_before)
+        cursor = resume.cursor
+    else:
+        window = _event_window(should_use_incremental_field, db_incremental_field_last_value)
+        cursor = None
+
+    params = {
+        **_page_params(config),
+        "from": window.start,
+        "until": window.end,
+        "timeField": "queuedAt",
+        "order": "ASC",
+        "includeOutput": "true",
+    }
+    for items, next_cursor in _iter_v2_pages(session, headers, logger, path, params, cursor):
+        if next_cursor:
+            resumable_source_manager.save_state(
+                InngestResumeConfig(cursor=next_cursor, received_after=window.start, received_before=window.end)
+            )
+        rows = [_normalize_v2_run(item) for item in items]
+        if rows:
+            yield rows
+
+
+def _get_app_function_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: InngestEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    for apps, _ in _iter_v2_pages(session, headers, logger, "/v2/apps", {"limit": V2_MAX_PAGE_SIZE}):
+        for app in apps:
+            app_id = app.get("id")
+            if not app_id:
+                continue
+            path = config.path.format(app_id=quote(app_id, safe=""))
+            for functions, _ in _iter_v2_pages(session, headers, logger, path, _page_params(config)):
+                rows = [{**function, "app_id": app_id} for function in functions]
+                if rows:
+                    yield rows
+
+
+def _session_window_params(config: InngestEndpointConfig, window: SyncWindow[str]) -> dict[str, Any]:
+    # The default `from` of the session lists is undocumented, so always send the backfill window.
+    return {**_page_params(config), "from": window.start, "until": window.end}
+
+
+def _iter_session_keys(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[str]:
+    keys_config = INNGEST_ENDPOINTS["session_keys"]
+    for keys, _ in _iter_v2_pages(session, headers, logger, keys_config.path, _page_params(keys_config)):
+        for key in keys:
+            if key.get("id"):
+                yield key["id"]
+
+
+def _get_session_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: InngestEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    window = _event_window(should_use_incremental_field=False, db_incremental_field_last_value=None)
+    for session_key in _iter_session_keys(session, headers, logger):
+        path = config.path.format(session_key=quote(session_key, safe=""))
+        for items, _ in _iter_v2_pages(session, headers, logger, path, _session_window_params(config, window)):
+            rows = [{**item, "session_key": session_key} for item in items]
+            if rows:
+                yield rows
+
+
+def _get_session_run_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    config: InngestEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    sessions_config = INNGEST_ENDPOINTS["sessions"]
+    window = _event_window(should_use_incremental_field=False, db_incremental_field_last_value=None)
+    for session_key in _iter_session_keys(session, headers, logger):
+        encoded_key = quote(session_key, safe="")
+        sessions_path = sessions_config.path.format(session_key=encoded_key)
+        for sessions, _ in _iter_v2_pages(
+            session, headers, logger, sessions_path, _session_window_params(sessions_config, window)
+        ):
+            for session_group in sessions:
+                session_id = session_group.get("id")
+                if not session_id:
+                    continue
+                path = config.path.format(session_key=encoded_key, session_id=quote(session_id, safe=""))
+                for runs, _ in _iter_v2_pages(session, headers, logger, path, _session_window_params(config, window)):
+                    rows = [{**run, "session_key": session_key, "session_id": session_id} for run in runs]
+                    if rows:
+                        yield rows
 
 
 def _get_v1_list_rows(
@@ -387,11 +525,28 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.fan_out == "app_functions":
+        yield from _get_app_function_rows(session, headers, logger, config)
+    elif config.fan_out == "session_key_sessions":
+        yield from _get_session_rows(session, headers, logger, config)
+    elif config.fan_out == "session_runs":
+        yield from _get_session_run_rows(session, headers, logger, config)
     elif pagination == "events_cursor":
         yield from _get_event_rows(
             session,
             headers,
             logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif pagination == "v2_runs_window":
+        yield from _get_v2_run_rows(
+            session,
+            headers,
+            logger,
+            config,
+            path,
             resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
@@ -430,7 +585,8 @@ def inngest_source(
         # The events walk's ordering within the window is undocumented (and could not be
         # curl-verified without credentials), so declare "desc": the watermark is then persisted
         # only at successful job end from the max value seen, which is correct for any arrival
-        # order. Full-refresh endpoints keep the default.
+        # order. The v2 runs list is requested in ascending queuedAt order, and full-refresh
+        # endpoints keep the default.
         sort_mode="desc" if config.pagination == "events_cursor" else "asc",
         partition_count=1,
         partition_size=1,

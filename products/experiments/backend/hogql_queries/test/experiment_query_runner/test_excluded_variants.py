@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 
 from django.test import override_settings
 
@@ -34,7 +34,7 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
             ("excluded_variants_naming_holdout_is_idempotent", [], True, [_HOLDOUT_KEY]),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, excluded_variants):
         feature_flag = self.create_feature_flag(key=f"{name.replace('_', '-')}-test")
         for index, variant_key in enumerate(extra_variants):

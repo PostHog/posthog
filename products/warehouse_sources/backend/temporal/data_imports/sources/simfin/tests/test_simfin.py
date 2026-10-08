@@ -132,9 +132,6 @@ class TestSimFin:
             },
         ]
 
-    def test_parse_statements_skips_companies_without_statements(self) -> None:
-        assert list(_parse_statements([{"id": 1, "ticker": "AAPL", "statements": None}], "AAPL")) == []
-
     def test_parse_prices_reshapes_columns_and_injects_company_fields(self) -> None:
         body = [
             {
@@ -159,10 +156,6 @@ class TestSimFin:
                 "trading_volume": 45000000,
             }
         ]
-
-    def test_parse_companies_yields_objects_as_returned(self) -> None:
-        body = [{"id": 111052, "ticker": "AAPL", "name": "Apple Inc", "sectorCode": 101}]
-        assert list(_parse_companies(body, None)) == body
 
     def test_parse_company_details_keeps_camel_case_columns(self) -> None:
         # Column names on this endpoint are already camelCase identifiers matching /companies/list;

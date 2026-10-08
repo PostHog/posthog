@@ -108,7 +108,8 @@ def _current_rate() -> float:
 def _rate_policy(_key: str) -> RatePolicy:
     """Resolve the live global budget. Registered as a provider so a constance change to the rate
     takes effect without a restart (read on each acquire, not frozen at import)."""
-    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER)
+    # Flat: this consumer is the budget's only caller, so no higher lane needs reserved headroom.
+    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER, reserve={})
 
 
 register_policy(_RATE_DOMAIN, _rate_policy)
@@ -149,7 +150,12 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
             "event_name": "$groupidentify",
             "event_source": event_source,
             "distinct_id": str(distinct_id),
-            "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
+            "properties": {
+                "$group_type": group_type,
+                "$group_key": str(group_key),
+                "$group_set": properties,
+                "$geoip_disable": True,
+            },
             "process_person_profile": True,
         }
     return {
@@ -157,7 +163,7 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         "event_name": "$set",
         "event_source": event_source,
         "distinct_id": str(distinct_id),
-        "properties": {"$set": properties},
+        "properties": {"$set": properties, "$geoip_disable": True},
         "process_person_profile": True,
     }
 

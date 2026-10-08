@@ -22,7 +22,7 @@ class AccountChannelSummary(TeamScopedRootMixin, UUIDModel):
 
     all_teams = models.Manager()  # noqa: DJ012
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     account = models.ForeignKey(
         "customer_analytics.Account", on_delete=models.CASCADE, related_name="channel_summaries"
     )

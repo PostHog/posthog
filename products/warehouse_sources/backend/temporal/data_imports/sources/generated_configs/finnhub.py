@@ -8,4 +8,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class FinnhubSourceConfig(config.Config):
     api_key: str
     symbols: str | None = None
+    indices: str | None = None
     exchange: str | None = None

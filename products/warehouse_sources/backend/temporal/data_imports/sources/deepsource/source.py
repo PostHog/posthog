@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,9 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "repositories": "All repositories in the account, including ones not activated on DeepSource",
     "analysis_runs": "One row per analysis run with its status and occurrence summary",
+    "checks": "One row per analyzer check inside an analysis run, with the issues it introduced and resolved",
+    "pull_requests": "Pull requests analyzed by DeepSource, with the issues and vulnerabilities each one raised",
     "issues": "Currently open issue types per repository with category, severity, and occurrence count",
     "issue_occurrences": "Every open occurrence of an issue with its file path and position",
     "vulnerability_occurrences": "Dependency vulnerabilities (SCA) with CVSS/EPSS scores per repository",
+    "analyzers": "Every analyzer DeepSource offers, resolving the shortcodes carried on issues and checks",
     "metrics": "Latest value per code-quality metric and language (coverage, duplication, and more)",
     "reports": "Current value and status of each compliance and trend report (OWASP Top 10, code health, and more)",
 }
@@ -63,7 +64,7 @@ class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEEPSOURCE,
+            name=ExternalDataSourceType.DEEPSOURCE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DeepSource",
             releaseStatus=ReleaseStatus.ALPHA,

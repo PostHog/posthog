@@ -146,7 +146,7 @@ export class ResourceCatalog {
     }
 
     private contextMillLocalUrl(): string | undefined {
-        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+        const localUrlRaw = this.env.POSTHOG_MCP_LOCAL_SKILLS_URL
         return localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
     }
 
@@ -178,13 +178,16 @@ export class ResourceCatalog {
 
         for (const app of UI_APPS) {
             const html = buildAppStubHtml(app.appDir, baseUrl)
-            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl)
+            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl, app.resourceDomains)
 
+            // `_meta` goes on the list entry too, because a host that builds the iframe CSP
+            // from `resources/list` alone never sees the metadata on the read entry.
             this.uiAppResources.push({
                 name: app.name,
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 description: app.description,
+                _meta: meta,
             })
             this.uiAppReadEntries.set(app.uri, {
                 uri: app.uri,

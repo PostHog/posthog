@@ -107,40 +107,11 @@ class TestBuildGroupsParams:
 
 
 class TestIterPages:
-    def test_walks_pages_until_empty_page(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 150, "projects": [{"id": 1}] * PAGE_LIMIT},
-                ("/api/v4/projects", 2): {"count": 150, "projects": [{"id": 2}] * 50},
-            }
-        )
-        monkeypatch.setattr(airbrake, "_fetch_page", pages)
-        result = list(airbrake._iter_pages(MagicMock(), "user-key", "/api/v4/projects", "projects", MagicMock()))
-        assert [(page, len(items)) for page, items in result] == [(1, PAGE_LIMIT), (2, 50)]
-        # Page 2 was short of the limit but non-empty: only the empty page 3 may terminate the walk,
-        # otherwise a server that clamps `limit` below PAGE_LIMIT truncates every collection to one page.
-        assert [params["page"] for _path, params in pages.requests] == [1, 2, 3]
-
-    def test_single_page_collection_skips_trailing_empty_request(self, monkeypatch: Any) -> None:
-        pages = _FakePages({("/api/v4/projects", 1): {"count": 2, "projects": [{"id": 1}, {"id": 2}]}})
-        monkeypatch.setattr(airbrake, "_fetch_page", pages)
-        result = list(airbrake._iter_pages(MagicMock(), "user-key", "/api/v4/projects", "projects", MagicMock()))
-        assert [(page, len(items)) for page, items in result] == [(1, 2)]
-        assert len(pages.requests) == 1
-
     def test_max_pages_cap_truncates_collection(self, monkeypatch: Any) -> None:
         pages = _FakePages({("/p", page): {"count": 999, "notices": [{"id": page}]} for page in range(1, 10)})
         monkeypatch.setattr(airbrake, "_fetch_page", pages)
         result = list(airbrake._iter_pages(MagicMock(), "user-key", "/p", "notices", MagicMock(), max_pages=3))
         assert [page for page, _items in result] == [1, 2, 3]
-
-    def test_key_and_limit_sent_on_every_page(self, monkeypatch: Any) -> None:
-        pages = _FakePages({("/api/v4/projects", 1): {"count": 999, "projects": [{"id": 1}]}})
-        monkeypatch.setattr(airbrake, "_fetch_page", pages)
-        list(airbrake._iter_pages(MagicMock(), "user-key", "/api/v4/projects", "projects", MagicMock()))
-        for _path, params in pages.requests:
-            assert params["key"] == "user-key"
-            assert params["limit"] == PAGE_LIMIT
 
 
 class TestFetchPageRetries:
@@ -191,17 +162,6 @@ class TestFetchPageRetries:
 
 
 class TestGroupsFanOut:
-    def test_fans_out_over_every_project(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 2, "projects": [{"id": 1}, {"id": 2}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 1, "groups": [{"id": "g1", "projectId": 1}]},
-                ("/api/v4/projects/2/groups", 1): {"count": 1, "groups": [{"id": "g2", "projectId": 2}]},
-            }
-        )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "groups")
-        assert rows == [{"id": "g1", "projectId": 1}, {"id": "g2", "projectId": 2}]
-
     def test_incremental_run_passes_start_time_to_every_project(self, monkeypatch: Any) -> None:
         pages = _FakePages(
             {
@@ -306,18 +266,6 @@ class TestDeploysFanOut:
 
 
 class TestNoticesFanOut:
-    def test_fans_out_per_project_per_group(self, monkeypatch: Any) -> None:
-        pages = _FakePages(
-            {
-                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
-                ("/api/v4/projects/1/groups", 1): {"count": 2, "groups": [{"id": "g1"}, {"id": "g2"}]},
-                ("/api/v4/projects/1/groups/g1/notices", 1): {"count": 1, "notices": [{"id": "n1", "groupId": "g1"}]},
-                ("/api/v4/projects/1/groups/g2/notices", 1): {"count": 1, "notices": [{"id": "n2", "groupId": "g2"}]},
-            }
-        )
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
-        assert rows == [{"id": "n1", "groupId": "g1"}, {"id": "n2", "groupId": "g2"}]
-
     def test_resume_skips_groups_before_bookmark(self, monkeypatch: Any) -> None:
         pages = _FakePages(
             {

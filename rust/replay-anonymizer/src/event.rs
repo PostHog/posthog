@@ -243,7 +243,19 @@ pub fn route_data(
         }
         Some(TYPE_CUSTOM) => match as_object_mut(data) {
             Some(data) if data.get("tag").and_then(as_str) == Some(JSON_LD_EVENT_TAG) => {
-                Ok(scrub_json_ld_payload(data))
+                let mut changed = scrub_json_ld_payload(data);
+                if let Some(href) = data.get("href") {
+                    if let Some(href) = as_str(href) {
+                        if let Some(scrubbed) = scrub_url(ctx, href) {
+                            data.insert(key("href"), string_value(scrubbed));
+                            changed = true;
+                        }
+                    } else {
+                        data.remove("href");
+                        changed = true;
+                    }
+                }
+                Ok(changed)
             }
             Some(data) => Ok(scrub_generic_field(ctx, data, "payload")),
             None => Ok(false),

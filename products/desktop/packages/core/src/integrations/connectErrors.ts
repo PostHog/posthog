@@ -1,4 +1,5 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import { readApiErrorBody } from "./apiErrorBody";
 
 export interface GithubConnectError {
   message: string;
@@ -10,6 +11,40 @@ export const GITHUB_CONNECT_TIMEOUT_MESSAGE =
 
 export const GITHUB_INSTALL_PENDING_MESSAGE =
   "GitHub sent your request to your organization owners. Once an owner approves the PostHog app, we'll finish connecting here.";
+
+export const GITHUB_CONNECTION_REQUIRED_MESSAGE =
+  "Connect GitHub to investigate signals with code context.";
+
+export const GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE =
+  "Connect GitHub to run this cloud task with code context.";
+
+export const GITHUB_CODE_CONTEXT_MESSAGE =
+  "PostHog reads the GitHub repositories you authorize so agents can use their latest code. Code changes are sent in a pull request for your review.";
+
+export const GITHUB_ADMIN_ACCESS_REQUEST =
+  "PostHog needs read access to diagnose product changes using code context and keep investigations current. When a task changes code, it also needs permission to create branches and open pull requests for review.";
+
+const GITHUB_CONNECTION_REQUIRED_PATTERNS = [
+  /github_authorization_required/i,
+  /github is not connected/i,
+  /github integration is required/i,
+  /link a github account with repo access/i,
+  /requires (?:an acting user with|a linked) github (?:account with )?repo access/i,
+  /check that github is connected for this project/i,
+  // Provisioning wraps the reauthorization error, so the run records the
+  // wrapper's wording rather than the "repo access" phrasing above.
+  /github (?:user )?integration\b.*\brequires reauthorization/i,
+  /github (?:user )?integration\b.*\bno longer exists/i,
+];
+
+export function isGithubConnectionRequiredError(
+  message: string | null | undefined,
+): boolean {
+  return (
+    !!message &&
+    GITHUB_CONNECTION_REQUIRED_PATTERNS.some((pattern) => pattern.test(message))
+  );
+}
 
 /**
  * A disconnect that 404s means the row is already gone, usually because the App was
@@ -60,6 +95,15 @@ const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
 
 export const GITHUB_CONNECT_PENDING_APPROVAL_CODE = "github_install_pending";
 
+export function isGithubConnectAlreadyLinked(
+  error: GithubConnectError | null,
+): boolean {
+  return (
+    error?.code === "invalid_input" &&
+    /all GitHub App installations.*already linked/i.test(error.message)
+  );
+}
+
 /** Travels on the error channel but is not a failure: the connect can still
  * succeed once an org owner approves, so callers render it as informational. */
 export function isGithubConnectPendingApproval(
@@ -72,6 +116,9 @@ export function describeGithubConnectError(
   error: GithubConnectError | null,
 ): string {
   if (!error) return "";
+  if (isGithubConnectAlreadyLinked(error)) {
+    return "All GitHub organizations available to your account are already connected.";
+  }
   if (error.code && GITHUB_CONNECT_ERROR_MESSAGES[error.code]) {
     return GITHUB_CONNECT_ERROR_MESSAGES[error.code];
   }
@@ -90,14 +137,7 @@ export function describeIntegrationDisconnectError(
   if (requestErrorStatus(error) === 403) {
     return "Only project admins can disconnect this integration.";
   }
-  const body =
-    error && typeof error === "object" && "body" in error
-      ? (error as { body?: unknown }).body
-      : null;
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? (body as { detail?: unknown }).detail
-      : null;
-  if (typeof detail === "string" && detail) return detail;
+  const { detail } = readApiErrorBody(error);
+  if (detail) return detail;
   return error instanceof Error ? error.message : fallback;
 }

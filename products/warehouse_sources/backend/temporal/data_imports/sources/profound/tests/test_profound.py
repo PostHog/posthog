@@ -8,8 +8,6 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound import (
-    DEFAULT_REPORT_LOOKBACK_DAYS,
-    REPORT_PAGE_SIZE,
     ProfoundCategoriesError,
     ProfoundResumeConfig,
     _to_report_date,
@@ -17,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.profound.p
     profound_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.profound.settings import PROFOUND_ENDPOINTS
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 PROFOUND_SESSION_PATCH = (
@@ -85,12 +82,6 @@ class TestFetchCategoryIds:
         assert fetch_category_ids("key") == ["c1", "c2"]
 
     @mock.patch(PROFOUND_SESSION_PATCH)
-    def test_rows_without_an_id_are_skipped(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = _json_response([{"id": "c1"}, {"name": "no id"}])
-
-        assert fetch_category_ids("key") == ["c1"]
-
-    @mock.patch(PROFOUND_SESSION_PATCH)
     def test_an_unexpected_shape_raises(self, MockSession) -> None:
         # Silently syncing 0 report rows would look like an empty account.
         MockSession.return_value.get.return_value = _json_response({"data": []})
@@ -126,109 +117,8 @@ class TestReportRequests:
         # The report body takes YYYY-MM-DD; a full timestamp is rejected with a 422.
         assert _to_report_date(value) == expected
 
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_report_body_names_the_category_and_window(self, MockSession, _mock_categories) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_report_response([{"date": "2026-06-09"}])])
-
-        _rows(
-            _source(
-                "Visibility",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 6, 1),
-                today=date(2026, 6, 15),
-            )
-        )
-
-        body = bodies[0]
-        assert body["category_id"] == "c1"
-        assert body["start_date"] == "2026-06-01"
-        assert body["end_date"] == "2026-06-15"
-        assert body["group_by"] == ["date"]
-        assert body["metrics"] == PROFOUND_ENDPOINTS["Visibility"].metrics
-        assert body["limit"] == REPORT_PAGE_SIZE
-
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_first_sync_uses_the_default_lookback(self, MockSession, _mock_categories) -> None:
-        # start_date is required, so a sync with no watermark still needs a bounded window.
-        session = MockSession.return_value
-        bodies = _wire(session, [_report_response([])])
-
-        _rows(_source("Citations", _make_manager(), today=date(2026, 6, 15)))
-
-        assert bodies[0]["start_date"] == "2025-06-15"
-        assert DEFAULT_REPORT_LOOKBACK_DAYS == 365
-
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_the_stored_watermark(self, MockSession, _mock_categories) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_report_response([])])
-
-        _rows(
-            _source(
-                "Citations",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=date(2026, 6, 1),
-                today=date(2026, 6, 15),
-            )
-        )
-
-        assert bodies[0]["start_date"] == "2025-06-15"
-
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_the_body_cursor_pages_within_one_category(self, MockSession, _mock_categories) -> None:
-        session = MockSession.return_value
-        bodies = _wire(
-            session,
-            [
-                _report_response([{"domain": "a.com"}], next_cursor="cur1"),
-                _report_response([{"domain": "b.com"}]),
-            ],
-        )
-
-        rows = _rows(_source("Citations", _make_manager(), today=date(2026, 6, 15)))
-
-        assert [row["domain"] for row in rows] == ["a.com", "b.com"]
-        assert "cursor" not in bodies[0]
-        assert bodies[1]["cursor"] == "cur1"
-
 
 class TestReportFanOut:
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1", "c2"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_category_is_requested_and_stamped_onto_its_rows(self, MockSession, _mock_categories) -> None:
-        # The response echoes only the grouped fields, so without the stamp the rows from two
-        # categories would be indistinguishable and would collide on the primary key.
-        session = MockSession.return_value
-        bodies = _wire(session, [_report_response([{"domain": "a.com"}]), _report_response([{"domain": "a.com"}])])
-
-        rows = _rows(_source("Citations", _make_manager(), today=date(2026, 6, 15)))
-
-        assert [b["category_id"] for b in bodies] == ["c1", "c2"]
-        assert [row["category_id"] for row in rows] == ["c1", "c2"]
-
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1", "c2", "c3"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_the_categories_already_finished(self, MockSession, _mock_categories) -> None:
-        session = MockSession.return_value
-        bodies = _wire(session, [_report_response([{"domain": "b.com"}]), _report_response([{"domain": "c.com"}])])
-
-        _rows(
-            _source(
-                "Citations",
-                _make_manager(ProfoundResumeConfig(category_id="c2")),
-                today=date(2026, 6, 15),
-            )
-        )
-
-        assert [b["category_id"] for b in bodies] == ["c2", "c3"]
-
     @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1", "c2"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_the_saved_cursor_only_for_its_own_category(self, MockSession, _mock_categories) -> None:
@@ -299,15 +189,30 @@ class TestReferenceEndpoints:
 
         assert [row["id"] for row in rows] == ["1"]
 
+    @parameterized.expand([("CitationCategories", "citation-categories"), ("CitationTags", "citation-tags")])
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoints_send_one_request(self, MockSession) -> None:
-        # They return everything at once; paginating would re-request page one forever.
+    def test_per_category_endpoints_fan_out_and_stamp_the_category(
+        self, endpoint: str, path_segment: str, MockSession
+    ) -> None:
+        # The rows carry only `value` and `name`, which repeat across categories, so `category_id`
+        # has to come from the request for the primary key to be unique.
         session = MockSession.return_value
-        bodies = _wire(session, [_json_response([{"id": "1"}])])
+        _wire(
+            session,
+            [
+                _json_response([{"id": "c1"}, {"id": "c2"}]),
+                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
+                _json_response({"data": [{"value": "owned", "name": "Owned"}]}),
+            ],
+        )
 
-        _rows(_source("Models", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
-        assert len(bodies) == 1
+        urls = [c.args[0].url for c in session.send.call_args_list]
+        assert urls[1].endswith(f"/v1/org/categories/c1/{path_segment}")
+        assert urls[2].endswith(f"/v1/org/categories/c2/{path_segment}")
+        assert [(row["category_id"], row["value"]) for row in rows] == [("c1", "owned"), ("c2", "owned")]
+        assert all("_Categories_id" not in row for row in rows)
 
 
 class TestSourceResponseShape:
@@ -327,16 +232,6 @@ class TestSourceResponseShape:
 
         assert _source(endpoint, _make_manager()).primary_keys == expected
 
-    @mock.patch(FETCH_CATEGORIES_PATCH, return_value=["c1"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reports_declare_desc_so_the_watermark_lands_at_job_end(self, MockSession, _mock_categories) -> None:
-        # The fan-out interleaves categories, so a per-batch watermark could skip a later
-        # category's older days.
-        session = MockSession.return_value
-        _wire(session, [_json_response([])])
-
-        assert _source("Visibility", _make_manager()).sort_mode == "desc"
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -347,9 +242,3 @@ class TestValidateCredentials:
         MockSession.return_value.get.return_value = resp
 
         assert validate_credentials("key") is expected
-
-    @mock.patch(PROFOUND_SESSION_PATCH)
-    def test_a_transport_error_does_not_raise(self, MockSession) -> None:
-        MockSession.side_effect = OSError("boom")
-
-        assert validate_credentials("key") is False

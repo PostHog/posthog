@@ -23,6 +23,7 @@ import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
+import { SettingsBackup } from "./SettingsBackup";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -46,6 +47,7 @@ export function AdvancedSettings() {
 
   return (
     <div className="flex flex-col gap-7">
+      <SettingsBackup />
       <SettingsCard>
         <SettingsCardRow
           label="Always create pull requests for cloud runs"

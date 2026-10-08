@@ -172,21 +172,6 @@ def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMet
     return None
 
 
-def calculate_recommended_sample_size(
-    metric_type: CalculatorMetricType,
-    mde: float,
-    baseline_value: float,
-    number_of_variants: int,
-    baseline: BaselineStats | None = None,
-) -> int | None:
-    """Recommended sample size for any metric type, deriving variance as needed."""
-    if metric_type in ("ratio", "retention"):
-        variance = calculate_variance_from_stats(baseline_value, metric_type, baseline)
-        return calculate_sample_size(metric_type, baseline_value, mde, number_of_variants, variance)
-
-    return calculate_sample_size(metric_type, baseline_value, mde, number_of_variants)
-
-
 def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: float | None) -> int | None:
     """Days to reach ``sample_size`` at ``exposure_rate_per_day`` exposures/day."""
     if not sample_size or not exposure_rate_per_day or exposure_rate_per_day <= 0:

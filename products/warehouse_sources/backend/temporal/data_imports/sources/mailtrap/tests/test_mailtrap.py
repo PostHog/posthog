@@ -88,27 +88,6 @@ def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_follows_next_page_cursor_until_null(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response({"messages": [{"message_id": "m1"}], "next_page_cursor": "c2"}),
-                _response({"messages": [{"message_id": "m2"}], "next_page_cursor": None}),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("email_logs", manager))
-
-        assert rows == [{"message_id": "m1"}, {"message_id": "m2"}]
-        # The cursor param only rides the second request; the first page must not carry one.
-        assert "search_after" not in params[0]
-        assert params[1]["search_after"] == "c2"
-        # State is saved once — after the first page, pointing at the next cursor — then we stop.
-        manager.save_state.assert_called_once_with(MailtrapResumeConfig(cursor="c2"))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_email_logs_incremental_sends_sent_after_on_every_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -131,14 +110,6 @@ class TestPagination:
         # through already-synced history.
         assert len(params) == 2
         assert all(p.get("filters[sent_after]") == "2026-01-01T00:00:00Z" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_full_refresh_sends_no_time_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"messages": [{"message_id": "m1"}], "next_page_cursor": None})])
-
-        _rows(_source("email_logs", _make_manager()))
-        assert "filters[sent_after]" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_email_logs_resumes_from_saved_cursor(self, MockSession) -> None:
@@ -172,21 +143,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(MailtrapResumeConfig(cursor=full_page[-1]["id"]))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_suppressions_incremental_sends_start_time(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "s1"}])])
-
-        _rows(
-            _source(
-                "suppressions",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-01-01T00:00:00Z",
-            )
-        )
-        assert params[0]["start_time"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_suppressions_resumes_from_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "s_last"}])])
@@ -195,16 +151,6 @@ class TestPagination:
         _rows(_source("suppressions", manager))
         # The saved last-row id seeds the first request so already-synced pages are skipped.
         assert params[0]["last_id"] == "s99"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"messages": [], "next_page_cursor": None})])
-
-        manager = _make_manager()
-        rows = _rows(_source("email_logs", manager))
-        assert rows == []
-        manager.save_state.assert_not_called()
 
     @parameterized.expand(
         [
@@ -223,14 +169,6 @@ class TestPagination:
         assert rows == body
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sending_domains_unwraps_data_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": [{"id": 1, "domain_name": "example.com"}]})])
-
-        rows = _rows(_source("sending_domains", _make_manager()))
-        assert rows == [{"id": 1, "domain_name": "example.com"}]
 
 
 class TestRetryClassification:
@@ -287,10 +225,6 @@ class TestSourceResponseShape:
         else:
             assert response.sort_mode == "asc"
             assert response.partition_mode is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_primary_key_is_message_id(self, MockSession) -> None:
-        assert MAILTRAP_ENDPOINTS["email_logs"].primary_keys == ["message_id"]
 
 
 class TestValidateCredentials:

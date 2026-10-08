@@ -1,7 +1,7 @@
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useTaskFeedSelectionStore } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 
 export interface ActiveSession {
   taskId: string | undefined;
@@ -23,6 +23,12 @@ export function useActiveSession(): ActiveSession {
   const taskId = useParams({ strict: false, select: (p) => p.taskId });
   const channelId = useParams({ strict: false, select: (p) => p.channelId });
   const feedId = useParams({ strict: false, select: (p) => p.feedId });
+  // The feed route names its picked task in the search, so the session
+  // survives a reload or a report detour, as the store alone cannot.
+  const routeFeedTask = useSearch({
+    strict: false,
+    select: (s) => (s as { task?: string })?.task,
+  });
 
   if (showsActivityDetail) {
     const taskSelection = selected?.kind === "task" ? selected : null;
@@ -31,10 +37,10 @@ export function useActiveSession(): ActiveSession {
       channelId: taskSelection?.channelId ?? undefined,
     };
   }
-  if (feedId && feedSelected?.feedId === feedId) {
+  if (feedId && (routeFeedTask || feedSelected?.feedId === feedId)) {
     return {
-      taskId: feedSelected.taskId,
-      channelId: feedSelected.channelId ?? undefined,
+      taskId: routeFeedTask ?? feedSelected?.taskId,
+      channelId: feedSelected?.channelId ?? undefined,
     };
   }
   return { taskId, channelId };

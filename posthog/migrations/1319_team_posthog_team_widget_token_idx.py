@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
         ("posthog", "1318_disable_oauth_scope_trgm_fastupdate"),
     ]
 

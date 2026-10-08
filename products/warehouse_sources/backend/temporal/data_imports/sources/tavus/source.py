@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -49,13 +47,13 @@ class TavusSource(ResumableSource[TavusSourceConfig, TavusResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TAVUS,
+            name=ExternalDataSourceType.TAVUS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Tavus",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Tavus API key to pull your Tavus data into the PostHog Data warehouse.
 
-You can generate an API key in the [Tavus Developer Portal](https://platform.tavus.io/api-keys). This single key grants read access to your videos, replicas, personas, and conversations.
+You can generate an API key in the [Tavus Developer Portal](https://platform.tavus.io/api-keys). This single key grants read access to your videos, replicas, personas, conversations, and memory stores.
 """,
             iconPath="/static/services/tavus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tavus",

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from unittest import mock
 
@@ -11,6 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source"
+UNREACHABLE_MESSAGE = (
+    "PostHog could not reach Hookdeck to check your API key. Wait a moment and try again, or "
+    "check Hookdeck's status page."
+)
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.incremental_fields)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if not c.incremental_fields)
@@ -84,12 +90,28 @@ class TestHookdeckSource:
         "probe_result, schema_name, expected",
         [
             ((True, 200), None, (True, None)),
-            ((False, 401), None, (False, "Invalid Hookdeck API key")),
+            (
+                (False, 401),
+                None,
+                (
+                    False,
+                    "Your Hookdeck API key is invalid or has been rotated. Copy the current key from "
+                    "Settings → Project → Secrets in Hookdeck, then enter it again.",
+                ),
+            ),
             # A 403 at source-create is a per-resource restriction, not a bad key.
             ((False, 403), None, (True, None)),
-            ((False, 403), "events", (False, "Your Hookdeck API key can't access this resource")),
-            ((False, None), None, (False, "Could not connect to the Hookdeck API")),
-            ((False, 500), None, (False, "Could not connect to the Hookdeck API")),
+            (
+                (False, 403),
+                "events",
+                (
+                    False,
+                    "Your Hookdeck API key can't access this resource. Check that the key belongs to the "
+                    "project you want to sync.",
+                ),
+            ),
+            ((False, None), None, (False, UNREACHABLE_MESSAGE)),
+            ((False, 500), None, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials")
@@ -97,7 +119,14 @@ class TestHookdeckSource:
         mock_validate.return_value = probe_result
 
         assert self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name) == expected
-        mock_validate.assert_called_once_with("hd_test_key", "2025-07-01")
+        mock_validate.assert_called_once_with("hd_test_key", "2026-09-01")
+
+    @pytest.mark.parametrize("pinned", ["2025-07-01", "2026-09-01"])
+    @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials", return_value=(True, 200))
+    def test_validate_credentials_probes_under_the_pinned_version(self, mock_validate, pinned) -> None:
+        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
+
+        mock_validate.assert_called_once_with("hd_test_key", pinned)
 
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hookdeck_source) -> None:
@@ -119,7 +148,15 @@ class TestHookdeckSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
         assert kwargs["incremental_field"] == "last_seen_at"
 
-    @pytest.mark.parametrize("pinned, expected", [(None, "2025-07-01"), ("2025-01-01", "2025-01-01")])
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, "2026-09-01"),
+            ("2025-07-01", "2025-07-01"),
+            ("2026-09-01", "2026-09-01"),
+            ("2025-01-01", "2025-01-01"),
+        ],
+    )
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_resolves_the_api_version(self, mock_hookdeck_source, pinned, expected) -> None:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), _make_inputs(api_version=pinned))
@@ -133,3 +170,17 @@ class TestHookdeckSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_hookdeck_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestHookdeckVersionDeprecation:
+    def setup_method(self) -> None:
+        self.source = HookdeckSource()
+
+    def test_2025_07_01_is_deprecated_with_sunset_date(self) -> None:
+        deprecation = self.source.get_version_deprecation("2025-07-01")
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2026, 7, 1)
+
+    @pytest.mark.parametrize("version", ["2026-09-01", None])
+    def test_current_version_is_not_deprecated(self, version: str | None) -> None:
+        assert self.source.get_version_deprecation(version) is None

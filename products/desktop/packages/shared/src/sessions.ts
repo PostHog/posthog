@@ -6,11 +6,14 @@ import type {
   SessionConfigSelectOption,
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
-import type { Adapter, ModelAccess } from "./adapter";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type {
+  TaskRunArtifact,
+  TaskRunStatus,
+} from "@posthog/agent-contracts/domain-types";
+import type { ExecutionMode } from "@posthog/agent-contracts/exec-types";
+import type { AcpMessage } from "@posthog/agent-contracts/session-events";
 import type { SkillButtonId } from "./analytics-events";
-import type { TaskRunArtifact, TaskRunStatus } from "./domain-types";
-import type { ExecutionMode } from "./exec-types";
-import type { AcpMessage } from "./session-events";
 
 export type { Adapter };
 
@@ -71,7 +74,7 @@ export interface AgentSession {
   /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
   transcriptWindowStart?: number;
   isLoadingOlderTranscript?: boolean;
-  /** True while the terminal transcript is being fetched, so an empty thread shows as loading. */
+  /** True while the terminal transcript is being fetched. */
   isHydratingTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;
@@ -130,6 +133,9 @@ export interface AgentSession {
   conversationSummary?: string;
   idleKilled?: boolean;
   agentVersion?: string;
+  /** Monotonic for one session: the run that emitted its first non-steer prompt. */
+  firstPromptForRunId?: string;
+  resumeAncestorRunIds?: string[];
   agentIdleForRunId?: string;
 }
 

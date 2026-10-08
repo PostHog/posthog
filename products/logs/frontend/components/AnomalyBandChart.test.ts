@@ -8,6 +8,7 @@ function bucket(overrides: Partial<LogsSeriesBandBucketApi>): LogsSeriesBandBuck
         observed: 12,
         lower: 4,
         upper: 21,
+        verdict: null,
         ...overrides,
     }
 }
@@ -27,11 +28,11 @@ describe('AnomalyBandChart', () => {
             expect(data.observed).toEqual([12, 12])
         })
 
-        it('marks points outside the band, and never marks unbanded points', () => {
+        it('marks points by the verdict the API returns, and never marks unbanded points', () => {
             const data = buildBandChartData([
                 bucket({}),
-                bucket({ time: '2026-08-06T11:00:00Z', observed: 47 }),
-                bucket({ time: '2026-08-06T12:00:00Z', observed: 1 }),
+                bucket({ time: '2026-08-06T11:00:00Z', observed: 47, verdict: 'above' }),
+                bucket({ time: '2026-08-06T12:00:00Z', observed: 1, verdict: 'below' }),
                 bucket({ time: '2026-08-06T13:00:00Z', observed: 47, lower: null, upper: null }),
             ])
             expect(data.outOfBand).toEqual([null, 'above', 'below', null])

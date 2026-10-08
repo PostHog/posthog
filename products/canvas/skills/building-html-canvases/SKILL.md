@@ -37,11 +37,10 @@ build pipeline's dependency admission ships.
 
 ## Styling and theme without Quill
 
-- Size the outermost JSX/HTML element to the iframe viewport with `h-screen` or `height: 100vh`.
-  Do not use `h-full` or `height: 100%` on that root: a published canvas's artifact shell gives
-  its `html`, `body`, and `#root` elements no explicit height, so percentage height collapses to
-  the content height. Descendants may use percentage height after the outermost element establishes
-  the viewport height.
+- Size the outermost JSX/HTML element to the iframe viewport with `min-h-screen` or `min-height: 100vh`, so it fills the viewport and grows past it as content demands.
+  Do not use `h-screen` or `height: 100vh` there: a fixed viewport height caps a flex column, so tall children shrink and clip instead of scrolling.
+  Do not use `h-full` or `height: 100%` on that root either: a published canvas's artifact shell gives its `html`, `body`, and `#root` elements no explicit height, so percentage height collapses to the content height.
+  A `min-height` root is not a definite height, so a descendant's percentage height still collapses; give an intermediate wrapper an explicit height when a child must fill a box.
 - Use Tailwind utilities and/or a `<style>` block (keyframes and complex selectors are fine).
 - The host toggles a `.dark` class on the document root when the user's PostHog theme changes.
   Define your colors as CSS variables under `:root { … }` with overrides under `html.dark { … }`,

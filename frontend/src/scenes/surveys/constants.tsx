@@ -21,8 +21,6 @@ import { QuickSurveyContext, QuickSurveyType } from './quick-create/types'
 
 export const SURVEY_PAGE_SIZE = 100
 
-export const LINK_PAGE_SIZE = 100
-
 // Max recurring-survey iterations. Mirrors MAX_ITERATION_COUNT in products/surveys/backend/models.py,
 // which caps the generated iteration windows (and the API enforces the same limit).
 export const MAX_ITERATION_COUNT = 500

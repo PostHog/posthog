@@ -10,6 +10,7 @@ from products.dashboards.backend.widget_specs.openapi import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     WIDGET_CONFIG_SERIALIZERS,
     AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
     DashboardPatchTileOpenApiSerializer,
     DashboardPatchWidgetOpenApiSerializer,
     DashboardWidgetConfigField,
@@ -22,6 +23,7 @@ from products.dashboards.backend.widget_specs.openapi import (
 
 __all__ = [
     "AddDashboardWidgetRequestOpenApi",
+    "BreakdownColorConfigSerializer",
     "DashboardPatchTileOpenApiSerializer",
     "DashboardPatchWidgetOpenApiSerializer",
     "DashboardWidgetConfigField",

@@ -1,11 +1,3 @@
-"""Unit tests for the sandboxed eval ACP log parser.
-
-These tests exercise ``parse_log`` alone against synthetic JSONL entries that
-mimic the agent-server's session log format. They intentionally live outside
-``ee/hogai/eval/`` so they run under the default pytest configuration — no
-Temporal worker, no Docker sandbox, no Django live server.
-"""
-
 from __future__ import annotations
 
 import json

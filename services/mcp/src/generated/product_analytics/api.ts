@@ -56,14 +56,6 @@ export const ElementsStatsRetrieveQueryParams = () => zod.object({
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -104,6 +96,7 @@ export const InsightsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.'),
+    exclude_bi: zod.boolean().optional().describe('Exclude Business intelligence worksheets from the insight list.'),
     favorited: zod
         .boolean()
         .optional()
@@ -116,10 +109,10 @@ export const InsightsListQueryParams = () => zod.object({
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     insight: zod
-        .enum(['FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
+        .enum(['BI', 'FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
         .describe(
-            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.'
+            'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.'
         ),
     last_viewed_date_from: zod
         .string()
@@ -131,6 +124,12 @@ export const InsightsListQueryParams = () => zod.object({
         .describe('Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.'
+        ),
     refresh: zod
         .enum([
             'async',
@@ -170,14 +169,6 @@ export const InsightsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -224,14 +215,6 @@ export const InsightsCreateBody = () => zod
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
@@ -287,14 +270,6 @@ export const InsightsRetrieveQueryParams = () => zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])

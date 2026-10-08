@@ -1,8 +1,10 @@
 import { ArrowSquareOut, ArrowsClockwise, Camera } from "@phosphor-icons/react";
 import { avatarColor } from "@posthog/core/auth/avatarColor";
+import { getGravatarRefresh } from "@posthog/core/auth/gravatarRefresh";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { Avatar, AvatarFallback, Button, cn } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useGravatarRefreshStore } from "@posthog/ui/features/auth/gravatarRefreshStore";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -20,7 +22,7 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 const GRAVATAR_IMAGE_SIZE = 144;
@@ -90,18 +92,19 @@ function ProfilePictureRow({
               "outline-dashed outline-(--gray-8) outline-1 outline-offset-2",
           )}
         >
-          <AvatarFallback
-            style={{ backgroundColor: color.bg, color: color.text }}
-          >
-            {getUserInitials(user)}
-          </AvatarFallback>
           {imageUrl ? (
             <img
               src={imageUrl}
               alt=""
               className="absolute inset-0 size-full object-cover"
             />
-          ) : null}
+          ) : (
+            <AvatarFallback
+              style={{ backgroundColor: color.bg, color: color.text }}
+            >
+              {getUserInitials(user)}
+            </AvatarFallback>
+          )}
         </Avatar>
         <span
           aria-hidden
@@ -192,18 +195,20 @@ export function AccountSection() {
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const gravatarUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
-  const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
-
-  const candidateUrl =
-    gravatarUrl && refreshedAt
-      ? `${gravatarUrl}&_=${refreshedAt}`
-      : gravatarUrl;
+  const candidateUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
   const probe = useImageProbe(candidateUrl);
 
   const handleRefresh = useCallback(() => {
-    setRefreshedAt(Date.now());
-  }, []);
+    if (!user?.email) return;
+    const { refreshedAtByEmail, setRefreshedAt } =
+      useGravatarRefreshStore.getState();
+    const refresh = getGravatarRefresh(
+      user.email,
+      refreshedAtByEmail,
+      Date.now(),
+    );
+    if (refresh) setRefreshedAt(refresh.email, refresh.refreshedAt);
+  }, [user?.email]);
 
   const handleOpenGravatar = useCallback(() => {
     window.open(GRAVATAR_MANAGE_URL, "_blank");

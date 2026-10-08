@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA4",
+    "cluster": 4,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:232-238 explicitly disables merged-PR history for every inbox run, persists author_pr_numbers=[] at 246-256, and passes those numbers plus the same inbox-derived self_driving_review flag to build_reviewer_invocation at 434-451. tools/pr-approval-agent/review_local.py:292-303 returns without attaching familiarity when that list is empty. Its hosted review path calls this helper at 353; it does not call the Action's networked familiarity computation. reviewer.py:644-646 renders an empty block for the resulting absent familiarity. The actual chain test at stamphog/backend/tests/test_integration.py:1412-1415 asserts self_driving_review=true and author_pr_numbers=[].",
+            "refutation": "I first traced where a self-driving classification could acquire non-empty familiarity instead of assuming arbitrary prompt input was reachable. The only production caller enabling the flag is hosted review_local.py:321; Action review_pr.py:973-985 leaves it false. The hosted producer suppresses author history before the engine receives it, and the offline attachment helper exits on that suppression. Thus the suggestion to prevent self-driving runs from attaching familiarity is already implemented upstream. A synthetic classification manually populated with familiarity could render the block, but no current supported caller produces it."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The suggested producer-side safeguard already exists. /tmp/frozen-75215/products/stamphog/backend/temporal/activities.py:233-238 detects inbox provenance and sets author_pr_numbers=[] instead of fetching the machine user's history; :246-258 persists that value and :434-451 supplies it alongside the self-driving flag. /tmp/frozen-75215/tools/pr-approval-agent/review_pr.py:474 initializes classification familiarity=None, review_local.py:301-303 returns without attaching familiarity for an empty author_pr_numbers list, and reviewer.py:644-646 renders no familiarity block for None. tests/test_integration.py:1412-1415 explicitly verifies both true self-driving context and empty author history in the real hosted chain.",
+            "refutation": "First traced who could create a self-driving classification with nonempty familiarity. Hosted reviews use review_local.run (:314-354) and the guarded context producer above. The separate Action path can compute familiarity, but review_pr.py:984 never passes self_driving and its constructor defaults false at :196. The finding's hypothetical classification can be constructed in a unit test but is not emitted by either shipping path. Adding the proposed prompt guard would duplicate the existing producer-side suppression."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "Production self-driving classifications do not receive familiarity. products/stamphog/backend/temporal/activities.py:237-238 sets author_pr_numbers=[] for inbox provenance, writes that value into the context at :246-256, and enables the self-driving flag from the same marker at :451. tools/pr-approval-agent/review_local.py:299-303 exits _attach_familiarity for an empty list before assigning classification familiarity at :307. reviewer.py:644-646 emits no familiarity block when that signal is absent. The integration test at stamphog/backend/tests/test_integration.py:1412-1415 explicitly verifies self_driving_review=True together with empty author_pr_numbers. The other runtime, the Action, never enables self_driving in its constructor at review_pr.py:984.",
+            "refutation": "I first traced how a non-empty familiarity value could reach the cited renderer with self_driving enabled. The hosted context builder deliberately removes its author-history input, and the consumer's early return prevents computation. The Action can compute familiarity but does not set the exception flag. The suggested synthetic prompt test could assemble the combination directly, but no production caller does; the proposal duplicates an existing upstream safeguard rather than fixing a reachable approval influence."
+        }
+    ]
+}

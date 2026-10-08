@@ -18,9 +18,9 @@ products.web_analytics.backend.hogql_queries so that changes to bot data do not 
 a HogQL review.
 
 A project can extend the built-in list with its own rules, which arrive as query modifiers. Each
-rule matches one event property, so the rules are checked as an ordered chain ahead of the
-built-ins rather than merged into the built-in pattern array. A project's own rule wins when both
-match.
+rule combines one or more single-property conditions, so the rules are checked as an ordered chain
+ahead of the built-ins rather than merged into the built-in pattern array. A project's own rule
+wins when both match.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -39,13 +39,19 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     IP_FIELD,
     NUMERIC_FIELDS,
     USER_AGENT_FIELD,
+    CidrCondition,
     CidrGroup,
+    CompositeGroup,
     CustomBotGroup,
+    PatternCondition,
     compile_definitions,
 )
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+
+COOKIELESS_MODE_FIELD = "$cookieless_mode"
 
 
 def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBotGroup]:
@@ -55,11 +61,12 @@ def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBot
 
 
 def has_user_agent_rule(modifiers: Optional["HogQLQueryModifiers"]) -> bool:
-    """Whether the project has a rule on the user agent — the only rule kind that makes the one-arg
-    isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy guard)."""
+    """Whether the project has a condition on the user agent — the only condition kind that makes
+    the one-arg isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy
+    guard)."""
     if modifiers is None or not modifiers.customBotDefinitions:
         return False
-    return any(definition.key == USER_AGENT_FIELD for definition in modifiers.customBotDefinitions)
+    return any(item.key == USER_AGENT_FIELD for rule in modifiers.customBotDefinitions for item in rule.items)
 
 
 def _string_array(values: list[str]) -> ast.Array:
@@ -97,6 +104,34 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     return None
 
 
+def _cookieless_missing_user_agent(
+    args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"]
+) -> Optional[ast.Expr]:
+    if modifiers is None or not modifiers.cookielessTrafficIsRegular:
+        return None
+    cookieless_expr = _property_expr(COOKIELESS_MODE_FIELD, args)
+    if cookieless_expr is None:
+        return None
+    cookieless = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Call(
+            name="ifNull",
+            args=[ast.Call(name="toString", args=[cookieless_expr]), ast.Constant(value="")],
+        ),
+        right=ast.Constant(value="true"),
+    )
+    return ast.And(
+        exprs=[
+            cookieless,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="ifNull", args=[args[0], ast.Constant(value="")]),
+                right=ast.Constant(value=""),
+            ),
+        ]
+    )
+
+
 @frozen
 class CustomRuleBranch:
     """One group of a project's rules, compiled: whether it matched and which label it reports."""
@@ -105,7 +140,53 @@ class CustomRuleBranch:
     label: ast.Expr
 
 
+def _safe_pattern_property(key: str, property_expr: ast.Expr) -> ast.Expr:
+    # A numeric property (screen width/height) reaches hyperscan as a string, so a pattern like
+    # "800" matches the value 800. String properties skip the cast.
+    matched_property = ast.Call(name="toString", args=[property_expr]) if key in NUMERIC_FIELDS else property_expr
+    return ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
+
+
+def _condition_expr(condition: PatternCondition | CidrCondition, property_expr: ast.Expr) -> ast.Expr:
+    if isinstance(condition, CidrCondition):
+        return _ip_group_match(_safe_ip_expr(property_expr), condition.prefixlen, (condition.network,))
+    # The same hyperscan family as the grouped rules, so the save-time compile probe covers this
+    # pattern too.
+    return ast.Call(
+        name="multiMatchAny",
+        args=[_safe_pattern_property(condition.key, property_expr), _string_array([condition.pattern])],
+    )
+
+
+def _composite_branch(group: CompositeGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
+    condition_exprs: list[ast.Expr] = []
+    for condition in group.conditions:
+        property_expr = _property_expr(condition.key, args)
+        if property_expr is None:
+            # For AND, one unreachable property makes the rule unanswerable as written, so skip
+            # the whole rule rather than evaluate a partial version that could over-match. For OR,
+            # a reachable condition matching means the full rule would match too, so evaluating
+            # the reachable subset never over-matches and drops fewer events than skipping.
+            if group.combiner != "OR":
+                return None
+            continue
+        condition_exprs.append(_condition_expr(condition, property_expr))
+    if not condition_exprs:
+        return None
+    matched: ast.Expr
+    if len(condition_exprs) == 1:
+        matched = condition_exprs[0]
+    elif group.combiner == "OR":
+        matched = ast.Or(exprs=condition_exprs)
+    else:
+        matched = ast.And(exprs=condition_exprs)
+    return CustomRuleBranch(matched=matched, label=ast.Constant(value=getattr(group.definition, attr)))
+
+
 def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
+    if isinstance(group, CompositeGroup):
+        return _composite_branch(group, args, attr)
+
     property_expr = _property_expr(group.key, args)
     if property_expr is None:
         return None
@@ -119,12 +200,7 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
         multi_if_args.append(ast.Constant(value=0))
         index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
     else:
-        # A numeric property (screen width/height) reaches multiMatchAllIndices as a string, so
-        # a rule pattern like "800" matches the value 800. String properties skip the cast.
-        matched_property = (
-            ast.Call(name="toString", args=[property_expr]) if group.key in NUMERIC_FIELDS else property_expr
-        )
-        safe_property = ast.Call(name="ifNull", args=[matched_property, ast.Constant(value="")])
+        safe_property = _safe_pattern_property(group.key, property_expr)
         # arrayMin over ALL matching patterns, not multiMatchAnyIndex: when two of a project's own
         # rules match the same value, the one listed first wins. multiMatchAnyIndex would report
         # whichever pattern matches earliest in the string, so a specific rule listed above a broad
@@ -236,13 +312,14 @@ def _build_bot_array_lookup(
 
     builtin_labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
     groups = _custom_groups(modifiers)
+    cookieless = _cookieless_missing_user_agent(args, modifiers)
 
     if not groups:
         # No project rules: one pass over the built-in patterns plus the empty-user-agent sentinel.
         patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
         labels_array = _string_array([*builtin_labels, empty_ua_value])
         index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
-        return ast.Call(
+        lookup = ast.Call(
             name="if",
             args=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
@@ -250,12 +327,14 @@ def _build_bot_array_lookup(
                 ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
             ],
         )
+        if cookieless is None:
+            return lookup
+        return ast.Call(name="if", args=[cookieless, fallback, lookup])
 
     # With project rules the checks become an ordered chain, in this order: the project's own
-    # rules, then the built-ins, then the empty user agent, then the built-in IP ranges. A rule
-    # someone wrote by hand says more about what they want counted than a default we shipped, so
-    # it wins — that also makes the setting predictable, since a rule that matches always names
-    # the event.
+    # rules, then the cookieless missing-UA fallback, then the built-ins, then the empty user
+    # agent, then the built-in IP ranges. A rule someone wrote by hand says more about what
+    # they want counted than a default we shipped, so a matching project rule always wins.
     #
     # It has to be a branch per group rather than one shared pattern array: multiMatchAnyIndex
     # reports whichever pattern matches earliest in the string rather than earliest in the array,
@@ -265,6 +344,8 @@ def _build_bot_array_lookup(
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
             branches.extend([branch.matched, branch.label])
+    if cookieless is not None:
+        branches.extend([cookieless, fallback])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
@@ -357,7 +438,12 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     patterns_array = _string_array([*BOT_DEFINITIONS.keys(), "^$"])
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    conditions: list[ast.Expr] = [_matched(index_call)]
+    builtin_matched: ast.Expr = _matched(index_call)
+    cookieless = _cookieless_missing_user_agent(args, modifiers)
+    if cookieless is not None:
+        builtin_matched = ast.And(exprs=[ast.Not(expr=cookieless), builtin_matched])
+
+    conditions: list[ast.Expr] = [builtin_matched]
     for group in _custom_groups(modifiers):
         branch = _custom_group_branch(group, args, "name")
         if branch is not None:

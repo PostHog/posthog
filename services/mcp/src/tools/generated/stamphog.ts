@@ -144,6 +144,35 @@ const stamphogRepoConfigsList = (): ToolBase<
     },
 })
 
+const StamphogReviewRunsCreateSchema = () => {
+    const StamphogReviewRunsCreateBody = orvalSchemas.StamphogReviewRunsCreateBody()
+    return StamphogReviewRunsCreateBody
+}
+
+const stamphogReviewRunsCreate = (): ToolBase<
+    ReturnType<typeof StamphogReviewRunsCreateSchema>,
+    Schemas.ReviewRequestResponse
+> => ({
+    name: 'stamphog-review-runs-create',
+    schema: StamphogReviewRunsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.pr_number !== undefined) {
+            body['pr_number'] = params.pr_number
+        }
+        const result = await context.api.request<Schemas.ReviewRequestResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/review_runs/`,
+            body,
+        })
+        return result
+    },
+})
+
 const StamphogReviewRunsGetSchema = () => {
     const StamphogReviewRunsRetrieveParams = orvalSchemas.StamphogReviewRunsRetrieveParams()
     return StamphogReviewRunsRetrieveParams.omit({ project_id: true })
@@ -189,7 +218,7 @@ const stamphogReviewRunsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output'])),
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output', 'reasoning'])),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/stamphog')
     },
@@ -202,6 +231,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-repo-configs-delete': stamphogRepoConfigsDelete,
     'stamphog-repo-configs-get': stamphogRepoConfigsGet,
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
+    'stamphog-review-runs-create': stamphogReviewRunsCreate,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
     'stamphog-review-runs-list': stamphogReviewRunsList,
 }

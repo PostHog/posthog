@@ -77,6 +77,16 @@ class TestCustomerIOWebhook(APIBaseTest):
             MessageRecipientPreference.objects.filter(team=self.team, identifier="user@example.com").exists()
         )
 
+    def test_body_that_is_not_utf8_rejected(self):
+        sig, ts = self._sign("{}")
+        response = self.client.post(
+            self.url,
+            data=b"\xff\xfe not utf-8",
+            content_type="application/json",
+            headers={"x-cio-signature": sig, "x-cio-timestamp": ts},
+        )
+        self.assertEqual(response.status_code, 401)
+
     def test_missing_both_headers_rejected(self):
         body = {"metric": "unsubscribed", "data": {"email_address": "user@example.com"}}
         response = self.client.post(

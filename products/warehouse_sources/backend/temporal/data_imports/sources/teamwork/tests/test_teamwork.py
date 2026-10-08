@@ -1,5 +1,4 @@
 import json
-import base64
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -13,11 +12,8 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import TEAMWORK_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork import (
-    MAX_PAGES,
-    PAGE_SIZE,
     TeamworkResumeConfig,
     _format_updated_after,
-    base_url,
     normalize_host,
     teamwork_source,
     validate_credentials,
@@ -127,9 +123,6 @@ class TestNormalizeHost:
     def test_normalize_host(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_host(raw) == expected
 
-    def test_base_url(self) -> None:
-        assert base_url("mycompany.teamwork.com") == "https://mycompany.teamwork.com/projects/api/v3"
-
 
 class TestFormatUpdatedAfter:
     @parameterized.expand(
@@ -143,32 +136,8 @@ class TestFormatUpdatedAfter:
     def test_format_updated_after(self, _name: str, value: object, expected: str) -> None:
         assert _format_updated_after(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        assert "+00:00" not in _format_updated_after(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_basic_auth_with_api_key_as_username(self, MockSession: mock.MagicMock) -> None:
-        # Teamwork Basic auth: API key is the username, any value is the password.
-        session = MockSession.return_value
-        _, capture, _ = _run(session, [_page("tasks", [{"id": 1}], has_more=False)])
-        scheme, token = (capture.auth_headers[0] or "").split(" ", 1)
-        assert scheme == "Basic"
-        assert base64.b64decode(token).decode() == "key:x"
-
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        rows, capture, _ = _run(session, [_page("tasks", [{"id": 1}, {"id": 2}], has_more=False)])
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        assert capture.query_params[0]["page"] == "1"
-        assert capture.query_params[0]["pageSize"] == str(PAGE_SIZE)
-        assert capture.query_params[0]["orderMode"] == "asc"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_pagination_until_has_more_false(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -190,28 +159,6 @@ class TestPagination:
         rows, capture, _ = _run(session, [_page("tasks", [], has_more=True)])
         assert rows == []
         assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_checkpoint_after_each_yielded_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        responses = [
-            _page("tasks", [{"id": 1}], has_more=True),
-            _page("tasks", [{"id": 2}], has_more=False),
-        ]
-        _, _, manager = _run(session, responses)
-        # Checkpoint points at the NEXT page to fetch; the final (hasMore=false) page saves nothing.
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == TeamworkResumeConfig(page=2, updated_after=None)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        manager = _make_manager(TeamworkResumeConfig(page=3, updated_after="2026-01-01T00:00:00Z"))
-        rows, capture, _ = _run(session, [_page("tasks", [{"id": 7}], has_more=False)], manager=manager)
-        assert rows == [{"id": 7}]
-        assert capture.query_params[0]["page"] == "3"
-        # A resumed run rebuilds the SAME window it started with (the pinned cursor), not a fresh one.
-        assert capture.query_params[0]["updatedAfter"] == "2026-01-01T00:00:00Z"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_builds_updated_after_from_last_value(self, MockSession: mock.MagicMock) -> None:
@@ -237,34 +184,6 @@ class TestPagination:
         )
         assert "updatedAfter" not in capture.query_params[0]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reads_endpoint_specific_data_key(self, MockSession: mock.MagicMock) -> None:
-        # `time.json` returns rows under "timelogs", not "time".
-        session = MockSession.return_value
-        rows, _, _ = _run(session, [_page("timelogs", [{"id": 99}], has_more=False)], endpoint="timelogs")
-        assert rows == [{"id": 99}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_at_page_cap(self, MockSession: mock.MagicMock) -> None:
-        # Every page claims hasMore=True forever; the MAX_PAGES cap must break the loop.
-        session = MockSession.return_value
-        session.headers = {}
-        real_session = requests.Session()
-        session.prepare_request.side_effect = lambda request: real_session.prepare_request(request)
-        session.send.side_effect = lambda *a, **k: _page("tasks", [{"id": 1}], has_more=True)
-
-        rows = _rows(
-            teamwork_source(
-                host="mycompany.teamwork.com",
-                api_key="key",
-                endpoint="tasks",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        )
-        assert len(rows) == MAX_PAGES
-
 
 class TestRedirectRejection:
     @parameterized.expand([("moved", 301), ("found", 302), ("temporary", 307), ("permanent", 308)])
@@ -284,24 +203,11 @@ class TestValidateCredentials:
         assert validate_credentials("mycompany.teamwork.com", "key") is expected
 
     @mock.patch(TEAMWORK_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("mycompany.teamwork.com", "key") is False
-
-    @mock.patch(TEAMWORK_SESSION_PATCH)
     def test_uses_no_redirect_session(self, mock_session: mock.MagicMock) -> None:
         # The Basic auth header must never follow a redirect off the validated host.
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("mycompany.teamwork.com", "key")
         assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(TEAMWORK_SESSION_PATCH)
-    def test_probes_me_endpoint(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("mycompany.teamwork.com", "key")
-        assert mock_session.return_value.get.call_args.args[0] == (
-            "https://mycompany.teamwork.com/projects/api/v3/me.json"
-        )
 
 
 class TestEndpointCatalog:

@@ -2,7 +2,7 @@ import datetime
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.db.utils import IntegrityError
@@ -309,7 +309,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_can_get_property_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -328,7 +328,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         matches = [p["name"] for p in query_list_response.json()["results"] if p["name"] == "enterprise property"]
         assert len(matches) == 1
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_verify_then_unverify(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -366,7 +366,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_hidden_property_behavior(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -409,7 +409,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["hidden"] is False
         assert response.json()["verified"] is False
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_marking_hidden_removes_verified_status(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -433,7 +433,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert property.hidden is True
         assert property.verified is False
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -446,7 +446,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {"verified": True},
@@ -459,7 +459,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
-        with freeze_time("2021-10-26T22:09:14.252Z"):
+        with time_machine.travel("2021-10-26T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {"verified": True},
@@ -473,7 +473,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         # updated_at automatically updates on every patch request
         assert response.json()["updated_at"] == "2021-10-26T22:09:14.252000Z"
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -487,7 +487,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             self.client.patch(
                 f"/api/projects/@current/property_definitions/{event.id}",
                 {

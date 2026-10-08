@@ -1,5 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { ArrowCounterClockwise, Lightning } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Gear, Lightning } from "@phosphor-icons/react";
 import {
   getCapabilityLadder,
   getReasoningEffortOptions,
@@ -15,6 +15,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import {
   adapterForModelId,
@@ -37,6 +40,7 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import { shortModelLabel } from "@posthog/ui/features/sessions/components/shortModelLabel";
 import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -108,6 +112,13 @@ interface ReasoningLevelSelectorProps {
    */
   resetToDefaultDisabled?: boolean;
   /**
+   * Takes the user to where the default itself is configured. Passed as a
+   * callback rather than a route so the picker stays free of the app's
+   * settings navigation. Omit and the "Change default" row is absent. Matches
+   * the web composer's row.
+   */
+  onOpenDefaultSettings?: () => void;
+  /**
    * Position and size the popup against this element instead of the trigger.
    *
    * The popup takes both its placement and its width from its anchor, and the trigger
@@ -160,6 +171,7 @@ export function ReasoningLevelSelector({
   isDefaultSelection,
   onResetToDefault,
   resetToDefaultDisabled,
+  onOpenDefaultSettings,
   anchor,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
@@ -228,7 +240,7 @@ export function ReasoningLevelSelector({
           <DropdownMenuTrigger
             render={
               <Button type="button" variant="default" size="sm">
-                <Spinner size={12} />
+                <Spinner size="sm" aria-hidden="true" />
                 Loading...
               </Button>
             }
@@ -241,7 +253,7 @@ export function ReasoningLevelSelector({
             className="min-w-[230px]"
           >
             <DropdownMenuItem disabled>
-              <Spinner size={12} />
+              <Spinner size="sm" />
               Loading models...
             </DropdownMenuItem>
             {showHarnessSubmenu && adapter && (
@@ -278,6 +290,7 @@ export function ReasoningLevelSelector({
     ? (modelEntries.find((entry) => entry.value === currentModel)?.name ??
       currentModel)
     : undefined;
+  const shortLabel = modelLabel ? shortModelLabel(modelLabel) : undefined;
 
   const changeModel = (value: string) => {
     if (onModelChange) {
@@ -456,6 +469,15 @@ export function ReasoningLevelSelector({
         <ArrowCounterClockwise size={12} weight="bold" />
         Reset to default
       </DropdownMenuItem>
+      {/* Sits under the reset row because that's where the question arises:
+          reverting to a default you disagree with is the moment you want to
+          change it. */}
+      {onOpenDefaultSettings && (
+        <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
+          <Gear size={12} weight="bold" />
+          Change default
+        </DropdownMenuItem>
+      )}
     </>
   );
 
@@ -464,7 +486,7 @@ export function ReasoningLevelSelector({
   // "Reasoning: undefined".
   const triggerAriaLabel =
     modelLabel && effortLabel
-      ? `Model and reasoning: ${modelLabel} ${effortLabel}`
+      ? `Model and reasoning: ${modelLabel}, ${effortLabel}`
       : modelLabel
         ? `Model: ${modelLabel}`
         : effortLabel
@@ -512,9 +534,35 @@ export function ReasoningLevelSelector({
               </span>
             )}
             {modelLabel && (
-              <span className="font-medium text-foreground">
-                {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
-              </span>
+              <Tooltip>
+                {/* The name rather than the button, which the menu focuses
+                    again as it closes. A tooltip on a focused trigger opens
+                    by itself and then swallows the next Escape. */}
+                <TooltipTrigger
+                  render={
+                    <span className="font-medium text-foreground">
+                      {/* A container query cannot swap text, so a narrow
+                          composer hides the full name and shows the short one
+                          instead. The button carries its own aria-label, so
+                          the copy that is hidden never reaches the accessible
+                          name. */}
+                      <span className="@max-[480px]/composer:hidden">
+                        {isDefaultSelection
+                          ? `Default · ${modelLabel}`
+                          : modelLabel}
+                      </span>
+                      <span className="@max-[480px]/composer:inline hidden">
+                        {isDefaultSelection
+                          ? `Default · ${shortLabel}`
+                          : shortLabel}
+                      </span>
+                    </span>
+                  }
+                />
+                {/* The full model name, which the trigger shortens when the
+                    composer is narrow. */}
+                <TooltipContent side="top">{triggerAriaLabel}</TooltipContent>
+              </Tooltip>
             )}
             {effortLabel && (
               <span

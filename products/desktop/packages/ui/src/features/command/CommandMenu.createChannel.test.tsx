@@ -2,6 +2,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
@@ -63,6 +66,12 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 }));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false, prUrl: null }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasQueryResults", () => ({
+  useCanvasQueryResults: () => ({
+    canvases: [],
+    isLoading: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({

@@ -117,8 +117,7 @@ export function ScoutsRosterLegacy(): JSX.Element {
                 <span className="text-xs text-muted">
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
                     {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
-                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.
+                    created as skills in your PostHog project, under the name you give them.
                 </span>
                 <ScoutHelperSkillLinks />
             </div>

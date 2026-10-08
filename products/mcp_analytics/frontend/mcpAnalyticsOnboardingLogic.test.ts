@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +16,7 @@ const mockApi = api as jest.Mocked<typeof api>
 // Signal row shape: [has_initialize, tool_calls_total, tool_calls_7d, first_call_at]
 describe('mcpAnalyticsOnboardingLogic', () => {
     beforeEach(() => {
+        localStorage.clear()
         jest.clearAllMocks()
         initKeaTests()
     })
@@ -103,4 +105,41 @@ describe('mcpAnalyticsOnboardingLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('has-data')
     })
+
+    it.each(['success', 'failure'] as const)(
+        'ignores a signal query %s from a previous project without completing the new setup attempt',
+        async (outcome) => {
+            let resolveQuery!: (response: any) => void
+            let rejectQuery!: (error: Error) => void
+            mockApi.query.mockReturnValueOnce(
+                new Promise((resolve, reject) => {
+                    resolveQuery = resolve
+                    rejectQuery = reject
+                })
+            )
+            const logic = mcpAnalyticsOnboardingLogic()
+            logic.mount()
+            const setupLogic = productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                id: teamLogic.values.currentTeamId! + 1,
+                uuid: '00000000-0000-4000-8000-000000000456',
+            })
+            setupLogic.actions.reportSetupShown('needs-setup')
+            const attemptId = setupLogic.values.setupAttempt!.id
+
+            if (outcome === 'success') {
+                resolveQuery({ results: [[1, 1, 1, '2026-07-01T00:00:00Z']] })
+            } else {
+                rejectQuery(new Error('previous project query failed'))
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(setupLogic.values.status).toBe('loading')
+            expect(setupLogic.values.setupAttempt).toMatchObject({ id: attemptId, completed: false })
+
+            mockApi.query.mockResolvedValue({ results: [[1, 1, 1, '2026-07-01T00:00:00Z']] } as any)
+            await expectLogic(logic, () => logic.actions.loadSignals()).toFinishAllListeners()
+            expect(setupLogic.values.setupAttempt).toMatchObject({ id: attemptId, completed: true })
+        }
+    )
 })

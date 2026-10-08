@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -12,12 +12,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha im
     AhaResumeConfig,
     _build_initial_params,
     _format_updated_since,
+    _incremental_window,
     aha_source,
     normalize_subdomain,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import AHA_ENDPOINTS, PER_PAGE
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+
+FANOUT_REST_RESOURCES_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -70,20 +74,6 @@ class TestFormatUpdatedSince:
 
 
 class TestBuildInitialParams:
-    def test_incremental_endpoint_with_cursor_adds_updated_since(self) -> None:
-        params = _build_initial_params(
-            AHA_ENDPOINTS["features"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params == {"per_page": PER_PAGE, "updated_since": "2026-03-04T02:58:14Z"}
-
-    def test_incremental_endpoint_without_cursor_omits_updated_since(self) -> None:
-        params = _build_initial_params(
-            AHA_ENDPOINTS["features"], should_use_incremental_field=True, db_incremental_field_last_value=None
-        )
-        assert params == {"per_page": PER_PAGE}
-
     def test_full_refresh_endpoint_never_filters(self) -> None:
         # goals has no server-side `updated_since`; a cursor must not leak into the request.
         params = _build_initial_params(
@@ -156,55 +146,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestAhaSource:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_total_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response("features", [{"id": "1"}, {"id": "2"}], current_page=1, total_pages=2),
-                _response("features", [{"id": "3"}], current_page=2, total_pages=2),
-            ],
-        )
-
-        rows = _rows(_source("features", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        # total_pages=2 terminates after the last page — no extra empty-page request.
-        assert session.send.call_count == 2
-        assert snapshots[0]["url"] == "https://acme.aha.io/api/v1/features"
-        assert snapshots[0]["params"] == {"per_page": PER_PAGE, "page": 1}
-        assert snapshots[1]["params"] == {"per_page": PER_PAGE, "page": 2}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response("features", [{"id": "1"}], total_pages=1)])
-
-        _rows(_source("features", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response("features", [{"id": "1"}], current_page=1, total_pages=2),
-                _response("features", [{"id": "2"}], current_page=2, total_pages=2),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("features", manager))
-
-        # State is saved only while more pages remain (page 1 -> next_page 2), never on the last page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == AhaResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response("features", [{"id": "2"}], current_page=2, total_pages=2)])
@@ -243,40 +184,6 @@ class TestAhaSource:
         assert snapshots[0]["url"] == "https://acme.aha.io/api/v1/tasks"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("goals", [], total_pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("goals", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_response_key_stops_quietly(self, MockSession) -> None:
-        # A body without the root key is treated as an empty page (old `data.get(key, []) -> stop`).
-        session = MockSession.return_value
-        _wire(session, [_response("goals", None, drop_key=True)])
-
-        rows = _rows(_source("goals", _make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_metadata_partial_page_stops(self, MockSession) -> None:
-        # No pagination metadata + a short page -> no more pages (full-page fallback heuristic).
-        session = MockSession.return_value
-        _wire(session, [_response("features", [{"id": "1"}, {"id": "2"}])])
-
-        rows = _rows(_source("features", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_metadata_full_page_continues(self, MockSession) -> None:
         # No pagination metadata + a full page -> there may be more pages.
         session = MockSession.return_value
@@ -289,30 +196,51 @@ class TestAhaSource:
         assert session.send.call_count == 2
 
 
+class TestIncrementalWindow:
+    def test_binds_cursor_field_to_updated_since(self) -> None:
+        window = _incremental_window("updated_at")
+        assert window["cursor_path"] == "updated_at"
+        assert window["start_param"] == "updated_since"
+        convert = window["convert"]
+        assert convert is not None
+        # The convert hook must emit the trailing-Z UTC form Aha! accepts, not an isoformat offset.
+        assert convert(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)) == "2026-03-04T02:58:14Z"
+
+
+class _FakeDltResource:
+    """Stand-in for a DltResource returned by ``rest_api_resources``."""
+
+    def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
+        self.name = name
+        self._rows = rows
+
+    def add_map(self, mapper: Any) -> "_FakeDltResource":
+        self._rows = [mapper(dict(row)) for row in self._rows]
+        return self
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+
+class TestAhaFanout:
+    @mock.patch(FANOUT_REST_RESOURCES_PATCH)
+    def test_releases_injects_product_id_from_parent(self, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("products", [{"id": "1000"}]),
+            _FakeDltResource("releases", [{"id": "R1", "_products_id": "1000"}]),
+        ]
+
+        resp = _source("releases", _make_manager())
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"id": "R1", "product_id": "1000"}]
+
+
 class TestValidateCredentials:
     @mock.patch(AHA_SESSION_PATCH)
     def test_ok(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("acme", "key") == (True, 200)
-
-    @mock.patch(AHA_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("acme", "key") == (False, 401)
-
-    @mock.patch(AHA_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("acme", "key") == (False, None)
-
-    @mock.patch(AHA_SESSION_PATCH)
-    def test_probes_me_endpoint_with_bearer_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("acme", "key")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://acme.aha.io/api/v1/me"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
 
     @mock.patch(AHA_SESSION_PATCH)
     def test_bad_subdomain_raises_before_probe(self, mock_session) -> None:

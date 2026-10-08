@@ -1,23 +1,52 @@
-from typing import cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     CachedInsightActorsQueryOptionsResponse,
+    HogQLQueryModifiers,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, query_node_modifiers
+from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 
-from products.product_analytics.backend.facade.queries import FunnelsQueryRunner, LifecycleQueryRunner
+from products.product_analytics.backend.facade.queries import (
+    FunnelsQueryRunner,
+    LifecycleQueryRunner,
+    TrendsQueryRunner,
+)
 
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     cached_response: CachedInsightActorsQueryOptionsResponse
+
+    def __init__(
+        self,
+        query: InsightActorsQueryOptions | dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
+        query_id: Optional[str] = None,
+        user: Optional[User] = None,
+    ):
+        super().__init__(
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            query_id=query_id,
+            extract_modifiers=lambda query: query_node_modifiers(query.source.source),
+            user=user,
+        )
 
     @cached_property
     def source_runner(self) -> QueryRunner:

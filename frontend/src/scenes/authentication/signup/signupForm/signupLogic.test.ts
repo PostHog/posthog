@@ -1,3 +1,5 @@
+import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pendingOAuthConnection.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -344,5 +346,27 @@ describe('signupLogic — name handling', () => {
         // failed submit (a successful submit resets showErrors and would hide it)
         expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
         expect(logic.values.panel).toBe(2)
+    })
+})
+
+describe('signupLogic - pending OAuth connection', () => {
+    afterEach(() => {
+        setPendingOAuthConnectionCookie(null)
+    })
+
+    it.each([
+        ['prefills the referral source with the client name', 'Claude', 'Claude'],
+        ['leaves the referral source empty without a connection', null, ''],
+    ])('%s', async (_name, clientName, expected) => {
+        setPendingOAuthConnectionCookie(clientName ? { client_name: clientName, client_id: 'client' } : null)
+        initKeaTests()
+        router.actions.push('/signup')
+        const logic = signupLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            signupPanelOnboarding: expect.objectContaining({ referral_source: expected }),
+        })
+        logic.unmount()
     })
 })

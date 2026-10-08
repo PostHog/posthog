@@ -75,7 +75,7 @@ class TestClassifySlackAppModelOverride:
 
     def test_llm_failure_falls_back_to_no_override(self):
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
             side_effect=RuntimeError("boom"),
         ):
             assert classify_slack_app_model_override("use fable for this", CHOICES) is None
@@ -89,7 +89,7 @@ class TestClassifySlackAppModelOverride:
         """
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override("use fable for this", CHOICES)
@@ -113,7 +113,7 @@ class TestClassifySlackAppModelOverride:
         # instead of taking the fallback this classifier is built around.
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override("use fable for this", CHOICES)
@@ -122,6 +122,19 @@ class TestClassifySlackAppModelOverride:
         options = fake_client.with_options.call_args.kwargs
         assert options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
         assert options["max_retries"] * options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
+
+    def test_token_cap_uses_the_reasoning_model_parameter(self):
+        # The route 400s on `max_tokens`, and the except turns that into a silent "no override".
+        fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
+            return_value=fake_client,
+        ):
+            classify_slack_app_model_override("use fable for this", CHOICES)
+
+        kwargs = fake_client.chat.completions.create.call_args.kwargs
+        assert "max_tokens" not in kwargs
+        assert kwargs["max_completion_tokens"] > 0
 
     def test_prompt_snapshot_matches(self, snapshot):
         """The prompt is the whole classifier — the catalogue it offers, the
@@ -135,7 +148,7 @@ class TestClassifySlackAppModelOverride:
     def _render_prompt(self, text: str) -> str:
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override(text, CHOICES)
@@ -153,7 +166,7 @@ class TestClassifySlackAppModelOverride:
 
     def _classify(self, text: str, content: str):
         with patch(
-            "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
             return_value=self._fake_client(content),
         ):
             return classify_slack_app_model_override(text, CHOICES)

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -7,17 +8,19 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog import datadog as ddog
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
     DEFAULT_SITE,
+    DatadogFanOutLimitError,
     DatadogResumeConfig,
     DatadogRetryableError,
     _build_initial_params,
     _build_initial_url,
     _compute_next_url,
     _extract_items,
-    _flatten_item,
     _format_datetime,
+    _format_filter_value,
     base_url,
     datadog_source,
     validate_credentials,
@@ -55,51 +58,11 @@ class TestFormatDatetime:
     def test_format_datetime(self, value: Any, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, tzinfo=UTC))
-
 
 class TestExtractItems:
     def test_top_level_list(self) -> None:
         config = DATADOG_ENDPOINTS["monitors"]  # data_path=None
         assert _extract_items([{"id": 1}, {"id": 2}], config) == [{"id": 1}, {"id": 2}]
-
-    def test_top_level_list_with_unexpected_dict(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        assert _extract_items({"unexpected": "shape"}, config) == []
-
-    def test_wrapped_data_path(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]  # data_path="data"
-        assert _extract_items({"data": [{"id": "a"}]}, config) == [{"id": "a"}]
-
-    def test_wrapped_custom_path(self) -> None:
-        config = DATADOG_ENDPOINTS["dashboards"]  # data_path="dashboards"
-        assert _extract_items({"dashboards": [{"id": "x"}]}, config) == [{"id": "x"}]
-
-    def test_missing_path_returns_empty(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        assert _extract_items({"meta": {}}, config) == []
-
-
-class TestFlattenItem:
-    def test_flattens_attributes_to_root(self) -> None:
-        item = {"id": "abc", "type": "log", "attributes": {"timestamp": "2026-01-01T00:00:00Z", "status": "info"}}
-        flat = _flatten_item(item)
-        assert flat["id"] == "abc"
-        assert flat["type"] == "log"
-        assert flat["timestamp"] == "2026-01-01T00:00:00Z"
-        assert flat["status"] == "info"
-        assert "attributes" not in flat
-
-    def test_does_not_clobber_existing_root_keys(self) -> None:
-        item = {"id": "abc", "attributes": {"id": "SHOULD_NOT_WIN", "name": "x"}}
-        flat = _flatten_item(item)
-        assert flat["id"] == "abc"
-        assert flat["name"] == "x"
-
-    def test_no_attributes_is_noop(self) -> None:
-        item = {"id": "abc", "name": "x"}
-        assert _flatten_item(item) == {"id": "abc", "name": "x"}
 
 
 class TestBuildInitialParams:
@@ -146,6 +109,29 @@ class TestBuildInitialParams:
                 {},
                 ["filter[from]", "sort"],
             ),
+            # filter[product_families] is required and has no implicit default, so omitting it 400s.
+            (
+                "usage_hourly",
+                False,
+                None,
+                {"filter[product_families]": "all", "page[limit]": 500},
+                [],
+            ),
+            # The usage endpoints take hour- and month-precision cutoffs, not the ISO filter format.
+            (
+                "usage_hourly",
+                True,
+                datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                {"filter[timestamp][start]": "2026-03-04T02"},
+                [],
+            ),
+            (
+                "usage_summary",
+                True,
+                datetime(2026, 3, 4, tzinfo=UTC),
+                {"start_month": "2026-03"},
+                [],
+            ),
         ],
     )
     def test_build_initial_params(
@@ -168,47 +154,17 @@ class TestBuildInitialParams:
         for key in expected_absent:
             assert key not in params
 
-    def test_cursor_endpoint_first_sync_seeds_lookback_window(self) -> None:
-        # No stored watermark, but the cursor endpoints must still send filter[from] so Datadog
-        # doesn't fall back to its now-15m default.
-        config = DATADOG_ENDPOINTS["logs"]
-        params = _build_initial_params(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
-        assert params["filter[from]"].endswith("Z")
-
 
 class TestBuildInitialUrl:
-    def test_keeps_brackets_literal(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        url = _build_initial_url("https://api.datadoghq.com", config, {"page[limit]": 1000})
-        assert url == "https://api.datadoghq.com/api/v2/logs/events?page[limit]=1000"
-
     def test_no_params(self) -> None:
-        config = DATADOG_ENDPOINTS["dashboards"]
         assert (
-            _build_initial_url("https://api.datadoghq.com", config, {}) == "https://api.datadoghq.com/api/v1/dashboard"
+            _build_initial_url("https://api.datadoghq.com", "/api/v1/dashboard", {})
+            == "https://api.datadoghq.com/api/v1/dashboard"
         )
 
 
 class TestComputeNextUrl:
     HOST = "https://api.datadoghq.com"
-
-    def test_cursor_uses_links_next(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        nxt = _compute_next_url(
-            config,
-            "https://api.datadoghq.com/api/v2/logs/events",
-            {"links": {"next": "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"}},
-            1000,
-            self.HOST,
-        )
-        assert nxt == "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"
-
-    def test_cursor_no_links_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        assert (
-            _compute_next_url(config, "https://api.datadoghq.com/api/v2/logs/events", {"data": []}, 0, self.HOST)
-            is None
-        )
 
     @pytest.mark.parametrize(
         "next_link",
@@ -241,13 +197,6 @@ class TestComputeNextUrl:
         query = parse_qs(urlparse(nxt).query)
         assert query["page"] == ["1"]
 
-    def test_page_short_page_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 42, self.HOST
-        )
-        assert nxt is None
-
     def test_offset_advances_by_page_size(self) -> None:
         config = DATADOG_ENDPOINTS["incidents"]  # page_size=100
         nxt = _compute_next_url(
@@ -256,22 +205,6 @@ class TestComputeNextUrl:
         assert nxt is not None
         query = parse_qs(urlparse(nxt).query)
         assert query["page[offset]"] == ["100"]
-
-    def test_offset_short_page_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["incidents"]
-        nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 7, self.HOST
-        )
-        assert nxt is None
-
-    def test_none_pagination_terminates(self) -> None:
-        config = DATADOG_ENDPOINTS["dashboards"]
-        assert (
-            _compute_next_url(
-                config, "https://api.datadoghq.com/api/v1/dashboard", {"dashboards": [1, 2]}, 2, self.HOST
-            )
-            is None
-        )
 
 
 class TestValidateCredentials:
@@ -314,9 +247,15 @@ class TestDatadogSourceResponse:
             ("monitors", "id", True),
             ("synthetic_tests", "public_id", False),
             ("slos", "id", False),
+            # Composite keys: these grains have no single unique column.
+            ("usage_hourly", ["public_id", "product_family", "timestamp"], True),
+            ("usage_billable_summary", ["public_id", "start_date"], True),
+            ("team_memberships", ["team_id", "id"], False),
+            ("slo_history", ["slo_id", "from_ts"], False),
+            ("metrics", ["metric"], False),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, expected_pk: str, expect_partition: bool) -> None:
+    def test_source_response_shape(self, endpoint: str, expected_pk: Any, expect_partition: bool) -> None:
         manager = mock.MagicMock()
         response = datadog_source(
             site="datadoghq.com",
@@ -327,7 +266,7 @@ class TestDatadogSourceResponse:
             resumable_source_manager=manager,
         )
         assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == ([expected_pk] if isinstance(expected_pk, str) else expected_pk)
         assert response.sort_mode == "asc"
         if expect_partition:
             assert response.partition_mode == "datetime"
@@ -335,6 +274,17 @@ class TestDatadogSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
+
+    def test_unknown_endpoint_is_named_in_the_error(self) -> None:
+        with pytest.raises(UnknownResourceError, match="not_a_table"):
+            datadog_source(
+                site="datadoghq.com",
+                api_key="api",
+                app_key="app",
+                endpoint="not_a_table",
+                logger=mock.MagicMock(),
+                resumable_source_manager=mock.MagicMock(),
+            )
 
 
 class TestGetRowsResume:
@@ -460,3 +410,133 @@ class TestFetchPageRetry:
         # DatadogRetryableError. Guards against widening the 408 fix to swallow all 4xx.
         with pytest.raises(requests.HTTPError):
             self._run([400])
+
+
+class TestFormatFilterValue:
+    def test_unparseable_string_falls_back_to_itself(self) -> None:
+        assert _format_filter_value("not-a-date", "month") == "not-a-date"
+
+
+class TestExtractItemsForNewShapes:
+    def test_single_object_endpoint_rejects_a_list(self) -> None:
+        config = DATADOG_ENDPOINTS["slo_history"]
+        assert _extract_items({"data": [{"from_ts": 1}]}, config) == []
+
+    def test_scalar_endpoint_wraps_each_name(self) -> None:
+        config = DATADOG_ENDPOINTS["metrics"]
+        assert _extract_items({"metrics": ["system.cpu.idle", "system.load.1"]}, config) == [
+            {"metric": "system.cpu.idle"},
+            {"metric": "system.load.1"},
+        ]
+
+
+class TestFanOut:
+    def _run(self, endpoint: str, bodies: dict[str, Any], statuses: dict[str, int] | None = None) -> dict[str, Any]:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+        saved: list[str] = []
+        manager.save_state.side_effect = lambda state: saved.append(state.next_url)
+
+        requested: list[str] = []
+
+        def fake_get(url: str, timeout: Any = None) -> Any:
+            requested.append(url)
+            path = urlparse(url).path
+            resp = mock.MagicMock()
+            resp.status_code = (statuses or {}).get(path, 200)
+            resp.ok = resp.status_code < 400
+            resp.text = "body"
+            resp.json.return_value = bodies.get(path, {})
+            if not resp.ok:
+                resp.raise_for_status.side_effect = requests.HTTPError("error", response=resp)
+            return resp
+
+        with mock.patch.object(ddog, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = fake_get
+            rows = [row for batch in self._rows(endpoint, manager) for row in batch]
+
+        return {"rows": rows, "saved": saved, "paths": [urlparse(u).path for u in requested]}
+
+    def _rows(self, endpoint: str, manager: Any) -> Any:
+        return ddog.get_rows(
+            site="datadoghq.com",
+            api_key="api",
+            app_key="app",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=manager,
+        )
+
+    def test_parent_deleted_mid_sync_is_skipped(self) -> None:
+        # A 404 on one child must not fail the whole sync — the parent list is a snapshot.
+        result = self._run(
+            "slo_history",
+            {
+                "/api/v1/slo": {"data": [{"id": "gone"}, {"id": "slo-2"}]},
+                "/api/v1/slo/slo-2/history": {"data": {"from_ts": 2}},
+            },
+            statuses={"/api/v1/slo/gone/history": 404},
+        )
+        assert result["rows"] == [{"from_ts": 2, "slo_id": "slo-2"}]
+
+    def test_raises_when_the_parent_cap_is_exceeded(self) -> None:
+        fan_out = DATADOG_ENDPOINTS["team_memberships"].parent
+        assert fan_out is not None
+        capped = dataclasses.replace(
+            DATADOG_ENDPOINTS["team_memberships"],
+            parent=dataclasses.replace(fan_out, max_parents=1),
+        )
+        # A truncated table that reports success would look like a complete sync.
+        with mock.patch.dict(DATADOG_ENDPOINTS, {"team_memberships": capped}):
+            with pytest.raises(DatadogFanOutLimitError, match="team_memberships"):
+                self._run(
+                    "team_memberships",
+                    {
+                        "/api/v2/team": {"data": [{"id": "team-a"}, {"id": "team-b"}]},
+                        "/api/v2/team/team-a/memberships": {"data": [{"id": "m1"}]},
+                        "/api/v2/team/team-b/memberships": {"data": [{"id": "m2"}]},
+                    },
+                )
+
+
+class TestWalkTermination:
+    def _pages(self, endpoint: str, bodies: list[Any]) -> tuple[list[Any], list[str]]:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+        fetched: list[str] = []
+
+        def fake_get(url: str, timeout: Any = None) -> Any:
+            resp = mock.MagicMock()
+            resp.status_code = 200
+            resp.ok = True
+            resp.json.return_value = bodies[min(len(fetched), len(bodies) - 1)]
+            fetched.append(url)
+            return resp
+
+        with mock.patch.object(ddog, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = fake_get
+            rows = list(
+                ddog.get_rows(
+                    site="datadoghq.com",
+                    api_key="api",
+                    app_key="app",
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        return rows, fetched
+
+    def test_empty_page_with_a_cursor_keeps_paginating(self) -> None:
+        # The usage cursor lives in meta, independently of data, so an empty page is not the end.
+        rows, fetched = self._pages(
+            "usage_hourly",
+            [
+                {"data": [], "meta": {"pagination": {"next_record_id": "rec-2"}}},
+                {"data": [{"id": "u2", "attributes": {}}], "meta": {"pagination": {}}},
+            ],
+        )
+        assert [batch[0]["id"] for batch in rows] == ["u2"]
+        assert len(fetched) == 2

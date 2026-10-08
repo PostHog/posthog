@@ -1,6 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Reporting windows the Insights aggregate endpoints accept. CircleCI retains Insights data
@@ -15,7 +18,7 @@ REPORTING_WINDOWS = (
 DEFAULT_REPORTING_WINDOW = "last-90-days"
 
 
-@dataclass
+@frozen
 class CircleciInsightsEndpointConfig:
     name: str
     # Path template relative to the API base; {slug} is the project slug (or org slug for
@@ -24,7 +27,7 @@ class CircleciInsightsEndpointConfig:
     # Composite by default: Insights rows are aggregates keyed by name within a project (and
     # workflow), not globally unique ids, so most keys include the injected parent identifiers.
     primary_keys: list[str]
-    # Stable creation-time field for datetime partitioning. Only workflow_runs rows carry one;
+    # Stable timestamp field for datetime partitioning. Only the row-level tables carry one;
     # the aggregate tables are rolling-window snapshots with no stable per-row timestamp.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -36,8 +39,19 @@ class CircleciInsightsEndpointConfig:
     # Org-level endpoints iterate the org slugs derived from the configured project slugs
     # (vcs/org/repo -> vcs/org) instead of the project slugs themselves.
     org_level: bool = False
-    # Whether the endpoint accepts branch filtering (branch / all-branches params).
+    # Whether the endpoint accepts branch filtering (the branch / all-branches params). Note the
+    # time-series endpoints take a single `branch` name but no `all-branches`, so they stay off.
     takes_branch_params: bool = False
+    # Whether the endpoint accepts the server-side `start-date` filter used for incremental sync.
+    takes_start_date: bool = False
+    # Whether `start-date` needs the full RFC 3339 timestamp. The runs endpoint accepts the
+    # date-only form; the time-series endpoint is only documented for a timestamp.
+    start_date_needs_timestamp: bool = False
+    # Fixed query params the endpoint always needs.
+    extra_params: dict[str, str] = field(default_factory=dict)
+    # Row order the API returns. The row-level listings declare desc, which defers the
+    # incremental watermark commit to the end of the sync — see the per-endpoint comments.
+    sort_mode: SortMode = "asc"
     should_sync_default: bool = True
 
 
@@ -47,6 +61,13 @@ CIRCLECI_INSIGHTS_ENDPOINTS: dict[str, CircleciInsightsEndpointConfig] = {
         path="/insights/{slug}/workflows",
         primary_keys=["project_slug", "name"],
         takes_reporting_window=True,
+        takes_branch_params=True,
+    ),
+    "workflow_summary": CircleciInsightsEndpointConfig(
+        name="workflow_summary",
+        path="/insights/{slug}/workflows/{workflow_name}/summary",
+        primary_keys=["project_slug", "workflow_name"],
+        fan_out_workflows=True,
         takes_branch_params=True,
     ),
     "workflow_runs": CircleciInsightsEndpointConfig(
@@ -68,6 +89,8 @@ CIRCLECI_INSIGHTS_ENDPOINTS: dict[str, CircleciInsightsEndpointConfig] = {
         ],
         fan_out_workflows=True,
         takes_branch_params=True,
+        takes_start_date=True,
+        sort_mode="desc",
     ),
     "job_metrics": CircleciInsightsEndpointConfig(
         name="job_metrics",
@@ -77,12 +100,52 @@ CIRCLECI_INSIGHTS_ENDPOINTS: dict[str, CircleciInsightsEndpointConfig] = {
         takes_reporting_window=True,
         takes_branch_params=True,
     ),
+    "job_timeseries": CircleciInsightsEndpointConfig(
+        name="job_timeseries",
+        path="/insights/time-series/{slug}/workflows/{workflow_name}/jobs",
+        # One bucket per job per interval, so the interval timestamp is part of the row identity.
+        primary_keys=["project_slug", "workflow_name", "name", "timestamp"],
+        partition_key="timestamp",
+        # The endpoint takes a server-side `start-date` filter, so incremental sync genuinely
+        # narrows what is fetched. The bucket timestamp never moves once emitted.
+        incremental_fields=[
+            {
+                "label": "timestamp",
+                "type": IncrementalFieldType.DateTime,
+                "field": "timestamp",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        fan_out_workflows=True,
+        takes_start_date=True,
+        start_date_needs_timestamp=True,
+        # Hourly buckets are only retained for 48 hours, which a scheduled sync cannot rely on;
+        # daily buckets match the ~90-day retention the rest of the source works against.
+        extra_params={"granularity": "daily"},
+        # The endpoint documents no row order. Desc defers the watermark commit to the end of the
+        # sync, which is correct whichever order the API returns.
+        sort_mode="desc",
+    ),
     "flaky_tests": CircleciInsightsEndpointConfig(
         name="flaky_tests",
         path="/insights/{slug}/flaky-tests",
         # A test is reported once per (workflow, job) it flakes in; the test identity is
         # classname + test_name, neither of which is unique on its own.
         primary_keys=["project_slug", "workflow_name", "job_name", "classname", "test_name"],
+    ),
+    "workflow_test_metrics": CircleciInsightsEndpointConfig(
+        name="workflow_test_metrics",
+        path="/insights/{slug}/workflows/{workflow_name}/test-metrics",
+        # A test is reported per job it runs in, and neither classname nor test name is unique
+        # on its own.
+        primary_keys=["project_slug", "workflow_name", "job_name", "classname", "test_name"],
+        fan_out_workflows=True,
+        takes_branch_params=True,
+    ),
+    "branches": CircleciInsightsEndpointConfig(
+        name="branches",
+        path="/insights/{slug}/branches",
+        primary_keys=["project_slug", "branch"],
     ),
     "org_summary_metrics": CircleciInsightsEndpointConfig(
         name="org_summary_metrics",

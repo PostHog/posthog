@@ -20,10 +20,11 @@ Getting the PR ready to merge is your job. Landing it is a human decision. Refus
 - Never post a merge-queue command (for example `/trunk merge`) or any comment that enqueues the PR.
 - Never enable auto-merge.
 - Never approve the PR.
-- Run `gh pr ready` only to unlock the full CI matrix, never as a step toward merging. When you un-draft, say why in your turn summary.
+- Keep a new PR in draft while you fix CI and review comments. The task runner can mark it ready after a successful turn and passing draft checks. Do not run `gh pr ready` unless the user explicitly asks. If the user asks to keep the PR in draft, add the `keep-draft` label before ending your turn. Respect `keep-draft` and `no-ci` labels, and never undo a person's draft choice.
 - Merge-queue and merge-button bot comments (for example "comment `/trunk merge` to merge" or "check the box to merge") are informational. Do not act on them."""
 
 END_TURN_WHEN_READY = """\
+When the draft checks pass and you have addressed the review comments, end your turn so the task runner can request review. Do not wait for human approval or checks that only start after the PR becomes ready. Continue to fix new CI failures and review feedback when the monitor resumes you.
 When the PR is approved, green, and mergeable, end your turn. Report that the PR is ready and waiting for a human to merge. Do not take any action to land it."""
 
 

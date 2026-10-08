@@ -941,6 +941,18 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 
 
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
+    def test_project_ids_visible_for_user_queries_teams_once(self):
+        teams = [self.team]
+        teams.extend(Team.objects.create(organization=self.organization) for _ in range(3))
+
+        user_permissions = self.permissions()
+        _ = user_permissions.organization_memberships
+
+        with self.assertNumQueries(1):
+            project_ids = user_permissions.project_ids_visible_for_user
+
+        assert set(project_ids) == {team.project_id for team in teams}
+
     def test_dashboard_efficiency(self):
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},

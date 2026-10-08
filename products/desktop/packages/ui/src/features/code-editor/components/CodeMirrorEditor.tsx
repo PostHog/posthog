@@ -8,6 +8,7 @@ import { setEnrichmentEffect } from "../extensions/postHogEnrichment";
 import { useCodeMirror } from "../hooks/useCodeMirror";
 import { useEditorExtensions } from "../hooks/useEditorExtensions";
 import { usePendingScrollStore } from "../pendingScrollStore";
+import type { SelectionAnchor } from "./selectionScreenshot";
 
 const selectedLineDecoration = Decoration.line({ class: "cm-selected-lines" });
 const selectedLinesField = StateField.define<DecorationSet>({
@@ -42,7 +43,7 @@ export interface EditorSelection {
   fromLine: number;
   toLine: number;
   /** Viewport position of the selection's end caret, or null when off-screen. */
-  anchor: { top: number; endX: number; bottom: number } | null;
+  anchor: SelectionAnchor | null;
 }
 
 interface CodeMirrorEditorProps {
@@ -111,6 +112,7 @@ export function CodeMirrorEditor({
           return;
         }
         const endRect = update.view.coordsAtPos(sel.to);
+        const startRect = update.view.coordsAtPos(sel.from);
         cb({
           text: doc.sliceString(sel.from, sel.to),
           fromLine: doc.lineAt(sel.from).number,
@@ -120,6 +122,8 @@ export function CodeMirrorEditor({
                 top: endRect.top,
                 endX: endRect.right,
                 bottom: endRect.bottom,
+                startX: startRect?.left,
+                startTop: startRect?.top,
               }
             : null,
         });

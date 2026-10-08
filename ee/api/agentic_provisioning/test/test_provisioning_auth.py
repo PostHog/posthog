@@ -6,8 +6,12 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
+from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -77,6 +81,34 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
+
+    @parameterized.expand([("proven by its secret", True), ("public client id only", False)])
+    def test_partner_is_recorded_by_id_only_when_it_proved_itself(self, _name, confidential):
+        if confidential:
+            partner = self.partner
+            data = self._client_credentials(partner)
+        else:
+            partner = OAuthApplication.objects.create(
+                client_id="activity-log-public-partner",
+                name="Public partner",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+                _provisioning_config=provisioning_config(),
+            )
+            data = {"client_id": partner.client_id}
+        request = Request(APIRequestFactory().post("/", data, format="json"), parsers=[JSONParser()])
+
+        activity_storage.mark_request_scoped()
+        try:
+            assert ProvisioningAuthentication().authenticate(request) == (None, partner)
+            credential = activity_storage.get_credential()
+        finally:
+            activity_storage.clear_all()
+
+        assert credential == ActivityCredential(type="partner", id=str(partner.id) if confidential else None)
 
     @parameterized.expand(
         [

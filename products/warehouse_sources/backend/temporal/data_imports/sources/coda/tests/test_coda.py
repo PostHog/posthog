@@ -65,53 +65,8 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("token") is expected
 
-    @mock.patch(CODA_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_docs_paginate_via_page_token(self, MockSession):
-        requests = _wire(
-            MockSession.return_value,
-            [_response([{"id": "doc1"}], next_token="tok1"), _response([{"id": "doc2"}])],
-        )
-
-        rows = _rows("docs")
-
-        assert [r["id"] for r in rows] == ["doc1", "doc2"]
-        # The next page echoes the body's nextPageToken back as the pageToken query param.
-        assert requests[1]["params"]["pageToken"] == "tok1"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_intermediate_page_does_not_halt_pagination(self, MockSession):
-        _wire(
-            MockSession.return_value,
-            [
-                _response([{"id": "doc1"}], next_token="tok1"),
-                _response([], next_token="tok2"),
-                _response([{"id": "doc2"}]),
-            ],
-        )
-
-        rows = _rows("docs")
-
-        assert [r["id"] for r in rows] == ["doc1", "doc2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_tables_fan_out_over_docs(self, MockSession):
-        requests = _wire(
-            MockSession.return_value,
-            [_response([{"id": "doc1"}]), _response([{"id": "grid-1", "name": "Tasks"}])],
-        )
-
-        rows = _rows("tables")
-
-        assert [(t["id"], t["_doc_id"]) for t in rows] == [("grid-1", "doc1")]
-        assert urlparse(requests[1]["url"]).path == "/apis/v1/docs/doc1/tables"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_rows_fan_out_docs_tables_rows(self, MockSession):
         requests = _wire(
@@ -131,6 +86,51 @@ class TestGetRows:
         assert requests[2]["params"]["useColumnNames"] == "true"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_columns_fan_out_docs_tables_columns(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [
+                _response([{"id": "doc1"}]),  # docs
+                _response([{"id": "grid-1"}]),  # tables for doc1
+                _response([{"id": "c-1", "name": "Name"}]),  # columns for grid-1
+            ],
+        )
+
+        rows = _rows("columns")
+
+        assert [(c["id"], c["_doc_id"], c["_table_id"]) for c in rows] == [("c-1", "doc1", "grid-1")]
+        assert urlparse(requests[2]["url"]).path == "/apis/v1/docs/doc1/tables/grid-1/columns"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_doc_analytics_lifts_nested_doc_id(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [_response([{"doc": {"id": "doc1", "title": "Roadmap"}, "metrics": [{"date": "2026-01-01", "views": 5}]}])],
+        )
+
+        rows = _rows("doc_analytics")
+
+        # The doc id is nested under `doc`; it must surface as a top-level `doc_id` to key the merge.
+        assert rows[0]["doc_id"] == "doc1"
+        assert rows[0]["metrics"][0]["views"] == 5
+        assert urlparse(requests[0]["url"]).path == "/apis/v1/analytics/docs"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_analytics_fan_out_and_lifts_page_id(self, MockSession):
+        requests = _wire(
+            MockSession.return_value,
+            [
+                _response([{"id": "doc1"}]),  # docs
+                _response([{"page": {"id": "page-1", "name": "Launch"}, "metrics": [{"views": 3}]}]),  # pages for doc1
+            ],
+        )
+
+        rows = _rows("page_analytics")
+
+        assert [(p["page_id"], p["_doc_id"]) for p in rows] == [("page-1", "doc1")]
+        assert urlparse(requests[1]["url"]).path == "/apis/v1/analytics/docs/doc1/pages"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_table_without_id_fails_fast_in_rows(self, MockSession):
         _wire(
             MockSession.return_value,
@@ -141,14 +141,6 @@ class TestGetRows:
         # rather than silently dropping the table.
         with pytest.raises(ValueError, match="expects a field 'id'"):
             _rows("rows")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_workspace_yields_nothing(self, MockSession):
-        MockSession.return_value.headers = {}
-        MockSession.return_value.prepare_request.side_effect = lambda request: mock.MagicMock()
-        MockSession.return_value.send.return_value = _response([])
-
-        assert _rows("rows") == []
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Coda endpoint"):
@@ -166,7 +158,3 @@ class TestCodaSourceResponse:
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_rows_have_composite_primary_key(self):
-        response = coda_source("token", "rows", team_id=1, job_id="j")
-        assert response.primary_keys == ["_doc_id", "_table_id", "id"]

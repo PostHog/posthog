@@ -6,7 +6,7 @@ export type NotebookWidgetTrustControlsProps = {
     buildHash: string | null
     isEditable: boolean
     securityReview: WidgetSecurityReviewApi | null
-    variant: 'gate' | 'toolbar'
+    variant: 'gate' | 'toolbar' | 'menu'
     onRun: () => void
     onViewSource: () => void
 }
@@ -45,6 +45,15 @@ export function NotebookWidgetTrustControls({
     ) : (
         <LemonTag type="muted">Automated review unavailable</LemonTag>
     )
+
+    if (variant === 'menu') {
+        return (
+            <div className="flex flex-col items-start gap-2">
+                {reviewTag}
+                {shortBuildHash ? <span className="font-mono text-xs text-muted">Build {shortBuildHash}</span> : null}
+            </div>
+        )
+    }
 
     if (variant === 'toolbar') {
         return (

@@ -88,6 +88,8 @@ class DiscoverCandidate:
     title: str
     description: str
     score: float
+    relevance: float | None
+    combined_score: float | None
     why: dict[str, JSONScalar]
     liveness: str
     auth_method: str

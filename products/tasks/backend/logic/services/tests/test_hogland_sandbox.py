@@ -93,6 +93,17 @@ class TestHoglandSandboxCreate:
         assert sandbox.id == "box-abc123def456"
         assert config.snapshot_restored is False
 
+    @parameterized.expand(
+        [
+            ("fixed golden by default", False, "alias:posthog-tasks-default"),
+            ("pluggable golden when the flag is on", True, "alias:posthog-tasks-hotplug"),
+        ]
+    )
+    def test_create_selects_the_golden_by_hotplug_flag(self, _name, use_hotplug, expected_alias):
+        config = SandboxConfig(name="sandbox-task-1", use_hotplug_golden=use_hotplug)
+        _, client = self._create(config)
+        assert client.create.call_args.kwargs["snapshot_id"] == expected_alias
+
     def test_create_bounds_tags_to_the_hogland_length_limit(self):
         # Hogland rejects the whole create when any tag exceeds 64 characters, and a task
         # workflow id is longer than that on its own.

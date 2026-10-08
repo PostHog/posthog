@@ -66,6 +66,13 @@ describe('ticketActivityDescriber', () => {
         const text = getTextContent(result)
         expect(text).toContain('workflow-actor:flow-123')
         expect(text).toContain('changed status')
+        expect(render(<>{result.summary?.actor}</>).container.textContent).toBe('workflow-actor:flow-123')
+        expect(render(<>{result.summary?.action}</>).container.textContent).toContain('changed status')
+        expect(
+            render(<>{result.summary?.target}</>)
+                .container.querySelector('a')
+                ?.getAttribute('href')
+        ).toContain('/2043')
         expect(text).not.toContain('PostHog')
     })
 

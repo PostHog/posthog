@@ -334,6 +334,54 @@ class FiltersSerializer(serializers.Serializer):
     filter_test_accounts = serializers.BooleanField(required=False)
 
 
+# These mirror the TypedDicts in posthog/hogql_queries/serialized_actors.py, so a field added
+# there needs adding here. Only the Optional[...] ones are nullable; the rest are always-set keys.
+#
+# `type` is a const string rather than a single-value ChoiceField, because a ChoiceField emits an
+# enum component and `type` collides as a component name under --fail-on-warn. The decorator must
+# annotate a field class, not a field instance: DRF rebuilds each field from its stored kwargs when
+# the serializer binds, which drops an instance-level annotation and the discriminator with it.
+@extend_schema_field({"type": "string", "const": "person"})
+class _PersonActorTypeField(serializers.CharField):
+    pass
+
+
+@extend_schema_field({"type": "string", "const": "group"})
+class _GroupActorTypeField(serializers.CharField):
+    pass
+
+
+class SerializedActorSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The person's UUID, or the group's key.")
+    properties = serializers.DictField(child=serializers.JSONField(), help_text="The actor's properties.")
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When the actor was first seen.")
+    matched_recordings = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="Recordings that matched the query. Empty unless the endpoint asks for them.",
+    )
+    value_at_data_point = serializers.FloatField(
+        allow_null=True,
+        help_text="The actor's value at the data point it was queried for. Null unless the query computes one.",
+    )
+
+
+class SerializedPersonActorSerializer(SerializedActorSerializer):
+    type = _PersonActorTypeField(help_text="Marks this actor as a person.")
+    uuid = serializers.UUIDField(help_text="The person's UUID. Same value as `id`.")
+    name = serializers.CharField(help_text="Display name, resolved from the person's properties or distinct IDs.")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="The person's distinct IDs, newest first."
+    )
+    last_seen_at = serializers.DateTimeField(allow_null=True, help_text="When the person was last seen.")
+    is_identified = serializers.BooleanField(allow_null=True, help_text="Whether the person has been identified.")
+
+
+class SerializedGroupActorSerializer(SerializedActorSerializer):
+    type = _GroupActorTypeField(help_text="Marks this actor as a group.")
+    group_key = serializers.CharField(help_text="Key identifying the group within its group type.")
+    group_type_index = serializers.IntegerField(help_text="Index of the group type this group belongs to.")
+
+
 class OrganizationNotificationLockSerializer(serializers.Serializer):
     setting = serializers.ChoiceField(
         choices=sorted(LOCKABLE_NOTIFICATION_SETTINGS),

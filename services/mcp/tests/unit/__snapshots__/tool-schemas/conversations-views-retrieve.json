@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "short_id": {
+            "description": "Short identifier of the view, as returned by conversations-views-list.",
+            "type": "string"
+        }
+    },
+    "required": ["short_id"],
+    "type": "object"
+}

@@ -4,15 +4,13 @@ from typing import TYPE_CHECKING, Optional, cast
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -88,7 +86,7 @@ class GiteaSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITEA,
+            name=ExternalDataSourceType.GITEA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Gitea",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -166,6 +164,7 @@ If automatic creation failed, your token needs admin access to the repository â€
             "403 Client Error": "Your Gitea token does not have permission to access this resource. Please check the token's scopes and repository access.",
             "404 Client Error": "Repository not found. Please verify the instance URL, repository name, and token access.",
             "Invalid Gitea instance URL": "The Gitea instance URL is invalid. Please enter the instance's canonical https URL.",
+            "Gitea Actions runs are unavailable": "Gitea Actions runs are unavailable for this repository. Upgrade the instance to Gitea 1.25 or later and enable Actions on the repository, or turn off the workflow_runs table.",
         }
 
     def get_schemas(

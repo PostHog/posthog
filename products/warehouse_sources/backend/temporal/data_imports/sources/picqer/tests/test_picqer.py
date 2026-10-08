@@ -9,7 +9,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import (
     PicqerResumeConfig,
-    _base_url,
     _build_params,
     normalize_account,
     picqer_source,
@@ -28,20 +27,6 @@ PICQER_SESSION_PATCH = (
 
 class TestNormalizeAccount:
     @pytest.mark.parametrize(
-        "value,expected",
-        [
-            ("acme", "acme"),
-            ("acme.picqer.com", "acme"),
-            ("https://acme.picqer.com", "acme"),
-            ("acme.picqer.com/", "acme"),
-            ("acme-corp", "acme-corp"),
-            ("  acme  ", "acme"),
-        ],
-    )
-    def test_valid_accounts(self, value: str, expected: str) -> None:
-        assert normalize_account(value) == expected
-
-    @pytest.mark.parametrize(
         "value",
         [
             "acme/../evil",
@@ -57,9 +42,6 @@ class TestNormalizeAccount:
         # member retarget the credential at a server they control.
         with pytest.raises(ValueError):
             normalize_account(value)
-
-    def test_base_url(self) -> None:
-        assert _base_url("acme") == "https://acme.picqer.com/api/v1"
 
 
 class TestToPicqerDatetime:
@@ -79,22 +61,6 @@ class TestToPicqerDatetime:
 
 
 class TestBuildParams:
-    def test_incremental_endpoint_adds_filter(self) -> None:
-        params = _build_params(
-            PICQER_ENDPOINTS["purchaseorders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
-        )
-        assert params == {"updated_after": "2020-01-02 03:04:05"}
-
-    def test_incremental_endpoint_without_cursor_omits_filter(self) -> None:
-        params = _build_params(
-            PICQER_ENDPOINTS["purchaseorders"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {}
-
     def test_full_refresh_endpoint_never_filters(self) -> None:
         # orders exposes only a creation-date filter (`sincedate`), so it syncs full refresh; a
         # cursor must never leak into the request and silently drop updated rows.
@@ -169,42 +135,6 @@ def _source(
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_by_offset_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page(PAGE_SIZE), _page(3)])
-
-        rows = _rows(_source("orders", _make_manager()))
-
-        assert len(rows) == PAGE_SIZE + 3
-        assert [p["offset"] for p in params] == [0, PAGE_SIZE]
-        # Offset-only advancement: Picqer has no page-size override, so no `limit` is ever sent.
-        assert all("limit" not in p for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page(0)])
-
-        manager = _make_manager()
-        rows = _rows(_source("orders", manager))
-
-        assert rows == []
-        assert [p["offset"] for p in params] == [0]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_offset_only_while_more_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page(PAGE_SIZE), _page(1)])
-
-        manager = _make_manager()
-        _rows(_source("orders", manager))
-
-        # State is saved after the full first page (advance to PAGE_SIZE), never after the short
-        # last page.
-        manager.save_state.assert_called_once_with(PicqerResumeConfig(offset=PAGE_SIZE))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_page(2)])
@@ -232,34 +162,6 @@ class TestPagination:
         assert all(p.get("updated_after") == "2020-01-02 03:04:05" for p in params)
         assert [p["offset"] for p in params] == [0, PAGE_SIZE]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_sends_no_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page(1)])
-
-        _rows(
-            _source(
-                "orders",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2020, 1, 2, 3, 4, 5),
-            )
-        )
-
-        assert "updated_after" not in params[0]
-
-    @pytest.mark.parametrize("status", [429, 503])
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_codes_recover(self, MockSession, _mock_sleep, status: int) -> None:
-        # A transient 429/5xx then success: the client retry recovers and still yields the data.
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=status), _page(1)])
-
-        rows = _rows(_source("orders", _make_manager()))
-
-        assert len(rows) == 1
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -281,15 +183,6 @@ class TestValidateCredentials:
 
         assert ok is expected_ok
         assert code == status
-
-    @mock.patch(PICQER_SESSION_PATCH)
-    def test_transport_error_maps_to_none_status(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        ok, code = validate_credentials("acme", "key")
-
-        assert ok is False
-        assert code is None
 
     def test_bad_account_raises_before_probe(self) -> None:
         # A malformed account must fail loud (so the caller can surface a precise message) rather

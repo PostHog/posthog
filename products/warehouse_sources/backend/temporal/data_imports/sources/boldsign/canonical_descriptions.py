@@ -2,29 +2,44 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+# `document/list`, `document/teamlist` and `document/behalfList` all return the same row shape.
+_DOCUMENT_COLUMNS: dict[str, str] = {
+    "documentId": "Unique identifier of the document.",
+    "messageTitle": "Title of the document shown to recipients.",
+    "status": "Current status of the document (e.g. InProgress, Completed, Declined, Revoked, Expired, Draft).",
+    "displayStatus": "Human-readable status label for display.",
+    "senderDetail": "Details of the user who sent the document.",
+    "ccDetails": "Recipients copied on the document.",
+    "signerDetails": "Recipients required to act on the document, with their roles and status.",
+    "createdDate": "Unix epoch timestamp for when the document was created.",
+    "activityDate": "Unix epoch timestamp of the most recent activity on the document.",
+    "activityBy": "Email of the user responsible for the most recent activity.",
+    "expiryDate": "Unix epoch timestamp for when the document expires.",
+    "scheduledSendTime": "Unix epoch timestamp for a scheduled send, if configured.",
+    "enableSigningOrder": "Whether recipients must sign in a defined order.",
+    "isDeleted": "Whether the document has been deleted.",
+    "inEditingMode": "Whether the document is currently being edited.",
+    "labels": "Labels applied to the document.",
+    "brandId": "Identifier of the brand applied to the document.",
+    "cursor": "Opaque pagination cursor used to page past the 10,000-record limit.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "documents": {
         "description": "Signature documents sent from the account, including their status, signers, and lifecycle dates.",
         "docs_url": "https://developers.boldsign.com/documents/list-documents/",
+        "columns": _DOCUMENT_COLUMNS,
+    },
+    "team_documents": {
+        "description": "Signature documents across every team the account can see, a wider set than the API user's own documents.",
+        "docs_url": "https://developers.boldsign.com/documents/list-team-documents/",
+        "columns": _DOCUMENT_COLUMNS,
+    },
+    "behalf_documents": {
+        "description": "Signature documents the API user sent on behalf of another sender identity.",
         "columns": {
-            "documentId": "Unique identifier of the document.",
-            "messageTitle": "Title of the document shown to recipients.",
-            "status": "Current status of the document (e.g. InProgress, Completed, Declined, Revoked, Expired, Draft).",
-            "displayStatus": "Human-readable status label for display.",
-            "senderDetail": "Details of the user who sent the document.",
-            "ccDetails": "Recipients copied on the document.",
-            "signerDetails": "Recipients required to act on the document, with their roles and status.",
-            "createdDate": "Unix epoch timestamp for when the document was created.",
-            "activityDate": "Unix epoch timestamp of the most recent activity on the document.",
-            "activityBy": "Email of the user responsible for the most recent activity.",
-            "expiryDate": "Unix epoch timestamp for when the document expires.",
-            "scheduledSendTime": "Unix epoch timestamp for a scheduled send, if configured.",
-            "enableSigningOrder": "Whether recipients must sign in a defined order.",
-            "isDeleted": "Whether the document has been deleted.",
-            "inEditingMode": "Whether the document is currently being edited.",
-            "labels": "Labels applied to the document.",
-            "brandId": "Identifier of the brand applied to the document.",
-            "cursor": "Opaque pagination cursor used to page past the 10,000-record limit.",
+            "behalfOf": "Name and email of the sender the document was sent on behalf of.",
+            **_DOCUMENT_COLUMNS,
         },
     },
     "templates": {
@@ -86,6 +101,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "phoneNumber": "Phone number of the contact.",
         },
     },
+    "contact_groups": {
+        "description": "Named groups of address-book contacts that can be added to a document together.",
+        "columns": {
+            "groupId": "Unique identifier of the contact group.",
+            "groupName": "Name of the contact group.",
+            "contacts": "Members of the group, each with a name and email address.",
+            "directories": "Directories the group is sourced from.",
+        },
+    },
     "sender_identities": {
         "description": "Verified sender identities that documents can be sent on behalf of.",
         "docs_url": "https://developers.boldsign.com/sender-identities/list-sender-identities/",
@@ -115,6 +139,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "isDefault": "Whether this is the account's default brand.",
             "redirectUrl": "Redirect URL configured for the brand.",
             "documentTimeZone": "Time zone applied to documents using this brand.",
+        },
+    },
+    "custom_fields": {
+        "description": "Reusable custom field definitions belonging to a brand, resolving the field identifiers that appear on documents and templates.",
+        "columns": {
+            "customFieldId": "Unique identifier of the custom field within its brand.",
+            "brandId": "Identifier of the brand the custom field belongs to.",
+            "fieldName": "Name of the custom field.",
+            "fieldDescription": "Description of the custom field.",
+            "fieldOrder": "Position of the custom field in the brand's field list.",
+            "sharedField": "Whether the custom field is shared across the account.",
+            "formField": "Form field definition (type, size, validation and styling) applied when the field is placed on a document.",
         },
     },
 }

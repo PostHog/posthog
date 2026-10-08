@@ -114,7 +114,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         primaryYAxis,
         yAxes,
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
-    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 

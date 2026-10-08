@@ -1,5 +1,6 @@
 import type { TaskChannel, UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { channelMembersQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelMembers";
 import {
   TASK_CHANNELS_QUERY_KEY,
   useTaskChannels,
@@ -13,8 +14,13 @@ export interface Channel {
   id: string;
   /** Normalized display name (lowercase-dashed; rendered "#name"). */
   name: string;
-  /** `personal` is the user's private "#me" channel. */
-  channelType: "public" | "personal";
+  /**
+   * `personal` is the user's private "#me" channel. `private` is a shared space
+   * only its members can see.
+   */
+  channelType: "public" | "personal" | "private";
+  /** Set on the two provisioned spaces, which cannot change type or name. */
+  systemRole?: "personal" | "general" | null;
   /** Whether the current user starred this channel. */
   starred: boolean;
   /** The repos the space is wired to. Empty where none are. */
@@ -32,6 +38,7 @@ function toChannel(channel: TaskChannel): Channel {
     id: channel.id,
     name: channel.name,
     channelType: channel.channel_type,
+    systemRole: channel.system_role ?? null,
     starred: channel.starred,
     repositories: channel.repositories ?? NO_REPOSITORIES,
     autoArchiveAfterDays: channel.auto_archive_after_days ?? null,
@@ -72,7 +79,17 @@ export function useChannelMutations() {
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: async ({ name, star }: { name: string; star: boolean }) => {
+    mutationFn: async ({
+      name,
+      star,
+      channelType,
+      memberIds,
+    }: {
+      name: string;
+      star: boolean;
+      channelType?: "public" | "private";
+      memberIds?: number[];
+    }) => {
       if (!client) throw new Error("Not authenticated");
       // Resolve-or-create is idempotent server-side, so racing creators of the
       // same name converge on one channel.
@@ -84,7 +101,11 @@ export function useChannelMutations() {
       const isNewToTheList = queryClient
         .getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY)
         ?.every((channel) => channel.name !== name);
-      const created = await client.resolveTaskChannel(name, { star });
+      const created = await client.resolveTaskChannel(name, {
+        star,
+        channelType,
+        memberIds,
+      });
       if (!star || created.starred || !isNewToTheList) return created;
       // TODO: delete once `star` on create is live on Cloud. A backend that
       // predates it drops the flag and hands back an unstarred channel, so ask
@@ -154,17 +175,60 @@ export function useChannelMutations() {
     },
   });
 
+  const channelTypeMutation = useMutation({
+    mutationFn: async ({
+      id,
+      channelType,
+    }: {
+      id: string;
+      channelType: "public" | "private";
+    }) => {
+      if (!client) throw new Error("Not authenticated");
+      return client.updateTaskChannelType(id, channelType);
+    },
+    onSuccess: (updatedChannel) => {
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((channel) =>
+            channel.id === updatedChannel.id ? updatedChannel : channel,
+          ),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: channelMembersQueryKey(updatedChannel.id),
+      });
+      invalidate();
+    },
+  });
+
   return {
-    createChannel: (name: string, options: { star: boolean }) =>
-      createMutation.mutateAsync({ name, star: options.star }).then(toChannel),
+    createChannel: (
+      name: string,
+      options: {
+        star: boolean;
+        channelType?: "public" | "private";
+        memberIds?: number[];
+      },
+    ) =>
+      createMutation
+        .mutateAsync({
+          name,
+          star: options.star,
+          channelType: options.channelType,
+          memberIds: options.memberIds,
+        })
+        .then(toChannel),
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),
     updateAutoArchive: (id: string, inactivityDays: number | null) =>
       autoArchiveMutation.mutateAsync({ id, inactivityDays }).then(toChannel),
+    updateChannelType: (id: string, channelType: "public" | "private") =>
+      channelTypeMutation.mutateAsync({ id, channelType }).then(toChannel),
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,
     isRenaming: renameMutation.isPending,
     isUpdatingAutoArchive: autoArchiveMutation.isPending,
+    isUpdatingChannelType: channelTypeMutation.isPending,
   };
 }

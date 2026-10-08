@@ -85,6 +85,7 @@ function WaterfallMeta(): JSX.Element | null {
         <>
             <div className="flex gap-x-2 px-2 justify-between">
                 <LemonButton
+                    data-attr="network-view-prev-page"
                     onClick={prevPage}
                     icon={<IconChevronLeft />}
                     disabledReason={page === 0 ? "You're on the first page" : null}
@@ -100,12 +101,18 @@ function WaterfallMeta(): JSX.Element | null {
                     />
 
                     <Tooltip title={pageUrl}>
-                        <Link to={pageUrl} target="_blank" className="block truncate">
+                        <Link
+                            data-attr="network-view-open-page-url"
+                            to={pageUrl}
+                            target="_blank"
+                            className="block truncate"
+                        >
                             {pageUrl}
                         </Link>
                     </Tooltip>
                 </div>
                 <LemonButton
+                    data-attr="network-view-next-page"
                     onClick={nextPage}
                     icon={<IconChevronRight />}
                     disabledReason={page === pageCount - 1 ? "You're on the last page" : null}

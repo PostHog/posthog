@@ -48,6 +48,7 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
     }),
 }));
 
+import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "./inboxPolling";
 import { useInboxAllReports } from "./useInboxAllReports";
 
 function readyReport(index: number): SignalReport {
@@ -149,6 +150,10 @@ describe("useInboxAllReports", () => {
     // with the list it labels.
     expect(reportsCountParams()?.status).toBe("ready");
     expect(reportsCountParams()?.count_only).toBe(true);
+  });
+
+  it("uses a 30-second desktop poll interval", () => {
+    expect(DESKTOP_INBOX_REFETCH_INTERVAL_MS).toBe(30_000);
   });
 
   it("stitches subsequent pages without gaps or duplicate reports", async () => {

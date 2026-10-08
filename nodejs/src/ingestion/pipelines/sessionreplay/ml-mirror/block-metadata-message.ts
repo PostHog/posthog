@@ -2,7 +2,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { isWellFormedRow } from './block-metadata-columns'
+import { isWellFormedRow, selectBlockMetadataFields } from './block-metadata-columns'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
 
@@ -26,7 +26,7 @@ export function parseBlockMetadataMessages(messages: readonly { value: Buffer | 
             MlParquetSinkMetrics.incRowsRejected('invalid')
             continue
         }
-        rows.push(row)
+        rows.push(selectBlockMetadataFields(row))
     }
     MlParquetSinkMetrics.incRowsParsed(rows.length)
     return rows

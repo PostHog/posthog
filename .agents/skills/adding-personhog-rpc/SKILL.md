@@ -130,14 +130,12 @@ The compiler guides you — once the proto is defined, `cargo build` errors tell
 
 ### 3c. Router wiring (personhog-router)
 
-1. **Add the method** to `rust/personhog-router/src/router/mod.rs`
-   - Use the `route_request` function (imported from `routing.rs`) with the correct `DataCategory` and `OperationType`
-   - Call the replica (or leader) backend
-   - Use the `call_backend!` macro for instrumentation
-2. **Add the service impl** to `rust/personhog-router/src/service/mod.rs`
-   - Invoke the `route_request!` macro (defined at the top of this file) to delegate to the router
-3. **Add to the backend trait** in `rust/personhog-router/src/backend/mod.rs` and implement in `replica.rs`
-4. **Add router tests** in `rust/personhog-router/tests/`
+The router forwards request bytes without decoding them, so a new RPC needs no handler there.
+
+1. **Add the method name** to `KNOWN_METHODS` in `rust/personhog-router/src/proxy.rs`, keeping the list sorted
+   - Methods that must reach the leader are matched by name in `proxy.rs`; everything else forwards to a replica
+   - `known_methods_is_sorted` and `known_methods_matches_service_proto` in the same file fail until the list matches `service.proto`
+2. **Add the method** to every `PersonHogService` mock that implements the generated trait, including the ones outside personhog (`rust/personhog-router/tests/common/mod.rs`, `rust/property-defs-rs/tests/`); tonic traits have no default methods
 
 Use `rstest` parameterized tests where multiple variations of the same behavior are being tested.
 

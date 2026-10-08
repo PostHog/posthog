@@ -3,6 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -11,8 +12,10 @@ from unittest.mock import Mock, patch, sentinel
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
 
-from posthog.clickhouse.client.connection import NodeRole, Workload
+from posthog.clickhouse.client import connection
+from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    AUTHENTICATION_FAILED,
     TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
     ClickhouseCluster,
@@ -26,8 +29,9 @@ from posthog.clickhouse.cluster import (
     T,
     get_cluster,
     redact_sql_secrets,
+    wait_for_mutations_on_shards,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 
 pytestmark = pytest.mark.django_db
 
@@ -35,6 +39,63 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     yield get_cluster()
+
+
+@pytest.mark.parametrize(
+    "static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider",
+    [
+        pytest.param("static-fallback", True, None, True, True, id="dual_armed_default_bootstraps_on_token"),
+        pytest.param("", True, None, True, True, id="token_first_default_bootstraps_on_token"),
+        pytest.param("static-only", False, None, False, False, id="static_default_uses_password"),
+        pytest.param(
+            "static-fallback",
+            True,
+            {"user": "backups", "password": "bkp-static"},
+            True,
+            False,
+            id="override_user_keeps_its_own_credential",
+        ),
+    ],
+)
+def test_get_cluster_bootstraps_a_file_backed_user_on_its_live_token(
+    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider
+) -> None:
+    token = "live-token"
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    creds = ClickHouseCredentials(
+        user="default",
+        password=static_password,
+        password_file=str(token_file) if password_file_set else None,
+    )
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: creds})
+
+    with (
+        patch("posthog.clickhouse.cluster.default_client") as mock_default_client,
+        patch("posthog.clickhouse.cluster.ClickhouseCluster") as mock_cluster,
+    ):
+        get_cluster(connection_overrides=overrides_arg)
+
+    bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    bootstrap_provider = mock_cluster.call_args.kwargs["bootstrap_credential_provider"]
+    overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+    token_file.write_text("rotated-token")
+
+    if expect_token_bootstrap:
+        assert bootstrap_password == token
+        assert bootstrap_provider() == "rotated-token"
+    else:
+        assert bootstrap_password is None
+        assert bootstrap_provider is None
+
+    if expect_provider:
+        assert overrides["credential_provider"]() == "rotated-token"
+    else:
+        assert "credential_provider" not in overrides
+
+    if overrides_arg is not None:
+        assert overrides["user"] == overrides_arg["user"]
+        assert overrides["password"] == overrides_arg["password"]
 
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
@@ -366,6 +427,34 @@ def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluste
     )
 
 
+def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() -> None:
+    """Regression test: commands were rendered with `client.connection.context` before the client had
+    connected, so `server_info` was None and a tz-aware datetime parameter (e.g. an event removal time
+    range) raised `'NoneType' object has no attribute 'get_timezone'`. The lookup must also render in the
+    server timezone, as submission does, or a non-UTC server would never match its stored mutation.
+    """
+    runner = LightweightDeleteMutationRunner(
+        table=EVENTS_DATA_TABLE(),
+        predicate="team_id = %(team_id)s AND timestamp >= %(start_time)s",
+        parameters={"team_id": 1, "start_time": datetime(2026, 1, 1, tzinfo=UTC)},
+    )
+    client = Client("unconnected-host")
+    assert client.connection.context.server_info is None
+
+    def fake_execute(query: str, params: dict | None = None, **kwargs) -> list[tuple]:
+        if query == "SELECT 1":  # connecting populates server_info, here a non-UTC server
+            client.connection.context.server_info = Mock(get_timezone=Mock(return_value="America/New_York"))
+            return [(1,)]
+        return [(None,)]
+
+    with patch.object(client, "execute", side_effect=fake_execute) as execute:
+        assert runner.find_existing_mutations(client) == {}
+
+    connect_call, lookup_call = execute.call_args_list
+    assert connect_call.args == ("SELECT 1",)
+    assert "'2025-12-31 19:00:00'" in lookup_call.args[1]["__command_0"]
+
+
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -567,6 +656,58 @@ def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
     assert cluster.shards == [1]
     # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
     assert cluster.sibling("events") is sibling
+
+
+@pytest.mark.parametrize(
+    "credential_provider_set, caller_retry_policy_set, expected_presented",
+    [
+        pytest.param(
+            True, True, ["token-1", "token-2", "token-3"], id="token_bootstrap_presents_a_fresh_token_each_attempt"
+        ),
+        pytest.param(
+            True, False, ["token-1", "token-2", "token-3"], id="token_bootstrap_retries_without_a_caller_policy"
+        ),
+        pytest.param(False, True, ["static"], id="static_bootstrap_fails_on_a_rejected_login"),
+    ],
+)
+def test_discovery_retries_a_rejected_login_only_with_a_fresh_token(
+    credential_provider_set: bool, caller_retry_policy_set: bool, expected_presented: list[str]
+) -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [("events-host1", 9000, 1, 1, "online", "data")],
+    }
+    presented: list[str] = []
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.connection.password = "static"
+
+    def mock_execute(query, params):
+        presented.append(bootstrap_client_mock.connection.password)
+        if len(presented) == 1:
+            raise ServerException("Authentication failed", code=AUTHENTICATION_FAILED)
+        return hosts_by_cluster[params["name"]]
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+    tokens = iter(["token-1", "token-2", "token-3"])
+
+    def discover() -> None:
+        ClickhouseCluster(
+            bootstrap_client_mock,
+            cluster="posthog",
+            retry_policy=RetryPolicy(max_attempts=2, delay=0, exceptions=(TimeoutError,))
+            if caller_retry_policy_set
+            else None,
+            bootstrap_credential_provider=(lambda: next(tokens)) if credential_provider_set else None,
+        ).sibling("events")
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        if credential_provider_set:
+            discover()
+        else:
+            with pytest.raises(ServerException):
+                discover()
+
+    assert presented == expected_presented
 
 
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:
@@ -787,6 +928,32 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
         assert all(result[0][0] < count for result in query_results.values())
 
 
+def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> None:
+    # A patch-part delete that fell back to ALTER UPDATE would still remove the rows, so the
+    # mutation log is the only place the regression shows.
+    table = EVENTS_JSON_DATA_TABLE
+    kept, deleted = uuid.uuid4(), uuid.uuid4()
+    cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
+    cluster.any_host(
+        Query(
+            f"INSERT INTO {table} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(u, 1, "$pageview", "d", datetime(2026, 1, 1, tzinfo=UTC)) for u in (kept, deleted)],
+        )
+    ).result()
+    mutations_sql = f"SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = '{table}'"
+    [[[mutations_before]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+
+    runner = LightweightDeleteMutationRunner(
+        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=True
+    )
+    wait_for_mutations_on_shards(cluster, runner.enqueue_on_shards(cluster))
+
+    for rows in cluster.map_all_hosts(Query(f"SELECT uuid FROM {table}")).result().values():
+        assert [row[0] for row in rows] == [kept]
+    [[[mutations_after]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
+    assert mutations_after == mutations_before
+
+
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     """Test that force=True skips checking for existing mutations"""
     table = EVENTS_DATA_TABLE()
@@ -832,6 +999,54 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+def test_reuse_since_refuses_a_mutation_created_before_it(cluster: ClickhouseCluster) -> None:
+    # A command names the dictionaries it joins, never their contents, so the same text stands for
+    # different data on a later run. Adopting the earlier run's finished mutation reports a delete
+    # that never ran, and it is silent: the waiter sees a finished mutation and returns at once.
+    table = EVENTS_DATA_TABLE()
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT 10")).result()
+
+    sentinel_uuid = uuid.uuid1()
+
+    def build(reuse_since: datetime | None) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
+            table=table,
+            commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+            parameters={"uuid": sentinel_uuid},
+            reuse_since=reuse_since,
+        )
+
+    wait_and_check_mutations_on_shards(cluster, cluster.map_one_host_per_shard(build(None)).result())
+
+    count_mutations = Query(
+        "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+        {"table": table},
+    )
+    before = cluster.map_all_hosts(count_mutations).result()
+
+    def last_create_time(client: Client) -> datetime:
+        [[created]] = client.execute(
+            "SELECT max(create_time) FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+            {"table": table},
+        )
+        return created
+
+    # The latest reading across hosts, so the floor sits past the mutation on every one of them.
+    newest = max(cluster.map_all_hosts(last_create_time).result().values())
+
+    # A floor predating the mutation still adopts it, which is what keeps a retry inside one run
+    # from enqueueing the same work twice.
+    cluster.map_one_host_per_shard(build(newest - timedelta(hours=1))).result()
+    adopted = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert adopted[host][0][0] == rows[0][0], "a mutation created after the floor should have been adopted"
+
+    cluster.map_one_host_per_shard(build(newest + timedelta(seconds=1))).result()
+    enqueued = cluster.map_all_hosts(count_mutations).result()
+    for host, rows in before.items():
+        assert enqueued[host][0][0] > rows[0][0], "a mutation created before the floor should not have been adopted"
 
 
 @pytest.mark.parametrize(

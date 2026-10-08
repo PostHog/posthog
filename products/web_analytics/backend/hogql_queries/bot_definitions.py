@@ -623,6 +623,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     r"(^\s|\s$)": BotDefinition("Whitespace-padded UA", "headless_browser", "Automation", "Unknown"),
     # A bare "Mozilla/5.0" with no platform or engine token is a lazy scraper default.
     r"^Mozilla/5\.0$": BotDefinition("Bare Mozilla UA", "headless_browser", "Automation", "Unknown"),
+    # Modern Chrome never ships a 4-digit patch (4th) version component. Scraper fleets that
+    # randomize the version emit one on stock device templates that end in "Safari/537.36". The
+    # end anchor skips the Chromium forks that put their own build number in that slot (Yandex
+    # Browser, Yandex Search App, Opera Mobile) and 2010-era Chrome 4, whose UAs end differently.
+    r"Chrome/\d+\.\d+\.\d+\.\d{4,} (Mobile )?Safari/537\.36$": BotDefinition(
+        "Impossible Chrome patch version", "headless_browser", "Automation", "Unknown"
+    ),
     # Server-side batch (prod $http_log Vercel log drain, 7d, self-declared crawlers/monitors
     # absent from the JS-pageview stream). Each key is anchored on the operator's own declared
     # token, never a pattern that could match a real browser.
@@ -900,6 +907,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
     ),
+    "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -950,6 +958,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
     ),
+    "QlyzeBot": BotDefinition("Qlyze", "seo_crawler", "Bot", "Qlyze", documentation_url="https://app.qlyze.io/bot"),
+    "AutozellaBot": BotDefinition(
+        "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"
+    ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -997,5 +1009,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
+    ),
+    "PostHogImageFetcherBot": BotDefinition(
+        "PostHog Image Fetcher",
+        "http_client",
+        "Bot",
+        "PostHog",
+        documentation_url="https://posthog.com/docs/ai-research/image-fetcher-bot",
     ),
 }

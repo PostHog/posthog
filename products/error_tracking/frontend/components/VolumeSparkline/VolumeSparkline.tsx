@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import {
     type ChartMargins,
-    createXAxisTickCallback,
     type DateRangeZoomData,
     type PointClickData,
     type Series,
@@ -105,13 +104,6 @@ export function VolumeSparkline({
 
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
-    // Quill's own tick callback: project-timezone labels at the granularity it infers from the
-    // bucket spacing, deduped per period. Only built when ticks actually render.
-    const tickFormatter = useMemo(
-        () => (xAxis === 'full' ? createXAxisTickCallback({ timezone, allDays: labels }) : undefined),
-        [labels, timezone, xAxis]
-    )
-
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             minBarSize: LAYOUTS[layout].minBarSize,
@@ -119,7 +111,7 @@ export function VolumeSparkline({
             bandPadding: LAYOUTS[layout].bandPadding,
             margins: resolveMargins(layout, eventLabelReserve),
             valueDomain: { min: 0, max: maxValue },
-            xAxis: { hide: xAxis !== 'full', tickFormatter },
+            xAxis: { hide: xAxis !== 'full', timezone: xAxis === 'full' ? timezone : undefined },
             yAxis: { hide: true },
             showAxisLines: { x: showAxis, y: false },
             showTickMarks: false,
@@ -128,7 +120,7 @@ export function VolumeSparkline({
             // Hover is surfaced as issue metrics beside the chart, not as a tooltip over it.
             tooltip: { enabled: false },
         }),
-        [layout, xAxis, showAxis, eventLabelReserve, tickFormatter, maxValue]
+        [layout, xAxis, showAxis, eventLabelReserve, timezone, maxValue]
     )
 
     const onDateRangeZoom = useMemo(() => {

@@ -28,6 +28,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.REVIEW_HOG],
             category: ProductItemCategory.UNRELEASED,
             iconType: 'code_review' as FileSystemIconType,
+            iconColor: ['var(--color-product-code-review-light)', 'var(--color-product-code-review-dark)'],
             href: urls.codeReview(),
             flag: FEATURE_FLAGS.REVIEW_HOG,
             tags: ['alpha'],

@@ -1,0 +1,55 @@
+cases:
+    - name: a string owner is a list with one entry
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'
+
+    - name: a list of owners keeps its order and the first entry is the primary owner
+      files:
+          owners.yaml: |
+              version: 1
+              owners: [team-b, team-a, '@alice']
+      expect:
+          x.py:
+              owners: [team-b, team-a, '@alice']
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-b'
+
+    - name: a nearer owners list replaces the ancestor list and does not merge with it
+      files:
+          owners.yaml: |
+              version: 1
+              owners: [team-a, team-b]
+          sub/owners.yaml: |
+              version: 1
+              owners: [team-c]
+      expect:
+          sub/x.py:
+              owners: [team-c]
+              unowned_by_design: false
+              status: active
+              source: sub/owners.yaml
+              slack: '#team-c'
+
+    - name: a person handle is a valid owner
+      files:
+          owners.yaml: |
+              version: 1
+              owners: '@alice'
+      expect:
+          x.py:
+              owners: ['@alice']
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: null

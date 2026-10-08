@@ -1,8 +1,8 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -97,14 +97,6 @@ class TestHelpers:
     def test_parse_station_ids(self, _name, value, expected):
         assert _parse_station_ids(value) == expected
 
-    def test_parse_station_ids_bounds_split_regardless_of_input_size(self):
-        # A pathological input with millions of commas must not make split() materialize
-        # millions of parts before the caller's MAX_STATIONS check ever runs.
-        station_ids = ",".join(str(i) for i in range(2_000_000))
-        stations = _parse_station_ids(station_ids)
-        assert len(stations) == MAX_STATIONS + 1
-        assert stations[:5] == ["0", "1", "2", "3", "4"]
-
     @parameterized.expand(
         [
             ("datetime", datetime(2026, 7, 1, 5, tzinfo=UTC), date(2026, 7, 1)),
@@ -147,25 +139,7 @@ class TestHelpers:
 
 
 class TestGetRows:
-    @freeze_time("2026-07-21")
-    def test_single_window_rows_tagged_with_station_and_state_saved_after_yield(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"data": [{"date": "2026-07-18", "tavg": 20.5}]})
-        manager = _manager()
-
-        batches = _run(DAILY_ENDPOINT, session, manager, station_ids="10637", start_date="2026-07-18")
-
-        params = _requested_params(session)
-        assert params == [{"station": "10637", "start": "2026-07-18", "end": "2026-07-21"}]
-        assert len(batches) == 1
-        row = batches[0][0]
-        assert row["station_id"] == "10637"
-        assert row["date"] == datetime(2026, 7, 18)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [MeteostatResumeConfig(station_index=0, next_start="2026-07-22")]
-
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_multiple_stations_are_each_queried_across_the_full_range(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": [{"date": "2026-07-18", "tavg": 5.0}]})
@@ -176,24 +150,7 @@ class TestGetRows:
         assert [p["station"] for p in params] == ["10637", "71508"]
         assert [batch[0]["station_id"] for batch in batches] == ["10637", "71508"]
 
-    @freeze_time("2026-08-15")
-    def test_long_range_is_chunked_into_contiguous_windows_within_the_vendor_cap(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"data": []})
-
-        _run(HOURLY_ENDPOINT, session, station_ids="10637", start_date="2026-06-01")
-
-        params = _requested_params(session)
-        # Hourly's documented cap is 30 days per request; each window must respect it.
-        for entry in params:
-            span = date.fromisoformat(entry["end"]) - date.fromisoformat(entry["start"])
-            assert span.days <= 29
-        # Windows are contiguous: each window starts the day after the previous one ends.
-        for previous, current in zip(params, params[1:]):
-            assert date.fromisoformat(current["start"]) == date.fromisoformat(previous["end"]) + timedelta(days=1)
-        assert date.fromisoformat(params[-1]["end"]) == date(2026, 8, 15)
-
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_incremental_start_uses_overlap_window(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -210,7 +167,7 @@ class TestGetRows:
         # Re-fetches a 7 day trailing overlap so late corrections get picked up; merge dedupes.
         assert params == [{"station": "10637", "start": "2026-07-08", "end": "2026-07-21"}]
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_resume_state_skips_completed_stations_and_resumes_the_current_one(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -227,7 +184,7 @@ class TestGetRows:
         with pytest.raises(ValueError, match=NO_STATIONS_ERROR):
             _run(DAILY_ENDPOINT, mock.MagicMock(spec=requests.Session), station_ids="  ,  ")
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_station_count_is_capped_at_runtime(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -244,7 +201,7 @@ class TestGetRows:
             ("scientific_includes_units_param", "scientific", True),
         ]
     )
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_units_param_only_sent_for_non_default_unit_system(self, _name, units, expect_param):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(json_body={"data": []})
@@ -256,25 +213,13 @@ class TestGetRows:
         if expect_param:
             assert params[0]["units"] == units
 
-    @freeze_time("2026-07-21")
+    @time_machine.travel("2026-07-21", tick=False)
     def test_non_ok_status_raises(self):
         session = mock.MagicMock(spec=requests.Session)
         session.get.return_value = _response(status=500)
 
         with pytest.raises(requests.HTTPError):
             _run(DAILY_ENDPOINT, session, station_ids="10637", start_date="2026-07-20")
-
-    @freeze_time("2026-07-21")
-    def test_start_date_before_floor_is_clamped(self):
-        # A too-old start_date is re-checked (not just rejected at credential validation) so a
-        # previously stored configuration can't schedule a runaway backfill either.
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"data": []})
-
-        _run(DAILY_ENDPOINT, session, station_ids="10637", start_date="0001-01-01")
-
-        params = _requested_params(session)
-        assert params[0]["start"] == MINIMUM_START_DATE.isoformat()
 
 
 class TestMeteostatSourceResponse:

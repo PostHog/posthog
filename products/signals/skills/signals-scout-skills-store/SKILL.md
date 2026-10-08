@@ -1,5 +1,6 @@
 ---
 name: signals-scout-skills-store
+scout-display-name: Skills store
 description: >
   Skill-hygiene scout for the team's PostHog skills store. Watches recently-changed and most-
   used skills for authoring violations — vague descriptions, bloated bodies, dead file links,
@@ -144,7 +145,7 @@ For each non-compliant skill, the call is **edit an existing report, author a ne
 - **Edit** (`scout-edit-report`) when a still-live report already covers the skill — it's still broken at a newer version, or picked up additional violations.
   Add the recheck with `append_evidence` (version judged, which violations persist / were fixed / are new), or rewrite the title/summary on a report you authored when the violation set materially changed.
   `edit-report` can't change status, so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't resurface) — a regressed skill gets a fresh report and a repointed `report:` key.
-- **Author** (`scout-emit-report`) only when no live report covers the skill — **one report per skill**, bundling every violated rule (confidence ≥ 0.65; most static checks land 0.85–0.95 because they're mechanical).
+- **Author** (`scout-emit-report`) only when no live report covers the skill — **one report per skill**, bundling every violated rule (most of these checks are static, so the violation is either there or it isn't).
   A good report names the skill (linking `/llm-analytics/skills/<name>` — the name, not the UUID), lists each violated rule with the offending field/line and the rule it breaks in the summary, cites them in `evidence`, and gives the concrete fix — these are directly agent-fixable via `skill-update`, so make the fix copy-ready.
   For a secrets hit, never reproduce the matched value — redact it and cite only the file/line and token family (a report is persisted and searchable, so a quoted credential is a second leak).
   The fix lives in the skills store, not a repo, so set `repository=NO_REPO`.

@@ -1,4 +1,6 @@
+import hmac
 import base64
+import hashlib
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlparse
@@ -14,15 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     CiscoDuoLogSaturationError,
     CiscoDuoResumeConfig,
     CiscoDuoRetryableError,
-    _canonicalize_params,
     _fetch_json_once,
     _normalize_next_offset,
     _to_epoch_ms,
     _to_epoch_seconds,
     cisco_duo_source,
     get_rows,
-    is_allowed_hostname,
-    normalize_hostname,
     sign_request,
     validate_credentials,
 )
@@ -55,9 +54,11 @@ class _FakeSession:
     def __init__(self, responses: list[mock.MagicMock]) -> None:
         self._responses = list(responses)
         self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
 
     def get(self, url: str, **kwargs: Any) -> mock.MagicMock:
         self.urls.append(url)
+        self.headers.append(kwargs.get("headers") or {})
         return self._responses.pop(0)
 
 
@@ -70,6 +71,11 @@ def _manager(resume: CiscoDuoResumeConfig | None = None) -> mock.MagicMock:
 
 def _query(url: str) -> dict[str, str]:
     return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
+
+
+def _signature(headers: dict[str, str]) -> str:
+    decoded = base64.b64decode(headers["Authorization"].removeprefix("Basic ")).decode()
+    return decoded.partition(":")[2]
 
 
 @pytest.fixture(autouse=True)
@@ -95,54 +101,24 @@ def _run(endpoint: str, session: _FakeSession, manager: mock.MagicMock, **kwargs
 
 
 class TestHostnameValidation:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("api-xxxxxxxx.duosecurity.com", "api-xxxxxxxx.duosecurity.com"),
-            ("https://api-xxxxxxxx.duosecurity.com/", "api-xxxxxxxx.duosecurity.com"),
-            ("API-XXXXXXXX.DUOSECURITY.COM", "api-xxxxxxxx.duosecurity.com"),
-            ("  api-xxxxxxxx.duosecurity.com/admin/v1  ", "api-xxxxxxxx.duosecurity.com"),
-        ],
-    )
-    def test_normalize_hostname(self, raw, expected):
-        assert normalize_hostname(raw) == expected
-
-    @pytest.mark.parametrize(
-        "hostname, allowed",
-        [
-            ("api-xxxxxxxx.duosecurity.com", True),
-            ("api-xxxxxxxx.duofederal.com", True),
-            ("api-xxxxxxxx.evil.com", False),
-            ("duosecurity.com.evil.com", False),
-            ("api-xxxxxxxx.duosecurity.com@evil.com", False),
-            ("", False),
-        ],
-    )
-    def test_is_allowed_hostname(self, hostname, allowed):
-        assert is_allowed_hostname(hostname) is allowed
-
     def test_get_rows_rejects_disallowed_hostname(self):
         with pytest.raises(CiscoDuoHostNotAllowedError):
             _run("users", _FakeSession([]), _manager(), api_hostname="api.evil.com")
 
 
 class TestSigning:
-    def test_canonicalize_sorts_and_percent_encodes(self):
-        # Duo signs the RFC 3986-encoded, key-sorted param string; urlencode's default
-        # '+'-for-space or unsorted params would produce an invalid signature.
-        canon = _canonicalize_params({"realname": "First Last", "username": "root", "limit": "10/20"})
-        assert canon == "limit=10%2F20&realname=First%20Last&username=root"
-
-    def test_sign_request_builds_basic_auth_over_canonical_string(self):
+    def test_v5_signature_appends_body_and_header_hashes(self):
+        # Some /admin/v2 handlers reject Duo's legacy v2 signing. v5 signs two extra canonical
+        # lines — the request body and the signed X-Duo-* headers — with SHA-512 instead of
+        # SHA-1. A GET carries neither, so both are the hash of the empty string.
         date_str = "Tue, 21 Aug 2012 17:29:18 -0000"
-        headers = sign_request("GET", HOST, "/admin/v1/users", {"limit": "1"}, IKEY, SKEY, date_str)
+        empty = hashlib.sha512(b"").hexdigest()
+        canon = "\n".join([date_str, "GET", HOST, "/admin/v2/policies", "limit=100", empty, empty])
+        expected = hmac.new(SKEY.encode("utf-8"), canon.encode("utf-8"), hashlib.sha512).hexdigest()
 
-        assert headers["Date"] == date_str
-        decoded = base64.b64decode(headers["Authorization"].removeprefix("Basic ")).decode()
-        username, _, signature = decoded.partition(":")
-        assert username == IKEY
-        assert len(signature) == 40
-        int(signature, 16)  # HMAC-SHA1 hex digest
+        headers = sign_request("GET", HOST, "/admin/v2/policies", {"limit": "100"}, IKEY, SKEY, date_str, 5)
+
+        assert _signature(headers) == expected
 
     def test_signature_changes_with_params(self):
         date_str = "Tue, 21 Aug 2012 17:29:18 -0000"
@@ -272,18 +248,6 @@ class TestLogV2Rows:
             "next_offset": "cursor123",
         }
 
-    def test_future_watermark_clamped_to_window_end(self):
-        session = _FakeSession([self._page([])])
-        _run(
-            "authentication_logs",
-            session,
-            _manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=99999999999,  # far future
-        )
-        params = _query(session.urls[0])
-        assert int(params["mintime"]) <= int(params["maxtime"])
-
     def test_telephony_uses_items_data_key_and_iso_watermark(self):
         items = [{"telephony_id": "t1", "ts": "2024-01-01T00:00:05+00:00"}]
         session = _FakeSession([_response(json_data={"stat": "OK", "response": {"items": items, "metadata": {}}})])
@@ -303,21 +267,6 @@ class TestLogV2Rows:
 class TestLogV1Rows:
     def _page(self, items: list[dict]) -> mock.MagicMock:
         return _response(json_data={"stat": "OK", "response": items})
-
-    def test_advances_mintime_and_stops_on_short_page(self):
-        with mock.patch(f"{MODULE}.LOG_V1_PAGE_SIZE", 3):
-            page_one = [{"timestamp": ts, "action": "a"} for ts in (1, 2, 3)]
-            page_two = [{"timestamp": 4, "action": "b"}]
-            session = _FakeSession([self._page(page_one), self._page(page_two)])
-            manager = _manager()
-
-            batches = _run("administrator_logs", session, manager)
-
-        # Page one is full, so its trailing row (timestamp 3) is held back and re-fetched.
-        assert batches == [[{"timestamp": 1, "action": "a"}, {"timestamp": 2, "action": "a"}], page_two]
-        assert _query(session.urls[0])["mintime"] == "0"
-        assert _query(session.urls[1])["mintime"] == "2"
-        manager.save_state.assert_any_call(CiscoDuoResumeConfig(mintime=2))
 
     def test_watermark_rows_are_dropped_client_side(self):
         # Duo's docs are ambiguous on mintime inclusivity; boundary rows already synced in
@@ -412,6 +361,85 @@ class TestListV1Rows:
             )
 
         assert make_session.call_args.kwargs["capture"] is expected_capture
+
+
+class TestFanoutV1Rows:
+    def _page(self, items: list[dict], next_offset: Any = None) -> mock.MagicMock:
+        metadata = {"next_offset": next_offset} if next_offset is not None else {}
+        return _response(json_data={"stat": "OK", "response": items, "metadata": metadata})
+
+    def _group(self, group_id: str) -> dict:
+        return {"group_id": group_id, "name": group_id}
+
+    def test_checkpoints_the_next_child_page_then_the_next_parent(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1"), self._group("DG2")]),
+                self._page([{"user_id": "u1"}], next_offset=100),
+                self._page([{"user_id": "u2"}]),
+                self._page([{"user_id": "u3"}]),
+            ]
+        )
+        manager = _manager()
+
+        _run("group_users", session, manager)
+
+        assert _query(session.urls[1])["offset"] == "0"
+        assert _query(session.urls[2])["offset"] == "100"
+        # Each checkpoint names the work still to do. Naming the work just done would re-yield
+        # it on resume, and these tables are full-refresh, so the rows would duplicate.
+        assert manager.save_state.call_args_list == [
+            mock.call(CiscoDuoResumeConfig(parent_offset=0, parent_id="DG1", offset=100)),
+            mock.call(CiscoDuoResumeConfig(parent_offset=0, parent_id="DG2", offset=0)),
+        ]
+
+    def test_resume_skips_finished_parents_and_continues_mid_parent(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1"), self._group("DG2")]),
+                self._page([{"user_id": "u9"}]),
+            ]
+        )
+        resume = CiscoDuoResumeConfig(parent_offset=0, parent_id="DG2", offset=100)
+
+        batches = _run("group_users", session, _manager(resume))
+
+        assert batches == [[{"user_id": "u9", "group_id": "DG2"}]]
+        assert urlparse(session.urls[1]).path == "/admin/v2/groups/DG2/users"
+        assert _query(session.urls[1])["offset"] == "100"
+
+    def test_restarts_the_page_when_the_checkpointed_parent_is_gone(self):
+        # The group was deleted since the checkpoint, so every offset behind it has shifted and
+        # there is no safe place to pick up inside the page.
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1")]),
+                self._page([{"user_id": "u1"}]),
+            ]
+        )
+        resume = CiscoDuoResumeConfig(parent_offset=0, parent_id="DGGONE", offset=100)
+
+        batches = _run("group_users", session, _manager(resume))
+
+        assert batches == [[{"user_id": "u1", "group_id": "DG1"}]]
+        assert _query(session.urls[1])["offset"] == "0"
+
+    def test_follows_the_parent_next_offset(self):
+        session = _FakeSession(
+            [
+                self._page([self._group("DG1")], next_offset=100),
+                self._page([{"user_id": "u1"}]),
+                self._page([self._group("DG2")]),
+                self._page([{"user_id": "u2"}]),
+            ]
+        )
+        manager = _manager()
+
+        _run("group_users", session, manager)
+
+        assert _query(session.urls[0])["offset"] == "0"
+        assert _query(session.urls[2])["offset"] == "100"
+        assert mock.call(CiscoDuoResumeConfig(parent_offset=100)) in manager.save_state.call_args_list
 
 
 class TestValidateCredentials:

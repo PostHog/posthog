@@ -1,3 +1,6 @@
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
+import { ElectronSettingsBackupFiles } from "../platform-adapters/electron-settings-backup-files";
+import { desktopGatewayTokenHost } from "../utils/gateway-override";
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
@@ -12,6 +15,7 @@ import { AuthService } from "@posthog/core/auth/auth";
 import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -21,6 +25,7 @@ import {
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
@@ -30,6 +35,8 @@ import {
   CONTEXT_MENU_CONTROLLER,
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
+import { CUSTOM_CLOUD_STORE } from "@posthog/core/custom-cloud/identifiers";
+import { feedbackCoreModule } from "@posthog/core/feedback/feedback.module";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -63,11 +70,17 @@ import { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import { ScoutLinkService } from "@posthog/core/links/scout-link";
 import { TaskLinkService } from "@posthog/core/links/task-link";
+import type { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import {
+  GATEWAY_TOKEN_HOST,
+  GATEWAY_TOKEN_SERVICE,
   LLM_GATEWAY_HOST,
   LLM_GATEWAY_SERVICE,
 } from "@posthog/core/llm-gateway/identifiers";
-import type { LlmGatewayService } from "@posthog/core/llm-gateway/llm-gateway";
+import {
+  desktopUsageUrl,
+  type LlmGatewayService,
+} from "@posthog/core/llm-gateway/llm-gateway";
 import { llmGatewayModule } from "@posthog/core/llm-gateway/llm-gateway.module";
 import { MCP_APPS_SERVICE } from "@posthog/core/mcp-apps/identifiers";
 import { mcpAppsModule } from "@posthog/core/mcp-apps/mcp-apps.module";
@@ -110,21 +123,18 @@ import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import {
-  QUICK_ASK_FETCH,
-  QUICK_ASK_RUN_DEFAULTS,
-} from "@posthog/quick-ask/service/quick-ask";
-import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -161,7 +171,10 @@ import {
   ARCHIVE_SESSION_CANCELLER,
 } from "@posthog/workspace-server/services/archive/identifiers";
 import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/auth-proxy.module";
-import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import {
+  AUTH_PROXY_AUTH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
 import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
@@ -239,18 +252,21 @@ import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycl
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
 import { ElectronAppMetrics } from "../platform-adapters/electron-app-metrics";
 import { ElectronBundledResources } from "../platform-adapters/electron-bundled-resources";
+import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/electron-claude-subscription-token-store";
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
+import { ElectronCustomCloudStore } from "../platform-adapters/electron-custom-cloud-store";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
+import { ElectronFeedbackContext } from "../platform-adapters/electron-feedback-context";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
-import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
+import { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
 import { ElectronUpdater } from "../platform-adapters/electron-updater";
@@ -280,7 +296,7 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { quickAskStore, rendererStore } from "../utils/store";
+import { rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
@@ -349,12 +365,15 @@ export const container = new TypedContainer<MainBindings>({
 });
 
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
+container.bind(SCREEN_CAPTURE_SERVICE).to(ElectronScreenCapture);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);
+container.bind(SETTINGS_BACKUP_FILES).to(ElectronSettingsBackupFiles);
 container.bind(CLIPBOARD_SERVICE).to(ElectronClipboard);
 container.bind(CRYPTO_SERVICE).to(ElectronCrypto);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
+container.bind(FEEDBACK_CONTEXT_SERVICE).to(ElectronFeedbackContext);
 container.bind(FILE_ICON_SERVICE).to(ElectronFileIcon);
 container.bind(SECURE_STORAGE_SERVICE).to(ElectronSecureStorage);
 container.bind(MAIN_WINDOW_SERVICE).to(ElectronMainWindow);
@@ -366,6 +385,9 @@ container.bind(CONTEXT_MENU_SERVICE).to(ElectronContextMenu);
 container.bind(BUNDLED_RESOURCES_SERVICE).to(ElectronBundledResources);
 container.bind(IMAGE_PROCESSOR_SERVICE).to(ElectronImageProcessor);
 container.bind(WORKSPACE_SETTINGS_SERVICE).to(ElectronWorkspaceSettings);
+container
+  .bind(CUSTOM_CLOUD_STORE)
+  .toConstantValue(new ElectronCustomCloudStore());
 container.bind(APP_METRICS_SERVICE).to(ElectronAppMetrics);
 container.bind(DEV_HOST_ACTIONS_SERVICE).to(ElectronDevHostActions);
 
@@ -411,8 +433,16 @@ container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
+container
+  .bind(AUTH_FETCH_EXTRA_ORIGINS)
+  .toConstantValue(
+    [process.env.POSTHOG_MCP_URL, process.env.POSTHOG_PROXY_BASE_URL].filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
+container.load(feedbackCoreModule);
 container.load(authProxyModule);
 container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
   authenticatedFetch: (url: string, init?: RequestInit) =>
@@ -420,6 +450,9 @@ container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
 }));
+container
+  .bind(GATEWAY_CREDENTIAL_SOURCE)
+  .toDynamicValue((ctx) => ctx.get<GatewayTokenService>(GATEWAY_TOKEN_SERVICE));
 container.load(mcpProxyModule);
 container.bind(MCP_PROXY_AUTH).toDynamicValue((ctx) => {
   const auth = () => ctx.get<AuthService>(MAIN_AUTH_SERVICE);
@@ -469,11 +502,19 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
-  getCloudContext: async () => {
+  getCloudContext: async (options?: { includeAccount?: boolean }) => {
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
-    return teamId === null ? null : { apiHost, teamId };
+    return teamId === null
+      ? null
+      : {
+          apiHost,
+          teamId,
+          ...(options?.includeAccount && {
+            accountKey: await auth.getAccountKey(),
+          }),
+        };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);
@@ -532,12 +573,15 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     getValidAccessToken: () => auth().getValidAccessToken(),
     authenticatedFetch: (url: string, init?: RequestInit) =>
       auth().authenticatedFetch(fetch, url, init),
+    fetch: (url: string, init?: RequestInit) => fetch(url, init),
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
-    usageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
+    usageUrl: desktopUsageUrl,
+    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
+container.bind(GATEWAY_TOKEN_HOST).toConstantValue(desktopGatewayTokenHost());
 container.bind(MAIN_LLM_GATEWAY_SERVICE).toService(LLM_GATEWAY_SERVICE);
 container.load(mcpAppsModule);
 container.bind(MAIN_MCP_APPS_SERVICE).toService(MCP_APPS_SERVICE);
@@ -635,6 +679,16 @@ container.load(mcpRelayModule);
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .inSingletonScope();
+container
+  .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+  .toDynamicValue(
+    (ctx) =>
+      new ElectronClaudeSubscriptionTokenStore(
+        join(getUserDataDir(), "claude-subscriptions"),
+        () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
+      ),
+  )
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);
@@ -795,23 +849,6 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
-container.load(quickAskCoreModule);
-// Chromium's network stack, not Node's undici: it honors system proxies and
-// VPN routing, which undici intermittently fails against ("fetch failed").
-container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
-container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
-  const repositories = quickAskStore.get("defaultRepositories");
-  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
-  return {
-    channelId: quickAskStore.get("defaultChannelId") || null,
-    repositories,
-    githubIntegrationId:
-      repositories.length > 0 && integrationId ? integrationId : null,
-    adapter: quickAskStore.get("defaultAdapter") || null,
-    model: quickAskStore.get("defaultModel") || null,
-    reasoningEffort: quickAskStore.get("defaultEffort") || null,
-  };
-});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

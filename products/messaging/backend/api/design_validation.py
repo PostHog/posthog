@@ -2,6 +2,8 @@ from typing import NoReturn
 
 from rest_framework import serializers
 
+from products.messaging.backend.unlayer import CUSTOM_TOOL_HTML_OPTIONS
+
 # Structural validation for an Unlayer email design after operations are applied. Hard errors (raised)
 # are things Unlayer's renderer can't recover from — a missing body, a non-list rows, or duplicate ids
 # that would make later id-addressed edits ambiguous. Everything else is advisory: returned as warnings
@@ -23,6 +25,7 @@ KNOWN_CONTENT_TYPES = frozenset(
         "timer",
         "table",
         "carousel",
+        "custom",
     }
 )
 
@@ -68,5 +71,10 @@ def validate_design(design: dict) -> list[str]:
                 content_type = content.get("type")
                 if content_type not in KNOWN_CONTENT_TYPES:
                     warnings.append(f"content '{content.get('id')}' has unknown type '{content_type}'")
+                elif content_type == "custom" and content.get("slug") not in CUSTOM_TOOL_HTML_OPTIONS:
+                    warnings.append(
+                        f"content '{content.get('id')}' uses custom tool '{content.get('slug')}', which the "
+                        "renderer can't expand — it will export as a 'Missing' placeholder"
+                    )
 
     return warnings

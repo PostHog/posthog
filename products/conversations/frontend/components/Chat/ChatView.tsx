@@ -4,7 +4,15 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
+import type {
+    AITriageSource,
+    AiReplyFeedbackRating,
+    ChatMessage,
+    MessageDeliveryStatus,
+    Ticket,
+    TicketChannel,
+    TicketStatus,
+} from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -37,10 +45,7 @@ export interface ChatViewProps {
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
+    deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** Draft content to restore (for tab persistence) */
     draftContent?: JSONContent | string | null
     /** Called when draft content changes */
@@ -68,6 +73,7 @@ export interface ChatViewProps {
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
+    latestAiDraftId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
@@ -81,6 +87,10 @@ export interface ChatViewProps {
     onCancelEdit?: () => void
     fullEmailLoadingMessageId?: string | null
     onViewFullEmail?: (messageId: string) => void
+    composerPrefillAt?: number
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: (message: ChatMessage) => void
 }
 
 export function ChatView({
@@ -99,8 +109,7 @@ export function ChatView({
     threadId,
     channel,
     showPrivateOption = false,
-    unreadCustomerCount,
-    showDeliveryStatus = false,
+    deliveryStatusByMessageId,
     draftContent,
     onDraftChange,
     isPrivate,
@@ -115,6 +124,7 @@ export function ChatView({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     latestAiMessageId,
+    latestAiDraftId,
     feedbackByMessageId,
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
@@ -127,6 +137,10 @@ export function ChatView({
     onCancelEdit,
     fullEmailLoadingMessageId,
     onViewFullEmail,
+    composerPrefillAt,
+    aiSources,
+    aiDraftApplying,
+    onApplyAiDraft,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? (fillParent ? '0' : '400px')
     const listMaxHeight = maxHeight ?? (fillParent ? 'none' : '600px')
@@ -146,9 +160,9 @@ export function ChatView({
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
-                unreadCustomerCount={unreadCustomerCount}
-                showDeliveryStatus={showDeliveryStatus}
+                deliveryStatusByMessageId={deliveryStatusByMessageId}
                 latestAiMessageId={latestAiMessageId}
+                latestAiDraftId={latestAiDraftId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
@@ -160,6 +174,9 @@ export function ChatView({
                 onDeleteMessage={onDeleteMessage}
                 fullEmailLoadingMessageId={fullEmailLoadingMessageId}
                 onViewFullEmail={onViewFullEmail}
+                aiSources={aiSources}
+                aiDraftApplying={aiDraftApplying}
+                onApplyAiDraft={onApplyAiDraft}
             />
             <div className="border-t pt-3 shrink-0">
                 <MessageInput
@@ -183,6 +200,7 @@ export function ChatView({
                     onCancelEdit={onCancelEdit}
                     collapseUntilActive={collapseUntilActive}
                     threadId={threadId}
+                    composerPrefillAt={composerPrefillAt}
                 />
             </div>
         </LemonCard>

@@ -19,8 +19,17 @@ DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
+# `compose up` pulls every image before it creates any container, so one Docker Hub
+# timeout leaves the whole stack missing.
+LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
+# Registries that mirror Docker Hub, such as mirror.gcr.io, separated by whitespace and tried
+# in order. When set, launch pulls each Docker Hub image from the first mirror that has it and
+# tags it with the Docker Hub name, so `compose up` finds the image locally and never asks
+# auth.docker.io for a token. The daemon config stays untouched, so Docker Hub credentials are
+# never sent to a mirror. A Depot Registry host (*.registry.depot.dev) is logged into with
+# DEPOT_TOKEN, which every Depot CI job carries.
+read -r -a REGISTRY_MIRRORS <<< "${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
@@ -162,6 +171,50 @@ missing_services() {
     printf '%s\n' "${missing[@]}"
 }
 
+login_to_depot_mirrors() {
+    local mirror
+
+    for mirror in "${REGISTRY_MIRRORS[@]}"; do
+        [[ "$mirror" == *.registry.depot.dev && -n "${DEPOT_TOKEN:-}" ]] || continue
+        printf '%s' "$DEPOT_TOKEN" | docker login "$mirror" --username x-token --password-stdin >/dev/null 2>&1 \
+            || echo "Could not log in to ${mirror}; its images pull from the next source." >&2
+    done
+}
+
+pull_from_first_mirror() {
+    local path="$1" image="$2"
+    local mirror
+
+    for mirror in "${REGISTRY_MIRRORS[@]}"; do
+        if docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
+            echo "Pulled ${image} from ${mirror}."
+            return 0
+        fi
+    done
+    echo "No mirror has ${image}; compose pulls it from Docker Hub."
+}
+
+pull_from_registry_mirror() {
+    local image
+    local path
+    local host
+
+    [ "${#REGISTRY_MIRRORS[@]}" -gt 0 ] || return 0
+    login_to_depot_mirrors
+    while read -r image; do
+        path="${image#docker.io/}"
+        host="${path%%/*}"
+        # Digest-pinned images and images from other registries (ghcr.io, quay.io) pull as usual.
+        if [[ "$path" == *@* ]] \
+            || [[ "$path" == "$image" && "$path" == */* && ( "$host" == *[.:]* || "$host" == localhost ) ]]; then
+            continue
+        fi
+        [[ "$path" == */* ]] || path="library/${path}"
+        pull_from_first_mirror "$path" "$image" &
+    done < <(compose config --images "$@" 2>/dev/null)
+    wait
+}
+
 run_launch_once() {
     local down_mode="$1"
     shift
@@ -181,6 +234,7 @@ run_launch_once() {
             ;;
     esac
 
+    pull_from_registry_mirror "$@"
     compose_up "$@"
 }
 

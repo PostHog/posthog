@@ -15,7 +15,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym, ElfDebugI
 use crate::{
     error::{NativeError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
 };
 
 /// Manifest format for source files bundled in the symbol ZIP under `__source/`
@@ -320,11 +320,16 @@ impl Parser for NativeProvider {
     type Set = ParsedNativeSymbols;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Self::Source) -> Result<ParsedNativeSymbols, ResolveError> {
+    async fn parse(
+        &self,
+        source: Self::Source,
+        permit: ParsePermit,
+    ) -> Result<ParsedNativeSymbols, ResolveError> {
         // Debug-info parsing is the heaviest CPU work in the system: zstd
         // decompress, ZIP expansion, DWARF parse, and symcache conversion.
         // Always offload from the tokio runtime.
         tokio::task::spawn_blocking(move || -> Result<ParsedNativeSymbols, ResolveError> {
+            let _permit = permit;
             // Slice selection invariant: CLI dSYM uploads are one single-arch
             // binary per UUID (fat binaries are thinned at upload), so a
             // chunk_id lookup always parses the slice it names. The arm64

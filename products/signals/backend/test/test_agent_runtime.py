@@ -28,6 +28,7 @@ _PAYLOAD = {
 _CODEX = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh")
 _SONNET_MODEL_ONLY = AgentRuntime(runtime_adapter=None, model="claude-sonnet-4-6", reasoning_effort=None)
 _CODEX_NO_EFFORT = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None)
+_SOL_HIGH = AgentRuntime(runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high")
 
 
 class TestResolveAgentRuntime:
@@ -42,6 +43,8 @@ class TestResolveAgentRuntime:
             ("wildcard_team_step_exact", 999, "scout", _CODEX_NO_EFFORT),
             # unlisted step under wildcard team with no step-wildcard → default
             ("wildcard_team_step_missing", 999, "research", DEFAULT_RUNTIME),
+            ("rubrics_default", 999, "scout_rubrics", _SOL_HIGH),
+            ("rubrics_wildcard_override", 2, "scout_rubrics", _SONNET_MODEL_ONLY),
         ]
     )
     def test_resolution_precedence(self, _name: str, team_id: int, step: str, expected: AgentRuntime) -> None:
@@ -50,22 +53,66 @@ class TestResolveAgentRuntime:
 
     @parameterized.expand(
         [
-            ("payload_none", None),
-            ("payload_not_dict", ["nope"]),
-            ("missing_team_configs", {"other": {}}),
-            ("team_configs_not_dict", {"team_configs": ["nope"]}),
-            ("step_block_not_dict", {"team_configs": {"2": {"steps": {"research": "codex"}}}}),
+            ("payload_none", None, "research", DEFAULT_RUNTIME),
+            ("payload_not_dict", ["nope"], "research", DEFAULT_RUNTIME),
+            ("missing_team_configs", {"other": {}}, "research", DEFAULT_RUNTIME),
+            ("team_configs_not_dict", {"team_configs": ["nope"]}, "research", DEFAULT_RUNTIME),
+            (
+                "step_block_not_dict",
+                {"team_configs": {"2": {"steps": {"research": "codex"}}}},
+                "research",
+                DEFAULT_RUNTIME,
+            ),
+            ("rubrics_payload_none", None, "scout_rubrics", _SOL_HIGH),
+            (
+                "rubrics_empty_block",
+                {"team_configs": {"2": {"steps": {"scout_rubrics": {}}}}},
+                "scout_rubrics",
+                _SOL_HIGH,
+            ),
+            (
+                "rubrics_malformed_block",
+                {"team_configs": {"2": {"steps": {"scout_rubrics": "codex"}}}},
+                "scout_rubrics",
+                _SOL_HIGH,
+            ),
         ]
     )
-    def test_malformed_payload_falls_back_to_default(self, _name: str, payload: object) -> None:
+    def test_malformed_payload_falls_back_to_default(
+        self, _name: str, payload: object, step: str, expected: AgentRuntime
+    ) -> None:
         with patch(_READ_PATH, return_value=payload):
-            assert resolve_agent_runtime(2, "research") == DEFAULT_RUNTIME
+            assert resolve_agent_runtime(2, step) == expected
 
-    def test_non_string_field_is_dropped_not_fatal(self) -> None:
+    @parameterized.expand([("research",), ("scout_rubrics",)])
+    def test_non_string_field_is_dropped_not_fatal(self, step: str) -> None:
         # A bad reasoning_effort must not un-set the otherwise-valid model/runtime.
         payload = {
             "team_configs": {
-                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": 5}}}
+                "2": {"steps": {step: {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": 5}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, step) == _CODEX_NO_EFFORT
+
+    def test_service_tier_resolves_alongside_the_runtime_triple(self) -> None:
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": "flex"}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, "research") == AgentRuntime(
+                runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None, service_tier="flex"
+            )
+
+    @parameterized.expand([("non_string", True), ("unknown", "turbo"), ("typo", "flx")])
+    def test_bad_service_tier_is_dropped_not_fatal(self, _name: str, bad_tier: object) -> None:
+        # The agent server forwards the tier verbatim as the gateway's control header, which fails
+        # closed on an unknown value, so a payload typo would 400 every request of the run.
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": bad_tier}}}
             }
         }
         with patch(_READ_PATH, return_value=payload):
@@ -75,6 +122,7 @@ class TestResolveAgentRuntime:
         with patch(_PAYLOAD_FN_PATH, return_value=json.dumps(_PAYLOAD)):
             assert resolve_agent_runtime(2, "research") == _CODEX
 
-    def test_flag_read_failure_falls_back_to_default(self) -> None:
+    @parameterized.expand([("research", DEFAULT_RUNTIME), ("scout_rubrics", _SOL_HIGH)])
+    def test_flag_read_failure_falls_back_to_default(self, step: str, expected: AgentRuntime) -> None:
         with patch(_PAYLOAD_FN_PATH, side_effect=RuntimeError("flag service down")):
-            assert resolve_agent_runtime(2, "research") == DEFAULT_RUNTIME
+            assert resolve_agent_runtime(2, step) == expected

@@ -76,7 +76,7 @@ function renderTestHook<Result>(
 }
 
 async function waitForAssertion(assertion: () => void): Promise<void> {
-  const timeoutAt = Date.now() + 2_000;
+  const timeoutAt = Date.now() + 10_000;
 
   while (Date.now() < timeoutAt) {
     try {

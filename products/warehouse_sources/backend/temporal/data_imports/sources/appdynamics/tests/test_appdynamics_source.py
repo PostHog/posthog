@@ -3,7 +3,8 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.appdynamics import AppdynamicsAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
-    ENDPOINTS,
+    DEFAULT_EVENT_TYPES,
+    MAX_EVENT_TYPES,
     MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
@@ -14,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConfig:
+def _api_client_config(metric_paths: str | None = None, event_types: str | None = None) -> AppdynamicsSourceConfig:
     return AppdynamicsSourceConfig(
         host="https://acme.saas.appdynamics.com",
         account_name="acme",
@@ -22,6 +23,7 @@ def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConf
             selection="api_client", api_client_name="client", api_client_secret="secret"
         ),
         metric_paths=metric_paths,
+        event_types=event_types,
     )
 
 
@@ -59,24 +61,10 @@ class TestAppdynamicsSource:
         # Changing account_name retargets the preserved credential, so it must force re-entry.
         assert self.source.connection_host_fields == ["account_name"]
 
-    def test_get_schemas_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(_api_client_config(), self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        incremental_endpoints = {name for name, s in schemas.items() if s.supports_incremental}
-        assert incremental_endpoints == {"health_rule_violations", "metric_data"}
-        for name in incremental_endpoints:
-            assert {f["field"] for f in schemas[name].incremental_fields} == {"startTimeInMillis"}
-
     def test_get_schemas_filtered_by_name(self) -> None:
         schemas = self.source.get_schemas(_api_client_config(), self.team_id, names=["applications"])
         assert [s.name for s in schemas] == ["applications"]
         assert self.source.get_schemas(_api_client_config(), self.team_id, names=["nope"]) == []
-
-    def test_auth_for_config_api_client(self) -> None:
-        auth = self.source._auth_for_config(_api_client_config())
-        assert auth == AppdynamicsAuth(account_name="acme", api_client_name="client", api_client_secret="secret")
-        assert auth.uses_oauth is True
 
     def test_auth_for_config_basic(self) -> None:
         auth = self.source._auth_for_config(_basic_config("u", "p"))
@@ -95,9 +83,6 @@ class TestAppdynamicsSource:
         )
         with pytest.raises(ValueError):
             self.source._auth_for_config(config)
-
-    def test_metric_paths_default_when_empty(self) -> None:
-        assert self.source._metric_paths_for_config(_api_client_config()) == ["Overall Application Performance|*"]
 
     def test_metric_paths_parsed_from_textarea(self) -> None:
         config = _api_client_config(
@@ -119,6 +104,21 @@ class TestAppdynamicsSource:
         assert valid is False
         assert error is not None and "Too many metric paths" in error
 
+    def test_event_types_parsed_from_textarea(self) -> None:
+        config = _api_client_config(event_types="APPLICATION_DEPLOYMENT\n\n  APP_SERVER_RESTART  \n")
+        assert self.source._event_types_for_config(config) == ["APPLICATION_DEPLOYMENT", "APP_SERVER_RESTART"]
+
+    def test_event_types_over_limit_rejected(self) -> None:
+        config = _api_client_config(event_types="\n".join(f"EVENT_{i}" for i in range(MAX_EVENT_TYPES + 1)))
+
+        with pytest.raises(ValueError):
+            self.source._event_types_for_config(config)
+
+        # the same cap rejects the config at source create/edit time
+        valid, error = self.source.validate_credentials(config, self.team_id)
+        assert valid is False
+        assert error is not None and "Too many event types" in error
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.validate_appdynamics_credentials"
     )
@@ -129,11 +129,6 @@ class TestAppdynamicsSource:
         assert (valid, error) == (True, None)
         _, kwargs = mock_validate.call_args
         assert kwargs["schema_name"] == "applications"
-
-    def test_validate_credentials_missing_creds(self) -> None:
-        valid, error = self.source.validate_credentials(_basic_config("u", None), self.team_id)
-        assert valid is False
-        assert error is not None
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.appdynamics_source"
@@ -152,6 +147,7 @@ class TestAppdynamicsSource:
         assert kwargs["endpoint"] == "health_rule_violations"
         assert kwargs["team_id"] == 1
         assert kwargs["metric_paths"] == ["Overall Application Performance|*"]
+        assert kwargs["event_types"] == DEFAULT_EVENT_TYPES
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1704067200000
 

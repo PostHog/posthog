@@ -39,7 +39,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
     return (
         <div
             className={clsx(
-                'relative flex overflow-hidden select-none',
+                'relative flex shrink-0 overflow-hidden select-none',
                 size === 'xlarge'
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'
                     : size === 'medium'

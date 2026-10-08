@@ -57,8 +57,13 @@ class MetaGraphIntegration:
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
             reason = refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+            # These kinds refresh on use, and only in the last week of the token's life, so the
+            # token in hand still works when Meta is merely unavailable or throttling us. Flagging
+            # the connection over that stops every sync on it and asks for a re-authorization that
+            # fixes nothing, so record the failure and leave the connection usable.
+            if reason not in refresh_tracking.TRANSIENT_REFRESH_FAILURE_REASONS:
+                self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
             attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt

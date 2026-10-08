@@ -4,14 +4,8 @@ import {
   buildCustomServerRequest,
   canSubmitCustomServer,
 } from "@posthog/core/mcp-servers/customServerForm";
-import {
-  Button,
-  Flex,
-  Select,
-  Spinner,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Button, Flex, Select, Text, TextField } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
 interface AddCustomServerFormProps {
@@ -244,7 +238,7 @@ export function AddCustomServerForm({
             Cancel
           </Button>
           <Button type="submit" disabled={!canSubmit}>
-            {pending ? <Spinner size="1" /> : <Plus size={12} />}
+            {pending ? <Spinner size="sm" /> : <Plus size={12} />}
             Add server
           </Button>
         </Flex>

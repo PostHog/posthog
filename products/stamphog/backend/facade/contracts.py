@@ -16,7 +16,14 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewTrigger, ReviewVerdict
+from .enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewRequestRefusal,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,26 @@ class RepoConfigDTO:
     trigger_label: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class AvailableRepositoriesDTO:
+    """Repositories a team can add from its connected installations, one page of them."""
+
+    repositories: list[str]
+    # Every addable repository that matches the search, not only the ones on this page.
+    total_count: int
+    # False means nobody on the team connected GitHub yet, so nothing can be added.
+    has_installation: bool
+
+
+@dataclass(frozen=True)
+class AddRepositoryResultDTO:
+    """The repo config an add turned on, and whether the add created it."""
+
+    config: RepoConfigDTO
+    # False when the team already had a row for the repository and the add turned it on.
+    created: bool
 
 
 @dataclass(frozen=True)
@@ -79,6 +106,11 @@ class DigestRunDTO:
     posted_at: datetime | None = None
 
 
+# The keys of ReviewRun.output the API returns. The rest of the blob holds the PR payload, patches,
+# policy files and reviewer stdout, which the API must not expose and a list page must not load.
+REVIEW_RUN_OUTPUT_SUMMARY_KEYS = ("stamphog_version", "reviewer_exit_code")
+
+
 @dataclass(frozen=True)
 class ReviewRunDTO:
     """A single stamphog review attempt against a pull request."""
@@ -111,8 +143,40 @@ class ReviewRunDTO:
     completed_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class ReviewRequestResultDTO:
+    """The run a manual review request points at, and whether the request created it."""
+
+    run: ReviewRunDTO
+    # False when a live or delivered run already covered the PR's current head.
+    created: bool
+
+
+@dataclass(frozen=True)
+class ReviewReasoningDTO:
+    """The reviewer's reasoning for one run, all None until the reviewer has run."""
+
+    reasoning: str | None = None
+    showstoppers: list[str] | None = None
+    review_body: str | None = None
+    change_summary: str | None = None
+
+
+class ReviewRequestRefusedError(Exception):
+    """A manual review request did not queue a run. ``message`` is written for the requester."""
+
+    def __init__(self, refusal: ReviewRequestRefusal, message: str) -> None:
+        super().__init__(message)
+        self.refusal = refusal
+        self.message = message
+
+
 class RepoAlreadyClaimedError(Exception):
     """Another team already owns this repository under this GitHub installation."""
+
+
+class RepositoryNotInstalledError(Exception):
+    """The repository is in none of the team's installation snapshots, so it cannot be added."""
 
 
 class StamphogGitHubError(Exception):

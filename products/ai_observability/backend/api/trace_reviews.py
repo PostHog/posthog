@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from django.conf import settings
@@ -28,12 +27,13 @@ from posthog.permissions import AccessControlPermission
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueueItem
-from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.ai_observability.backend.score_definition_configs import (
     ScoreDefinitionConfigField,
     normalize_score_definition_key,
 )
+from products.ai_observability.backend.score_validation import validate_score_value
 
 TRACE_REVIEW_SCORE_VALUE_FIELDS = ("categorical_values", "numeric_value", "boolean_value")
 
@@ -246,26 +246,6 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         return attrs
 
-    @staticmethod
-    def _decimal_from_config(value: Any) -> Decimal | None:
-        if value is None:
-            return None
-
-        try:
-            return Decimal(str(value))
-        except (InvalidOperation, TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _int_from_config(value: Any) -> int | None:
-        if value is None:
-            return None
-
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
     def _resolve_scores(self, score_payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         team = cast(Team, self.context["team"])
         score_errors: list[dict[str, str]] = [{} for _ in score_payloads]
@@ -328,7 +308,13 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 score_errors[index]["definition_version_id"] = "This scorer version does not belong to the scorer."
                 continue
 
-            validation_error = self._validate_score_value(definition, definition_version, score_payload)
+            validation_error = validate_score_value(
+                definition.kind,
+                definition_version.config,
+                numeric_value=score_payload.get("numeric_value"),
+                boolean_value=score_payload.get("boolean_value"),
+                categorical_values=score_payload.get("categorical_values"),
+            )
             if validation_error:
                 score_errors[index].update(validation_error)
                 continue
@@ -347,74 +333,6 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError({"scores": score_errors})
 
         return resolved_scores
-
-    def _validate_score_value(
-        self,
-        definition: ScoreDefinition,
-        definition_version: ScoreDefinitionVersion,
-        score_payload: dict[str, Any],
-    ) -> dict[str, str]:
-        if definition.kind == ScoreDefinition.Kind.CATEGORICAL:
-            categorical_values = score_payload.get("categorical_values")
-            if categorical_values is None:
-                return {"categorical_values": "This scorer requires `categorical_values`."}
-
-            option_keys = {
-                option["key"]
-                for option in definition_version.config.get("options", [])
-                if isinstance(option, dict) and isinstance(option.get("key"), str)
-            }
-
-            invalid_values = [option_key for option_key in categorical_values if option_key not in option_keys]
-            if invalid_values:
-                return {"categorical_values": "Select valid categorical option keys."}
-
-            selection_mode = definition_version.config.get("selection_mode") or "single"
-            selection_count = len(categorical_values)
-
-            if selection_mode == "single":
-                if selection_count != 1:
-                    return {"categorical_values": "This scorer allows exactly one categorical option."}
-                return {}
-
-            minimum = self._int_from_config(definition_version.config.get("min_selections"))
-            maximum = self._int_from_config(definition_version.config.get("max_selections"))
-
-            if minimum is not None and selection_count < minimum:
-                return {"categorical_values": f"Select at least {minimum} categorical options."}
-
-            if maximum is not None and selection_count > maximum:
-                return {"categorical_values": f"Select no more than {maximum} categorical options."}
-
-            return {}
-
-        if definition.kind == ScoreDefinition.Kind.NUMERIC:
-            numeric_value = score_payload.get("numeric_value")
-            if numeric_value is None:
-                return {"numeric_value": "This scorer requires `numeric_value`."}
-
-            numeric_minimum = self._decimal_from_config(definition_version.config.get("min"))
-            numeric_maximum = self._decimal_from_config(definition_version.config.get("max"))
-            numeric_step = self._decimal_from_config(definition_version.config.get("step"))
-
-            if numeric_minimum is not None and numeric_value < numeric_minimum:
-                return {"numeric_value": f"Ensure this value is greater than or equal to {numeric_minimum}."}
-
-            if numeric_maximum is not None and numeric_value > numeric_maximum:
-                return {"numeric_value": f"Ensure this value is less than or equal to {numeric_maximum}."}
-
-            if numeric_step is not None:
-                base = numeric_minimum if numeric_minimum is not None else Decimal("0")
-                if (numeric_value - base) % numeric_step != 0:
-                    return {"numeric_value": f"Ensure this value increments by {numeric_step}."}
-
-            return {}
-
-        boolean_value = score_payload.get("boolean_value")
-        if boolean_value is None:
-            return {"boolean_value": "This scorer requires `boolean_value`."}
-
-        return {}
 
     def _replace_scores(self, review: TraceReview, resolved_scores: list[dict[str, Any]]) -> None:
         TraceReviewScore.objects.filter(review=review).delete()

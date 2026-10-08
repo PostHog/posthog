@@ -38,8 +38,8 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
           <Button
             type="button"
             variant={chatOpen ? "primary" : "outline"}
-            size="xs"
-            className="relative h-7 gap-1.5 px-2.5 text-[12px]"
+            size="sm"
+            className="relative"
             aria-label={actionLabel}
             aria-pressed={chatOpen}
             data-attr="report-chat-toggle"

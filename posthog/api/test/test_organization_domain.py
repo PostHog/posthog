@@ -2,7 +2,7 @@ import datetime
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
@@ -208,7 +208,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             ]
         )
 
-        with freeze_time("2021-08-08T20:20:08Z"):
+        with time_machine.travel("2021-08-08T20:20:08Z", tick=False):
             response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -234,7 +234,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         mock_dns_query.return_value.resolve.side_effect = dns.resolver.NoAnswer()
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -255,7 +255,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         mock_dns_query.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -286,7 +286,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
             ]
         )
 
-        with freeze_time("2021-10-10T10:10:10Z"):
+        with time_machine.travel("2021-10-10T10:10:10Z", tick=False):
             with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

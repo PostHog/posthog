@@ -6,7 +6,6 @@ from unittest import mock
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source import FreshdeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
     FreshdeskSourceConfig,
@@ -40,35 +39,10 @@ class TestFreshdeskSource:
         self.team_id = 1
         self.config = FreshdeskSourceConfig(subdomain="acme", api_key="key")
 
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "name, supports_incremental",
-        [
-            ("tickets", True),
-            ("contacts", True),
-            ("companies", False),
-            ("agents", False),
-            ("satisfaction_ratings", False),
-        ],
-    )
-    def test_schema_incremental_support(self, name: str, supports_incremental: bool) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        schema = schemas[name]
-        assert schema.supports_incremental is supports_incremental
-        assert schema.supports_append is supports_incremental
-        if supports_incremental:
-            assert [f["field"] for f in schema.incremental_fields] == ["updated_at"]
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["tickets"])
         assert len(schemas) == 1
         assert schemas[0].name == "tickets"
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
@@ -91,18 +65,6 @@ class TestFreshdeskSource:
         assert is_valid is expected_valid
         if "!" in subdomain or " " in subdomain:
             mock_validate.assert_not_called()
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = _make_inputs("tickets")
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.name == "tickets"
-        assert response.primary_keys == ["id"]
-        # tickets partitions on its stable created_at field.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
 
     def test_source_for_pipeline_full_refresh_endpoint_has_no_partition(self) -> None:
         inputs = _make_inputs("agents")

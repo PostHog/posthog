@@ -3,10 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { isAbortError } from 'lib/api'
 import { ApiError, NetworkError, isTransientServerError } from 'lib/api-error'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import { llmAnalyticsSummarizationCreate } from '../generated/api'
@@ -104,6 +106,15 @@ export type summaryViewLogicType = MakeLogicType<
     SummaryViewLogicProps,
     summaryViewLogicMeta
 >
+
+/**
+ * Summarizing is a POST, so access control asks for the write level on `llm_analytics`, while
+ * reading the trace asks only for the read level. A user who can open the trace can still be
+ * refused here.
+ */
+function canSummarize(): boolean {
+    return userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor)
+}
 
 const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it keeps happening contact support."
 
@@ -331,10 +342,15 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         },
     })),
     afterMount(({ props, actions, values }) => {
-        if (props.autoGenerate && values.dataProcessingAccepted) {
+        // The cached-summary lookup is a POST too, so a user without the write level gets a denial
+        // on a trace they opened to read. Leave the panel on its empty state instead.
+        if (!values.dataProcessingAccepted || !canSummarize()) {
+            return
+        }
+        if (props.autoGenerate) {
             // Auto-generate was requested (e.g., from URL param)
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
-        } else if (values.dataProcessingAccepted) {
+        } else {
             // Try to load cached summary on mount (will use cache if available)
             actions.loadCachedSummary()
         }

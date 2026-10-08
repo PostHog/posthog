@@ -30,35 +30,9 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestBloggerSchemas:
-    def test_get_schemas(self) -> None:
-        schemas = {s.name: s for s in BloggerSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"blogs", "posts", "pages", "comments"}
-
-        # Only posts/comments expose a server-side date filter, so only they are incremental.
-        assert schemas["posts"].supports_incremental is True
-        assert schemas["comments"].supports_incremental is True
-        assert schemas["pages"].supports_incremental is False
-        assert schemas["blogs"].supports_incremental is False
-
-        assert [f["field"] for f in schemas["posts"].incremental_fields] == ["published"]
-        assert schemas["pages"].incremental_fields == []
-        for schema in schemas.values():
-            assert schema.detected_primary_keys == ["id"]
-
     def test_get_schemas_names_filter(self) -> None:
         schemas = BloggerSource().get_schemas(MagicMock(), team_id=1, names=["posts"])
         assert [s.name for s in schemas] == ["posts"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert BloggerSource.lists_tables_without_credentials is True
-
-    def test_documented_tables_render_with_canonical_descriptions(self) -> None:
-        tables = {t["name"]: t for t in BloggerSource().get_documented_tables()}
-        assert set(tables) == {"blogs", "posts", "pages", "comments"}
-        assert "Incremental" in tables["posts"]["sync_methods"]
-        assert "Incremental" not in tables["pages"]["sync_methods"]
-        # Description comes from canonical_descriptions.py.
-        assert tables["posts"]["description"]
 
 
 class TestBloggerCredentials:

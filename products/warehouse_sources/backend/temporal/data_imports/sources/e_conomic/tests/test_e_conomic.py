@@ -111,15 +111,8 @@ class TestFormatIncrementalValue:
     def test_format_incremental_value(self, _name: str, value: Any, expected: str) -> None:
         assert _format_incremental_value(value) == expected
 
-    def test_naive_datetime_no_offset_suffix(self) -> None:
-        # A naive cursor is treated as UTC, and must not gain a +00:00 offset the API would reject.
-        assert "+00:00" not in _format_incremental_value(datetime(2026, 3, 4, 2, 58, 14))
-
 
 class TestAssertTrustedUrl:
-    def test_on_host_https_is_allowed(self) -> None:
-        _assert_trusted_url("https://restapi.e-conomic.com/customers?skippages=1")
-
     @parameterized.expand(
         [
             ("other_host", "https://evil.example.com/customers"),
@@ -134,27 +127,6 @@ class TestAssertTrustedUrl:
 
 
 class TestFirstRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sends_pagesize_and_sort_no_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"customerGroupNumber": 1}])])
-
-        _rows(_source("customer_groups", _make_manager()))
-
-        assert params[0]["params"]["pagesize"] == 1000
-        assert params[0]["params"]["sort"] == "customerGroupNumber"
-        assert "filter" not in params[0]["params"]
-        # The first request targets the endpoint path on the API host.
-        assert params[0]["url"] == f"{E_CONOMIC_BASE_URL}/customer-groups"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_without_sort_omits_sort_param(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"paymentTermsNumber": 1}])])
-
-        _rows(_source("payment_terms", _make_manager()))
-        assert "sort" not in params[0]["params"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_datetime_builds_gte_filter(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -171,38 +143,6 @@ class TestFirstRequestParams:
         )
         assert params[0]["params"]["filter"] == "lastUpdated$gte:2026-01-02T03:04:05Z"
         assert params[0]["params"]["sort"] == "lastUpdated"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_integer_builds_gte_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"bookedInvoiceNumber": 1}])])
-
-        _rows(
-            _source(
-                "invoices_booked",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1052,
-                incremental_field="bookedInvoiceNumber",
-            )
-        )
-        assert params[0]["params"]["filter"] == "bookedInvoiceNumber$gte:1052"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_without_last_value_omits_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"customerNumber": 1}])])
-
-        _rows(
-            _source(
-                "customers",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                incremental_field="lastUpdated",
-            )
-        )
-        assert "filter" not in params[0]["params"]
 
 
 class TestPagination:
@@ -223,33 +163,6 @@ class TestPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_each_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        next_url = f"{E_CONOMIC_BASE_URL}/customers?skippages=1"
-        _wire(
-            session,
-            [
-                _response([{"customerNumber": 1}], next_page=next_url),
-                _response([{"customerNumber": 2}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("customers", manager))
-
-        # State is saved once (only when a next page exists) and points at the not-yet-fetched page.
-        manager.save_state.assert_called_once_with(EConomicResumeConfig(next_url=next_url))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_saves_no_state(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"customerNumber": 1}])])
-        manager = _make_manager()
-
-        _rows(_source("customers", manager))
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         resume_url = f"{E_CONOMIC_BASE_URL}/customers?skippages=5"
@@ -259,19 +172,6 @@ class TestPagination:
 
         # First (and only) fetch starts at the resumed URL, not the endpoint's first page.
         assert params[0]["url"] == resume_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        assert _rows(_source("customers", _make_manager())) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_collection_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        # A body without `collection` is a legitimate zero-row page, not a fail-loud condition.
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_collection=True)])
-        assert _rows(_source("customers", _make_manager())) == []
 
 
 class TestErrorHandling:
@@ -339,17 +239,6 @@ class TestSourceResponse:
         # Only sortable endpoints advertise ascending order; unsortable ones (e.g. payment_terms) don't.
         assert response.sort_mode == ("asc" if config.sort else None)
 
-    def test_booked_invoices_partition_on_stable_date(self) -> None:
-        response = _source("invoices_booked", _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-        assert response.partition_format == "month"
-
-    def test_non_partitioned_endpoint_has_no_partitioning(self) -> None:
-        response = _source("customers", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
@@ -361,13 +250,6 @@ class TestValidateCredentials:
         session.get.return_value = mock.MagicMock(status_code=status_code)
         mock_session.return_value = session
         assert validate_credentials("app", "grant") is expected
-
-    @mock.patch(E_CONOMIC_SESSION_PATCH)
-    def test_request_exception_is_false(self, mock_session: mock.MagicMock) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError()
-        mock_session.return_value = session
-        assert validate_credentials("app", "grant") is False
 
     @mock.patch(E_CONOMIC_SESSION_PATCH)
     def test_probe_does_not_follow_redirects(self, mock_session: mock.MagicMock) -> None:

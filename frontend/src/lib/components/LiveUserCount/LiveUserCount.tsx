@@ -3,13 +3,12 @@ import './LiveUserCount.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconPerson, IconVideoCamera } from '@posthog/icons'
+import { IconPerson } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LiveUserCountLogicProps, liveUserCountLogic } from './liveUserCountLogic'
@@ -60,15 +59,12 @@ function LiveUserCountTooltipContent({
     )
 }
 
-interface LiveCountProps {
-    pollIntervalMs?: number
-}
-
 export type LiveUserCountProps = {
+    pollIntervalMs?: number
     docLink?: string
     showUpdatedTimeInTooltip?: boolean
     dataAttr?: string
-} & LiveCountProps
+}
 
 export function LiveUserCount({
     pollIntervalMs = 30000,
@@ -113,53 +109,6 @@ export function LiveUserCount({
                     <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong>
                 </span>
                 <span className="hidden min-[660px]:inline">recently online</span>
-            </div>
-        </Tooltip>
-    )
-}
-
-export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps): JSX.Element | null {
-    const { activeRecordings } = useValues(liveUserCountLogic({ pollIntervalMs }))
-    const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
-
-    const { isVisible } = usePageVisibility()
-    useEffect(() => {
-        if (isVisible) {
-            resumeStream()
-        } else {
-            pauseStream()
-        }
-    }, [isVisible, resumeStream, pauseStream])
-
-    const hasRecordings = (activeRecordings ?? 0) > 0
-
-    if (activeRecordings === null) {
-        return null
-    }
-
-    return (
-        <Tooltip
-            title={
-                activeRecordings == null
-                    ? 'Unable to retrieve active recordings count.'
-                    : 'Session recordings currently in progress.'
-            }
-            placement="right"
-        >
-            <div
-                className={cn(
-                    'flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors',
-                    hasRecordings ? 'bg-success-highlight' : 'bg-border-light'
-                )}
-            >
-                <div className={cn('live-user-indicator', hasRecordings ? 'online' : 'offline')} />
-                <IconVideoCamera className="size-4 shrink-0 min-[660px]:hidden" />
-                <span className="text-xs font-medium whitespace-nowrap" data-attr="live-recordings-count">
-                    <strong>{humanFriendlyLargeNumber(activeRecordings)}</strong>
-                </span>
-                <span className="hidden min-[660px]:inline">
-                    recently active {pluralize(activeRecordings, 'recording', undefined, false)}
-                </span>
             </div>
         </Tooltip>
     )

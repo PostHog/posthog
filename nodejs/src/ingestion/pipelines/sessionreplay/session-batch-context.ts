@@ -8,3 +8,8 @@ import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 export interface SessionBatchContext {
     sessionBatchRecorder: SessionBatchRecorder
 }
+
+/** The part of the recorder that a step can hold outside the batch lock: a retention lookup, not a write. A lane that overlaps batches stamps this, because a flush can replace the recorder at any time. */
+export interface RetentionLookupContext {
+    sessionBatchRecorder: Pick<SessionBatchRecorder, 'getRetention'>
+}

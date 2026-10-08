@@ -22,7 +22,9 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
-            <compatibility>26.3</compatibility>
+            <compatibility>26.6</compatibility>
+            <!-- Preserve skip indexes in distributed queries with transform_null_in=1. -->
+            <optimize_rewrite_has_to_in>0</optimize_rewrite_has_to_in>
             <!-- The funnel correlation query intentionally uses a materialized CTE
                  to avoid re-running the actor subquery across UNION branches. -->
             <enable_materialized_cte>1</enable_materialized_cte>
@@ -44,6 +46,14 @@
             <insert_distributed_sync>1</insert_distributed_sync>
             <throw_on_max_partitions_per_insert_block>false</throw_on_max_partitions_per_insert_block>
             <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
+            <!-- The native events_json table relies on these for every write, including
+                 mutations and backfills that cannot carry query-level settings. They keep
+                 dates as strings, keep the first of duplicated JSON paths, and store a
+                 dotted key such as `a.b` as one flat path instead of nesting it. -->
+            <input_format_try_infer_dates>0</input_format_try_infer_dates>
+            <input_format_try_infer_datetimes>0</input_format_try_infer_datetimes>
+            <type_json_skip_duplicated_paths>1</type_json_skip_duplicated_paths>
+            <json_type_escape_dots_in_keys>1</json_type_escape_dots_in_keys>
 
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
             <stream_flush_interval_ms>100</stream_flush_interval_ms>

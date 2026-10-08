@@ -3,12 +3,46 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    SeriesNode,
+    isActionsSeriesNode,
+    isEventsSeriesNode,
+    isGroupSeriesNode,
+    isWarehouseSeriesNode,
+} from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { formatEventName, getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
+
+/** A series reaches this component either as a query node or as the legacy entity filter that
+ *  query responses and the legacy-persisted surfaces still carry. */
+export type DisplayableEntity = EntityFilter | ActionFilter | SeriesNode
+
+/** Reads a node into the legacy display fields, so one set of display rules serves both shapes. */
+export type DisplayEntityFilter = (EntityFilter | ActionFilter) & { table_name?: string }
+
+export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
+    if (!('kind' in filter)) {
+        return filter
+    }
+    const shared = { name: filter.name, custom_name: filter.custom_name }
+    if (isEventsSeriesNode(filter)) {
+        return { ...shared, type: EntityTypes.EVENTS, id: filter.event ?? null }
+    }
+    if (isActionsSeriesNode(filter)) {
+        return { ...shared, type: EntityTypes.ACTIONS, id: filter.id }
+    }
+    if (isWarehouseSeriesNode(filter)) {
+        return { ...shared, type: EntityTypes.DATA_WAREHOUSE, id: filter.table_name, table_name: filter.table_name }
+    }
+    if (isGroupSeriesNode(filter)) {
+        return { ...shared, type: EntityTypes.GROUPS, id: null }
+    }
+    return { ...shared, id: null }
+}
 
 interface UnderlyingEntity {
     /** The raw key the filter queries: event name as sent, action name, or table name. */
@@ -23,7 +57,7 @@ interface UnderlyingEntity {
  * A series can be renamed via `custom_name` or by overriding `name` directly (e.g. via the
  * API), so neither of those fields reliably reveals what is actually being queried.
  */
-function getUnderlyingEntity(filter: EntityFilter | ActionFilter): UnderlyingEntity | null {
+function getUnderlyingEntity(filter: DisplayEntityFilter): UnderlyingEntity | null {
     if (filter.type === EntityTypes.ACTIONS) {
         const raw = ensureStringIsNotBlank(filter.name) ?? (filter.id != null ? String(filter.id) : null)
         return raw ? { raw, display: raw, kind: 'action' } : null
@@ -60,9 +94,10 @@ interface EntityFilterDisplayInfo {
 }
 
 function getEntityFilterDisplayInfo(
-    filter: EntityFilter | ActionFilter,
+    entity: DisplayableEntity,
     filterGroupType?: TaxonomicFilterGroupType
 ): EntityFilterDisplayInfo {
+    const filter = toDisplayEntityFilter(entity)
     let name: string | undefined
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         name = 'All events'
@@ -97,8 +132,12 @@ export interface SeriesRename {
  * use it to label the committed selection like the series the user clicked. Data
  * warehouse series keep their own committed-selection affordance, so they never report one.
  */
-export function getSeriesRename(filter: EntityFilter | ActionFilter | null | undefined): SeriesRename | null {
-    if (!filter || filter.type === EntityTypes.DATA_WAREHOUSE) {
+export function getSeriesRename(entity: DisplayableEntity | null | undefined): SeriesRename | null {
+    if (!entity) {
+        return null
+    }
+    const filter = toDisplayEntityFilter(entity)
+    if (filter.type === EntityTypes.DATA_WAREHOUSE) {
         return null
     }
     const { displayName, underlying, isRenamed } = getEntityFilterDisplayInfo(filter)
@@ -134,7 +173,7 @@ function EntityFilterInfoTooltipTitle({
 }
 
 interface EntityFilterInfoProps {
-    filter?: EntityFilter | ActionFilter | null
+    filter?: DisplayableEntity | null
     allowWrap?: boolean
     showSingleName?: boolean
     style?: React.CSSProperties
@@ -145,7 +184,7 @@ interface EntityFilterInfoProps {
 }
 
 export function EntityFilterInfo({
-    filter,
+    filter: entity,
     allowWrap = false,
     showSingleName = false,
     style,
@@ -158,9 +197,10 @@ export function EntityFilterInfo({
 
     // `filter` is null for formula series (and can be absent for other callers); render nothing
     // rather than dereferencing it in getEntityFilterDisplayInfo.
-    if (!filter) {
+    if (!entity) {
         return <></>
     }
+    const filter = toDisplayEntityFilter(entity)
 
     const { displayName, baseName, underlying, isRenamed } = getEntityFilterDisplayInfo(filter, filterGroupType)
 

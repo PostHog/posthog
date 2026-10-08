@@ -13,10 +13,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
 import { formatEventName } from 'scenes/insights/utils'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter, BreakdownKeyType } from '~/types'
+
+import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 

@@ -18,10 +18,11 @@ import { getSocialLoginUrl } from './socialLoginUrl'
 interface SocialLoginLinkProps {
     provider: SSOProvider
     extraQueryParams?: Record<string, string>
+    onProviderClick?: (provider: SSOProvider) => void
     children: JSX.Element
 }
 
-function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLinkProps): JSX.Element {
+function SocialLoginLink({ provider, extraQueryParams, onProviderClick, children }: SocialLoginLinkProps): JSX.Element {
     const { searchParams } = useValues(router)
 
     const loginUrl = getSocialLoginUrl(provider, extraQueryParams, searchParams)
@@ -29,7 +30,19 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
 
     return (
         // eslint-disable-next-line react/forbid-elements
-        <a className="block" href={loginUrl} {...(iframed ? { target: '_blank', rel: 'noopener' } : {})}>
+        <a
+            className="block"
+            href={loginUrl}
+            onClick={
+                onProviderClick
+                    ? (event) => {
+                          event.preventDefault()
+                          onProviderClick(provider)
+                      }
+                    : undefined
+            }
+            {...(iframed && !onProviderClick ? { target: '_blank', rel: 'noopener' } : {})}
+        >
             {children}
         </a>
     )
@@ -38,12 +51,14 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
 interface SocialLoginButtonProps {
     provider: SSOProvider
     extraQueryParams?: Record<string, string>
+    onProviderClick?: (provider: SSOProvider) => void
     isLastUsed?: boolean
 }
 
 export function SocialLoginButton({
     provider,
     extraQueryParams,
+    onProviderClick,
     isLastUsed,
 }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -53,7 +68,7 @@ export function SocialLoginButton({
     }
 
     return (
-        <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
+        <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams} onProviderClick={onProviderClick}>
             <div className="relative">
                 <LemonButton
                     size="large"
@@ -119,6 +134,7 @@ interface SocialLoginButtonsProps {
     topDivider?: boolean
     bottomDivider?: boolean
     extraQueryParams?: Record<string, string>
+    onProviderClick?: (provider: SSOProvider) => void
     lastUsedProvider?: LoginMethod
     showPasskey?: boolean
     /**
@@ -142,6 +158,7 @@ export function SocialLoginButtons({
     lastUsedProvider,
     showPasskey = false,
     restrictToProviders,
+    onProviderClick,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
@@ -174,6 +191,7 @@ export function SocialLoginButtons({
                             key={provider}
                             provider={provider as SSOProvider}
                             isLastUsed={lastUsedProvider === provider}
+                            onProviderClick={onProviderClick}
                             {...props}
                         />
                     ))}
@@ -197,12 +215,17 @@ export function SSOEnforcedLoginButton({
     provider,
     email,
     extraQueryParams,
+    onProviderClick,
     actionText = 'Log in',
     isLastUsed,
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
-        <SocialLoginLink provider={provider} extraQueryParams={{ ...extraQueryParams, email }}>
+        <SocialLoginLink
+            provider={provider}
+            extraQueryParams={{ ...extraQueryParams, email }}
+            onProviderClick={onProviderClick}
+        >
             <LemonButton
                 className="btn-bridge relative"
                 data-attr="sso-login"

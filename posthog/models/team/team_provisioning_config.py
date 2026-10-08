@@ -1,10 +1,4 @@
-import logging
-
 from django.db import models
-
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamProvisioningConfig(models.Model):
@@ -29,6 +23,3 @@ class TeamProvisioningConfig(models.Model):
         indexes = [
             models.Index(fields=["application"], name="tpc_application_idx"),
         ]
-
-
-register_team_extension_signal(TeamProvisioningConfig, logger=logger)

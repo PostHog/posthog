@@ -3,20 +3,24 @@ from prometheus_client import Counter, Gauge, Histogram
 DELTA_WRITE_DURATION_SECONDS = Histogram(
     "warehouse_load_delta_write_duration_seconds",
     "Duration of Delta Lake write operations",
-    labelnames=["team_id", "schema_id", "write_type"],
+    labelnames=["write_type"],
     buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
 )
 
 DELTA_ROWS_WRITTEN_TOTAL = Counter(
     "warehouse_load_delta_rows_written_total",
     "Total rows written to Delta Lake",
-    labelnames=["team_id", "schema_id"],
 )
 
 IDEMPOTENCY_HIT_TOTAL = Counter(
     "warehouse_load_idempotency_hit_total",
     "Total idempotency cache hits (batch already processed)",
-    labelnames=["team_id", "schema_id"],
+)
+
+APPEND_ROLLBACK_TOTAL = Counter(
+    "warehouse_load_append_rollback_total",
+    "Append rollback attempts by outcome",
+    labelnames=["outcome"],
 )
 
 PARQUET_READ_DURATION_SECONDS = Histogram(
@@ -25,26 +29,31 @@ PARQUET_READ_DURATION_SECONDS = Histogram(
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
 
-# TODO: the `team_id`/`schema_id` labels below are high cardinality — keep only for the gated rollout
-# so we can debug per-team behaviour, then drop them before fully rolling out (per-team diagnosability
-# is also covered by the `warehouse_repartition_*` capture events).
+# No team or schema label on any loader metric: one series per table would grow without bound on a
+# long-lived pod. Per-table detail belongs on the structured log lines.
+BATCH_STEP_DURATION_SECONDS = Histogram(
+    "warehouse_load_batch_step_duration_seconds",
+    "Duration of one step of a batch load, by step",
+    labelnames=["step"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+)
+
 DELTA_REPARTITION_DURATION_SECONDS = Histogram(
     "warehouse_load_delta_repartition_duration_seconds",
     "Duration of an in-place Delta table repartition",
-    labelnames=["team_id", "schema_id"],
     buckets=(1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
 )
 
 DELTA_REPARTITION_TOTAL = Counter(
     "warehouse_load_delta_repartition_total",
     "Total in-place Delta repartitions by outcome",
-    labelnames=["team_id", "outcome"],
+    labelnames=["outcome"],
 )
 
 DELTA_REPARTITION_SKIP_TOTAL = Counter(
     "warehouse_load_delta_repartition_skip_total",
     "Tables over the partition-size budget that the controller skipped, by reason",
-    labelnames=["team_id", "reason"],
+    labelnames=["reason"],
 )
 
 # Deliberately unlabelled by team: this fires on every sync of every over-fragmented table fleet-wide,
@@ -60,7 +69,7 @@ DELTA_COARSEN_DECLINE_TOTAL = Counter(
 CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL = Counter(
     "warehouse_load_cdc_seq_guard_rows_dropped_total",
     "CDC rows dropped before the write as already-applied, by reason",
-    labelnames=["team_id", "reason"],
+    labelnames=["reason"],
 )
 
 # Non-zero means a DELETE is about to erase data the target still holds. Alert on this; enrichment
@@ -68,7 +77,6 @@ CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL = Counter(
 CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL = Counter(
     "warehouse_load_cdc_delete_enrichment_violations_total",
     "DELETE rows that would null a data column the target currently holds",
-    labelnames=["team_id"],
 )
 
 # deltalite real-write path (phase 2). `outcome` is one of:

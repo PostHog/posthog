@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 
 from django.db import connection
@@ -13,9 +15,15 @@ from products.cohorts.backend.backfill.readiness import (
     stamp_person_properties_readiness,
 )
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort, create_person_backfill_run_for_cohort
-from products.cohorts.backend.models.backfill import CohortBackfillRunCohort, CohortBackfillRunStatus
+from products.cohorts.backend.models.backfill import CohortBackfillRun, CohortBackfillRunCohort, CohortBackfillRunStatus
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash, extract_person_leaf_shape_hash
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 # (name, run factory, stamp fn, cohort hash column, cohort stamp column, same-kind edit,
 # other-kind edit) — the stamp protocol is symmetric in these, so every step of it runs under both
@@ -58,11 +66,12 @@ class TestBackfillReadiness(BaseTest):
                 "key": "$pageview",
                 "event_type": "events",
                 "value": "performed_event_multiple",
-                "conditionHash": "same-condition-hash",
+                "conditionHash": "same-condition00",
                 "time_value": window_days,
                 "time_interval": "day",
                 "operator": "gte",
                 "operator_value": 2,
+                "bytecode": _BYTECODE,
             }
         ]
         if person_hash is not None:
@@ -72,7 +81,10 @@ class TestBackfillReadiness(BaseTest):
                     "key": "email",
                     "value": ["person@example.com"],
                     "operator": "exact",
-                    "conditionHash": person_hash,
+                    # The catalog wants exactly 16 characters; the cases only need the hashes to
+                    # differ from each other.
+                    "conditionHash": person_hash[:16].ljust(16, "0"),
+                    "bytecode": _BYTECODE,
                 }
             )
         return {"properties": {"type": "AND", "values": values}}
@@ -144,6 +156,69 @@ class TestBackfillReadiness(BaseTest):
         self.assertIsNotNone(participation.stamped_at)
         self.assertIsNone(participation.superseded_at)
         self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand(KINDS)
+    def test_composition_edit_before_supersession_cannot_stamp(
+        self, _name: str, make_run, stamp, hash_column: str, stamp_column: str, *_edits
+    ) -> None:
+        # A mixed cohort for both kinds: negating its person leaf moves the definition and no kind
+        # hash, and a person run that pinned the old tree seeded only what could move that tree.
+        cohort, run = self._cohort_and_run(make_run)
+        pinned_hash = getattr(cohort, hash_column)
+
+        assert cohort.filters is not None
+        cohort.filters["properties"]["values"][-1]["negation"] = True
+        cohort.save(update_fields=["filters"])
+
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertIsNone(participation.superseded_at)
+        self.assertEqual(getattr(cohort, hash_column), pinned_hash)
+        self.assertFalse(stamp(run, cohort.id))
+
+        cohort.refresh_from_db()
+        run.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertIsNone(getattr(cohort, stamp_column))
+        self.assertIsNotNone(participation.superseded_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{source}", make_run, stamp, stamp_column, source)
+            for name, make_run, stamp, _hash, stamp_column, _same, _other in KINDS
+            for source in ("current", "pinned")
+        ]
+    )
+    def test_malformed_definition_supersedes_without_stamping(
+        self,
+        _name: str,
+        make_run: Callable[[int, int, str], CohortBackfillRun | None],
+        stamp: Callable[[CohortBackfillRun, int], bool],
+        stamp_column: str,
+        source: str,
+    ) -> None:
+        cohort, run = self._cohort_and_run(make_run)
+        run.status = CohortBackfillRunStatus.RECONCILING
+        run.save(update_fields=["status"])
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        malformed_filters = {"properties": {"type": "AND", "values": 3}}
+        if source == "current":
+            Cohort.objects.filter(id=cohort.id, team_id=self.team.id).update(filters=malformed_filters)
+        else:
+            CohortBackfillRunCohort.objects.for_team(self.team.id).filter(id=participation.id).update(
+                pinned_filters=malformed_filters
+            )
+
+        self.assertFalse(stamp(run, cohort.id))
+
+        cohort.refresh_from_db()
+        run.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertIsNone(getattr(cohort, stamp_column))
+        self.assertIsNone(participation.stamped_at)
+        self.assertIsNotNone(participation.superseded_at)
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(run.finished_at)
 
     @parameterized.expand(KINDS)
     def test_already_stamped_readiness_is_not_overwritten(

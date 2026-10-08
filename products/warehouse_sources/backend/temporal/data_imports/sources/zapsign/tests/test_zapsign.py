@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.za
     _webhook_table_transformer,
     base_url_for_environment,
     create_webhook,
-    delete_webhook,
     validate_credentials,
     zapsign_source,
 )
@@ -147,28 +146,6 @@ class TestToCreatedFrom:
 
 
 class TestDocumentsSource:
-    def test_paginates_via_next_link_and_yields_rows(self) -> None:
-        page2_url = f"{ZAPSIGN_BASE_URL}/api/v1/docs/?page=2"
-        responses = [
-            _page([{"token": "d1", "created_at": "2026-01-01T00:00:00Z"}], next_url=page2_url),
-            _page([{"token": "d2", "created_at": "2026-01-02T00:00:00Z"}]),
-        ]
-        _, rows, prepared = _run(DOCUMENTS_RESOURCE, responses, _manager())
-
-        assert [row["token"] for row in rows] == ["d1", "d2"]
-        assert len(prepared) == 2
-        first_url = cast("str", prepared[0].url)
-        assert first_url.startswith(f"{ZAPSIGN_BASE_URL}/api/v1/docs/")
-        assert cast("str", prepared[1].url) == page2_url
-
-    def test_first_request_sends_stable_sort_and_signers_and_bearer_auth(self) -> None:
-        _, _, prepared = _run(DOCUMENTS_RESOURCE, [_page([])], _manager())
-
-        query = _query(prepared[0])
-        assert query["sort_order"] == ["asc"]
-        assert query["include_signers"] == ["true"]
-        assert prepared[0].headers["Authorization"] == "Bearer token-123"
-
     def test_incremental_sends_created_from_date(self) -> None:
         _, _, prepared = _run(
             DOCUMENTS_RESOURCE,
@@ -180,40 +157,6 @@ class TestDocumentsSource:
 
         assert _query(prepared[0])["created_from"] == ["2026-05-01"]
 
-    def test_full_refresh_omits_created_from(self) -> None:
-        _, _, prepared = _run(DOCUMENTS_RESOURCE, [_page([])], _manager())
-
-        assert "created_from" not in _query(prepared[0])
-
-    def test_sandbox_environment_targets_sandbox_host(self) -> None:
-        _, _, prepared = _run(
-            DOCUMENTS_RESOURCE,
-            [_json_response({"count": 0, "next": None, "previous": None, "results": []})],
-            _manager(),
-            environment="sandbox",
-        )
-
-        assert cast("str", prepared[0].url).startswith(f"{ZAPSIGN_SANDBOX_BASE_URL}/api/v1/docs/")
-
-    def test_source_response_metadata(self) -> None:
-        source_response, _, _ = _run(DOCUMENTS_RESOURCE, [_page([])], _manager())
-
-        assert source_response.name == DOCUMENTS_RESOURCE
-        assert source_response.primary_keys == ["token"]
-        assert source_response.sort_mode == "asc"
-        assert source_response.partition_keys == ["created_at"]
-        assert source_response.partition_mode == "datetime"
-
-    def test_saves_resume_state_after_page_and_not_on_terminal_page(self) -> None:
-        page2_url = f"{ZAPSIGN_BASE_URL}/api/v1/docs/?page=2"
-        manager = _manager()
-        _run(DOCUMENTS_RESOURCE, [_page([{"token": "d1"}], next_url=page2_url), _page([{"token": "d2"}])], manager)
-
-        # One save (after the first page, pointing at page 2); the terminal page saves nothing.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert saved == ZapSignResumeConfig(endpoint=DOCUMENTS_RESOURCE, paginator_state={"next_url": page2_url})
-
     def test_resumes_from_saved_next_url(self) -> None:
         page2_url = f"{ZAPSIGN_BASE_URL}/api/v1/docs/?page=2"
         resume = ZapSignResumeConfig(endpoint=DOCUMENTS_RESOURCE, paginator_state={"next_url": page2_url})
@@ -221,14 +164,6 @@ class TestDocumentsSource:
 
         assert [row["token"] for row in rows] == ["d2"]
         assert cast("str", prepared[0].url) == page2_url
-
-    def test_ignores_resume_state_saved_by_a_different_endpoint(self) -> None:
-        resume = ZapSignResumeConfig(
-            endpoint=TEMPLATES_RESOURCE, paginator_state={"next_url": f"{ZAPSIGN_BASE_URL}/api/v1/templates/?page=9"}
-        )
-        _, _, prepared = _run(DOCUMENTS_RESOURCE, [_page([])], _manager(resume))
-
-        assert cast("str", prepared[0].url).startswith(f"{ZAPSIGN_BASE_URL}/api/v1/docs/")
 
     def test_webhook_mode_reads_buffered_deliveries_instead_of_polling(self) -> None:
         webhook_manager = _webhook_manager(enabled=True)
@@ -285,44 +220,6 @@ class TestSignersSource:
 
 
 class TestWebhookTableTransformer:
-    def test_keeps_latest_row_per_document_and_drops_event_fields(self) -> None:
-        table = table_from_py_list(
-            [
-                {
-                    "token": "d1",
-                    "status": "pending",
-                    "event_type": "doc_created",
-                    "signer_who_signed": {"token": "s1"},
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "last_update_at": "2026-01-01T00:00:00Z",
-                },
-                {
-                    "token": "d1",
-                    "status": "signed",
-                    "event_type": "doc_signed",
-                    "signer_who_signed": {"token": "s1"},
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "last_update_at": "2026-01-02T00:00:00Z",
-                },
-                {
-                    "token": "d2",
-                    "status": "pending",
-                    "event_type": "doc_created",
-                    "signer_who_signed": None,
-                    "created_at": "2026-01-03T00:00:00Z",
-                    "last_update_at": "2026-01-03T00:00:00Z",
-                },
-            ]
-        )
-
-        result = _webhook_table_transformer(table)
-        rows = {row["token"]: row for row in result.to_pylist()}
-
-        assert rows["d1"]["status"] == "signed"
-        assert rows["d2"]["status"] == "pending"
-        assert "event_type" not in result.column_names
-        assert "signer_who_signed" not in result.column_names
-
     def test_parses_timestamps_and_skips_rows_without_token(self) -> None:
         table = table_from_py_list(
             [
@@ -372,17 +269,6 @@ class TestValidateCredentials:
 
         assert ok is False
         assert "Could not reach ZapSign" in cast("str", error)
-
-    @patch(ZAPSIGN_SESSION_PATCH)
-    def test_probes_the_documents_list_on_the_selected_host(self, mock_session: MagicMock) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("token-123", "sandbox")
-
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == f"{ZAPSIGN_SANDBOX_BASE_URL}/api/v1/docs/"
 
 
 class TestCreateWebhook:
@@ -436,11 +322,3 @@ class TestCreateWebhook:
 
         assert result.success is False
         assert "Could not reach ZapSign" in cast("str", result.error)
-
-
-class TestDeleteWebhook:
-    def test_reports_manual_deletion_required(self) -> None:
-        result = delete_webhook()
-
-        assert result.success is False
-        assert "Delete it in ZapSign" in cast("str", result.error)

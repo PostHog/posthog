@@ -3,7 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -240,6 +244,11 @@ describe('the feature flags logic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+            },
+        })
         initKeaTests()
         logic = featureFlagsLogic()
         logic.mount()
@@ -281,6 +290,106 @@ describe('the feature flags logic', () => {
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
         })
+    })
+
+    describe('hasActiveFilters', () => {
+        it('is false on a bare URL where page resolves to undefined', async () => {
+            // urlToAction spreads `page: undefined` over DEFAULT_FILTERS (page: 1), so a full-object
+            // comparison would wrongly flag the default view as filtered and offer "Clear filters".
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlags())
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.page).toBeUndefined()
+            expect(logic.values.hasActiveFilters).toBe(false)
+            expect(logic.values.shouldShowEmptyState).toBe(true)
+        })
+
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['a sort order', { order: '-created_at' }],
+            ['whitespace-only search', { search: '   ' }],
+        ])('is false when only %s is set', async (_, filters) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters(filters)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['search', { search: 'checkout' }],
+            ['tags', { tags: ['checkout'] }],
+        ])('is true when %s is set', async (_, filters) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters(filters)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(true)
+        })
+
+        it('clears active filters without changing the sort order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout', order: '-created_at' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBeUndefined()
+            expect(logic.values.filters.order).toBe('-created_at')
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+    })
+
+    it('redirects a disabled usage deep link to overview after flags load', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('redirects from usage when the rollout flag is disabled', async () => {
+        router.actions.push(urls.featureFlags())
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], {})
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('stays on usage when the rollout flag is enabled', async () => {
+        const flags = {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        }
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+        expect(router.values.searchParams['tab']).toEqual('usage')
+    })
+
+    it('does not rewrite another scene URL when the rollout flag is disabled', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+        router.actions.push('/project/997/experiments/1')
+
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        expect(router.values.location.pathname).toEqual('/project/997/experiments/1')
     })
 
     describe('activity deep-link', () => {
@@ -553,5 +662,117 @@ describe('displayedFlags stability while a load is in flight', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
+    })
+})
+
+describe('rows in config version 2', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    const V1_ROW: FeatureFlagType = { ...NEW_FLAG, id: 1, key: 'release-v1', active: true, version: 4 }
+    const V2_ROW: FeatureFlagType = {
+        ...NEW_FLAG,
+        id: 2,
+        key: 'checkout-rules-v2',
+        active: false,
+        version: 7,
+        filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    }
+
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [200, { results: [V1_ROW, V2_ROW], count: 2 }],
+                '/api/projects/:projectId/feature_flags/2/': () => [200, { ...V2_ROW, version: 8 }],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('loads a list mixing v1 and v2 rows', () => {
+        expect(logic.values.displayedFlags.map((flag) => flag.key)).toEqual(['release-v1', 'checkout-rules-v2'])
+    })
+
+    it('sends the row version only when toggling a v2 row', async () => {
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        logic.actions.updateFeatureFlag({ id: 1, payload: { active: false } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: true, version: 7 })
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/1'), { active: false })
+    })
+
+    it('offers archive only for a v1 row when disabling, and disables a v2 row with its version', async () => {
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.toggleFeatureFlagActive(1, false)
+        logic.actions.toggleFeatureFlagActive(2, false)
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
+        expect(openDialog.mock.calls[1][0].secondaryButton).toBeNull()
+
+        openDialog.mock.calls[1][0].primaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: false, version: 7 })
+    })
+
+    it('refetches a v2 row whose version was stale instead of retrying', async () => {
+        // The conflicting write replaced the document, so the row must show it, not only its version.
+        const changedElsewhere = {
+            ...V2_ROW,
+            name: 'Renamed elsewhere',
+            version: 8,
+            filters: { ...V2_ROW.filters, default_value: true },
+        }
+        useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [200, changedElsewhere] } })
+        const detail = 'This feature flag has changed since version 7'
+        const update = jest
+            .spyOn(api, 'update')
+            .mockRejectedValueOnce(new ApiError(undefined, 409, undefined, { detail }))
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        await expectLogic(logic).toDispatchActions(['updateFlag', 'updateFeatureFlagFailure']).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledTimes(1)
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)).toEqual(changedElsewhere)
+        expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+        expect(toastError).toHaveBeenCalledWith(detail)
+    })
+
+    it('keeps the stale refusal as the failure when the refetch also fails', async () => {
+        useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [500, {}] } })
+        const stale = new ApiError(undefined, 409, undefined, {
+            detail: 'This feature flag has changed since version 7',
+        })
+        jest.spyOn(api, 'update').mockRejectedValueOnce(stale)
+        jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        await expectLogic(logic)
+            .toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.updateFeatureFlagFailure && action.payload.errorObject === stale,
+            ])
+            .toFinishAllListeners()
+
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)).toEqual(V2_ROW)
     })
 })

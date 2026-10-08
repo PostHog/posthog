@@ -11,7 +11,7 @@ import type { VisionAlertConfigurationApi } from '../../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerAlertsLogic } from '../scannerAlertsLogic'
-import { conditionSummary, selectionSummary } from '../scannerAlertUtils'
+import { alertTagOptions, conditionSummary, selectionSummary } from '../scannerAlertUtils'
 import { ScannerAlertCreateModal } from './ScannerAlertCreateModal'
 import { ScannerAlertEditModal } from './ScannerAlertEditModal'
 import { ScannerAlertStateTag } from './ScannerAlertStateTag'
@@ -34,8 +34,14 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
         openEditAlertModal,
         closeEditAlertModal,
     } = useActions(scannerAlertsLogic)
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, availableTags } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerType = scanner?.scanner_type
+    // Configured categories plus the freeform tags observations have carried, so the alert's tag
+    // field suggests every tag this scanner can match instead of asking for them from memory.
+    const tagOptions = alertTagOptions(
+        scanner?.scanner_type === 'classifier' ? (scanner.scanner_config.tags ?? []) : [],
+        availableTags
+    )
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     const columns: LemonTableColumns<VisionAlertConfigurationApi> = [
@@ -159,12 +165,14 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
             <ScannerAlertCreateModal
                 scannerId={scannerId}
                 scannerType={scannerType}
+                tagOptions={tagOptions}
                 isOpen={isCreateAlertModalOpen}
                 onClose={closeCreateAlertModal}
             />
             <ScannerAlertEditModal
                 scannerId={scannerId}
                 scannerType={scannerType}
+                tagOptions={tagOptions}
                 alert={editingAlert}
                 onClose={closeEditAlertModal}
             />

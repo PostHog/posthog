@@ -1,7 +1,8 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -11,6 +12,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import SessionRecording
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -31,7 +33,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
 
-        with freeze_time("2023-01-01T12:00:00Z"):
+        with time_machine.travel("2023-01-01T12:00:00Z", tick=False):
             self.session_id = str(uuid7())
             self.produce_replay_summary(
                 "user",
@@ -68,7 +70,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert "access_token" in response.json()
         return response.json()["access_token"]
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_creates_access_token(self) -> None:
         token = self._enable_sharing(self.session_id)
         assert isinstance(token, str) and len(token) > 0
@@ -95,7 +97,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             ),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_forbidden_access_scenarios(self, _name: str, url_builder) -> None:
         self.other_team = create_team(organization=self.organization)
 
@@ -107,7 +109,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_allows_authorized_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
@@ -125,7 +127,8 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             "end_time": "2022-12-31T12:00:00Z",
         }
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_token_allows_snapshot_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
@@ -135,6 +138,12 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/snapshots?sharing_access_token={token}"
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        proxy_claims = decode_jwt(
+            response.json()["replay_proxy_token"],
+            PosthogJwtAudience.REPLAY_PROXY,
+            verification_keys=["replay-proxy-key"],
+        )
+        assert proxy_claims["team_id"] == self.team.id
 
 
 @pytest.mark.ee
@@ -153,7 +162,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
 
         self.member_user = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
 
-        with freeze_time("2023-01-01T12:00:00Z"):
+        with time_machine.travel("2023-01-01T12:00:00Z", tick=False):
             self.session_id = str(uuid7())
             produce_replay_summary(
                 team_id=self.team.pk,
@@ -190,7 +199,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_requires_editor_access(self, access_level: str, expected_status: int) -> None:
         self._grant_recording_access(access_level)
         self.client.force_login(self.member_user)
@@ -208,7 +217,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_enable_sharing_requires_editor_access_to_sharing_configuration_resource(
         self, access_level: str, expected_status: int
     ) -> None:
@@ -226,7 +235,7 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
 
         assert response.status_code == expected_status, response.json()
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_sharing_response_exposes_user_access_level(self) -> None:
         self.client.force_login(self.member_user)
 

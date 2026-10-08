@@ -1,0 +1,17 @@
+[
+    {
+        "name": "sql owns collisions before prepared insights and python",
+        "markdown": "<Insight nodeId=\"insight\" id=\"example\" returnVariable=\"shared\" dataframeQuery=\"SELECT 1\" />\n\n<SQLV2 nodeId=\"sql\" returnVariable=\"shared\" code=\"SELECT 1\" />\n\n<SQLV2 nodeId=\"sql2\" returnVariable=\"shared\" code=\"SELECT 2\" />\n\n<PythonV2 nodeId=\"python\" returnVariable=\"shared\" code=\"shared = 1\" />",
+        "owners": { "shared_3": "insight", "shared": "sql", "shared_2": "sql2" }
+    },
+    {
+        "name": "unprepared insight does not shadow python",
+        "markdown": "<Insight nodeId=\"insight\" id=\"example\" returnVariable=\"df\" />\n\n<PythonV2 nodeId=\"python\" code=\"df = 1\" />",
+        "owners": { "df": "python" }
+    },
+    {
+        "name": "defaults blank names and case insensitive collisions",
+        "markdown": "<SQLV2 nodeId=\"sql\" code=\"SELECT 1\" />\n\n<SQLV2 nodeId=\"blank\" returnVariable=\"\" code=\"SELECT 2\" />\n\n<Insight nodeId=\"insight\" id=\"example\" dataframeQuery=\"SELECT 3\" />\n\n<Insight nodeId=\"second\" id=\"example2\" returnVariable=\"INSIGHT_DF\" dataframeQuery=\"SELECT 4\" />\n\n<PythonV2 nodeId=\"python\" returnVariable=\"SQL_DF\" code=\"SQL_DF = 1\" />",
+        "owners": { "sql_df": "sql", "insight_df": "insight", "INSIGHT_DF_2": "second" }
+    }
+]

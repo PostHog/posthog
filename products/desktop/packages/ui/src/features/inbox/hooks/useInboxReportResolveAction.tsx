@@ -93,6 +93,7 @@ export function useInboxReportResolveAction(
         setRetryDraft(result.draftGeneration, report.id, undefined);
         setInitialReason(undefined);
         setInitialNote("");
+        toast.success("Report resolved");
         if (startedAtRef.current !== null) {
           trackResult("resolve", "succeeded", startedAtRef.current);
         }

@@ -3,9 +3,12 @@ import importlib
 from pathlib import Path
 from typing import Any
 
+from django.conf import settings
+
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.run_mode import derive_run_mode
 
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -83,7 +86,22 @@ def _load_source(module_path: str) -> None:
         importlib.import_module(module_path)
     except Exception as e:
         logger.exception("load_all_sources: source module failed to import", module=module_path)
-        capture_exception(e)
+        if _should_capture_import_failure(e):
+            capture_exception(e)
+
+
+def _should_capture_import_failure(error: Exception) -> bool:
+    """Whether an import failure is a broken source or an incomplete checkout.
+
+    A missing module means the tree is incomplete: an interpreter without the source SDKs,
+    or a source directory added before its generated config was written. A deploy has every
+    SDK locked and every generated config committed, so only there does a missing module
+    mean a source dropped out of the catalog. Any other error is module-level breakage,
+    which counts wherever it happens.
+    """
+    if isinstance(error, ImportError):  # ModuleNotFoundError is a subclass
+        return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG).is_deployed_cloud
+    return True
 
 
 def __getattr__(name: str) -> Any:

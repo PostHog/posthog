@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "reason": {
+            "description": "Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "source_report_ids": {
+            "description": "Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["id", "source_report_ids"],
+    "type": "object"
+}

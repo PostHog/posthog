@@ -56,6 +56,7 @@ export type KafkaConsumerV2Config = {
     enablePartitionEof?: boolean
     fetchBatchSize?: number
     maxBackgroundTasks?: number
+    backgroundTaskTimeoutMs?: number
     rebalanceTimeoutMs?: number
 }
 
@@ -114,6 +115,11 @@ export class KafkaConsumerV2 {
     // revoke during disconnect — callers flush explicitly before disconnecting.
     private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
+    // Optional hook invoked with the offsets that the auto offset store passed to librdkafka and
+    // librdkafka accepted. It runs in batch order and never for a failed batch or a fenced
+    // partition, so a caller can track how far each partition is durably done.
+    private onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
+
     // Tunables (resolved at construction)
     private fetchBatchSize: number
     private batchTimeoutMs: number
@@ -142,7 +148,8 @@ export class KafkaConsumerV2 {
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
         this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
-        this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
+        this.backgroundTaskTimeoutMs =
+            config.backgroundTaskTimeoutMs ?? defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
         this.drainTimeoutMs = config.rebalanceTimeoutMs ?? defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
@@ -259,9 +266,11 @@ export class KafkaConsumerV2 {
 
     public async connect(
         eachBatch: EachBatch,
-        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>,
+        onOffsetsStored?: (offsets: TopicPartitionOffset[]) => void
     ): Promise<void> {
         this.onPartitionsRevoked = onPartitionsRevoked
+        this.onOffsetsStored = onOffsetsStored
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
             logger.info('📝', 'kafka_consumer_v2_connected', { groupId: this.config.groupId, topic: this.config.topic })
@@ -662,7 +671,9 @@ export class KafkaConsumerV2 {
                 error: String(error),
                 offsets,
             })
+            return
         }
+        this.onOffsetsStored?.(offsets)
     }
 
     // === Rebalance callback — pure event source, mutates nothing except the queue ===

@@ -275,7 +275,7 @@ def rokt_ads_source(
         body = build_report_body(endpoint_name, window, capabilities, timezone_variation, currency_code)
         rows = client.run_report(account_id, endpoint["kind"], body)
         if rows:
-            yield rows
+            yield [{**row, "currency_code": currency_code or "USD"} for row in rows]
         # Saved after the yield: a crash re-reads this window and the merge dedupes on the
         # primary key, where saving first would skip it.
         resumable_source_manager.save_state(RoktAdsResumeConfig(next_start_date=window.end.isoformat()))

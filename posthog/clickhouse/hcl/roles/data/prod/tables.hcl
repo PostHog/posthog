@@ -1,40 +1,5 @@
 # Objects both prod data clusters run and dev does not.
 database "posthog" {
-  table "log_entries_distributed" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "aux"
-      remote_database = "posthog"
-      remote_table    = "log_entries_data"
-    }
-  }
-
   table "new_raw_sessions" {
     column "team_id" {
       type = "Int64"
@@ -316,13 +281,4 @@ database "posthog" {
     }
   }
 
-  # Both prod clusters dropped the person and group property columns from the flag
-  # evaluation tables. dev and the local node still carry them.
-  patch_table "flag_evaluations" {
-    drop_columns = ["group0_properties", "group1_properties", "group2_properties", "group3_properties", "group4_properties", "person_properties"]
-  }
-
-  patch_table "sharded_flag_evaluations" {
-    drop_columns = ["group0_properties", "group1_properties", "group2_properties", "group3_properties", "group4_properties", "person_properties"]
-  }
 }

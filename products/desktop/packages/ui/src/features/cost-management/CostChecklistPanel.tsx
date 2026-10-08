@@ -286,7 +286,7 @@ function ModelChip({
       className={`inline-flex items-center gap-1.5 rounded-(--radius-2) bg-(--gray-3) px-1.5 py-0.5 ${
         emphasis ? "text-(--gray-12)" : "text-(--gray-11)"
       }`}
-      title={modelCostTitle(modelId)}
+      title={cost ? modelCostTitle(cost) : undefined}
     >
       <span className={`text-[11px] ${emphasis ? "font-medium" : ""}`}>
         {formatModelId(modelId)}

@@ -1,6 +1,6 @@
 # Frontend agent guide (`frontend/src`)
 
-Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative — this file does not repeat them, it points at them.
+Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
 
 ## Rule 1 — Reuse before you create
 
@@ -11,7 +11,10 @@ Where to look, in order:
 1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
 2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
 
-`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
+The `today-rail-nav` feature flag gates a redesign of the whole UI on `@posthog/quill`, built alongside the current UI and kept behind the flag for months. UI on that flag path uses quill and follows [`design.md`](./design.md) in this directory; read it before you build there. The current, flag-off UI stays on LemonUI and the lookup order above applies to it: do not add quill to it or convert it in place. Outside the flag, a handful of files already import quill; treat those as exceptions rather than a pattern to copy.
+
+For `@posthog/quill-charts` consumers in the main app and product frontends, use `useChartTheme` from [`lib/charts/hooks`](./lib/charts/hooks.ts).
+Prefer its `useChartConfig` helper for memoized configuration.
 
 Common reinventions and what to use instead:
 
@@ -30,7 +33,7 @@ If nothing fits, say so and propose extending the existing component before addi
 
 The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
 ## Rule 2 — A product's UI goes in `products/<name>/frontend/`
 
@@ -83,6 +86,35 @@ That is a normal working setup, not an edge case, and it is the case agents skip
 - **Do not build for mobile.** No phone-width layouts, no touch-sized targets, no `sm:` variants for a viewport nobody runs the app at. "Narrow" means a docked panel on a laptop.
 - **Look at it, don't reason about it.** Render the surface at a few widths before calling the work done. A story with a pinned container width snapshots the narrow case, so a regression shows up in visual review.
 
+## Rule 7 — Don't leave a changing bare text node next to siblings
+
+Page-translation extensions (Chrome and Edge in-page translate, the Google Translate widget) replace each text node they translate with a `<font>` element.
+React keeps pointing at the original node, which produces two defects — both of which land hardest on users outside English-speaking markets, since they're the ones with translation turned on:
+
+- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)). `ErrorBoundary` remounts the subtree instead of dropping the scene, so this degrades rather than breaks — but a remount is still a backstop, not a licence to render the shape: it discards whatever state that subtree held.
+- **Silent staleness.** A text-only update writes `nodeValue` on the detached node, so the text freezes at whatever the extension translated. Live timers and countdowns just stop, and no backstop catches that.
+
+The hazard is specifically a **bare text node that has siblings**, because that's the only shape React tracks as its own node:
+
+```tsx
+<div>Computed {lastRefresh.fromNow()}</div>          {/* hazard: two bare text nodes */}
+<>{formatElapsed(seconds)}</>                        {/* hazard: a bare text node in the parent's children */}
+<span>{lastRefresh.fromNow()}</span>                 {/* safe: sole child, React writes parent.textContent */}
+```
+
+A sole text child is immune, so don't add anything there.
+For the hazardous shape, either wrap the changing part in its own element, or mark it `translate="no"`, or both:
+
+```tsx
+<span>Computed&nbsp;</span>
+<span translate="no">{lastRefresh.fromNow()}</span>
+```
+
+Scope it to the changing part and keep the static labels around it translatable.
+Nearly all of these render numbers, dates, or durations, so nothing of value goes untranslated.
+`queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
+A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
+
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
@@ -107,5 +139,6 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 - Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
+- `/working-with-charts`: chart consumption workflow with links to the relevant examples and package docs.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`, `/working-with-charts`.

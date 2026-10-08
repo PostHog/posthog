@@ -51,7 +51,7 @@ export function GroupWorktreesSection({
             disabled={isStarting}
             endContent={
               isStarting ? (
-                <Spinner size={12} className="text-gray-10" />
+                <Spinner size="sm" className="text-gray-10" />
               ) : undefined
             }
             onClick={() => void startTask(worktree.branch)}

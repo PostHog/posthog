@@ -5,9 +5,36 @@
             "description": "A UUID string identifying this canvas.",
             "type": "string"
         },
+        "key": {
+            "description": "Only read this exact key.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "key_prefix": {
+            "description": "Only read entries whose key starts with this prefix.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "keys_only": {
+            "default": true,
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Entry offset from next_offset. Keep filters unchanged between pages.",
+            "minimum": 0,
+            "type": "number"
+        },
         "scope": {
-            "description": "Only return entries in this scope.",
-            "enum": ["shared", "user"],
+            "description": "Only read this scope.\n\n* `user` - user\n* `shared` - shared",
+            "enum": ["user", "shared"],
             "type": "string"
         }
     },

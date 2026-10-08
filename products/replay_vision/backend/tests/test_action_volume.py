@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.models import Team
@@ -27,8 +27,12 @@ def _action(team, name: str, event: str) -> Action:
     return Action.objects.create(team=team, name=name, steps_json=[{"event": event}])
 
 
-@freeze_time(_FROZEN_TIME)
 class TestRecentActionSessions(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     @pytest.mark.django_db
     def test_a_dead_action_separates_from_a_live_one_by_its_session_count(self, team) -> None:
         live = _action(team, "Completed checkout", "checkout completed")

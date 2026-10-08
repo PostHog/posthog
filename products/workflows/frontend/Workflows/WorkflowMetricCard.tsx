@@ -4,6 +4,7 @@ import { type ErrorInfo, type ReactNode, useCallback, useMemo } from 'react'
 import { IconArrowRight, IconInfo } from '@posthog/icons'
 import {
     DefaultTooltip,
+    createTooltipDateFormatter,
     useChartTheme,
     type ChangeColor,
     type MetricChange,
@@ -22,7 +23,6 @@ import { cn, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger 
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
-import { dayjs } from 'lib/dayjs'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
 const SPARKLINE_HEIGHT = 160
@@ -76,6 +76,8 @@ export interface WorkflowMetricCardProps {
     onClick?: () => void
     onClickTooltip?: string
     footer?: ReactNode
+    /** Shorter card, so a page with tables below it does not push them off screen. */
+    compact?: boolean
 }
 
 // Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
@@ -105,6 +107,7 @@ export function WorkflowMetricCard({
     onClick,
     onClickTooltip,
     footer,
+    compact,
 }: WorkflowMetricCardProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -135,22 +138,28 @@ export function WorkflowMetricCard({
     }, [total, totalPreviousPeriod])
 
     const neutral = neutralChange()
-
-    // Labels arrive pre-formatted in the team timezone ('YYYY-MM-DD', or '… HH:mm' for sub-day
-    // intervals), so parse them as naive local strings for the tooltip header.
+    const labelFormatter = useMemo(
+        () =>
+            timeSeries
+                ? createTooltipDateFormatter({
+                      interval: timeSeries.interval,
+                      timezone: timeSeries.timezone,
+                      allDays: timeSeries.labels,
+                  })
+                : undefined,
+        [timeSeries?.interval, timeSeries?.labels, timeSeries?.timezone]
+    )
     const renderTooltip = useCallback(
         (ctx: TooltipContext) => (
             <DefaultTooltip
                 {...ctx}
                 sortedByValue
                 showTotal
-                labelFormatter={(label: string) =>
-                    dayjs(label).format(label.includes(' ') ? 'MMM D, HH:mm' : 'MMM D, YYYY')
-                }
+                labelFormatter={labelFormatter}
                 valueFormatter={(value: number) => humanFriendlyNumber(value)}
             />
         ),
-        []
+        [labelFormatter]
     )
 
     const cardClassName = cn(
@@ -165,7 +174,7 @@ export function WorkflowMetricCard({
                 <div className="flex flex-col px-3">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-32" />
-                    <Skeleton className="mt-4 h-40 w-full" />
+                    <Skeleton className={compact ? 'mt-3 h-16 w-full' : 'mt-4 h-40 w-full'} />
                 </div>
             </div>
         )
@@ -224,8 +233,8 @@ export function WorkflowMetricCard({
                         </MetricTitle>
                         <MetricDelta />
                     </MetricHeader>
-                    <MetricValue className="mt-2" />
-                    <MetricSparkline className="-mx-3 mt-4" />
+                    <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
+                    <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (
                     // Stop clicks here from firing the tile's drill — the footer carries its own link.

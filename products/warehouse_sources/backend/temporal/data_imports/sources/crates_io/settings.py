@@ -69,6 +69,35 @@ CRATES_IO_ENDPOINTS: dict[str, CratesIOEndpointConfig] = {
         primary_keys=["crate", "id"],
         description="Owners (users and teams) of each configured crate.",
     ),
+    "dependencies": CratesIOEndpointConfig(
+        name="dependencies",
+        # crates.io documents the dependency id only as "an opaque identifier", so the version it
+        # belongs to keeps the key unique even if that id is ever scoped per version.
+        primary_keys=["version_id", "id"],
+        description="Dependencies declared by the most recent versions of each configured crate, "
+        "one row per dependency edge.",
+    ),
+    "reverse_dependencies": CratesIOEndpointConfig(
+        name="reverse_dependencies",
+        # The same caveat as `dependencies`, with the depended-on crate as the scope because that
+        # is what the endpoint is keyed by.
+        primary_keys=["crate", "id"],
+        description="Versions of other crates that depend on each configured crate, one row per dependency edge.",
+    ),
+    "categories": CratesIOEndpointConfig(
+        name="categories",
+        # Registry-wide table, so the category slug is unique on its own.
+        primary_keys=["id"],
+        description="Every category on crates.io, resolving the category slugs carried on crate "
+        "records, with the number of crates in each.",
+    ),
+    "keywords": CratesIOEndpointConfig(
+        name="keywords",
+        # Registry-wide table, so the keyword is unique on its own.
+        primary_keys=["id"],
+        description="Every keyword on crates.io, resolving the keywords carried on crate records, "
+        "with the number of crates using each.",
+    ),
 }
 
 ENDPOINTS = tuple(CRATES_IO_ENDPOINTS.keys())

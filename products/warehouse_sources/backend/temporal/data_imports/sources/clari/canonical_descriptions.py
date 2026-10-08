@@ -10,6 +10,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "activity": {
+        "description": "Rep activity indexed by Clari from connected inboxes and calendars, mapped to the accounts and opportunities it relates to.",
+        "docs_url": "https://developer.clari.com/",
+        "columns": {
+            "activityId": "Unique identifier for the activity record.",
+            "activityType": "Type of activity: MEETING, EMAIL_SENT, EMAIL_RECEIVED, ATTACHMENT_SENT or ATTACHMENT_RECEIVED.",
+            "subject": "Subject line of the activity.",
+            "date": "Time the activity occurred or is scheduled for, as a Unix timestamp in milliseconds.",
+            "activityOwnerId": "Salesforce ID of the user whose inbox or calendar the activity was indexed from.",
+            "activityOrganiserId": "Salesforce ID of the user who organised or created the activity.",
+            "accounts": "Accounts the activity is mapped to, each with accountId, accountName and accountOwnerId.",
+            "opportunities": "Opportunities the activity is mapped to, each with opportunityId, opportunityName and opportunityOwnerId.",
+            "participants": "People on the activity, each with name, email, sfdcUserId and whether they are internal.",
+        },
+    },
     "audit_events": {
         "description": "An audit log of user and system actions taken in Clari, such as forecast edits and submissions.",
         "docs_url": "https://developer.clari.com/",

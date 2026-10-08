@@ -12,7 +12,6 @@
  * Invoked by `hogli build:openapi-mcp-types`.
  */
 /* eslint-disable no-console */
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -44,7 +43,7 @@ const tempSchemaFile = path.join(tmpDir, 'openapi.json')
 const tempTargetFile = path.join(tmpDir, 'generated.ts')
 const tempSchemasFile = path.join(tmpDir, 'generated.schemas.ts')
 
-fs.writeFileSync(tempSchemaFile, JSON.stringify(schema, null, 2))
+fs.writeFileSync(tempSchemaFile, JSON.stringify(schema))
 
 const results = await runOrvalParallel([
     {
@@ -111,11 +110,6 @@ ${indented}
 `
 
 fs.writeFileSync(targetFile, output)
-
-spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', targetFile], {
-    stdio: 'pipe',
-    cwd: repoRoot,
-})
 
 const schemaCount = Object.keys(schema.components?.schemas ?? {}).length
 console.log(`MCP types: generated ${schemaCount} schemas → src/api/generated.ts`)

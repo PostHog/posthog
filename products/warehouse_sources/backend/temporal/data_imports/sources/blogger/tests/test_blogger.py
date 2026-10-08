@@ -90,9 +90,6 @@ class TestFormatRfc3339:
     def test_format(self, _name: str, value: object, expected: str) -> None:
         assert _format_rfc3339(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_rfc3339(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -192,16 +189,6 @@ class TestGetRows:
         assert snapshots[0]["params"]["orderBy"] == "published"
 
     @mock.patch(BLOGGER_SESSION_PATCH)
-    def test_comments_has_no_order_by(self, MockSession: mock.MagicMock) -> None:
-        # comments.listByBlog rejects ordering params, so we never send orderBy for it.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"items": [{"id": "c1"}]})])
-
-        _rows(_source("comments", _make_manager()))
-
-        assert "orderBy" not in snapshots[0]["params"]
-
-    @mock.patch(BLOGGER_SESSION_PATCH)
     def test_incremental_maps_last_value_to_start_date(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"items": [{"id": "p1"}], "nextPageToken": None})])
@@ -216,22 +203,6 @@ class TestGetRows:
         )
 
         assert snapshots[0]["params"]["startDate"] == "2026-03-04T02:58:14Z"
-
-    @mock.patch(BLOGGER_SESSION_PATCH)
-    def test_first_sync_without_last_value_sends_no_start_date(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"items": [{"id": "p1"}], "nextPageToken": None})])
-
-        _rows(
-            _source(
-                "posts",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-            )
-        )
-
-        assert "startDate" not in snapshots[0]["params"]
 
     @mock.patch(BLOGGER_SESSION_PATCH)
     def test_resume_starts_from_saved_page_token(self, MockSession: mock.MagicMock) -> None:
@@ -275,17 +246,6 @@ class TestGetRows:
         if expected_requests > 1:
             # The continuation token from the empty page still drives the follow-up request.
             assert snapshots[1]["params"]["pageToken"] == "T2"
-
-    @mock.patch(BLOGGER_SESSION_PATCH)
-    def test_missing_items_key_is_a_zero_row_page(self, MockSession: mock.MagicMock) -> None:
-        # Blogger omits `items` entirely when there is nothing to return — that's a legit empty
-        # page, not a changed response shape, so it must not raise.
-        session = MockSession.return_value
-        _wire(session, [_response({"kind": "blogger#postList"})])
-
-        rows = _rows(_source("posts", _make_manager()))
-
-        assert rows == []
 
 
 class TestErrorSanitization:

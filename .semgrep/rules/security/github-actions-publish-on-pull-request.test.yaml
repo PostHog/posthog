@@ -1,0 +1,550 @@
+# Multi-document file: each `---` section is a separate workflow, so one file
+# can carry both PR-triggered and tag-triggered shapes.
+name: Version check as the only gate
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths-ignore:
+            - rust/**
+
+jobs:
+    hog-tests:
+        runs-on: ubuntu-24.04
+        outputs:
+            is-new-version: ${{ steps.check.outputs.is-new-version }}
+        steps:
+            - run: echo build
+
+    release-package:
+        name: Release a new package version
+        runs-on: ubuntu-24.04
+        needs: hog-tests
+        # Only gate is a version check, so a pull request run reaches the publish step.
+        if: needs.hog-tests.outputs.is-new-version == 'true'
+        steps:
+            - name: Mint a token
+              # A step-level event check does not gate the publish step below it.
+              if: github.event_name != 'pull_request'
+              uses: actions/create-github-app-token@v3
+            - name: Publish the package in the npm registry
+              # ruleid: github-actions-publish-on-pull-request
+              run: cd packages/example && npm publish --access public
+---
+name: Ungated jobs with no if at all
+on: [push, pull_request]
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        environment: pypi-thing
+        steps:
+            # An `environment:` alone is not an event or ref gate.
+            # ruleid: github-actions-publish-on-pull-request
+            - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data
+
+    cut-release-with-an-archived-action:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - uses: actions/create-release@v1
+            # ruleid: github-actions-publish-on-pull-request
+            - uses: actions/upload-release-asset@v1
+
+    cut-release:
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Cut a GitHub release
+              # ruleid: github-actions-publish-on-pull-request
+              run: |
+                  gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+                      --title "$TAG" dist/*
+
+    publish-draft-release:
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Make an existing draft release public
+              # ruleid: github-actions-publish-on-pull-request
+              run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+    dry-run-then-publish:
+        runs-on: ubuntu-24.04
+        steps:
+            # The second command ships the package, so the block stays flagged.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: |
+                  npm publish \
+                      --dry-run
+                  npm publish --access public
+
+    publish-then-echo-dry-run:
+        runs-on: ubuntu-24.04
+        steps:
+            # A `--dry-run` after a shell operator belongs to another command.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public && echo --dry-run
+
+    sync-release-across-a-continuation:
+        runs-on: ubuntu-24.04
+        steps:
+            # A shell continuation keeps the release destination inside the same command.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: |
+                  aws s3 sync dist/ \
+                      s3://public-release-bucket/releases/
+
+    publish-with-a-split-command-word:
+        runs-on: ubuntu-24.04
+        steps:
+            # A shell continuation between command words still runs one command.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: |
+                  npm \
+                      publish --access public
+
+    release-with-a-split-command-word:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: |
+                  gh release \
+                      create "$TAG" dist/*
+
+    publish-with-global-options:
+        runs-on: ubuntu-24.04
+        steps:
+            # Options between the tool and the subcommand still run a publish.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: pnpm --filter=@posthog/example publish --access public
+            # ruleid: github-actions-publish-on-pull-request
+            - run: pnpm --filter @posthog/example publish --access public
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm --prefix packages/example publish
+            # ruleid: github-actions-publish-on-pull-request
+            - run: pnpm -r publish
+            # ruleid: github-actions-publish-on-pull-request
+            - run: yarn workspace @posthog/example publish
+            # ruleid: github-actions-publish-on-pull-request
+            - run: poetry -C packages/example publish
+
+    publish-with-dry-run-false:
+        runs-on: ubuntu-24.04
+        steps:
+            # npm reads `--dry-run=false` as a real publish.
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --dry-run=false
+
+    upload-to-a-release-bucket:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: aws s3 cp ./dist/pkg.tgz s3://example-release-bucket/
+---
+name: Fixed shape - dispatch plus master gate
+on:
+    pull_request:
+        paths:
+            - common/hogql_parser/**
+    workflow_dispatch:
+
+jobs:
+    build-wasm:
+        runs-on: ubuntu-24.04
+        steps:
+            # Build-only validation on a pull request. No publish command.
+            # ok: github-actions-publish-on-pull-request
+            - run: cd common/hogql_parser && npm run build
+
+    publish-npm:
+        name: Publish on npm
+        needs: build-wasm
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+        environment: npm-hogql-parser
+        runs-on: ubuntu-24.04
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cd common/hogql_parser && npm publish --access public
+
+    publish-pypi:
+        needs: build-wasm
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
+        environment: pypi-hogql-parser
+        runs-on: ubuntu-24.04
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+---
+name: Fixed shape - push event gate and ref gate
+on:
+    pull_request: {}
+    push:
+        branches:
+            - master
+
+jobs:
+    publish-crate:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    release-skills:
+        runs-on: ubuntu-24.04
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*
+
+    validate-only:
+        runs-on: ubuntu-24.04
+        steps:
+            # A dry run ships nothing.
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data --dry-run
+
+    validate-only-across-a-continuation:
+        runs-on: ubuntu-24.04
+        steps:
+            # A shell continuation keeps `--dry-run` inside the same command.
+            # ok: github-actions-publish-on-pull-request
+            - run: |
+                  npm publish \
+                      --dry-run
+
+    validate-only-with-a-split-command-word:
+        runs-on: ubuntu-24.04
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: |
+                  cargo \
+                      publish --dry-run
+
+    validate-only-with-dry-run-true:
+        runs-on: ubuntu-24.04
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: npm publish --dry-run=true
+
+    build-that-disables-publishing:
+        runs-on: ubuntu-24.04
+        steps:
+            # `--publish` is a flag of the build tool here, not a publish subcommand.
+            # ok: github-actions-publish-on-pull-request
+            - run: pnpm exec electron-builder build --mac --publish never
+
+    download-from-a-release-bucket:
+        runs-on: ubuntu-24.04
+        steps:
+            # A copy from S3 to the runner downloads and publishes nothing.
+            # ok: github-actions-publish-on-pull-request
+            - run: aws s3 cp s3://example-release-bucket/pkg.tgz ./pkg.tgz
+
+    publish-crate-behind-a-variable:
+        runs-on: ubuntu-24.04
+        # A string compare such as `== 'true'` tests a value, not a clause's result.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CRATE_PUBLISH_ENABLED == 'true'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    gate-declared-after-steps:
+        runs-on: ubuntu-24.04
+        steps:
+            # The gate still counts when the author writes `if:` below `steps:`.
+            # ok: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+---
+name: Tag-triggered publisher
+on:
+    push:
+        tags:
+            - 'hogli-v*'
+    workflow_dispatch:
+
+jobs:
+    publish:
+        runs-on: ubuntu-24.04
+        if: startsWith(github.ref, 'refs/tags/hogli-v')
+        environment: pypi-hogli
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: uv publish dist/*.whl
+---
+name: Manual-run-only publisher
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                required: true
+
+jobs:
+    publish:
+        runs-on: ubuntu-24.04
+        environment: Release
+        steps:
+            # No pull request trigger, so nothing to gate against here.
+            # ok: github-actions-publish-on-pull-request
+            - run: npm publish "$TARBALL" --tag "$NPM_TAG" --access public
+---
+name: Compound gate that still admits a pull request
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths-ignore:
+            - docs/**
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # One arm of an alternation can admit a pull request, and a regex cannot
+        # decompose an alternation, so any `||` in the gate counts as no gate.
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        # `!` inverts the clause it wraps, so the job runs on every other event.
+        if: ${{ !(github.event_name == 'push') }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        # A comparison on a clause's result inverts it the same way `!` does.
+        if: ${{ (github.event_name == 'push') == false }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
+    publish-crate-on-a-chained-comparison:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'push' == false
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-crate-on-a-reversed-comparison:
+        runs-on: ubuntu-24.04
+        if: false == (github.event_name == 'push')
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-npm-on-a-pull-request-ref:
+        runs-on: ubuntu-24.04
+        # `refs/pull/` is where a pull request run's own ref lives.
+        if: startsWith(github.ref, 'refs/pull/')
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Publishers gated on an event that a pull request can start
+on:
+    push:
+        branches:
+            - master
+    pull_request: {}
+    merge_group:
+    workflow_run:
+        workflows:
+            - Build
+        types:
+            - completed
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # A merge queue run holds the queued pull request merged onto the base, before
+        # it lands. The queue can still reject it, so the version would describe code
+        # that never reaches master.
+        if: github.event_name == 'merge_group'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        # An inequality admits every other event, the merge queue included.
+        if: github.event_name != 'pull_request'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        # A pull request run of the upstream workflow can trigger `workflow_run`.
+        if: github.event_name == 'workflow_run'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data
+---
+name: pull_request_target publisher
+on:
+    merge_group:
+    pull_request_target:
+        types:
+            - opened
+            - synchronize
+    workflow_dispatch:
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # `github.ref` names the base branch on a `pull_request_target` run, so it reads
+        # `refs/heads/master` while a pull request runs. A ref pin gates nothing here.
+        if: github.ref == 'refs/heads/master'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
+    publish-crate-on-a-ref-prefix:
+        runs-on: ubuntu-24.04
+        # The other two ref forms read the base branch here as well.
+        if: startsWith(github.ref, 'refs/heads/')
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        # An event pin is the one gate that holds for `pull_request_target`.
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data
+
+    publish-crate-on-a-negated-pin:
+        runs-on: ubuntu-24.04
+        if: ${{ !(github.event_name == 'workflow_dispatch') }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-npm-on-the-merge-queue:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'merge_group'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-crate-on-a-compared-pin:
+        runs-on: ubuntu-24.04
+        if: ${{ (github.event_name == 'workflow_dispatch') == false }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-npm-on-workflow-run:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'workflow_run'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi-on-an-inequality:
+        runs-on: ubuntu-24.04
+        if: github.event_name != 'pull_request_target'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+---
+name: Review-triggered publisher
+on: [pull_request_review]
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # A review runs the pull request's merge ref, so an approval gates nothing.
+        if: github.event.review.state == 'approved'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Review-comment-triggered publisher
+on: pull_request_review_comment
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.event.comment.body == '/publish'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Quoted trigger key
+'on':
+    pull_request:
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.event.pull_request.draft == false
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Quoted pull_request_target trigger key
+'on': pull_request_target
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.ref == 'refs/heads/master'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Both pull request triggers
+on:
+    pull_request:
+    pull_request_target:
+    workflow_dispatch:
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # Each clause excludes only one of the two pull request events.
+        if: github.event_name != 'pull_request_target'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        if: github.event_name != 'pull_request'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data

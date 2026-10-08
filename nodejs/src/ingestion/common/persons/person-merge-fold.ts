@@ -96,6 +96,13 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
 }
 
 /**
+ * The most sources one folded request may carry, matching the identity
+ * service's max_batch_size default; a run past a smaller server cap is
+ * refused there and degrades to the sequential fallback.
+ */
+const MAX_FOLD_SOURCES = 250
+
+/**
  * Build the group chunk step that decides, per value, whether the event folds
  * or processes immediately. The step is always wired; whether it plans
  * anything is its own decision, gated on the enabled flag and the team
@@ -106,9 +113,6 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
  * shared MergeFoldPlan, carried by the run's values as a `planned` decision,
  * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
  * self-merges are excluded). Every other value gets the `immediate` decision.
- * Fold size is naturally bounded by the batch size; pathological per-source
- * distinct_id counts are handled by the merge-mode limit pre-check at
- * execution time.
  */
 export function createMergeFoldPlanningStep<T extends MergeFoldScanItem>(
     options: MergeFoldOptions
@@ -170,14 +174,21 @@ function planRun<T extends MergeFoldScanItem>(
         return
     }
 
-    const plan: MergeFoldPlan = {
-        targetDistinctId,
-        pairs: [...pairByAnonId.values()],
-        status: 'planned',
+    // A longer run becomes several plans: the saga refuses an oversized
+    // request outright, abandoning the fold into per-pair merges.
+    const planByAnonId = new Map<string, MergeFoldPlan>()
+    const ordered = [...pairByAnonId.values()]
+    for (let offset = 0; offset < ordered.length; offset += MAX_FOLD_SOURCES) {
+        const pairs = ordered.slice(offset, offset + MAX_FOLD_SOURCES)
+        const plan: MergeFoldPlan = { targetDistinctId, pairs, status: 'planned' }
+        for (const pair of pairs) {
+            planByAnonId.set(pair.anonDistinctId, plan)
+        }
     }
     for (let index = runStart; index < runEnd; index++) {
         const anonDistinctId = getFoldableAnonDistinctId(values[index])
-        if (anonDistinctId !== null && pairByAnonId.has(anonDistinctId)) {
+        const plan = anonDistinctId === null ? undefined : planByAnonId.get(anonDistinctId)
+        if (plan !== undefined) {
             results[index] = ok({ ...values[index], mergeFold: { type: 'planned', plan } })
         }
     }

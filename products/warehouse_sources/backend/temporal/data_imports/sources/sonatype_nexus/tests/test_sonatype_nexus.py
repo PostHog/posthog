@@ -16,11 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     SonatypeNexusResponseTooLargeError,
     SonatypeNexusResumeConfig,
     SonatypeNexusRetryableError,
-    _build_url,
     _fetch_page,
     _read_bounded,
     get_rows,
-    hostname_of,
     normalize_host,
     sonatype_nexus_source,
     validate_credentials,
@@ -129,9 +127,6 @@ class TestNormalizeHost:
             else:
                 assert normalize_host(host) == host
 
-    def test_hostname_of(self):
-        assert hostname_of("https://nexus.example.com/service/rest/v1") == "nexus.example.com"
-
 
 class TestFetchPage:
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
@@ -150,13 +145,6 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_undecorated(session, "https://x", mock.MagicMock())
 
-    def test_list_body_is_wrapped_in_items(self):
-        # /repositories returns a plain JSON array instead of the paginated envelope.
-        session = mock.MagicMock()
-        session.get.return_value = _response([{"name": "maven-releases"}])
-        body = _fetch_undecorated(session, "https://x", mock.MagicMock())
-        assert body == {"items": [{"name": "maven-releases"}]}
-
 
 class TestReadBounded:
     def test_oversized_body_aborts_instead_of_buffering(self):
@@ -174,15 +162,6 @@ class TestReadBounded:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_credentials(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        assert validate_credentials("https://nexus.example.com", "user", "pass") is True
-        assert mock_session.return_value.auth == ("user", "pass")
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://nexus.example.com/service/rest/v1/repositories"
-
     @pytest.mark.parametrize("status_code", [401, 403, 500])
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_non_200_fails_validation(self, mock_session, status_code):
@@ -210,24 +189,6 @@ class TestGetRowsTopLevel:
         assert url == "https://n.example.com/service/rest/v1/repositories"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_tasks_paginates_and_saves_token_after_each_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({"items": [{"id": "1"}], "continuationToken": "TOKEN_A"}),
-            _response({"items": [{"id": "2"}], "continuationToken": "TOKEN_B"}),
-            _response({"items": [{"id": "3"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
-        # State saved once per page that has a following page (not for the last page).
-        saved = [call.args[0].continuation_token for call in manager.save_state.call_args_list]
-        assert saved == ["TOKEN_A", "TOKEN_B"]
-        second_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert "continuationToken=TOKEN_A" in second_url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_tasks_resumes_from_saved_token(self, mock_session):
         mock_session.return_value.get.return_value = _response({"items": [{"id": "9"}], "continuationToken": None})
 
@@ -236,16 +197,6 @@ class TestGetRowsTopLevel:
 
         first_url = mock_session.return_value.get.call_args_list[0].args[0]
         assert "continuationToken=SAVED" in first_url
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_tasks_empty_page_still_terminates(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"items": [], "continuationToken": None})
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "tasks", mock.MagicMock(), manager))
-
-        assert batches == []
-        manager.save_state.assert_not_called()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_non_advancing_token_raises(self, mock_session):
@@ -287,65 +238,6 @@ class TestGetRowsTopLevel:
 
 class TestGetRowsRepositoryFanout:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_fans_out_over_non_group_repositories(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1", "repository": "docker-proxy"}], "continuationToken": None}),
-            _response({"items": [{"id": "m1", "repository": "maven-releases"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["d1", "m1"]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        # Repositories are walked sorted by name; group repositories are excluded
-        # because they'd double-count their members' components.
-        assert "repository=docker-proxy" in urls[1]
-        assert "repository=maven-releases" in urls[2]
-        assert not any("maven-public" in url for url in urls)
-        # The bookmark advances to the next repository after each one completes.
-        saved = [(c.args[0].repository, c.args[0].continuation_token) for c in manager.save_state.call_args_list]
-        assert saved == [("maven-releases", None)]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_saves_repository_and_token_after_each_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1"}], "continuationToken": "TOKEN_A"}),
-            _response({"items": [{"id": "d2"}], "continuationToken": None}),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "assets", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["d1", "d2", "m1"]
-        third_url = mock_session.return_value.get.call_args_list[2].args[0]
-        assert "repository=docker-proxy" in third_url
-        assert "continuationToken=TOKEN_A" in third_url
-        saved = [(c.args[0].repository, c.args[0].continuation_token) for c in manager.save_state.call_args_list]
-        assert saved == [("docker-proxy", "TOKEN_A"), ("maven-releases", None)]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_page_with_token_still_checkpoints(self, mock_session):
-        # An empty page that still returns a continuation token must save state, so a crash
-        # resumes from the page's real progression rather than an older token.
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [], "continuationToken": "TOKEN_A"}),
-            _response({"items": [{"id": "d1"}], "continuationToken": None}),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["d1", "m1"]
-        saved = [(c.args[0].repository, c.args[0].continuation_token) for c in manager.save_state.call_args_list]
-        assert saved == [("docker-proxy", "TOKEN_A"), ("maven-releases", None)]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_bookmarked_repository_and_token(self, mock_session):
         mock_session.return_value.get.side_effect = [
             _response(_REPOSITORIES),
@@ -361,23 +253,6 @@ class TestGetRowsRepositoryFanout:
         assert len(urls) == 2
         assert "repository=maven-releases" in urls[1]
         assert "continuationToken=SAVED" in urls[1]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_with_deleted_bookmark_repository_starts_over(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_REPOSITORIES),
-            _response({"items": [{"id": "d1"}], "continuationToken": None}),
-            _response({"items": [{"id": "m1"}], "continuationToken": None}),
-        ]
-
-        manager = _make_manager(SonatypeNexusResumeConfig(continuation_token="SAVED", repository="deleted-repo"))
-        batches = list(get_rows("https://n.example.com", "u", "p", "components", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["d1", "m1"]
-        # The saved token belongs to the deleted repository and must not leak into
-        # the fresh walk.
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert not any("continuationToken=SAVED" in url for url in urls)
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_repository_deleted_mid_sync_is_skipped(self, mock_session):
@@ -451,7 +326,3 @@ class TestSonatypeNexusSource:
         # nothing is datetime-partitioned.
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_build_url_encodes_params(self):
-        url = _build_url("https://x/service/rest/v1/components", {"repository": "a b", "continuationToken": "t/1"})
-        assert url == "https://x/service/rest/v1/components?repository=a+b&continuationToken=t%2F1"

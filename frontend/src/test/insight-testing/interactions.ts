@@ -11,11 +11,12 @@ import {
 } from '@posthog/quill-charts/testing'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 import { trendsSeries } from './test-data'

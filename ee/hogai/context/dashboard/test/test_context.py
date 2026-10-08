@@ -36,7 +36,6 @@ class TestDashboardContext(BaseTest):
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Test Insight",
                 description="Test description",
-                insight_id="insight-1",
             )
         ]
 
@@ -71,7 +70,6 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
-                insight_id=f"insight-{i}",
             )
             for i in range(1, 4)
         ]
@@ -108,7 +106,6 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
-                insight_id=f"insight-{i}",
             )
             for i in range(1, 4)
         ]
@@ -153,12 +150,10 @@ class TestDashboardContext(BaseTest):
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Schema Insight 1",
                 description="First insight",
-                insight_id="insight-1",
             ),
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="click")]),
                 name="Schema Insight 2",
-                insight_id="insight-2",
             ),
         ]
 
@@ -259,7 +254,6 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Test Insight",
-                insight_id="insight-1",
             )
         ]
 
@@ -284,7 +278,6 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name=f"Insight {i}",
-                insight_id=f"insight-{i}",
             )
             for i in range(10)
         ]
@@ -315,7 +308,6 @@ class TestDashboardContext(BaseTest):
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
                 name="Custom Template Insight",
-                insight_id="custom-1",
             )
         ]
 

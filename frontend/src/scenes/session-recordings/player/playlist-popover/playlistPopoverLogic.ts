@@ -4,6 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lazyLoaders, loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 import {
     SessionRecordingPlayerLogicProps,
@@ -60,9 +61,6 @@ export interface playlistPopoverLogicValues {
 export interface playlistPopoverLogicActions {
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
-    } // sessionRecordingEventUsageLogic
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
     } // sessionRecordingEventUsageLogic
     setPause: () => {
         value: true
@@ -241,7 +239,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             sessionRecordingPlayerLogic(props),
             ['setPause'],
             sessionRecordingEventUsageLogic,
-            ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
+            ['reportRecordingPinnedToList'],
         ],
     })),
     actions(() => ({
@@ -325,9 +323,8 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                     type: 'collection',
+                    creation_method: 'pin',
                 })
-
-                actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
                     // This indicates the billing popover has been shown, so we should close the modal
@@ -344,6 +341,12 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        addToPlaylistFailure: ({ error }) => {
+            lemonToast.error(`Failed to add to collection: ${error}`)
+        },
+        removeFromPlaylistFailure: ({ error }) => {
+            lemonToast.error(`Failed to remove from collection: ${error}`)
+        },
         setSearchQuery: () => {
             actions.loadPlaylists()
         },

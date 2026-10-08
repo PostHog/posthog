@@ -8,7 +8,6 @@ stay client-side, because a rendering session's error text can carry viewer
 data the authoring agent has no business seeing.
 """
 
-import re
 from typing import Any
 from uuid import UUID
 
@@ -18,17 +17,17 @@ from products.canvas.backend.models import Canvas, CanvasBuild
 
 logger = structlog.get_logger(__name__)
 
-# Everything matched here lands in agent-visible prompts and thread messages,
-# so the shape is a bare class-name identifier: anything else is coerced to
-# "unknown" rather than escaped.
-ERROR_TYPE_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,63}")
+# Custom error names can carry viewer data into the author's task thread.
+RUNTIME_ERROR_TYPES = frozenset(
+    {"Error", "AggregateError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"}
+)
 UNKNOWN_ERROR_TYPE = "unknown"
 BUILD_FAILURE_ERROR_TYPE = "build_failed"
 
 
 def sanitize_error_type(raw: str | None) -> str:
     value = (raw or "").strip()
-    return value if ERROR_TYPE_PATTERN.fullmatch(value) else UNKNOWN_ERROR_TYPE
+    return value if value in RUNTIME_ERROR_TYPES else UNKNOWN_ERROR_TYPE
 
 
 def authoring_task_id(canvas: Canvas, build: CanvasBuild | None) -> UUID | None:
@@ -135,18 +134,19 @@ def build_fix_prompt(
         f"{what}\n\n"
         "Invoke the `building-canvases` skill and follow its workflow. Read the current source with "
         f"`canvas-source-retrieve`. {context}\n\n"
-        "Stage the fix as a DRAFT with `canvas-draft-create` and wait for its build to be ready. "
-        "Do not publish or promote anything: the user reviews the draft and promotes it."
+        "Publish the fix with `canvas-edit-create` (or `canvas-publish-create` for the complete project) against "
+        "the current version, then wait for its build to be ready. Stage a draft instead only if the user asked "
+        "for one."
     )
 
 
 def build_agent_request_prompt(canvas: Canvas, prompt: str) -> str:
-    """Wrap the viewer-approved request with the canvas draft workflow."""
+    """Wrap the viewer-approved request with the canvas publish workflow."""
     return (
         f"A viewer requested a change to canvas {canvas.id}.\n\n"
         f"<canvas-change-request>\n{prompt}\n</canvas-change-request>\n\n"
         "Invoke the `building-canvases` skill and follow its workflow. Read the current source with "
-        "`canvas-source-retrieve`. Stage the requested change as a DRAFT with `canvas-draft-create` and wait for "
-        "its build to be ready. Do not publish or promote anything: the canvas creator reviews the draft and "
-        "promotes it."
+        "`canvas-source-retrieve`. Publish the requested change with `canvas-edit-create` (or "
+        "`canvas-publish-create` for the complete project) against the current version, then wait for its build "
+        "to be ready. Stage a draft instead only if the request asks for one."
     )

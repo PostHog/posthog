@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,7 +37,7 @@ class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FASTLY,
+            name=ExternalDataSourceType.FASTLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Fastly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -90,17 +88,19 @@ A read-only token with **global** scope is sufficient to sync every table.""",
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Fastly's config endpoints expose no server-side timestamp filter, so every table is full
-        # refresh only. Each object carries a stable `created_at` used for partitioning.
+        # Only the metrics endpoints take a server-side time filter. Every config endpoint is full
+        # refresh only, partitioned on the stable `created_at` each object carries. Append is never
+        # offered: Fastly revises a reported bucket after the fact, which append would duplicate.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FASTLY_ENDPOINTS[endpoint]
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 description=endpoint_config.description,
+                default_incremental_lookback_seconds=endpoint_config.incremental_lookback_seconds,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -135,4 +135,6 @@ A read-only token with **global** scope is sufficient to sync every table.""",
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

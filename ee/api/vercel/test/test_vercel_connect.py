@@ -1,9 +1,11 @@
+from http.cookies import Morsel
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.http import HttpResponse
+from django.test import Client, TestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,7 +15,17 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 
-from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
+from ee.api.vercel.crypto import encrypt_payload
+from ee.api.vercel.vercel_connect import (
+    CONNECT_NONCE_COOKIE_PREFIX,
+    CONNECT_SALT,
+    VercelImportError,
+    _browser_nonce_cookie_name,
+    _delete_orphaned_integration,
+    _load_connect_session,
+    _sign_connect_session,
+    _validate_next_url,
+)
 from ee.vercel.client import OAuthTokenResponse, OperationResult
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
@@ -29,9 +41,40 @@ CACHED_SESSION_DATA = {
     "next_url": "https://vercel.com/done",
 }
 
+BROWSER_NONCE = "nonce-set-in-this-browser"
+OTHER_BROWSER_NONCE = "nonce-from-another-linking-flow"
+REJECTED_BROWSER_COOKIES = [("missing_cookie", None), ("cookie_from_another_flow", OTHER_BROWSER_NONCE)]
+REJECTED_SESSIONS = [
+    ("missing_cookie", BROWSER_NONCE, None, None, "missing_cookie"),
+    ("cookie_from_another_flow", BROWSER_NONCE, OTHER_BROWSER_NONCE, OTHER_BROWSER_NONCE, "missing_cookie"),
+    ("tampered_cookie", BROWSER_NONCE, BROWSER_NONCE, OTHER_BROWSER_NONCE, "nonce_mismatch"),
+    ("token_without_nonce", None, BROWSER_NONCE, BROWSER_NONCE, "token_without_nonce"),
+]
 
-def _seed_session(data: dict | None = None) -> str:
-    return _sign_connect_session(data or CACHED_SESSION_DATA)
+
+def _session_token_from_redirect(location: str) -> str:
+    query = parse_qs(urlparse(location).query)
+    if "next" in query:
+        query = parse_qs(urlparse(query["next"][0]).query)
+    return query["session"][0]
+
+
+def _mock_vercel_client(mock_client_class: MagicMock) -> MagicMock:
+    mock_client = mock_client_class.return_value
+    mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
+        access_token="tok_e2e",
+        token_type="Bearer",
+        installation_id="icfg_e2e",
+        user_id="usr_e2e",
+        team_id="team_e2e",
+    )
+    mock_client.import_resource.return_value = OperationResult(success=True)
+    return mock_client
+
+
+def _flow_cookie(response: HttpResponse) -> Morsel:
+    [cookie] = [cookie for name, cookie in response.cookies.items() if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]
+    return cookie
 
 
 class VercelConnectTestBase(APIBaseTest):
@@ -39,6 +82,16 @@ class VercelConnectTestBase(APIBaseTest):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def _seed_session(self) -> str:
+        self._set_nonce_cookie(BROWSER_NONCE)
+        return _sign_connect_session(CACHED_SESSION_DATA, browser_nonce=BROWSER_NONCE)
+
+    def _set_nonce_cookie(self, flow_nonce: str | None, value: str | None = None) -> None:
+        for name in [name for name in self.client.cookies if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]:
+            del self.client.cookies[name]
+        if flow_nonce is not None:
+            self.client.cookies[_browser_nonce_cookie_name(flow_nonce)] = value or flow_nonce
 
 
 class TestVercelConnectCallback(VercelConnectTestBase):
@@ -146,6 +199,36 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert response.status_code == 302
         assert response["Location"].startswith("/login?next=")
 
+    @parameterized.expand(
+        [
+            ("us_cloud", "us.posthog.com", "posthog.com"),
+            ("eu_cloud", "eu.posthog.com", "posthog.com"),
+            ("self_hosted", "posthog.example.com", ""),
+            ("local_dev", "localhost:8000", ""),
+        ]
+    )
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_ID="client_id",
+        VERCEL_CLIENT_INTEGRATION_SECRET="secret",
+        SESSION_COOKIE_SECURE=True,
+    )
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_callback_binds_session_to_browser_cookie(
+        self, _name: str, host: str, expected_domain: str, mock_client_class: MagicMock
+    ) -> None:
+        self.client.logout()
+        _mock_vercel_client(mock_client_class)
+
+        response = self.client.get(self.url, {"code": "good_code"}, HTTP_HOST=host)
+
+        cookie = _flow_cookie(response)
+        assert cookie["domain"] == expected_domain
+        assert cookie["path"] == "/api/vercel/connect"
+        assert cookie["max-age"] == 600
+        assert cookie["httponly"] is True
+        assert cookie["secure"] is True
+        assert cookie["samesite"] == "Lax"
+
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectSessionInfo(VercelConnectTestBase):
@@ -164,7 +247,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_returns_orgs_where_user_is_admin(self):
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -184,7 +267,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok"}},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -200,13 +283,54 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_dead"}},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is False
         assert not OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
+        assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
+
+    @parameterized.expand(REJECTED_SESSIONS)
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
+    @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
+    def test_rejects_other_browser_before_cleaning_up_orphans(
+        self,
+        _name: str,
+        token_nonce: str | None,
+        cookie_flow_nonce: str | None,
+        cookie_value: str | None,
+        expected_reason: str,
+        _mock_orphaned: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_orphaned",
+            config={"credentials": {"access_token": "tok_dead"}},
+            created_by=self.user,
+        )
+        session_token = (
+            _sign_connect_session(CACHED_SESSION_DATA, browser_nonce=token_nonce)
+            if token_nonce
+            else encrypt_payload(CACHED_SESSION_DATA, salt=CONNECT_SALT, jti=True)
+        )
+        self._set_nonce_cookie(cookie_flow_nonce, cookie_value)
+
+        response = self.client.get(self.url, {"session": session_token})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Session expired or invalid" in response.json()["detail"]
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
+        assert mock_capture_exception.call_args.args[1]["reason"] == expected_reason
 
     def test_excludes_orgs_where_user_is_member_not_admin(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -215,7 +339,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -225,7 +349,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -257,7 +381,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -334,7 +458,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         development_team = Team.objects.create(
             organization=self.organization, name="Development Team", api_token="development_token"
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -368,7 +492,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
     def test_non_member_returns_403(self):
         other_org = Organization.objects.create(name="Not My Org")
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -389,7 +513,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             organization=other_org,
             level=OrganizationMembership.Level.MEMBER,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -409,7 +533,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         self.client.post(
             self.url,
@@ -420,6 +544,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             },
             content_type="application/json",
         )
+        self._set_nonce_cookie(BROWSER_NONCE)
 
         response = self.client.post(
             self.url,
@@ -434,6 +559,33 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already used" in response.json()["detail"]
 
+    @parameterized.expand(REJECTED_BROWSER_COOKIES)
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_rejected_browser_leaves_session_usable_by_its_own_browser(
+        self,
+        _name: str,
+        browser_nonce: str | None,
+        mock_client_class: MagicMock,
+        _mock_vercel_integration: MagicMock,
+    ) -> None:
+        mock_client_class.return_value.import_resource.return_value = OperationResult(success=True)
+        session_token = self._seed_session()
+        body = {
+            "session": session_token,
+            "organization_id": str(self.organization.id),
+            "environment_mapping": {"production": self.team.pk},
+        }
+
+        self._set_nonce_cookie(browser_nonce)
+        rejected_response = self.client.post(self.url, body, content_type="application/json")
+        self._set_nonce_cookie(BROWSER_NONCE)
+        accepted_response = self.client.post(self.url, body, content_type="application/json")
+
+        assert rejected_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Session expired or invalid" in rejected_response.json()["detail"]
+        assert accepted_response.status_code == status.HTTP_201_CREATED
+
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=False)
     def test_already_linked_org_returns_400(self, _mock_orphaned):
         OrganizationIntegration.objects.create(
@@ -443,7 +595,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_old"}},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -475,7 +627,13 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_stale"}},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        stale_resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -495,10 +653,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert new_integration.integration_id == "icfg_connect_test"
+        assert not Integration.objects.filter(pk=stale_resource.pk).exists()
+        assert Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -513,7 +673,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
     def test_invalid_team_id_returns_400(self):
-        session_token = _seed_session()
+        session_token = self._seed_session()
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
 
@@ -542,7 +702,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={"type": "connectable"},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.post(
             self.url,
@@ -558,7 +718,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert "already has a Vercel integration" in response.json()["detail"]
 
     def test_rollback_on_integration_create_failure(self):
-        session_token = _seed_session()
+        session_token = self._seed_session()
         original_create = Integration.objects.create
 
         def failing_create(**kwargs):
@@ -587,6 +747,57 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=Integration.IntegrationKind.VERCEL,
         ).exists()
 
+    @parameterized.expand(
+        [
+            ("with_status", OperationResult(success=False, error="HTTP error", status_code=403), "HTTP 403"),
+            ("without_status", OperationResult(success=False, error="Network error"), "Network error"),
+        ]
+    )
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_failed_import_rolls_back_and_returns_400(
+        self,
+        _name: str,
+        import_result: OperationResult,
+        expected_detail: str,
+        mock_client_class: MagicMock,
+        mock_vercel_integration: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = import_result
+        session_token = self._seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_detail in response.json()["detail"]
+        assert not OrganizationIntegration.objects.filter(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exists()
+        assert not Integration.objects.filter(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exists()
+        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+        mock_capture.assert_called_once()
+        exception, properties = mock_capture.call_args[0]
+        assert isinstance(exception, VercelImportError)
+        assert properties["status_code"] == import_result.status_code
+        assert properties["installation_id"] == CACHED_SESSION_DATA["installation_id"]
+        assert properties["resource_id"] == mock_client.import_resource.call_args.kwargs["resource_id"]
+
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectEndToEnd(VercelConnectTestBase):
@@ -594,25 +805,67 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         super().setUp()
         self.callback_url = "/connect/vercel/callback"
 
+    @parameterized.expand(
+        [
+            ("same_host_signed_in", "testserver", "testserver", True, ""),
+            ("us_callback_eu_link_after_login", "us.posthog.com", "eu.posthog.com", False, "posthog.com"),
+        ]
+    )
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_end_to_end_callback_to_complete(self, mock_client_class, _mock_vercel_integration):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
-            access_token="tok_e2e",
-            token_type="Bearer",
-            installation_id="icfg_e2e",
-            user_id="usr_e2e",
-            team_id="team_e2e",
+    def test_end_to_end_callback_to_complete(
+        self,
+        _name: str,
+        callback_host: str,
+        link_host: str,
+        signed_in_at_callback: bool,
+        expected_cookie_domain: str,
+        mock_client_class: MagicMock,
+        _mock_vercel_integration: MagicMock,
+    ) -> None:
+        _mock_vercel_client(mock_client_class)
+        if not signed_in_at_callback:
+            self.client.logout()
+
+        callback_response = self.client.get(self.callback_url, {"code": "good_code"}, HTTP_HOST=callback_host)
+        session_token = _session_token_from_redirect(callback_response["Location"])
+
+        self.client.force_login(self.user)
+        session_response = self.client.get(
+            "/api/vercel/connect/session", {"session": session_token}, HTTP_HOST=link_host
         )
-        mock_client.import_resource.return_value = OperationResult(success=True)
+        complete_response = self.client.post(
+            "/api/vercel/connect/complete",
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+            HTTP_HOST=link_host,
+        )
 
-        response = self.client.get(self.callback_url, {"code": "good_code"})
-        assert response.status_code == 302
-        parsed = parse_qs(urlparse(response["Location"]).query)
-        session_token = parsed["session"][0]
+        assert callback_response.status_code == 302
+        assert session_response.status_code == status.HTTP_200_OK
+        assert complete_response.status_code == status.HTTP_201_CREATED
+        assert complete_response.json()["status"] == "linked"
+        cleared_cookie = _flow_cookie(complete_response)
+        assert cleared_cookie["max-age"] == 0
+        assert cleared_cookie["domain"] == expected_cookie_domain
+        assert cleared_cookie["path"] == "/api/vercel/connect"
 
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_session_from_another_browser_is_rejected(
+        self, mock_client_class: MagicMock, _mock_vercel_integration: MagicMock
+    ) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+        attacker_browser = Client()
+
+        callback_response = attacker_browser.get(self.callback_url, {"code": "attacker_code"})
+        session_token = _session_token_from_redirect(callback_response["Location"])
+
+        session_response = self.client.get("/api/vercel/connect/session", {"session": session_token})
         complete_response = self.client.post(
             "/api/vercel/connect/complete",
             {
@@ -623,22 +876,26 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             content_type="application/json",
         )
 
-        assert complete_response.status_code == status.HTTP_201_CREATED
-        assert complete_response.json()["status"] == "linked"
+        assert [session_response.status_code, complete_response.status_code] == [400, 400]
+        assert not OrganizationIntegration.objects.filter(organization=self.organization).exists()
+        mock_client.import_resource.assert_not_called()
+
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_two_link_flows_in_one_browser_both_stay_usable(self, mock_client_class: MagicMock) -> None:
+        _mock_vercel_client(mock_client_class)
+        session_tokens = [
+            _session_token_from_redirect(self.client.get(self.callback_url, {"code": code})["Location"])
+            for code in ("first_code", "second_code")
+        ]
+
+        responses = [self.client.get("/api/vercel/connect/session", {"session": token}) for token in session_tokens]
+
+        assert [response.status_code for response in responses] == [status.HTTP_200_OK, status.HTTP_200_OK]
 
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_token_survives_session_flush(self, mock_client_class, _mock_vercel_integration):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_client.oauth_token_exchange.return_value = OAuthTokenResponse(
-            access_token="tok_sso",
-            token_type="Bearer",
-            installation_id="icfg_sso",
-            user_id="usr_sso",
-            team_id="team_sso",
-        )
-        mock_client.import_resource.return_value = OperationResult(success=True)
+        _mock_vercel_client(mock_client_class)
 
         response = self.client.get(self.callback_url, {"code": "good_code"})
         assert response.status_code == 302
@@ -671,7 +928,7 @@ class TestVercelConnectSessionInfoTeams(VercelConnectTestBase):
         self.second_team = Team.objects.create(organization=self.organization, name="Second Team")
 
     def test_session_info_returns_teams_per_org(self):
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -695,7 +952,7 @@ class TestVercelConnectSessionInfoTeams(VercelConnectTestBase):
             config={"type": "connectable"},
             created_by=self.user,
         )
-        session_token = _seed_session()
+        session_token = self._seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
 
@@ -814,6 +1071,57 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
 
         mock_client.import_resource.assert_not_called()
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+
+class TestDeleteOrphanedIntegration(VercelConnectTestBase):
+    @parameterized.expand(
+        [
+            ("distinct_teams", ["own"], ["other"], {"other"}),
+            ("shared_team", ["own"], ["own"], {"own"}),
+            ("unmapped_orphan", None, ["other"], {"other"}),
+            ("unmapped_sibling", ["own"], None, {"own", "other"}),
+        ]
+    )
+    def test_keeps_only_resources_another_installation_claims(
+        self, _name, orphan_teams, sibling_teams, surviving_teams
+    ):
+        teams = {"own": self.team, "other": Team.objects.create(organization=self.organization, name="Other project")}
+
+        def config(team_keys: list[str] | None) -> dict:
+            if team_keys is None:
+                return {"type": "connectable"}
+            return {"type": "connectable", "environment_mapping": {"production": teams[team_keys[0]].pk}}
+
+        orphaned = OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_orphaned",
+            config=config(orphan_teams),
+        )
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_live",
+            config=config(sibling_teams),
+        )
+        for team in teams.values():
+            Integration.objects.create(
+                team=team,
+                kind=Integration.IntegrationKind.VERCEL,
+                integration_id=str(team.pk),
+                config={"type": "connectable"},
+            )
+
+        _delete_orphaned_integration(orphaned)
+
+        assert not OrganizationIntegration.objects.filter(pk=orphaned.pk).exists()
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_live").exists()
+        surviving_team_ids = set(
+            Integration.objects.filter(
+                team__organization=self.organization, kind=Integration.IntegrationKind.VERCEL
+            ).values_list("team_id", flat=True)
+        )
+        assert surviving_team_ids == {teams[key].pk for key in surviving_teams}
 
 
 class TestValidateNextUrl(TestCase):

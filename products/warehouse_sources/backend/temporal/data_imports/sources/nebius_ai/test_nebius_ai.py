@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai 
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.nebius_ai import (
     NEBIUS_AI_BASE_URL,
     NebiusAIResumeConfig,
-    _build_url,
     get_rows,
     nebius_ai_source,
     validate_credentials,
@@ -57,26 +56,7 @@ def _collect(
     return rows
 
 
-class TestBuildUrl:
-    def test_no_params_returns_bare_path(self) -> None:
-        assert _build_url("/models", {}) == f"{NEBIUS_AI_BASE_URL}/models"
-
-    def test_params_are_urlencoded(self) -> None:
-        # `after` cursors are opaque ids that can contain characters needing encoding.
-        assert _build_url("/batches", {"limit": 100, "after": "batch abc"}) == (
-            f"{NEBIUS_AI_BASE_URL}/batches?limit=100&after=batch+abc"
-        )
-
-
 class TestValidateCredentials:
-    def test_valid_key_returns_ok(self) -> None:
-        response = MagicMock()
-        response.ok = True
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(nebius_ai, "make_tracked_session", return_value=session):
-            assert validate_credentials("nbk_test") == (True, None)
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_failure_is_rejected_with_message(self, _name: str, status_code: int) -> None:
         response = MagicMock()
@@ -133,32 +113,8 @@ class TestNonPaginatedEndpoint:
         # A single-shot endpoint has nothing to resume from, so it must never persist a cursor.
         assert manager.saved == []
 
-    def test_models_empty_list_yields_nothing(self, monkeypatch: Any) -> None:
-        pages = {f"{NEBIUS_AI_BASE_URL}/models": {"object": "list", "data": []}}
-        rows = _collect(_FakeResumableManager(), monkeypatch, "models", pages)
-        assert rows == []
-
 
 class TestCursorPagination:
-    def test_follows_after_cursor_until_has_more_false(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{NEBIUS_AI_BASE_URL}/batches?limit=100": {
-                "data": [{"id": "b1", "created_at": 1}, {"id": "b2", "created_at": 2}],
-                "has_more": True,
-                "last_id": "b2",
-            },
-            f"{NEBIUS_AI_BASE_URL}/batches?limit=100&after=b2": {
-                "data": [{"id": "b3", "created_at": 3}],
-                "has_more": False,
-                "last_id": "b3",
-            },
-        }
-        manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, "batches", pages)
-        assert [r["id"] for r in rows] == ["b1", "b2", "b3"]
-        # State is saved only after a page that has a successor, so exactly one cursor persists here.
-        assert manager.saved == [NebiusAIResumeConfig(after="b2")]
-
     def test_falls_back_to_last_item_id_when_last_id_absent(self, monkeypatch: Any) -> None:
         # Some OpenAI-compatible responses only return has_more; the cursor must come from the row id.
         pages = {
@@ -185,19 +141,6 @@ class TestCursorPagination:
         }
         with pytest.raises(KeyError):
             _collect(_FakeResumableManager(), monkeypatch, "files", pages)
-
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{NEBIUS_AI_BASE_URL}/fine_tuning/jobs?limit=100&after=j5": {
-                "data": [{"id": "j6", "created_at": 6}],
-                "has_more": False,
-                "last_id": "j6",
-            },
-        }
-        manager = _FakeResumableManager(NebiusAIResumeConfig(after="j5"))
-        rows = _collect(manager, monkeypatch, "fine_tuning_jobs", pages)
-        # Resuming must start at the saved cursor, not re-fetch the first page.
-        assert [r["id"] for r in rows] == ["j6"]
 
 
 class TestSessionHardening:

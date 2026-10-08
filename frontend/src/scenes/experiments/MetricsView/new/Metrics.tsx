@@ -8,13 +8,13 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import { SummarizeExperimentButton } from '~/scenes/experiments/components/SummarizeExperimentButton'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
+import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -102,7 +102,26 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                 </div>
             </div>
             {metrics.length > 0 ? (
-                <>
+                showResultDetails ? (
+                    <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">
+                        <MetricsTable
+                            metrics={metrics}
+                            results={results}
+                            errors={errors}
+                            metricIndexes={metricIndexes}
+                            isSecondary={!!isSecondary}
+                            getInsightType={getInsightType}
+                            showDetailsModal={false}
+                            embedded
+                        />
+                        <ResultDetails
+                            metric={metrics[0] as ExperimentMetric}
+                            result={results[0]}
+                            experiment={experiment}
+                            embedded
+                        />
+                    </div>
+                ) : (
                     <MetricsTable
                         metrics={metrics}
                         results={results}
@@ -110,18 +129,8 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                         metricIndexes={metricIndexes}
                         isSecondary={!!isSecondary}
                         getInsightType={getInsightType}
-                        showDetailsModal={!showResultDetails}
                     />
-                    {showResultDetails && (
-                        <div className="mt-4">
-                            <ResultDetails
-                                metric={metrics[0] as ExperimentMetric}
-                                result={results[0]}
-                                experiment={experiment}
-                            />
-                        </div>
-                    )}
-                </>
+                )
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">

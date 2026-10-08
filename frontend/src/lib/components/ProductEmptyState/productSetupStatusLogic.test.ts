@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,6 +12,7 @@ describe('productSetupStatusLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        jest.spyOn(posthog, 'capture').mockClear()
     })
 
     function mountLogic(): ReturnType<typeof productSetupStatusLogic.build> {
@@ -18,6 +20,69 @@ describe('productSetupStatusLogic', () => {
         logic.mount()
         return logic
     }
+
+    it('keeps setup attribution across route changes and reports data only once', () => {
+        const logic = mountLogic()
+        logic.actions.setDetectedStatus('needs-setup')
+        logic.actions.reportSetupShown('needs-setup')
+        logic.actions.reportSetupInteraction('wizard command copied', 'needs-setup', 'wizard')
+        logic.actions.reportSetupInteraction('agent prompt copied', 'needs-setup', 'agent')
+
+        expect(posthog.capture).toHaveBeenLastCalledWith(
+            'product empty state agent prompt copied',
+            expect.objectContaining({
+                setup_attempt_id: expect.any(String),
+                initial_setup_route: 'wizard',
+                setup_route: 'agent',
+            })
+        )
+        const attemptId = logic.values.setupAttempt?.id
+        logic.actions.setDetectedStatus('has-data')
+        logic.actions.setDetectedStatus('has-data')
+        const detected = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([event]) => event === 'product empty state data detected')
+        expect(detected).toHaveLength(1)
+        expect(detected[0][1]).toMatchObject({
+            setup_attempt_id: attemptId,
+            initial_setup_route: 'wizard',
+            setup_route: 'agent',
+        })
+    })
+
+    it('does not count forced previews or existing data as setup', () => {
+        const logic = mountLogic()
+        logic.actions.reportSetupShown('needs-setup', true)
+        logic.actions.reportSetupInteraction('agent prompt copied', 'needs-setup', 'agent', true)
+        logic.actions.setDetectedStatus('has-data')
+        expect(logic.values.setupAttempt).toBeNull()
+        expect(posthog.capture).not.toHaveBeenCalled()
+    })
+
+    it('keeps the same attempt after remounting setup', () => {
+        const logic = productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS })
+        const unmount = logic.mount()
+        logic.actions.reportSetupShown('needs-setup')
+        logic.actions.reportSetupInteraction('manual setup clicked', 'needs-setup', 'manual')
+        const attemptId = logic.values.setupAttempt?.id
+        unmount()
+
+        const remounted = mountLogic()
+        remounted.actions.reportSetupShown('needs-setup')
+        expect(remounted.values.setupAttempt).toMatchObject({ id: attemptId, initialRoute: 'manual' })
+    })
+
+    it('does not attribute data from a project with the same numeric ID to the current setup attempt', () => {
+        const logic = mountLogic()
+        logic.actions.reportSetupShown('needs-setup')
+        const otherTeam = { ...teamLogic.values.currentTeam!, uuid: '00000000-0000-4000-8000-000000000123' }
+        teamLogic.actions.loadCurrentTeamSuccess(otherTeam)
+        logic.actions.setDetectedStatus('has-data')
+        expect(logic.values.setupAttempt).toBeNull()
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'product empty state data detected')
+        ).toHaveLength(0)
+    })
 
     // Guards the skip path end to end: a broken skip either traps users on the
     // empty state or (worse) permanently hides it for users who never skipped. The gate

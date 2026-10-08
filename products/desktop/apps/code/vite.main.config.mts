@@ -27,7 +27,7 @@ import {
   claudeExecutableCandidates as sdkClaudeExecutableCandidates,
   targetArch,
   targetPlatform,
-} from "../../packages/agent/build/native-binary.mjs";
+} from "../../../../packages/agent/packages/agent/build/native-binary.mjs";
 import {
   createForceDevModeDefine,
   createPosthogPlugin,
@@ -189,7 +189,11 @@ function copyClaudeExecutable(): Plugin {
           "../../node_modules/@posthog/agent/dist/claude-cli",
           binName,
         ),
-        join(__dirname, "../../packages/agent/dist/claude-cli", binName),
+        join(
+          __dirname,
+          "../../../../packages/agent/packages/agent/dist/claude-cli",
+          binName,
+        ),
         ...sdkClaudeExecutableCandidates(join(__dirname, "node_modules")),
         ...sdkClaudeExecutableCandidates(join(__dirname, "../../node_modules")),
       ];
@@ -413,16 +417,24 @@ let remoteSkillsFetched = false;
 function copyPosthogPlugin(isDev: boolean): Plugin {
   const sourceDir = join(__dirname, "../../plugins/posthog");
   const localSkillsDir = join(sourceDir, "local-skills");
+  const checkoutSkillsDir = join(sourceDir, "checkout-skills");
+  const useCheckoutSkills =
+    isDev && process.env.POSTHOG_DESKTOP_SKILLS === "local";
 
   return {
     name: "copy-posthog-plugin",
     buildStart() {
       if (existsSync(sourceDir)) {
         for (const file of getFilesRecursive(sourceDir)) {
+          if (file.startsWith(checkoutSkillsDir)) continue;
           // Don't watch local-skills in production builds
           if (!isDev && file.startsWith(localSkillsDir)) continue;
           this.addWatchFile(file);
         }
+      }
+
+      if (useCheckoutSkills) {
+        this.addWatchFile(join(sourceDir, "checkout-skills.ready"));
       }
 
       // Watch local-skills dir in dev mode
@@ -435,6 +447,11 @@ function copyPosthogPlugin(isDev: boolean): Plugin {
     async writeBundle() {
       const destDir = join(__dirname, ".vite/build/plugins/posthog");
       const destSkillsDir = join(destDir, "skills");
+      const baseSkillsDir = join(__dirname, ".vite/production-skills");
+
+      if (!remoteSkillsFetched) {
+        await rm(destSkillsDir, { recursive: true, force: true });
+      }
 
       // 1. Copy allowed plugin entries
       await mkdir(destDir, { recursive: true });
@@ -456,7 +473,12 @@ function copyPosthogPlugin(isDev: boolean): Plugin {
 
         // 2b. Download and overlay context-mill omnibus skills (overrides same-named skills)
         await downloadAndExtractContextMillSkills(destSkillsDir);
+        await rm(baseSkillsDir, { recursive: true, force: true });
+        await cp(destSkillsDir, baseSkillsDir, { recursive: true });
         remoteSkillsFetched = true;
+      } else {
+        await rm(destSkillsDir, { recursive: true, force: true });
+        await cp(baseSkillsDir, destSkillsDir, { recursive: true });
       }
 
       // 3. In dev mode: overlay local-skills (overrides both shipped and remote)
@@ -472,6 +494,20 @@ function copyPosthogPlugin(isDev: boolean): Plugin {
           }
         }
         console.log("[copy-posthog-plugin] Local dev skills overlaid");
+      }
+      if (useCheckoutSkills) {
+        const entries = await readdir(checkoutSkillsDir, {
+          withFileTypes: true,
+        });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const dest = join(destSkillsDir, entry.name);
+          await rm(dest, { recursive: true, force: true });
+          await cp(join(checkoutSkillsDir, entry.name), dest, {
+            recursive: true,
+          });
+        }
+        console.log("[copy-posthog-plugin] Checkout skills active");
       }
     },
   };
@@ -520,7 +556,10 @@ function copyEnricherGrammars(): Plugin {
       const candidates = [
         join(__dirname, "node_modules/@posthog/enricher/grammars"),
         join(__dirname, "../../node_modules/@posthog/enricher/grammars"),
-        join(__dirname, "../../packages/enricher/grammars"),
+        join(
+          __dirname,
+          "../../../../packages/agent/packages/enricher/grammars",
+        ),
       ];
 
       const sourceDir = candidates.find((p) => existsSync(p));

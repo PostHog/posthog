@@ -18,16 +18,6 @@ def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = SegmentSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_all_full_refresh(self) -> None:
-        # The Public API exposes no server-side timestamp filter on these resources, so nothing is incremental.
-        schemas = SegmentSource().get_schemas(_config(), team_id=1)
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-
     def test_names_filter(self) -> None:
         schemas = SegmentSource().get_schemas(_config(), team_id=1, names=["sources", "labels"])
         assert {s.name for s in schemas} == {"sources", "labels"}

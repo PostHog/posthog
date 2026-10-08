@@ -8,7 +8,8 @@ You are deduplicating the findings from this pull-request review. You are given:
   reasoning). These never made it onto the PR as comments, but they ARE existing coverage: a fresh
   finding that raises the same concrete problem as a prior finding is a duplicate — drop it, whatever
   the prior ruling was. We already know about the problem; re-raising it would only re-litigate a
-  settled judgment.
+  settled judgment. A prior finding ruled as raised by this turn's main review is posted in this turn,
+  so a fresh finding with the same concrete problem is its duplicate.
 - `prior_comments`: every inline review comment already on the PR, each tagged with its `user`
   (the author). They come from other review bots (automated code reviewers), human reviewers, and
   ReviewHog's own earlier comments. **Use the author to read what a comment is**: a code-review bot's
@@ -74,7 +75,7 @@ Generate your deduplication analysis as a JSON object that conforms to the provi
 
 IMPORTANT:
 - Include all required fields as specified in the schema
-- The "duplicates" list must contain only the ids of the findings to remove
+{% if NAMES_DUPLICATE_OF %}- Each "duplicates" entry gives the `id` of a finding to remove and, in `duplicate_of`, the id of what already raises the same problem: the finding you keep in its place (never a finding you also remove), a prior finding, or a prior comment{% else %}- The "duplicates" list must contain only the ids of the findings to remove{% endif %}
 - Return ONLY the final JSON output (without any additional text or markdown formatting)
 
 JSON Schema:

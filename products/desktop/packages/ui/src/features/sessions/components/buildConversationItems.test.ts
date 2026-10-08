@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationItems,
   type ConversationItem,
+  hasSetupProgressForRun,
 } from "./buildConversationItems";
 
 function consoleMsg(ts: number, message: string, level = "info"): AcpMessage {
@@ -300,6 +301,54 @@ describe("buildConversationItems", () => {
     expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
   });
 
+  it.each([
+    {
+      name: "while the start is still the newest thing",
+      trailing: [],
+      expected: 0,
+    },
+    {
+      name: "once the agent speaks after it",
+      trailing: [agentMessageMsg(6, "Hi")],
+      expected: 1,
+    },
+    {
+      name: "once per burst when content separates them",
+      trailing: [
+        agentMessageMsg(6, "Hi"),
+        statusMsg(7, "setup_hooks"),
+        statusMsg(8, "sdk_initialization"),
+        agentMessageMsg(9, "Back"),
+      ],
+      expected: 2,
+    },
+  ])(
+    "collapses a startup burst into one agent_started row $name",
+    ({ trailing, expected }) => {
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "go"),
+          statusMsg(2, "setup_hooks"),
+          statusMsg(3, "sdk_initialization"),
+          statusMsg(4, "setup_hooks"),
+          statusMsg(5, "sdk_initialization"),
+          ...trailing,
+        ],
+        false,
+      );
+      const statuses = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statuses).toHaveLength(expected);
+      for (const item of statuses) {
+        expect((item.update as { status: string }).status).toBe(
+          "agent_started",
+        );
+      }
+    },
+  );
+
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:
     // true`. It must flip the existing status row, not append a second one.
@@ -535,6 +584,56 @@ describe("buildConversationItems", () => {
     ]);
   });
 
+  it.each([
+    {
+      name: "a memory watchdog kill as a status row",
+      params: {
+        pid: 4242,
+        comm: "vitest",
+        treeRssBytes: 13.46 * 1024 ** 3,
+        memoryCurrentBytes: 15 * 1024 ** 3,
+        memoryLimitBytes: 16 * 1024 ** 3,
+        signal: "SIGTERM",
+        at: "2026-01-01T00:00:00.000Z",
+      },
+      expected: [
+        {
+          sessionUpdate: "status",
+          status: "process_killed",
+          message:
+            "The sandbox stopped vitest because it was using 13.5 GiB of the 16.0 GiB available. The agent is still running.",
+        },
+      ],
+    },
+    {
+      name: "nothing for a kill without sizes",
+      params: { comm: "vitest" },
+      expected: [],
+    },
+  ])("renders $name", ({ params, expected }) => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "hi"),
+        {
+          type: "acp_message",
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/process_killed",
+            params,
+          },
+        },
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    expect(statusItems.map((i) => i.update)).toEqual(expected);
+  });
+
   it("marks cloud turns complete from structured turn completion notifications", () => {
     const result = buildConversationItems(
       [userPromptMsg(10, 42, "hello"), turnCompleteMsg(25)],
@@ -657,6 +756,22 @@ describe("buildConversationItems", () => {
         ["checkout", "in_progress", "Checking out branch main"],
       ]);
       expect(update.isActive).toBe(true);
+    });
+
+    it("finds setup progress only for the current run", () => {
+      const events = [
+        progressMsg(
+          1,
+          "sandbox",
+          "in_progress",
+          "Setting up sandbox",
+          undefined,
+          "setup:run-1",
+        ),
+      ];
+
+      expect(hasSetupProgressForRun(events, "run-1")).toBe(true);
+      expect(hasSetupProgressForRun(events, "run-2")).toBe(false);
     });
 
     it("marks the progress group inactive once no step is in_progress", () => {

@@ -80,7 +80,7 @@ describe('sharedMetricModalLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
         })
-            .toDispatchActions(['loadSharedMetricsSuccess', 'loadAllSharedMetrics', 'loadAllSharedMetricsSuccess'])
+            .toDispatchActions(['setSharedMetricsResponse', 'loadSharedMetricsSuccess'])
             .toMatchValues({
                 // metric 2 (incompatible kind) is excluded; metric 3 comes from the second page
                 compatibleSharedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 3 })],
@@ -91,7 +91,7 @@ describe('sharedMetricModalLogic', () => {
     it('availableTags covers tags from every page, not just the rendered one', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
         // "secondary" only exists on the second page, which the eager load brought in
         await expectLogic(logic).toMatchValues({ availableTags: ['main', 'secondary'] })
     })
@@ -99,7 +99,7 @@ describe('sharedMetricModalLogic', () => {
     it('selectByTag selects a tag-matching metric from a page that was not first rendered', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
 
         // "secondary" only lives on the second page, which was loaded eagerly
         await expectLogic(logic, () => {
@@ -114,7 +114,7 @@ describe('sharedMetricModalLogic', () => {
     it('tags are additive — clicking multiple tags accumulates the selection', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
 
         await expectLogic(logic, () => {
             logic.actions.selectByTag('main', [])
@@ -132,7 +132,7 @@ describe('sharedMetricModalLogic', () => {
     it('clicking an active tag again deselects only that tag’s metrics', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
 
         logic.actions.selectByTag('main', [])
         await expectLogic(logic, () => {
@@ -178,7 +178,7 @@ describe('sharedMetricModalLogic', () => {
         })
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
 
         logic.actions.selectByTag('shared', []) // selects metrics 1 and 3 (both carry "shared")
         await expectLogic(logic, () => {
@@ -197,7 +197,7 @@ describe('sharedMetricModalLogic', () => {
     it('selectByTag excludes already-added metrics from the selection', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
 
         // metric 1 carries "main" but is already on the experiment, so it must not be selected
         await expectLogic(logic, () => {
@@ -211,19 +211,71 @@ describe('sharedMetricModalLogic', () => {
     it('setSearchTerm reloads with the search term and clears any active tag filter', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSharedMetrics()
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
         logic.actions.selectByTag('main', [])
 
         jest.spyOn(api, 'get')
         await expectLogic(logic, () => {
             logic.actions.setSearchTerm('revenue')
-        }).toDispatchActions(['loadAllSharedMetricsSuccess'])
+        }).toDispatchActions(['loadSharedMetricsSuccess'])
         expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=revenue'))
         await expectLogic(logic).toMatchValues({
             filterTags: [],
             compatibleSharedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 3 })],
         })
     })
+
+    it.each([
+        ['the first page', 0, 'loadSharedMetrics'],
+        ['a later page', MODAL_PAGE_SIZE, 'setSharedMetricsResponse'],
+    ])(
+        'a search typed while %s of the baseline is still loading is not overwritten by it',
+        async (_, gatedOffset, actionBeforeTyping) => {
+            let releaseGatedPage: () => void = () => {}
+            const gatedPageReleased = new Promise<void>((resolve) => (releaseGatedPage = resolve))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiment_saved_metrics': async ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'revenue') {
+                            return [200, { count: 1, next: null, previous: null, results: [metric(1)] }]
+                        }
+                        const offset = parseInt(url.searchParams.get('offset') ?? '0')
+                        if (offset === gatedOffset) {
+                            await gatedPageReleased
+                        }
+                        if (offset === 0) {
+                            return [
+                                200,
+                                {
+                                    count: 3,
+                                    next: `http://localhost/api/projects/997/experiment_saved_metrics?limit=${MODAL_PAGE_SIZE}&offset=${MODAL_PAGE_SIZE}`,
+                                    previous: null,
+                                    results: [metric(1), metric(2)],
+                                },
+                            ]
+                        }
+                        return [200, { count: 3, next: null, previous: null, results: [metric(3)] }]
+                    },
+                },
+            })
+
+            logic.actions.openSharedMetricModal(METRIC_CONTEXTS.primary)
+            // the baseline load is now stuck on the gated page
+            await expectLogic(logic).toDispatchActions([actionBeforeTyping])
+            await expectLogic(logic, () => {
+                logic.actions.setSearchTerm('revenue')
+            }).toDispatchActions(['loadSharedMetricsSuccess'])
+
+            // the stale baseline resolves after the search landed and must be discarded
+            releaseGatedPage()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                compatibleSharedMetrics: [expect.objectContaining({ id: 1 })],
+                hasAnyCompatibleSharedMetrics: true,
+            })
+        }
+    )
 
     it('toggleSelectedMetricId adds then removes a metric id', async () => {
         await expectLogic(logic, () => {

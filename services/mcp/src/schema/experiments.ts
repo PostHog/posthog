@@ -34,10 +34,19 @@ const FeatureFlagSchema = z.object({
     updated_at: z.string().nullish(),
 })
 
+// `kind` and `properties` are optional on write (the backend defaults both), so stored
+// configs can lack them. Parsing here is on the read path of the results tool: a schema
+// stricter than what the API stores blocks every metric read for that experiment.
 const ExperimentEventExposureConfigSchema = z.object({
-    kind: z.literal('ExperimentEventExposureConfig'),
+    kind: z
+        .literal('ExperimentEventExposureConfig')
+        .nullish()
+        .transform(() => 'ExperimentEventExposureConfig' as const),
     event: z.string(),
-    properties: z.array(z.any()),
+    properties: z
+        .array(z.any())
+        .nullish()
+        .transform((properties) => properties ?? []),
 })
 
 // Action-based exposure: the experiment counts a user as exposed when they match a
@@ -57,10 +66,11 @@ const ExperimentExposureConfigSchema = z.union([
 
 const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
-    exposure_config: ExperimentExposureConfigSchema.optional(),
+    // Explicit null is how API clients clear a config, so stored criteria carry it.
+    exposure_config: ExperimentExposureConfigSchema.nullish(),
     // Zod 4 z.object strips unknown keys on parse, and getExposures round-trips the stored
     // criteria through this schema, so omitting a field here silently degrades the query.
-    activation_config: ExperimentExposureConfigSchema.optional(),
+    activation_config: ExperimentExposureConfigSchema.nullish(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 
@@ -82,6 +92,7 @@ export const SavedMetricAttachmentSchema = z.looseObject({
         })
         .nullish(),
     query: z.unknown(),
+    effective_query: z.unknown().optional(),
 })
 
 export type SavedMetricAttachment = z.infer<typeof SavedMetricAttachmentSchema>
@@ -234,6 +245,52 @@ function toMetricSummary(
 }
 
 /**
+ * The effective definition of a shared metric on one experiment, so that the tool queries the metric
+ * the experiment page shows. The API applies the per-experiment overrides from the link metadata to
+ * the saved query and serves the result as `effective_query`. The field is null for a legacy shared
+ * metric, which takes no overrides.
+ *
+ * A PostHog server that predates the field, such as an older self-hosted instance, omits it. For that
+ * server this function applies the overrides itself. It copies the rules of
+ * `resolve_saved_metric_definition` in products/experiments/backend/metric_resolution.py as those
+ * servers run them. A server that serves `effective_query` never reaches that code, so a later change
+ * to the backend rules does not need a change here.
+ */
+function sharedMetricDefinition({ query, metadata, effective_query }: SavedMetricAttachment): unknown {
+    if (effective_query !== undefined) {
+        return effective_query ?? query
+    }
+    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
+        return query
+    }
+    const saved = query as Record<string, unknown>
+    const overrides: Record<string, unknown> = metadata ?? {}
+    const breakdowns = Array.isArray(overrides.breakdowns) ? overrides.breakdowns : []
+    const hasBreakdowns = breakdowns.length > 0
+    const savedBreakdownFilter =
+        saved.breakdownFilter !== null && typeof saved.breakdownFilter === 'object' ? saved.breakdownFilter : {}
+
+    const resolved: Record<string, unknown> = {
+        ...saved,
+        breakdownFilter: {
+            ...savedBreakdownFilter,
+            breakdowns,
+            ...(hasBreakdowns && overrides.breakdown_limit != null
+                ? { breakdown_limit: overrides.breakdown_limit }
+                : {}),
+        },
+    }
+    if (hasBreakdowns && saved.metric_type === 'funnel' && overrides.breakdownAttributionType != null) {
+        resolved.breakdownAttributionType = overrides.breakdownAttributionType
+        delete resolved.breakdownAttributionValue
+        if (overrides.breakdownAttributionValue != null) {
+            resolved.breakdownAttributionValue = overrides.breakdownAttributionValue
+        }
+    }
+    return resolved
+}
+
+/**
  * Build the per-position metric entries for a primary/secondary slot, merging the
  * inline metrics on the experiment with the shared metrics (saved_metrics), and
  * ordering them by `*_metrics_ordered_uuids` so the result rows match what users
@@ -246,7 +303,7 @@ export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'se
     const entries: ResolvedMetricEntry[] = [
         ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
         ...shared.map((sm) => ({
-            metric: sm.query,
+            metric: sharedMetricDefinition(sm),
             summary: toMetricSummary(sm.query, 'shared', {
                 id: typeof sm.saved_metric === 'number' ? sm.saved_metric : null,
                 name: typeof sm.name === 'string' ? sm.name : null,
@@ -365,7 +422,10 @@ export function transformExperimentResults(input: {
         feature_flag_key: experiment.feature_flag_key,
         metrics: experiment.metrics,
         metrics_secondary: experiment.metrics_secondary,
-        saved_metrics: experiment.saved_metrics,
+        // `effective_query` repeats `query` with the `metadata` overrides applied, so it only spends context.
+        saved_metrics:
+            experiment.saved_metrics &&
+            experiment.saved_metrics.map(({ effective_query: _effective, ...link }) => link),
         start_date: experiment.start_date,
         end_date: experiment.end_date,
         status: (experiment.start_date ? (experiment.end_date ? 'completed' : 'running') : 'draft') as

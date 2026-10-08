@@ -1,8 +1,8 @@
 # Wizard registry
 
 Status: design document for the Wizard run stack.
-This layer ships only the data models and the registry parsing described under "Remote configuration".
-The "API" routes and the "Cloud execution" workers describe planned behavior and do not exist yet; they land in later stack layers.
+This layer ships the data models, registry parsing, and cloud execution workers.
+The "API" routes describe planned behavior and land in a later stack layer.
 
 The Wizard Registry lists the programs a person can run in the Wizard.
 Programs are personalized by the signed-in user's distinct ID and the organization that owns the selected project.
@@ -65,6 +65,26 @@ When the payload cannot be fetched or is invalid, the registry contains one `pos
 Its command is empty, which keeps the Wizard package's default command.
 
 ## Cloud execution
+
+Wizard analytics events use the process-lifetime background capture client without a Celery hop.
+Delivery is best-effort; an abrupt process exit can lose buffered events.
+
+Wizard execution returns only the last 64 KiB of stdout and stderr from the sandbox, preserving the command's exit code.
+Log streams are drained through bounded tails without storing unbounded log files.
+Repository publishing bounds sandbox reads and rejects staged contents that exceed the cumulative 35 MiB commit payload budget, including base64 expansion.
+
+### Dedicated worker rollout
+
+`WIZARD_TASK_QUEUE` controls both Wizard dispatch and worker registration. It defaults to `general-purpose-task-queue` during rollout.
+`TEMPORAL_TASK_QUEUE` selects the queue a worker process polls; setting it alone does not register Wizard workflows on that queue.
+
+1. Deploy an image containing the Wizard workflow and activity registration before enabling the dedicated worker.
+2. Set both `TEMPORAL_TASK_QUEUE` and `WIZARD_TASK_QUEUE` to `wizard-task-queue` on the dedicated worker.
+3. Verify the worker is healthy and polling before setting `WIZARD_TASK_QUEUE=wizard-task-queue` on dispatching services.
+
+The dedicated worker uses the Tasks Agent image release. Changes to Wizard backend code must trigger that image's deployment.
+
+### Program execution
 
 Cloud workers execute the program snapshot stored when the run was created.
 They do not evaluate the registry again.

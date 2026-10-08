@@ -3,8 +3,11 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -22,6 +25,7 @@ class TestApplySetupOps(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         # Applying writes the same admin-gated config fields the team PATCH protects.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -348,6 +352,7 @@ class TestRevenueGoalConsistencyViaOps(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         # Applying writes the same admin-gated config fields the team PATCH protects.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -411,21 +416,25 @@ class TestApplySetupOpsFeatureFlag(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
 
-    def test_the_endpoint_is_absent_when_the_flag_is_off(self):
-        # The ops only ever come from a plan, so an unreleased read side means there is
-        # nothing legitimate to apply — and a write that lands anyway would be a config
-        # change from a surface the user cannot see.
-        with patch(_FLAG_TARGET, return_value=False):
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_setup_availability(self, setup: bool, dashboard: bool) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        flags = {"marketing-analytics-setup": setup, "new-marketing-analytics-dashboard": dashboard}
+        with patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]):
             response = self.client.post(
                 self.url,
                 {"ops": [{"op": "add_custom_source_mapping", "integration": "MetaAds", "raw_utm_source": "fb-ads"}]},
                 format="json",
             )
 
-        assert response.status_code == 404
-        assert TeamMarketingAnalyticsConfig.objects.get(team=self.team).custom_source_mappings == {}
+        assert response.status_code == (200 if setup or dashboard else 404)
+        assert TeamMarketingAnalyticsConfig.objects.get(team=self.team).custom_source_mappings == (
+            {"MetaAds": ["fb-ads"]} if setup or dashboard else {}
+        )
 
 
 class TestApplySetupOpsRequiresProjectAdmin(APIBaseTest):
@@ -437,6 +446,7 @@ class TestApplySetupOpsRequiresProjectAdmin(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/apply_setup_ops"
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         cache.clear()
         flag = patch(_FLAG_TARGET, return_value=True)
         flag.start()

@@ -1,4 +1,4 @@
-import dataclasses
+from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -6,6 +6,8 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.settings import (
     APPFIGURES_ENDPOINTS,
@@ -23,6 +25,16 @@ APPFIGURES_BASE_URL = "https://api.appfigures.com/v2"
 # advance from the stored date watermark.
 REPORT_BACKFILL_DAYS = 365
 
+# /ranks needs product ids in its path, so the fan-out reads the account catalog first. In-app
+# purchases never hold a store category rank, so they are left out of the request.
+PRODUCTS_PATH = "/products/mine"
+NON_RANKABLE_PRODUCT_TYPES = frozenset({"inapp"})
+
+# /aso takes one product and one country per request and Appfigures publishes no way to list the
+# countries an account tracks keywords in, so the countries come from the source form. Fall back to
+# the US storefront, which is the one nearly every account tracks.
+DEFAULT_ASO_COUNTRIES = ("US",)
+
 
 class AppfiguresRetryableError(Exception):
     pass
@@ -37,12 +49,14 @@ class AppfiguresPageLimitError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AppfiguresResumeConfig:
     # "paged" endpoints (reviews): the next page number to fetch (1-based).
     next_page: int | None = None
     # "report" endpoints: the next date window's start (yyyy-mm-dd) to fetch.
     window_start: str | None = None
+    # "aso" endpoints: the "<product_id>:<country>" fan-out target to pick back up at.
+    aso_target: str | None = None
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -181,6 +195,24 @@ def _iter_paged(
         manager.save_state(AppfiguresResumeConfig(next_page=page))
 
 
+def _initial_window_start(
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    """Where a date-windowed walk picks up: saved resume state, then the incremental watermark, then
+    the backfill horizon."""
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume and resume.window_start:
+        return date.fromisoformat(resume.window_start)
+    if should_use_incremental_field and db_incremental_field_last_value:
+        last = _to_date_str(db_incremental_field_last_value)
+        if last:
+            return date.fromisoformat(last)
+    return today - timedelta(days=REPORT_BACKFILL_DAYS)
+
+
 def _flatten_report(data: Any) -> list[dict[str, Any]]:
     """Turn a group_by=dates report body ({"2024-01-01": {..metrics..}, ...}) into dated rows.
 
@@ -209,14 +241,7 @@ def _iter_report(
     today = datetime.now(UTC).date()
     window_days = config.window_days or 30
 
-    resume = manager.load_state() if manager.can_resume() else None
-    if resume and resume.window_start:
-        window_start = date.fromisoformat(resume.window_start)
-    elif should_use_incremental_field and db_incremental_field_last_value:
-        last = _to_date_str(db_incremental_field_last_value)
-        window_start = date.fromisoformat(last) if last else today - timedelta(days=REPORT_BACKFILL_DAYS)
-    else:
-        window_start = today - timedelta(days=REPORT_BACKFILL_DAYS)
+    window_start = _initial_window_start(manager, today, should_use_incremental_field, db_incremental_field_last_value)
 
     url = f"{APPFIGURES_BASE_URL}{config.path}"
     while window_start <= today:
@@ -240,6 +265,271 @@ def _iter_report(
         manager.save_state(AppfiguresResumeConfig(window_start=window_start.isoformat()))
 
 
+def _flatten_ranks(data: Any) -> list[dict[str, Any]]:
+    """Turn a columnar /ranks body into one row per product, country, category, and date.
+
+    The body holds a `dates` array plus a series per product/country/category whose `positions` and
+    `deltas` arrays line up with it by index.
+    """
+    if not isinstance(data, dict):
+        return []
+    dates = data.get("dates") or []
+    rows: list[dict[str, Any]] = []
+    for series in data.get("data") or []:
+        if not isinstance(series, dict):
+            continue
+        category = series.get("category") or {}
+        positions = series.get("positions") or []
+        deltas = series.get("deltas") or []
+        for index, day in enumerate(dates):
+            position = positions[index] if index < len(positions) else None
+            # A null position means the product held no rank in that chart that day. The default rank
+            # depth makes that the common case, so skipping keeps the table to real observations.
+            if position is None:
+                continue
+            rows.append(
+                {
+                    "date": day,
+                    "product_id": series.get("product_id"),
+                    "country": series.get("country"),
+                    "category_id": category.get("id"),
+                    "category_name": category.get("name"),
+                    "category_subtype": category.get("subtype"),
+                    "category_parent_id": category.get("parent_id"),
+                    "category_device": category.get("device"),
+                    "store": category.get("store"),
+                    "position": position,
+                    # Appfigures documents this delta as the change from the prior hour even at daily
+                    # granularity, so it is not a day-over-day move.
+                    "delta": deltas[index] if index < len(deltas) else None,
+                }
+            )
+    return rows
+
+
+def _rankable_product_ids(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    data = _fetch(session, f"{APPFIGURES_BASE_URL}{PRODUCTS_PATH}", {}, logger)
+    products = data.values() if isinstance(data, dict) else data or []
+    ids = {
+        str(product["id"])
+        for product in products
+        if isinstance(product, dict)
+        and product.get("id") is not None
+        and product.get("type") not in NON_RANKABLE_PRODUCT_TYPES
+    }
+    # Sorted so the request chunks are stable across syncs and resumes.
+    return sorted(ids)
+
+
+def _iter_ranks(
+    session: requests.Session,
+    config: AppfiguresEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """/ranks, fanned out over the account's products in chunks and walked in date windows."""
+    product_ids = _rankable_product_ids(session, logger)
+    if not product_ids:
+        logger.info("Appfigures: account has no rankable products, skipping ranks")
+        return
+
+    chunk_size = config.products_per_request
+    chunks = [product_ids[index : index + chunk_size] for index in range(0, len(product_ids), chunk_size)]
+
+    today = datetime.now(UTC).date()
+    window_days = config.window_days or 30
+
+    window_start = _initial_window_start(manager, today, should_use_incremental_field, db_incremental_field_last_value)
+
+    while window_start <= today:
+        window_end = min(window_start + timedelta(days=window_days - 1), today)
+
+        # Collect the whole window across product chunks before yielding, so rows still leave this
+        # iterator in ascending date order and the incremental watermark checkpoints correctly.
+        rows_by_date: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for chunk in chunks:
+            url = (
+                f"{APPFIGURES_BASE_URL}{config.path}/{','.join(chunk)}/{config.granularity}"
+                f"/{window_start.isoformat()}/{window_end.isoformat()}"
+            )
+            for row in _flatten_ranks(_fetch(session, url, {}, logger)):
+                rows_by_date[row["date"]].append(row)
+
+        for day in sorted(rows_by_date):
+            yield rows_by_date[day]
+
+        if window_end >= today:
+            break
+
+        window_start = window_end + timedelta(days=1)
+        # Save AFTER yielding the window so a crash re-fetches it rather than skipping; merge dedupes
+        # the re-pulled rows on the primary key.
+        manager.save_state(AppfiguresResumeConfig(window_start=window_start.isoformat()))
+
+
+def _parse_aso_countries(raw: str | None) -> tuple[str, ...]:
+    """Read the comma-separated ISO country codes from the source form.
+
+    Anything that is not a two-letter code is dropped, which keeps a typo from becoming a request
+    Appfigures rejects and bounds the fan-out to the size of the ISO country list.
+    """
+    codes = [code.strip().upper() for code in (raw or "").split(",")]
+    unique = list(dict.fromkeys(code for code in codes if len(code) == 2 and code.isalpha()))
+    return tuple(unique) or DEFAULT_ASO_COUNTRIES
+
+
+@frozen
+class AsoTarget:
+    """One /aso request's scope, because Appfigures takes a single product and country per call."""
+
+    product_id: str
+    country: str
+
+    @property
+    def key(self) -> str:
+        """Identifies the target in saved resume state."""
+        return f"{self.product_id}:{self.country}"
+
+
+def _aso_targets(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    aso_countries: str | None,
+) -> list[AsoTarget]:
+    countries = _parse_aso_countries(aso_countries)
+    return [
+        AsoTarget(product_id=product_id, country=country)
+        for product_id in _rankable_product_ids(session, logger)
+        for country in countries
+    ]
+
+
+def _resume_aso_slice(
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    targets: list[AsoTarget],
+) -> tuple[int, int | None]:
+    """Where a fan-out picks up: the saved target's index and, for paged endpoints, its page."""
+    resume = manager.load_state() if manager.can_resume() else None
+    if not resume or not resume.aso_target:
+        return 0, None
+    keys = [target.key for target in targets]
+    if resume.aso_target not in keys:
+        # The catalog or the country list changed since the state was saved, so start over.
+        return 0, None
+    return keys.index(resume.aso_target), resume.next_page
+
+
+def _aso_window_params(config: AppfiguresEndpointConfig, today: date) -> dict[str, Any]:
+    """The trend window /aso computes its deltas over. Bounded explicitly because Appfigures does not
+    document what range it picks when the window is left off."""
+    params: dict[str, Any] = {}
+    if config.granularity:
+        params["granularity"] = config.granularity
+    if config.start_param and config.end_param:
+        params[config.start_param] = (today - timedelta(days=(config.window_days or 30) - 1)).isoformat()
+        params[config.end_param] = today.isoformat()
+    return params
+
+
+def _iter_aso(
+    session: requests.Session,
+    config: AppfiguresEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    aso_countries: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """/aso, fanned out over one product and one country per request and paged per target."""
+    targets = _aso_targets(session, logger, aso_countries)
+    if not targets:
+        logger.info("Appfigures: account has no products to track keywords for, skipping aso_keywords")
+        return
+
+    start_index, resume_page = _resume_aso_slice(manager, targets)
+    today = datetime.now(UTC).date()
+    window = _aso_window_params(config, today)
+    today_str = today.isoformat()
+    url = f"{APPFIGURES_BASE_URL}{config.path}"
+
+    for index in range(start_index, len(targets)):
+        target = targets[index]
+        page = resume_page if index == start_index and resume_page else 1
+
+        while True:
+            params: dict[str, Any] = {
+                # Appfigures supports no other pivot on this endpoint today.
+                "group_by": "keyword",
+                "products": target.product_id,
+                "countries": target.country,
+                "page": page,
+                **window,
+            }
+            try:
+                data = _fetch(session, url, params, logger)
+            except AppfiguresPageLimitError:
+                logger.info(f"Appfigures: reached page-depth cap for keywords of target={target.key}")
+                break
+
+            rows = data.get(config.data_key) or [] if config.data_key else []
+            resultset = (data.get("metadata") or {}).get("resultset") or {}
+            total_pages = resultset.get("total_pages") or 1
+            this_page = resultset.get("page") or page
+
+            if rows:
+                for row in rows:
+                    # The response carries the keyword only, so the request's own identifiers and the
+                    # day it ran are what make the row unique.
+                    row.setdefault("date", today_str)
+                    row.setdefault("product_id", target.product_id)
+                    row.setdefault("country", target.country)
+                yield rows
+
+            if not rows or this_page >= total_pages:
+                break
+
+            page += 1
+            # Save AFTER yielding so a crash re-fetches the page we were on rather than skipping it.
+            manager.save_state(AppfiguresResumeConfig(aso_target=target.key, next_page=page))
+
+        if index + 1 < len(targets):
+            manager.save_state(AppfiguresResumeConfig(aso_target=targets[index + 1].key))
+
+
+def _iter_aso_stats(
+    session: requests.Session,
+    config: AppfiguresEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+    aso_countries: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """/aso/stats, one flat object of keyword aggregates per product and country."""
+    targets = _aso_targets(session, logger, aso_countries)
+    if not targets:
+        logger.info("Appfigures: account has no products to track keywords for, skipping aso_stats")
+        return
+
+    start_index, _ = _resume_aso_slice(manager, targets)
+    today = datetime.now(UTC).date()
+    window = _aso_window_params(config, today)
+    today_str = today.isoformat()
+    url = f"{APPFIGURES_BASE_URL}{config.path}"
+
+    for index in range(start_index, len(targets)):
+        target = targets[index]
+        params: dict[str, Any] = {"products": target.product_id, "countries": target.country, **window}
+        data = _fetch(session, url, params, logger)
+
+        if isinstance(data, dict) and data:
+            yield [{"date": today_str, "product_id": target.product_id, "country": target.country, **data}]
+
+        if index + 1 < len(targets):
+            manager.save_state(AppfiguresResumeConfig(aso_target=targets[index + 1].key))
+
+
 def get_rows(
     token: str,
     endpoint: str,
@@ -247,6 +537,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[AppfiguresResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    aso_countries: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APPFIGURES_ENDPOINTS[endpoint]
     session = make_tracked_session(headers=_headers(token), redact_values=(token,))
@@ -255,6 +546,19 @@ def get_rows(
         yield from _iter_object(session, config, logger)
     elif config.kind == "paged":
         yield from _iter_paged(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.kind == "aso":
+        yield from _iter_aso(session, config, logger, resumable_source_manager, aso_countries)
+    elif config.kind == "aso_stats":
+        yield from _iter_aso_stats(session, config, logger, resumable_source_manager, aso_countries)
+    elif config.kind == "ranks":
+        yield from _iter_ranks(
             session,
             config,
             logger,
@@ -280,6 +584,7 @@ def appfigures_source(
     resumable_source_manager: ResumableSourceManager[AppfiguresResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    aso_countries: Optional[str] = None,
 ) -> SourceResponse:
     config = APPFIGURES_ENDPOINTS[endpoint]
 
@@ -292,6 +597,7 @@ def appfigures_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            aso_countries=aso_countries,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -299,7 +605,9 @@ def appfigures_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Reviews are paged ascending by `date`; reports are emitted oldest-window-first. Both arrive
-        # in ascending order so the incremental watermark checkpoints correctly.
+        # Reviews are paged ascending by `date`; reports and ranks are emitted oldest-window-first,
+        # ranks buffering each window so its product chunks merge back into date order. All arrive
+        # ascending so the incremental watermark checkpoints correctly. The ASO tables are snapshots
+        # of a single day, so ordering is moot for them.
         sort_mode="asc",
     )

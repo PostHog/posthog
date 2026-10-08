@@ -6,6 +6,7 @@ use k8s_awareness::PeerTracker;
 use metrics::{counter, histogram};
 
 use crate::aperture;
+use crate::batcher::worker_pool::{WorkerPool, WorkerPoolSource};
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
@@ -41,6 +42,9 @@ pub struct SubBatch {
     /// Per-key max offsets. Pass back to `Dispatcher::on_sub_batch_acked` on
     /// a successful ACK (only) so the order sentinel tracks ACK progress.
     pub key_offsets: Vec<KeyOffset>,
+    /// The runs' epoch, for stamping completions; `None` from the pin-stash
+    /// scheduler, whose completions are stamped by the awaiting batch.
+    pub assignment_epoch: Option<u64>,
 }
 
 struct WorkerSubBatchBuilder {
@@ -61,7 +65,9 @@ impl WorkerSubBatchBuilder {
 
 #[derive(Default)]
 struct WorkerAssignments {
-    by_worker: HashMap<WorkerId, WorkerSubBatchBuilder>,
+    /// Keyed by worker and epoch, so a sub-batch never mixes runs from two
+    /// epochs and its completions carry one stamp.
+    by_worker: HashMap<(WorkerId, Option<u64>), WorkerSubBatchBuilder>,
 }
 
 impl WorkerAssignments {
@@ -74,11 +80,12 @@ impl WorkerAssignments {
             worker,
             routing_key,
             messages,
+            assignment_epoch,
             ..
         } = dispatch;
         let builder = self
             .by_worker
-            .entry(worker)
+            .entry((worker, assignment_epoch))
             .or_insert_with(|| WorkerSubBatchBuilder {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
@@ -107,7 +114,7 @@ impl WorkerAssignments {
         self.by_worker
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| SubBatchInfo {
+            .map(|((worker, _), builder)| SubBatchInfo {
                 worker: worker.to_string(),
                 messages: builder.message_count(),
                 routing_keys: builder.routing_keys.len(),
@@ -119,21 +126,30 @@ impl WorkerAssignments {
         self.by_worker
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| (worker.clone(), builder.message_count()))
+            .map(|((worker, _), builder)| (worker.clone(), builder.message_count()))
     }
 
     fn into_sub_batches(self) -> Vec<SubBatch> {
         self.by_worker
             .into_iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker, builder)| SubBatch {
+            .map(|((worker, assignment_epoch), builder)| SubBatch {
                 worker,
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
                 key_offsets: builder.key_offsets,
+                assignment_epoch,
             })
             .collect()
     }
+}
+
+/// The immediate result of assigning one submission while the scheduler lock
+/// is held. `retained` describes this submission, not mutable table state that
+/// a later task might observe after a purge or settlement.
+pub struct Submission<T> {
+    pub pending: Vec<T>,
+    pub retained: bool,
 }
 
 /// The scheduler and the load table, behind the dispatcher's single Mutex.
@@ -167,10 +183,9 @@ pub struct Dispatcher {
     /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
     key_sentinel: Arc<KeyOrderSentinel>,
-    /// Peer tracker + aperture width for [`RoutingStrategy::Aperture`]: this
-    /// dispatcher's ring slice is derived from its agreed peer index. `None`
-    /// (or a not-yet-known peer index) falls back to the full healthy pool.
-    aperture: Option<(Arc<PeerTracker>, usize)>,
+    /// The healthy pool and, under [`RoutingStrategy::Aperture`], this
+    /// dispatcher's ring slice for fresh keys.
+    pool_source: WorkerPoolSource,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -206,10 +221,10 @@ impl Dispatcher {
                 scheduler: PinStashScheduler::new(router),
                 in_flight: WorkerLoad::new(),
             }),
+            pool_source: WorkerPoolSource::new(Arc::clone(&registry), strategy),
             registry,
             strategy,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
-            aperture: None,
             debug_recorder: None,
         }
     }
@@ -225,7 +240,12 @@ impl Dispatcher {
     /// Only consulted under [`RoutingStrategy::Aperture`]. Call before the
     /// dispatcher is shared.
     pub fn set_aperture(&mut self, tracker: Arc<PeerTracker>, min_aperture: usize) {
-        self.aperture = Some((tracker, min_aperture.max(1)));
+        self.pool_source.set_aperture(tracker, min_aperture);
+    }
+
+    /// The worker pool source, shared with the batcher state machine.
+    pub fn worker_pool_source(&self) -> WorkerPoolSource {
+        self.pool_source.clone()
     }
 
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
@@ -258,19 +278,11 @@ impl Dispatcher {
     /// captured in one registry effects — so within one debug response the ring,
     /// slice, and worker rows can't disagree under churn.
     pub fn debug_routing(&self, workers: Vec<WorkerId>, healthy: &[WorkerId]) -> RoutingDebug {
-        let strategy = self.strategy;
         let ring = aperture::sorted_ring(workers);
-        let slice = if strategy == RoutingStrategy::Aperture {
-            self.aperture.as_ref().and_then(|(tracker, width)| {
-                let peers = tracker.snapshot();
-                aperture::ring_slice(&ring, healthy, peers.self_index, peers.peer_count(), *width)
-            })
-        } else {
-            None
-        };
+        let slice = self.pool_source.slice(&ring, healthy);
         RoutingDebug {
-            strategy: strategy.as_str().to_string(),
-            min_aperture: self.aperture.as_ref().map(|(_, width)| *width),
+            strategy: self.strategy.as_str().to_string(),
+            min_aperture: self.pool_source.min_aperture(),
             ring: ring.iter().map(|w| w.to_string()).collect(),
             slice: slice.map(|s| s.iter().map(|w| w.to_string()).collect()),
         }
@@ -281,7 +293,10 @@ impl Dispatcher {
     /// health, and the current load table. The scheduler decides over this
     /// snapshot instead of querying the registry itself.
     fn worker_snapshot(&self, in_flight: &WorkerLoad) -> WorkerSnapshot {
-        let healthy = self.registry.healthy_workers();
+        let WorkerPool {
+            healthy,
+            candidates,
+        } = self.pool_source.pool();
         let workers = self
             .registry
             .workers()
@@ -294,35 +309,16 @@ impl Dispatcher {
                 (worker, health)
             })
             .collect();
-        // Aperture: narrow the candidates to this dispatcher's ring slice, so
-        // the fleet's slices tile the pool and each batch consolidates onto
-        // few workers. Falls back to the full healthy pool while the peer set
-        // is unknown (startup, peer awareness disabled).
-        let narrowed = if self.strategy == RoutingStrategy::Aperture {
-            self.aperture.as_ref().and_then(|(tracker, width)| {
-                let peers = tracker.snapshot();
-                let ring = aperture::sorted_ring(self.registry.workers());
-                aperture::ring_slice(
-                    &ring,
-                    &healthy,
-                    peers.self_index,
-                    peers.peer_count(),
-                    *width,
-                )
-            })
-        } else {
-            None
-        };
-        let candidates = narrowed.unwrap_or_else(|| healthy.clone());
         WorkerSnapshot::new(healthy, candidates, in_flight.clone(), workers)
     }
 
     /// Assign a batch of messages to workers. Demuxes the messages into
     /// groups first, as the collect path does for a poll, then assigns them
-    /// like [`Dispatcher::assign_and_send`].
+    /// like [`Dispatcher::assign_and_send`]. Test-only entry point; the
+    /// epoch is fixed at 0.
     pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
         let mut inner = self.inner.lock().unwrap();
-        self.assign_groups(&mut inner, batch_id, demux(messages))
+        self.assign_groups(&mut inner, batch_id, 0, demux(messages))
     }
 
     /// Assign a poll's groups to workers, then hand each sub-batch to `send`
@@ -340,20 +336,25 @@ impl Dispatcher {
     pub fn assign_and_send<T>(
         &self,
         batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
-    ) -> Vec<T> {
+    ) -> Submission<T> {
         let mut inner = self.inner.lock().unwrap();
-        self.assign_groups(&mut inner, batch_id, groups)
+        let pending = self
+            .assign_groups(&mut inner, batch_id, assignment_epoch, groups)
             .into_iter()
             .map(send)
-            .collect()
+            .collect();
+        let retained = inner.scheduler.has_batch(batch_id);
+        Submission { pending, retained }
     }
 
     fn assign_groups(
         &self,
         inner: &mut DispatcherInner,
         batch_id: &str,
+        assignment_epoch: u64,
         groups: Vec<Group>,
     ) -> Vec<SubBatch> {
         let GroupedMessages {
@@ -374,7 +375,9 @@ impl Dispatcher {
             dispatches,
             deferred,
             ..
-        } = inner.scheduler.on_groups(&snapshot, batch_id, runs);
+        } = inner
+            .scheduler
+            .on_groups(&snapshot, batch_id, assignment_epoch, runs);
         let assignments = self.note_and_assemble(dispatches);
 
         // Add each worker's message volume to its outstanding load.
@@ -421,9 +424,9 @@ impl Dispatcher {
     /// the per-worker sub-batches.
     fn note_and_assemble(&self, dispatches: Vec<Dispatch>) -> WorkerAssignments {
         let mut assignments = WorkerAssignments::new();
+        let mut sentinel = self.key_sentinel.batch();
         for dispatch in dispatches {
-            self.key_sentinel
-                .note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
+            sentinel.note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
             assignments.add_dispatch(dispatch);
         }
         assignments
@@ -588,6 +591,34 @@ impl Dispatcher {
         from_flush: bool,
         failed: Option<(String, Vec<SerializedKafkaMessage>)>,
     ) {
+        let unsent = self.settle_and_send(
+            worker,
+            message_count,
+            routing_keys,
+            from_flush,
+            failed,
+            |sub_batch| sub_batch,
+        );
+        debug_assert!(
+            unsent.is_empty(),
+            "settle dropped dispatches; use settle_and_send"
+        );
+    }
+
+    /// Like [`Dispatcher::settle`], and additionally hands the settlement's
+    /// dispatches to `send` under the lock — the key table releases a key's
+    /// next run at settlement, and sending under the lock keeps a key's runs
+    /// entering its worker's stream in dispatch order. The caller must await
+    /// every returned send and settle it exactly once.
+    pub fn settle_and_send<T>(
+        &self,
+        worker: &WorkerId,
+        message_count: usize,
+        routing_keys: &[String],
+        from_flush: bool,
+        failed: Option<(String, Vec<SerializedKafkaMessage>)>,
+        send: impl FnMut(SubBatch) -> T,
+    ) -> Vec<T> {
         let mut inner = self.inner.lock().unwrap();
 
         let now_zero = match inner.in_flight.get_mut(worker) {
@@ -626,23 +657,54 @@ impl Dispatcher {
             },
         );
 
-        if !effects.evicted_keys.is_empty() {
-            for key in &effects.evicted_keys {
-                self.key_sentinel.evict(key);
+        let SchedulerEffects {
+            dispatches,
+            deferred,
+            evicted_keys,
+        } = effects;
+
+        if !evicted_keys.is_empty() {
+            let mut sentinel = self.key_sentinel.batch();
+            for key in &evicted_keys {
+                sentinel.evict(key);
             }
             counter!(
                 "ingestion_consumer_dispatcher_pin_evictions_total",
                 "reason" => "resolved",
             )
-            .increment(effects.evicted_keys.len() as u64);
+            .increment(evicted_keys.len() as u64);
         }
+
+        let sent: Vec<T> = if dispatches.is_empty() {
+            Vec::new()
+        } else {
+            let assignments = self.note_and_assemble(dispatches);
+            for (worker, message_count) in assignments.routed_counts() {
+                *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
+                counter!(
+                    "ingestion_consumer_dispatcher_sub_batches_assigned_total",
+                    "worker" => worker.clone(),
+                )
+                .increment(1);
+                counter!(
+                    "ingestion_consumer_dispatcher_messages_routed_total",
+                    "worker" => worker.clone(),
+                )
+                .increment(message_count as u64);
+            }
+            assignments
+                .into_sub_batches()
+                .into_iter()
+                .map(send)
+                .collect()
+        };
         drop(inner);
 
-        if effects.deferred.send_failed > 0 {
+        if deferred.send_failed > 0 {
             record_if(&self.debug_recorder, || DebugEventKind::Deferred {
                 batch_id: failed_batch_id.unwrap_or_default(),
                 reason: "send_failed",
-                groups: effects.deferred.send_failed,
+                groups: deferred.send_failed,
             });
         }
         record_if(&self.debug_recorder, || DebugEventKind::SubBatchResolved {
@@ -651,15 +713,16 @@ impl Dispatcher {
             routing_keys: routing_keys.len(),
             cleared_deferral: from_flush,
         });
+        sent
     }
 
     /// Call when a worker ACKed a sub-batch (success path only, **before**
     /// its settle so the sentinel state isn't evicted first).
     /// Advances each key's ACK high-water mark in the order sentinel.
     pub fn on_sub_batch_acked(&self, key_offsets: &[KeyOffset]) {
+        let mut sentinel = self.key_sentinel.batch();
         for key_offset in key_offsets {
-            self.key_sentinel
-                .note_acked(&key_offset.routing_key, key_offset.max_offset);
+            sentinel.note_acked(&key_offset.routing_key, key_offset.max_offset);
         }
     }
 
@@ -773,7 +836,7 @@ mod tests {
 
     fn make_msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset: 0,
             timestamp: 0,
@@ -796,7 +859,7 @@ mod tests {
 
     fn make_unkeyed_msg() -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 7,
             offset: 42,
             timestamp: 0,
@@ -899,12 +962,14 @@ mod tests {
             routing_key: "tok:user-1".to_string(),
             messages: make_msgs(&["tok:user-1"]),
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         assignments.add_dispatch(Dispatch {
             worker: wid(1),
             routing_key: "tok:user-2".to_string(),
             messages: make_msgs(&["tok:user-2"]),
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
 
         assert_eq!(
@@ -933,6 +998,7 @@ mod tests {
             routing_key: "tok:user-1".to_string(),
             messages: vec![make_msg_at("tok:user-1", 100)],
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches[0].key_offsets.len(), 1);
@@ -946,6 +1012,7 @@ mod tests {
             routing_key: ":7:42".to_string(),
             messages: vec![make_unkeyed_msg()],
             kind: SendKind::Fresh,
+            assignment_epoch: None,
         });
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
     }
@@ -1859,8 +1926,11 @@ mod tests {
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent =
-            dispatcher.assign_and_send("batch-2", demux(make_msgs(&["t:user-1"])), |sub_batch| {
+        let sent = dispatcher.assign_and_send(
+            "batch-2",
+            0,
+            demux(make_msgs(&["t:user-1"])),
+            |sub_batch| {
                 // Admitted behind batch-1's live pin. batch-1's send now fails
                 // and tries to stash its messages before this group is enqueued.
                 let dispatcher = Arc::clone(&racing);
@@ -1874,8 +1944,13 @@ mod tests {
                 );
                 race = Some(handle);
                 sub_batch
-            });
-        assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
+            },
+        );
+        assert_eq!(
+            sent.pending.len(),
+            1,
+            "batch-2 was admitted and handed to send"
+        );
         race.take().expect("send ran").join().expect("defer_failed");
 
         // The stash landed after the enqueue, so newer work for the key now

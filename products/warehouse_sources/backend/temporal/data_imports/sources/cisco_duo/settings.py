@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -8,9 +10,16 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #                wrapped response ({"response": {<data_key>: [...], "metadata": {...}}}).
 #   "log_v1"  -> /admin/v1/logs/* : `mintime` (seconds) only, plain list response capped at
 #                1000 records per call; paginate by advancing mintime.
-#   "list_v1" -> /admin/v1/* resource lists: limit/offset pagination with an integer
-#                `next_offset` in the top-level response metadata.
-ApiStyle = Literal["log_v2", "log_v1", "list_v1"]
+#   "list_v1" -> /admin/v1/* and /admin/v2/* resource lists: limit/offset pagination with an
+#                integer `next_offset` in the top-level response metadata.
+#   "fanout_v1" -> a "list_v1" child list nested under a parent resource list, paged per
+#                parent (e.g. the users of each group).
+ApiStyle = Literal["log_v2", "log_v1", "list_v1", "fanout_v1"]
+
+# Duo's legacy v2 request signing (HMAC-SHA1) is accepted by every /admin/v1 handler, but some
+# /admin/v2 handlers reject it and require v5 signing (HMAC-SHA512). v5 works on both, so it is
+# declared per endpoint rather than guessed at request time.
+SigVersion = Literal[2, 5]
 
 
 def _integer_incremental_field(name: str) -> IncrementalField:
@@ -31,7 +40,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class CiscoDuoEndpointConfig:
     name: str
     path: str
@@ -51,6 +60,12 @@ class CiscoDuoEndpointConfig:
     # Fields stripped from every row before it is yielded — used to keep credentials the API
     # returns (e.g. an integration's secret_key) out of the warehouse table.
     redact_fields: Optional[list[str]] = None
+    sig_version: SigVersion = 2
+    # "fanout_v1" only: the endpoint whose rows supply the parent id, and the field on those
+    # rows holding it. The id is substituted into `{parent_id}` in `path` and written onto
+    # every child row so the membership is queryable without a join back to the parent.
+    parent_endpoint: Optional[str] = None
+    parent_id_field: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -102,7 +117,7 @@ CISCO_DUO_ENDPOINTS: dict[str, CiscoDuoEndpointConfig] = {
         partition_key="ts",
         description=f"Only syncs the last {DEFAULT_LOOKBACK_DAYS} days on initial sync",
     ),
-    # The v1 resource lists have no server-side time filter, so they are full-refresh only.
+    # The resource lists have no server-side time filter, so they are full-refresh only.
     "users": CiscoDuoEndpointConfig(
         name="users",
         path="/admin/v1/users",
@@ -117,11 +132,29 @@ CISCO_DUO_ENDPOINTS: dict[str, CiscoDuoEndpointConfig] = {
         api_style="list_v1",
         primary_keys=["group_id"],
     ),
+    "group_users": CiscoDuoEndpointConfig(
+        name="group_users",
+        path="/admin/v2/groups/{parent_id}/users",
+        api_style="fanout_v1",
+        # A user object repeats across every group it belongs to, so the group is part of the key.
+        primary_keys=["group_id", "user_id"],
+        parent_endpoint="groups",
+        parent_id_field="group_id",
+        sig_version=5,
+        description="One row per user-to-group membership",
+    ),
     "phones": CiscoDuoEndpointConfig(
         name="phones",
         path="/admin/v1/phones",
         api_style="list_v1",
         primary_keys=["phone_id"],
+    ),
+    "endpoints": CiscoDuoEndpointConfig(
+        name="endpoints",
+        path="/admin/v1/endpoints",
+        api_style="list_v1",
+        primary_keys=["epkey"],
+        description="Duo purges an endpoint record after 30 days of inactivity",
     ),
     "admins": CiscoDuoEndpointConfig(
         name="admins",
@@ -137,6 +170,13 @@ CISCO_DUO_ENDPOINTS: dict[str, CiscoDuoEndpointConfig] = {
         # The integrations list returns each integration's secret_key; never persist it — a
         # project member who can read this table could otherwise sign requests as any integration.
         redact_fields=["secret_key"],
+    ),
+    "policies": CiscoDuoEndpointConfig(
+        name="policies",
+        path="/admin/v2/policies",
+        api_style="list_v1",
+        primary_keys=["policy_key"],
+        sig_version=5,
     ),
 }
 

@@ -27,6 +27,7 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
+from products.replay_vision.backend.observation_formatting import flatten_markdown
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import KAFKA_DELIVERY_TIMEOUT_S
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -39,8 +40,13 @@ logger = structlog.get_logger(__name__)
 
 
 def _renderings_for(model_output: AnyScannerOutput) -> list[tuple[str, str]]:
+    """The `(rendering, content)` pairs to embed for one scanner output, or none when it has nothing to say.
+
+    Flattened first: markdown syntax the model wrote is not meaning, and embedding `**` and `##` tokens
+    dilutes the vector that semantic search ranks on.
+    """
     document = model_output.embedding_document()
-    return [(document.rendering, document.text)] if document else []
+    return [(document.rendering, flatten_markdown(document.text))] if document else []
 
 
 def _result_metadata(model_output: AnyScannerOutput) -> dict[str, Any]:

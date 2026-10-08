@@ -1,7 +1,8 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
+import { mlKafkaRecord } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {
     FetchCandidate,
@@ -12,6 +13,7 @@ import {
 } from './collected-urls-record'
 import type { ImageFetchResult } from './image-fetcher'
 import { ImageFetchRequestMetrics, RepublishTopic } from './metrics'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 
 export interface DelayTier {
     topic: string
@@ -109,7 +111,7 @@ export class FrontierPublisher {
         if (!result.bytes || !result.contentType) {
             throw new Error('an image publish needs response bytes and a content type')
         }
-        const bytes = result.bytes
+        const record = mlKafkaRecord(candidate.sessionId ? '2' : '1', result.bytes)
         const headers: Record<string, string> = {
             'content-type': result.contentType,
             [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
@@ -117,16 +119,21 @@ export class FrontierPublisher {
         if (result.contentEncoding) {
             headers['content-encoding'] = result.contentEncoding
         }
-        await this.imagePublishes.run({
-            debugTag: candidate.registrableDomain,
-            fn: () =>
-                this.producer.produce({
-                    topic: this.options.scrubTopic,
-                    key: Buffer.from(candidate.originalRef),
-                    value: bytes,
-                    headers,
-                }),
-        })
+        await ImageFetchProcessingMetrics.runLimited(
+            this.imagePublishes,
+            'image_publish_admission',
+            'image_publish_delivery',
+            {
+                debugTag: candidate.registrableDomain,
+                fn: () =>
+                    this.producer.produce({
+                        topic: this.options.scrubTopic,
+                        key: Buffer.from(candidate.originalRef),
+                        value: record.value,
+                        headers: { ...headers, ...record.headers },
+                    }),
+            }
+        )
     }
 }
 
@@ -223,7 +230,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}`
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${item.candidate.sessionId ? '2' : '1'}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)
@@ -294,10 +301,18 @@ class BufferedRepublishBatch implements RepublishBatch {
                             return 'skipped'
                         }
                         try {
+                            const record = mlKafkaRecord(
+                                plan.candidates[0].sessionId ? '2' : '1',
+                                serializeFrontierRecord(plan.candidates)
+                            )
                             await this.producer.produce({
                                 topic: plan.topic,
                                 key: Buffer.from(plan.registrableDomain),
-                                value: serializeFrontierRecord(plan.candidates),
+                                value: record.value,
+                                headers: {
+                                    [CAPTURE_TIMESTAMP_HEADER]: String(earliestFirstSeenAtMs(plan.candidates)),
+                                    ...record.headers,
+                                },
                             })
                             return 'published'
                         } catch {
@@ -348,4 +363,12 @@ class BufferedRepublishBatch implements RepublishBatch {
             ImageFetchRequestMetrics.incRepublishFailed(reason)
         }
     }
+}
+
+function earliestFirstSeenAtMs(candidates: FetchCandidate[]): number {
+    let earliest = candidates[0].firstSeenAtMs
+    for (const candidate of candidates) {
+        earliest = Math.min(earliest, candidate.firstSeenAtMs)
+    }
+    return earliest
 }

@@ -374,7 +374,9 @@ function PopoverHeader({
             <div className="px-3 py-2 border-b border-border">
                 <div className="text-center py-2">
                     <span className="text-lg">🎉</span>
-                    <p className="font-semibold text-sm mt-1">You've completed {productName}!</p>
+                    <p className="font-semibold text-sm mt-1">
+                        You've completed <span translate="no">{productName}</span>!
+                    </p>
                     {otherProductsWithTasks.length > 0 ? (
                         <p className="text-xs text-muted">Try another product to continue your setup</p>
                     ) : (
@@ -398,7 +400,10 @@ function PopoverHeader({
                         options={productOptions}
                     />
                 )}
-                <span className="text-xs text-muted ml-auto">
+                {/* Three bare text nodes that change as tasks complete. React tracks each one, so
+                    after page translation swaps them for `<font>` wrappers the next update throws
+                    (react#11538). Counts have nothing to translate. */}
+                <span className="text-xs text-muted ml-auto" translate="no">
                     {completedCount}/{totalTasks}
                 </span>
             </div>
@@ -473,7 +478,9 @@ function ProductSuggestionItem({ product, onSelect }: ProductSuggestionItemProps
         >
             <IconTarget className="w-4 h-4 text-muted" />
             <span className="flex-1 text-sm">{product.name}</span>
-            <span className="text-xs text-muted">{product.remainingCount} tasks</span>
+            <span className="text-xs text-muted">
+                <span translate="no">{product.remainingCount}</span> tasks
+            </span>
         </div>
     )
 }
@@ -502,13 +509,19 @@ function TaskHoverDescription({ task, anchored = false }: TaskHoverDescriptionPr
                     {task.lockedReason && (
                         <p className="text-xs text-warning mt-auto pt-1">
                             <strong>Depends on:</strong>{' '}
-                            {task.lockedReason.replace('Complete "', '').replace('" first', '')}
+                            {/* The hover card mounts and unmounts on every task hover, and this
+                                text node sits next to element siblings. On a translated page React
+                                inserts before, or removes, a node it no longer owns, and the commit
+                                throws (react#11538). Its own element keeps the node React tracks
+                                the sole child of a parent React can rewrite whole. */}
+                            <span>{task.lockedReason.replace('Complete "', '').replace('" first', '')}</span>
                         </p>
                     )}
                     {task.requiresManualCompletion && !task.completed && !task.skipped && (
                         <p className="text-xs text-muted mt-1 italic">
-                            Manual task – {task.docsUrl ? 'click for instructions, then ' : ''}
-                            mark as complete when done.
+                            <span>Manual task – </span>
+                            {task.docsUrl ? <span>click for instructions, then </span> : null}
+                            <span>mark as complete when done.</span>
                         </p>
                     )}
                 </>

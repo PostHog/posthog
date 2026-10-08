@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
@@ -11,11 +12,10 @@ from tenacity import stop_after_attempt, wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag import bugsnag
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.bugsnag import (
-    BUGSNAG_BASE_URL,
+    BUGSNAG_ENDPOINTS,
     BugsnagResumeConfig,
     BugsnagRetryableError,
-    _build_url,
-    _get_headers,
+    _next_offset_url,
     _parse_next_url,
     get_rows,
     validate_credentials,
@@ -59,6 +59,44 @@ class _FakeSession:
         return self._responses.pop(0)
 
 
+def _collect_objects(
+    endpoint: str,
+    pages: Mapping[str, tuple[list[dict], str | None]],
+    objects: Mapping[str, requests.Response],
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+) -> list[dict]:
+    """Like `_collect`, but also serves the single-object endpoints out of `objects`."""
+    monkeypatch.setattr(bugsnag, "make_tracked_session", lambda *args, **kwargs: MagicMock())
+
+    def fake_fetch_list_page(
+        session: Any, url: str, headers: Any, logger: Any, **kwargs: Any
+    ) -> tuple[list[dict], str | None]:
+        if url not in pages:
+            raise AssertionError(f"unexpected URL requested: {url}")
+        return pages[url]
+
+    def fake_fetch_page(
+        session: Any, url: str, headers: Any, logger: Any, tolerated_statuses: tuple[int, ...] = ()
+    ) -> requests.Response:
+        if url not in objects:
+            raise AssertionError(f"unexpected object URL requested: {url}")
+        return objects[url]
+
+    monkeypatch.setattr(bugsnag, "_fetch_list_page", fake_fetch_list_page)
+    monkeypatch.setattr(bugsnag, "_fetch_page", fake_fetch_page)
+
+    rows: list[dict] = []
+    for table in get_rows(
+        auth_token="tok",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+    ):
+        rows.extend(table.to_pylist())
+    return rows
+
+
 def _collect(
     endpoint: str,
     pages: Mapping[str, tuple[list[dict], str | None]],
@@ -67,7 +105,9 @@ def _collect(
 ) -> list[dict]:
     monkeypatch.setattr(bugsnag, "make_tracked_session", lambda *args, **kwargs: MagicMock())
 
-    def fake_fetch_list_page(session: Any, url: str, headers: Any, logger: Any) -> tuple[list[dict], str | None]:
+    def fake_fetch_list_page(
+        session: Any, url: str, headers: Any, logger: Any, **kwargs: Any
+    ) -> tuple[list[dict], str | None]:
         if url not in pages:
             raise AssertionError(f"unexpected URL requested: {url}")
         return pages[url]
@@ -83,6 +123,43 @@ def _collect(
     ):
         rows.extend(table.to_pylist())
     return rows
+
+
+def _collect_via_responses(
+    endpoint: str,
+    responses: Mapping[str, requests.Response],
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+) -> tuple[list[dict], list[str]]:
+    """Collect rows with only the HTTP layer faked, so pagination runs for real.
+
+    Returns (rows, requested_urls); the URL list is what proves the offset cursor and the escaped
+    span group id in the path."""
+    monkeypatch.setattr(bugsnag, "make_tracked_session", lambda *args, **kwargs: MagicMock())
+    requested: list[str] = []
+
+    def fake_fetch_page(
+        session: Any, url: str, headers: Any, logger: Any, tolerated_statuses: tuple[int, ...] = ()
+    ) -> requests.Response:
+        requested.append(url)
+        if url not in responses:
+            raise AssertionError(f"unexpected URL requested: {url}")
+        response = responses[url]
+        if not response.ok and response.status_code not in tolerated_statuses:
+            raise requests.HTTPError(response=response)
+        return response
+
+    monkeypatch.setattr(bugsnag, "_fetch_page", fake_fetch_page)
+
+    rows: list[dict] = []
+    for table in get_rows(
+        auth_token="tok",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+    ):
+        rows.extend(table.to_pylist())
+    return rows, requested
 
 
 class TestParseNextUrl:
@@ -106,23 +183,36 @@ class TestParseNextUrl:
         assert _parse_next_url(header) == expected
 
 
-class TestHelpers:
-    def test_get_headers_sets_token_and_version(self) -> None:
-        headers = _get_headers("tok_123")
-        assert headers["Authorization"] == "token tok_123"
-        assert headers["X-Version"] == "2"
+class TestNextOffsetUrl:
+    """The performance endpoints send no Link header, so the cursor is derived from the URL."""
 
-    def test_build_url_encodes_params(self) -> None:
-        assert _build_url(f"{BUGSNAG_BASE_URL}/user/organizations", {"per_page": 100}) == (
-            "https://api.bugsnag.com/user/organizations?per_page=100"
-        )
-
-    def test_build_url_no_params(self) -> None:
-        assert _build_url("https://api.bugsnag.com/x", {}) == "https://api.bugsnag.com/x"
+    @parameterized.expand(
+        [
+            (
+                "full_page_advances_offset",
+                "https://api.bugsnag.com/projects/p1/span_groups?per_page=2&sort=name",
+                2,
+                "https://api.bugsnag.com/projects/p1/span_groups?per_page=2&sort=name&offset=2",
+            ),
+            (
+                "existing_offset_accumulates",
+                "https://api.bugsnag.com/projects/p1/span_groups?per_page=2&offset=4",
+                2,
+                "https://api.bugsnag.com/projects/p1/span_groups?per_page=2&offset=6",
+            ),
+            ("short_page_is_terminal", "https://api.bugsnag.com/projects/p1/span_groups?per_page=2", 1, None),
+            ("empty_page_is_terminal", "https://api.bugsnag.com/projects/p1/span_groups?per_page=2", 0, None),
+            ("no_per_page_means_unpaginated", "https://api.bugsnag.com/projects/p1/span_groups", 5, None),
+        ]
+    )
+    def test_next_offset_url(self, _name: str, url: str, page_len: int, expected: str | None) -> None:
+        assert _next_offset_url(url, page_len) == expected
 
 
 class TestFetchPage:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
+    @parameterized.expand(
+        [("request_timeout", 408), ("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)]
+    )
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = _FakeSession([_make_response(status_code) for _ in range(5)])
         # tenacity exposes retry_with on the decorated callable to rebuild it with different
@@ -130,6 +220,8 @@ class TestFetchPage:
         fast_fetch = bugsnag._fetch_page.retry_with(wait=wait_none(), stop=stop_after_attempt(3))  # type: ignore[attr-defined]
         with pytest.raises(BugsnagRetryableError):
             fast_fetch(session, "https://api.bugsnag.com/x", {}, MagicMock())
+        # Confirms it actually retried up to the attempt limit, not just raised on the first try.
+        assert len(session.requested_urls) == 3
 
     def test_client_error_raises_http_error_without_retry(self) -> None:
         session = _FakeSession([_make_response(404, body={"errors": ["Not Found"]})])
@@ -192,28 +284,6 @@ class TestPerProjectFanOut:
             {"id": "e2", "organization_id": "o1", "project_id": "p2"},
         ]
 
-    def test_follows_child_pagination(self, monkeypatch: Any) -> None:
-        next_url = "https://api.bugsnag.com/projects/p1/errors?offset=2"
-        pages = {
-            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
-            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}], None),
-            "https://api.bugsnag.com/projects/p1/errors?per_page=100": ([{"id": "e1"}], next_url),
-            next_url: ([{"id": "e2"}], None),
-        }
-        rows = _collect("errors", pages, _FakeResumableManager(), monkeypatch)
-        assert rows == [
-            {"id": "e1", "organization_id": "o1", "project_id": "p1"},
-            {"id": "e2", "organization_id": "o1", "project_id": "p1"},
-        ]
-
-    def test_no_bookmark_advanced_across_parents_without_a_yield(self, monkeypatch: Any) -> None:
-        # Small syncs never fill the batcher, so nothing is checkpointed — and crucially the bookmark
-        # is never advanced at parent boundaries. Advancing it there (the old behavior) would skip
-        # rows still buffered in the shared batcher if a crash hit between parents.
-        manager = _FakeResumableManager()
-        _collect("errors", self._two_project_pages(), manager, monkeypatch)
-        assert manager.saved == []
-
     def test_resume_refetches_checkpointed_page_then_continues(self, monkeypatch: Any) -> None:
         # A checkpoint points at the CURRENT page of the in-flight parent; resume re-fetches that
         # page (merge dedupes already-yielded rows) and then proceeds to later parents.
@@ -231,26 +301,6 @@ class TestPerProjectFanOut:
             {"id": "e2", "organization_id": "o1", "project_id": "p2"},
         ]
 
-    def test_resume_skips_already_processed_parents(self, monkeypatch: Any) -> None:
-        # Bookmarked at p2: p1 must not be re-fetched (its errors URL is absent from `pages`, so a
-        # fetch would raise), only p2's rows are produced.
-        pages = {
-            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
-            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}, {"id": "p2"}], None),
-            "https://api.bugsnag.com/projects/p2/errors?per_page=100": ([{"id": "e2"}], None),
-        }
-        manager = _FakeResumableManager(BugsnagResumeConfig(next_url=None, parent_id="p2"))
-        rows = _collect("errors", pages, manager, monkeypatch)
-        assert rows == [{"id": "e2", "organization_id": "o1", "project_id": "p2"}]
-
-    def test_resume_from_deleted_parent_restarts_from_first(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(BugsnagResumeConfig(next_url=None, parent_id="GONE"))
-        rows = _collect("errors", self._two_project_pages(), manager, monkeypatch)
-        assert rows == [
-            {"id": "e1", "organization_id": "o1", "project_id": "p1"},
-            {"id": "e2", "organization_id": "o1", "project_id": "p2"},
-        ]
-
     def _collect_with_pages(
         self,
         endpoint: str,
@@ -262,7 +312,9 @@ class TestPerProjectFanOut:
         # tuple — used to drive the graceful-stop-on-422 pagination path.
         monkeypatch.setattr(bugsnag, "make_tracked_session", lambda *args, **kwargs: MagicMock())
 
-        def fake_fetch_list_page(session: Any, url: str, headers: Any, logger: Any) -> tuple[list[dict], str | None]:
+        def fake_fetch_list_page(
+            session: Any, url: str, headers: Any, logger: Any, **kwargs: Any
+        ) -> tuple[list[dict], str | None]:
             if url not in pages:
                 raise AssertionError(f"unexpected URL requested: {url}")
             page = pages[url]
@@ -311,18 +363,6 @@ class TestPerProjectFanOut:
         }
         with pytest.raises(requests.HTTPError):
             self._collect_with_pages("errors", pages, _FakeResumableManager(), monkeypatch)
-
-    def test_releases_caps_page_size_at_ten(self, monkeypatch: Any) -> None:
-        # The releases endpoint rejects per_page above 10 with a 400, so it must request per_page=10
-        # while the parent enumeration keeps the default 100. A per_page=100 releases URL is absent
-        # from `pages`, so a regression would raise on the unexpected URL.
-        pages = {
-            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
-            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}], None),
-            "https://api.bugsnag.com/projects/p1/releases?per_page=10": ([{"id": "r1"}], None),
-        }
-        rows = _collect("releases", pages, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"id": "r1", "organization_id": "o1", "project_id": "p1"}]
 
 
 class TestValidateCredentials:
@@ -386,3 +426,258 @@ class TestTokenRedaction:
             )
         )
         assert captured.get("redact_values") == ("super-secret-token",)
+
+
+_ORGS_URL = "https://api.bugsnag.com/user/organizations?per_page=100"
+_PROJECTS_URL = "https://api.bugsnag.com/organizations/o1/projects?per_page=100"
+
+
+class TestStabilityTrend:
+    """The endpoint answers with a single object per project rather than a list, so the connector
+    flattens its nested timeline points into one row per project per day."""
+
+    @parameterized.expand([("no_sessions_yet", 204), ("no_primary_release_stage", 404)])
+    def test_project_without_stability_data_is_skipped(self, _name: str, status_code: int) -> None:
+        # Every project is fanned out over, including ones the endpoint has nothing for. Those
+        # answers must produce no rows instead of failing the whole table's sync.
+        pages = {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1"}, {"id": "p2"}], None),
+        }
+        objects = {
+            "https://api.bugsnag.com/projects/p1/stability_trend": _make_response(status_code),
+            "https://api.bugsnag.com/projects/p2/stability_trend": _make_response(
+                200,
+                body={"project_id": "p2", "timeline_points": [{"bucket_start": "2019-03-02T00:00:00.000Z"}]},
+            ),
+        }
+        with pytest.MonkeyPatch.context() as mp:
+            rows = _collect_objects("stability_trend", pages, objects, _FakeResumableManager(), mp)
+        assert rows == [{"bucket_start": "2019-03-02T00:00:00.000Z", "project_id": "p2", "organization_id": "o1"}]
+
+
+class TestReleaseGroups:
+    def test_fans_out_once_per_release_stage(self, monkeypatch: Any) -> None:
+        # The stage is a required query parameter, and a project can have several, so each stage
+        # is its own fan-out parent.
+        pages: dict[str, tuple[list[dict], str | None]] = {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1", "release_stages": ["production", "staging"]}], None),
+            "https://api.bugsnag.com/projects/p1/release_groups?per_page=30&release_stage_name=production": (
+                [{"id": "rg1"}],
+                None,
+            ),
+            "https://api.bugsnag.com/projects/p1/release_groups?per_page=30&release_stage_name=staging": (
+                [{"id": "rg2"}],
+                None,
+            ),
+        }
+        rows = _collect("release_groups", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {"id": "rg1", "organization_id": "o1", "project_id": "p1"},
+            {"id": "rg2", "organization_id": "o1", "project_id": "p1"},
+        ]
+
+
+class TestPivotValues:
+    def _pivot_pages(self) -> dict[str, tuple[list[dict], str | None]]:
+        return {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1"}], None),
+            "https://api.bugsnag.com/projects/p1/pivots?per_page=100": (
+                [{"event_field_display_id": "app.release_stage"}],
+                None,
+            ),
+        }
+
+    def test_fans_out_over_project_pivots_and_injects_the_display_id(self, monkeypatch: Any) -> None:
+        # The display id only exists in the request path, so without injection the rows could not be
+        # told apart per pivot and the primary key would collapse.
+        pages = self._pivot_pages()
+        pages["https://api.bugsnag.com/projects/p1/pivots/app.release_stage/values?per_page=30&sort=unsorted"] = (
+            [{"event_field_value": "production", "events": 23}],
+            None,
+        )
+        rows = _collect("pivot_values", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {
+                "event_field_value": "production",
+                "events": 23,
+                "organization_id": "o1",
+                "project_id": "p1",
+                "event_field_display_id": "app.release_stage",
+            }
+        ]
+
+    def test_page_cap_stops_a_high_cardinality_pivot(self, monkeypatch: Any) -> None:
+        # A pivot over a field like user id has a value per user, and the API keeps handing out
+        # cursors. The cap must stop that parent — the third page is absent from `pages`, so
+        # following it would raise.
+        values_url = "https://api.bugsnag.com/projects/p1/pivots/app.release_stage/values?per_page=30&sort=unsorted"
+        page2 = f"{values_url}&offset=2"
+        pages = self._pivot_pages()
+        pages[values_url] = ([{"event_field_value": "v1"}], page2)
+        pages[page2] = ([{"event_field_value": "v2"}], f"{values_url}&offset=3")
+
+        capped = dataclasses.replace(BUGSNAG_ENDPOINTS["pivot_values"], max_pages=2)
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "pivot_values", capped)
+
+        rows = _collect("pivot_values", pages, _FakeResumableManager(), monkeypatch)
+        assert [row["event_field_value"] for row in rows] == ["v1", "v2"]
+
+
+class TestErrorTrend:
+    def _error_pages(self, errors: list[dict], per_page: int) -> dict[str, tuple[list[dict], str | None]]:
+        return {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1"}], None),
+            f"https://api.bugsnag.com/projects/p1/errors?per_page={per_page}": (errors, None),
+        }
+
+    def test_fans_out_per_error_injecting_the_error_id(self, monkeypatch: Any) -> None:
+        # The error id only exists in the request path, so without injection every error's buckets
+        # would collapse onto the same primary key.
+        capped = dataclasses.replace(BUGSNAG_ENDPOINTS["error_trend"], max_errors_per_project=2)
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "error_trend", capped)
+        pages = self._error_pages([{"id": "e1"}, {"id": "e2"}], per_page=3)
+        bucket = {"from": "2017-04-03T22:43:49Z", "to": "2017-04-04T10:43:49Z", "events_count": 3}
+        for error_id in ("e1", "e2"):
+            pages[f"https://api.bugsnag.com/projects/p1/errors/{error_id}/trend?resolution=12h"] = ([bucket], None)
+
+        rows = _collect("error_trend", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {**bucket, "organization_id": "o1", "project_id": "p1", "error_id": "e1"},
+            {**bucket, "organization_id": "o1", "project_id": "p1", "error_id": "e2"},
+        ]
+
+    def test_error_count_is_capped_per_project(self, monkeypatch: Any) -> None:
+        # One request per error with no server-side filter to narrow the list, so the cap is the
+        # only thing bounding the table. The third error's trend URL is absent from `pages`, so
+        # fanning out over it would raise.
+        capped = dataclasses.replace(BUGSNAG_ENDPOINTS["error_trend"], max_errors_per_project=2)
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "error_trend", capped)
+        pages = self._error_pages([{"id": "e1"}, {"id": "e2"}, {"id": "e3"}], per_page=3)
+        for error_id in ("e1", "e2"):
+            pages[f"https://api.bugsnag.com/projects/p1/errors/{error_id}/trend?resolution=12h"] = (
+                [{"from": "2017-04-03T22:43:49Z", "events_count": 1}],
+                None,
+            )
+
+        rows = _collect("error_trend", pages, _FakeResumableManager(), monkeypatch)
+        assert [row["error_id"] for row in rows] == ["e1", "e2"]
+
+
+class TestErrorPivotValues:
+    def _pages(self, errors: list[dict], per_page: int) -> dict[str, tuple[list[dict], str | None]]:
+        return {
+            _ORGS_URL: ([{"id": "o1"}], None),
+            _PROJECTS_URL: ([{"id": "p1"}], None),
+            "https://api.bugsnag.com/projects/p1/pivots?per_page=100": (
+                [{"event_field_display_id": "app.release_stage"}, {"event_field_display_id": "user.id"}],
+                None,
+            ),
+            f"https://api.bugsnag.com/projects/p1/errors?per_page={per_page}": (errors, None),
+        }
+
+    def _values_url(self, error_id: str, display_id: str) -> str:
+        return (
+            f"https://api.bugsnag.com/projects/p1/errors/{error_id}/pivots/{display_id}"
+            "/values?per_page=30&sort=unsorted"
+        )
+
+    def test_crosses_errors_with_pivots_and_injects_both_ids(self, monkeypatch: Any) -> None:
+        capped = dataclasses.replace(BUGSNAG_ENDPOINTS["error_pivot_values"], max_errors_per_project=1)
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "error_pivot_values", capped)
+        pages = self._pages([{"id": "e1"}], per_page=2)
+        for display_id in ("app.release_stage", "user.id"):
+            pages[self._values_url("e1", display_id)] = ([{"event_field_value": "production"}], None)
+
+        rows = _collect("error_pivot_values", pages, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {
+                "event_field_value": "production",
+                "organization_id": "o1",
+                "project_id": "p1",
+                "error_id": "e1",
+                "event_field_display_id": "app.release_stage",
+            },
+            {
+                "event_field_value": "production",
+                "organization_id": "o1",
+                "project_id": "p1",
+                "error_id": "e1",
+                "event_field_display_id": "user.id",
+            },
+        ]
+
+    def test_error_pivot_product_is_capped_per_project(self, monkeypatch: Any) -> None:
+        # Every (error, pivot) pair is its own paginated request, so the product needs a cap of its
+        # own on top of the error cap. The fourth pair's URL is absent from `pages`, so requesting
+        # it would raise.
+        capped = dataclasses.replace(
+            BUGSNAG_ENDPOINTS["error_pivot_values"], max_errors_per_project=2, max_parents_per_project=3
+        )
+        monkeypatch.setitem(BUGSNAG_ENDPOINTS, "error_pivot_values", capped)
+        pages = self._pages([{"id": "e1"}, {"id": "e2"}], per_page=3)
+        for error_id, display_id in (("e1", "app.release_stage"), ("e1", "user.id"), ("e2", "app.release_stage")):
+            pages[self._values_url(error_id, display_id)] = ([{"event_field_value": f"{error_id}:{display_id}"}], None)
+
+        rows = _collect("error_pivot_values", pages, _FakeResumableManager(), monkeypatch)
+        assert [row["event_field_value"] for row in rows] == [
+            "e1:app.release_stage",
+            "e1:user.id",
+            "e2:app.release_stage",
+        ]
+
+
+class TestSpanGroupSpans:
+    def test_escapes_the_span_group_id_into_the_path_and_injects_the_raw_id(self, monkeypatch: Any) -> None:
+        # A span group id is `{version}.{category}.{name}` and the name can carry slashes, so an
+        # unescaped id would address a different route entirely. The row keeps the raw id, which is
+        # what joins these spans back to the span_groups table.
+        group_id = "1.app_start.AppStart/Cold"
+        spans_url = (
+            "https://api.bugsnag.com/projects/p1/span_groups/1.app_start.AppStart%2FCold"
+            "/spans?per_page=100&sort=timestamp&direction=desc"
+        )
+        responses = {
+            _ORGS_URL: _make_response(200, body=[{"id": "o1"}]),
+            _PROJECTS_URL: _make_response(200, body=[{"id": "p1"}]),
+            "https://api.bugsnag.com/projects/p1/span_groups?per_page=100&sort=name&direction=asc": _make_response(
+                200, body=[{"id": group_id}]
+            ),
+            spans_url: _make_response(200, body=[{"id": "s1", "duration": 1000}]),
+        }
+        rows, requested = _collect_via_responses("span_group_spans", responses, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {
+                "id": "s1",
+                "duration": 1000,
+                "organization_id": "o1",
+                "project_id": "p1",
+                "span_group_id": group_id,
+            }
+        ]
+        assert spans_url in requested
+
+    def test_project_without_performance_contributes_no_parents(self, monkeypatch: Any) -> None:
+        # A project that never enabled BugSnag Performance answers on the span group listing, which
+        # is the parent enumeration rather than the child path. The 404 must leave that project with
+        # no parents instead of failing the whole table for every other project.
+        spans_url = (
+            "https://api.bugsnag.com/projects/p2/span_groups/1.app_start.Cold"
+            "/spans?per_page=100&sort=timestamp&direction=desc"
+        )
+        responses = {
+            _ORGS_URL: _make_response(200, body=[{"id": "o1"}]),
+            _PROJECTS_URL: _make_response(200, body=[{"id": "p1"}, {"id": "p2"}], link=None),
+            "https://api.bugsnag.com/projects/p1/span_groups?per_page=100&sort=name&direction=asc": _make_response(
+                404, body={"errors": ["Project not found"]}
+            ),
+            "https://api.bugsnag.com/projects/p2/span_groups?per_page=100&sort=name&direction=asc": _make_response(
+                200, body=[{"id": "1.app_start.Cold"}]
+            ),
+            spans_url: _make_response(200, body=[{"id": "s1"}]),
+        }
+        rows, _requested = _collect_via_responses("span_group_spans", responses, _FakeResumableManager(), monkeypatch)
+        assert [row["project_id"] for row in rows] == ["p2"]

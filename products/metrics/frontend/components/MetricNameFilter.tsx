@@ -134,7 +134,7 @@ function MetricNameFilterInner({
                         <div className="p-2 text-muted text-center text-xs">Loading metrics…</div>
                     ) : items.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
-                            {search ? 'No metrics match this search.' : 'No metrics ingested in the last 7 days.'}
+                            {search ? 'No metrics match this search.' : 'No metrics ingested in the last 24 hours.'}
                         </div>
                     ) : (
                         <List<OptionRowData>

@@ -1,0 +1,45 @@
+.TerminalFramebufferWindow {
+    width: min(var(--terminal-display-width, 672px), calc(100vw - 32px), calc((100vh - 160px) * 4 / 3));
+    max-height: calc(100vh - 32px);
+
+    &:fullscreen {
+        width: 100vw;
+        height: 100vh;
+        max-height: none;
+
+        .TerminalFramebufferWindow__screen {
+            flex: 1;
+        }
+    }
+
+    &__screen {
+        display: flex;
+        flex: 0 1 auto;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 4 / 3;
+        overflow: hidden;
+
+        > div {
+            display: contents;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+            image-rendering: pixelated;
+        }
+    }
+
+    &__resize::after {
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        width: 10px;
+        height: 10px;
+        content: '';
+        border-right: 3px double var(--color-text-secondary);
+        border-bottom: 3px double var(--color-text-secondary);
+    }
+}

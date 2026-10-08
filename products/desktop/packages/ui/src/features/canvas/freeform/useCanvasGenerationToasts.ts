@@ -64,6 +64,8 @@ function emitCanvasGenerationNotification(
   if (status === "completed") {
     if (buildHealthy) {
       bus.notify({
+        reason: "canvas_generation",
+        debug: { status, buildHealthy },
         body: `${name} is ready`,
         target,
         toast: { level: "success", description: "Generation finished." },
@@ -72,6 +74,8 @@ function emitCanvasGenerationNotification(
       // The agent finished but the canvas build didn't succeed — announcing
       // "ready" would be a lie the user only discovers on opening the canvas.
       bus.notify({
+        reason: "canvas_generation",
+        debug: { status, buildHealthy },
         body: `${name} finished with a failed build`,
         target,
         toast: {
@@ -82,6 +86,8 @@ function emitCanvasGenerationNotification(
     }
   } else if (status === "failed") {
     bus.notify({
+      reason: "canvas_generation",
+      debug: { status, buildHealthy },
       body: `${name} generation failed`,
       target,
       toast: {

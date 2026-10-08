@@ -10,15 +10,18 @@ import { canvasDataRouter } from "@posthog/host-router/routers/canvas-data.route
 import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templates.router";
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "@posthog/host-router/routers/claude-cli-sessions.router";
+import { claudeSubscriptionTokenRouter } from "@posthog/host-router/routers/claude-subscription-token.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
 import { connectivityRouter } from "@posthog/host-router/routers/connectivity.router";
 import { contextMenuRouter } from "@posthog/host-router/routers/context-menu.router";
+import { customCloudRouter } from "@posthog/host-router/routers/custom-cloud.router";
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
 import { deepLinkRouter } from "@posthog/host-router/routers/deep-link.router";
 import { diskCacheRouter } from "@posthog/host-router/routers/disk-cache.router";
 import { enrichmentRouter } from "@posthog/host-router/routers/enrichment.router";
 import { environmentRouter } from "@posthog/host-router/routers/environment.router";
 import { externalAppsRouter } from "@posthog/host-router/routers/external-apps.router";
+import { feedbackContextRouter } from "@posthog/host-router/routers/feedback-context.router";
 import { fileWatcherRouter } from "@posthog/host-router/routers/file-watcher.router";
 import { focusRouter } from "@posthog/host-router/routers/focus.router";
 import { foldersRouter } from "@posthog/host-router/routers/folders.router";
@@ -40,7 +43,9 @@ import { piSessionRouter } from "@posthog/host-router/routers/pi-session.router"
 import { processTrackingRouter } from "@posthog/host-router/routers/process-tracking.router";
 import { provisioningRouter } from "@posthog/host-router/routers/provisioning.router";
 import { releaseFeedRouter } from "@posthog/host-router/routers/release-feed.router";
+import { screenCaptureRouter } from "@posthog/host-router/routers/screen-capture.router";
 import { secureStoreRouter } from "@posthog/host-router/routers/secure-store.router";
+import { settingsBackupRouter } from "@posthog/host-router/routers/settings-backup.router";
 import { shellRouter } from "@posthog/host-router/routers/shell.router";
 import { skillsRouter } from "@posthog/host-router/routers/skills.router";
 import { slackIntegrationRouter } from "@posthog/host-router/routers/slack-integration.router";
@@ -55,7 +60,6 @@ import { devRouter } from "./routers/dev";
 import { discordPresenceRouter } from "./routers/discord-presence";
 import { encryptionRouter } from "./routers/encryption";
 import { missionControlRouter } from "./routers/mission-control";
-import { quickAskRouter } from "./routers/quick-ask";
 import { workspaceServerRouter } from "./routers/workspace-server";
 import { router } from "./trpc";
 
@@ -75,12 +79,15 @@ export const trpcRouter = router({
   cloudTask: cloudTaskRouter,
   connectivity: connectivityRouter,
   contextMenu: contextMenuRouter,
+  customCloud: customCloudRouter,
   dev: devRouter,
   discordPresence: discordPresenceRouter,
   enrichment: enrichmentRouter,
   environment: environmentRouter,
   encryption: encryptionRouter,
   externalApps: externalAppsRouter,
+  feedbackContext: feedbackContextRouter,
+  screenCapture: screenCaptureRouter,
   fileWatcher: fileWatcherRouter,
   focus: focusRouter,
   folders: foldersRouter,
@@ -96,17 +103,18 @@ export const trpcRouter = router({
   mcpCallback: mcpCallbackRouter,
   mcpRelay: mcpRelayRouter,
   missionControl: missionControlRouter,
-  quickAsk: quickAskRouter,
   notification: notificationRouter,
   oauth: oauthRouter,
   logs: logsRouter,
   os: osRouter,
+  settingsBackup: settingsBackupRouter,
   piSession: piSessionRouter,
   processTracking: processTrackingRouter,
   provisioning: provisioningRouter,
   sleep: sleepRouter,
   suspension: suspensionRouter,
   secureStore: secureStoreRouter,
+  claudeSubscriptionToken: claudeSubscriptionTokenRouter,
   shell: shellRouter,
   speech: speechRouter,
   skills: skillsRouter,

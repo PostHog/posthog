@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product endpoints
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product endpoints
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Endpoints
 feature: endpoints
 url_prefix: /endpoints
@@ -259,9 +257,3 @@ tools:
         include_params:
             - version
             - bucket_overrides
-    endpoints-run-retrieve:
-        operation: endpoints_run_retrieve
-        enabled: false
-    endpoints-update:
-        operation: endpoints_update
-        enabled: false

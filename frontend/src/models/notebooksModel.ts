@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardType } from '~/types'
 
 import type { NotebookType } from '../scenes/notebooks/types'
 
@@ -109,8 +109,8 @@ export interface notebooksModelActions {
         error: string
         errorObject?: any
     }
-    createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+    createNotebookFromDashboard: (dashboard: DashboardType) => {
+        dashboard: DashboardType
     }
     createNotebookSuccess: (
         notebooks: NotebookListItemType[],
@@ -205,7 +205,7 @@ export const notebooksModel = kea<notebooksModelType>([
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
-        createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
+        createNotebookFromDashboard: (dashboard: DashboardType) => ({ dashboard }),
     }),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],

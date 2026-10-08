@@ -69,6 +69,7 @@ Failures are handled at chunk granularity: the store splits each batch into chun
 - **Data** (constraint violation, invalid input): fall back to per-row inserts for the failed chunks' rows, isolating the bad records. Per-row upserts run with bounded concurrency (`ROW_FALLBACK_CONCURRENCY`). Successful chunks are not re-executed.
 - **Non-transient row failure** (constraint violation, unbindable field): an invariant violation — the leader admitted a record Postgres cannot apply, so admission has a gap. The flush halts via `signal_failure` without committing; Kafka redelivers after restart, and the alarm stands until the gap is fixed. Skipping is never an option: it would permanently diverge PG from the cache and changelog.
 - **Chunk task panic**: a spawned chunk task that panics cannot hand its persons back — the task's stack is unwound. The writer treats this as a fatal error, signals failure, and exits. Because Kafka offsets are committed only on full batch success, redelivery after restart recovers the records; the panic payload is captured in the error message for diagnosis.
+- **Slow flush**: the lane keeps its liveness heartbeat ticking while a flush runs, for about five minutes, so a slow database does not restart the pod. A longer flush reports the lane unhealthy, and the pod restarts unless the flush completes before the next health check.
 
 User-facing size warnings are emitted by the leader at admission time, where the client also gets synchronous feedback; the writer emits none.
 
@@ -86,7 +87,8 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 
 - **Cooperative-sticky assignment**: during autoscaling, only partitions that need to move are revoked
 - **Static group membership**: when `KAFKA_CLIENT_ID` is set, the broker holds partition assignments during pod restarts (requires StatefulSet for stable pod names)
-- **Manual offset commits**: offsets are committed only after a successful Postgres write
+- **Manual offset commits**: offsets are committed only after a successful Postgres write, and only for partitions still assigned to this pod
+- **Revocation**: when the broker takes partitions away, their buffered rows are dropped, and a batch already queued for the writer is filtered the same way when the writer picks it up. Their offsets were never committed, so the new owner reads them from the last commit instead of both pods writing the same rows. A batch already executing against Postgres, including its retries, still completes
 
 ## Metrics
 
@@ -114,6 +116,9 @@ When the writer is slow (PG latency, pool saturation), size-triggered flushes st
 | `personhog_writer_pg_pool_idle` | gauge | Idle sqlx pool connections (sampled every 5s) |
 | `personhog_writer_offset_commits_total` | counter | Successful offset commits |
 | `personhog_writer_offset_commit_errors_total` | counter | Failed offset commits |
+| `personhog_writer_offset_commits_skipped_total{reason}` | counter | Partition offsets left uncommitted because the partition is no longer assigned |
+| `personhog_writer_partitions_revoked_total` | counter | Partitions the broker revoked from this pod |
+| `personhog_writer_revoked_rows_dropped_total{stage}` | counter | Rows dropped because their partition was revoked (stage: buffer, queued) |
 | `personhog_writer_flush_duration_seconds` | histogram | PG write latency per flush |
 | `personhog_writer_flush_rows` | histogram | Rows per flush |
 | `personhog_writer_channel_send_duration_seconds` | histogram | Time waiting on the writer channel (backpressure indicator) |

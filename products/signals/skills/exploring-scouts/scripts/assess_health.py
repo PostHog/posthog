@@ -31,6 +31,7 @@ Stdlib only. Python 3.11+."""
 
 from __future__ import annotations
 
+import re
 import sys
 import json
 import argparse
@@ -38,8 +39,8 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-# a failed run whose wall-clock is this long or longer is timeout-shaped, not a fast crash
-TIMEOUT_MINUTES = 20.0
+# The per-run budget is 15 minutes (scout_harness/limits.py); a failed run past ~14 minutes ran to the wall.
+TIMEOUT_MINUTES = 14.0
 # a gap larger than this multiple of the expected interval counts as a stall
 STALL_FACTOR = 2.0
 
@@ -120,21 +121,47 @@ def table(headers: list[str], body: list[list[str]]) -> list[str]:
     return out
 
 
+_CANCELLED_ERROR = re.compile(r"^(asyncio\.)?cancell?ed(error)?\b")
+
+
+def _is_cancelled_as_failed(run: dict) -> bool:
+    # A cancellation caught while the run was still starting is stored as `failed` with the
+    # cancellation's own text as its error; one with an empty error is indistinguishable and stays in.
+    # Match only an error that IS a cancellation, not one that merely mentions cancelling a statement.
+    text = (run.get("failure_reason") or run.get("error") or "").strip().lower()
+    return bool(_CANCELLED_ERROR.match(text)) and "timeout" not in text and "timed out" not in text
+
+
+def _is_timeout_reason(reason: str | None) -> bool:
+    # The harness says "timed out after 900s"; other writers say "timeout".
+    text = (reason or "").lower()
+    return "timed out" in text or "timeout" in text
+
+
 def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count: int | None,
                  now: datetime | None, config_last_run: str | None) -> dict:
     runs = sorted(runs, key=lambda r: r.get("started_at") or "")
     n = len(runs)
-    completed = sum(1 for r in runs if r.get("status") == "completed")
-    failed = sum(1 for r in runs if r.get("status") == "failed")
-
-    durations = [m for r in runs if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None]
+    # A cancelled (worker shutdown, deploy) or in-flight row has no scout outcome to score.
+    settled = [
+        r
+        for r in runs
+        if r.get("status") == "completed" or (r.get("status") == "failed" and not _is_cancelled_as_failed(r))
+    ]
+    completed = sum(1 for r in settled if r.get("status") == "completed")
+    failed = sum(1 for r in settled if r.get("status") == "failed")
+    durations = [
+        m for r in settled if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
+    ]
     median_dur = round(statistics.median(durations), 1) if durations else None
+    # A named credential or tool failure is not a timeout however long it ran.
     timeouts = sum(
         1
-        for r in runs
+        for r in settled
         if r.get("status") == "failed"
         and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
         and m >= TIMEOUT_MINUTES
+        and (not r.get("failure_reason") or _is_timeout_reason(r.get("failure_reason")))
     )
 
     # cadence: consecutive gaps between run starts
@@ -147,7 +174,8 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     expected = (int(span_min / interval) + 1) if interval and span_min > 0 else None
     adherence = pct(n, expected) if expected else "-"
 
-    wrote = sum(1 for r in runs if run_wrote(r))
+    # Report ids land on the row before the run settles, so only settled writers count.
+    wrote = sum(1 for r in settled if run_wrote(r))
     # Two different stalenesses — keep them apart. `last_run_at` is the coordinator's DISPATCH
     # stamp (advanced the moment a child is enqueued, before any worker runs it); the newest
     # observed run row's `started_at` is when a run actually EXECUTED. A fresh `last_run_at`
@@ -168,9 +196,9 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
 
     return {
         "name": name, "runs": n, "completed": completed, "failed": failed, "timeouts": timeouts,
-        "success_pct": pct(completed, n), "median_dur": median_dur, "median_gap": median_gap,
-        "interval": interval, "adherence": adherence, "stalls": stalls,
-        "wrote": wrote, "wrote_pct": pct(wrote, n), "mem_count": mem_count,
+        "settled": len(settled), "success_pct": pct(completed, len(settled)), "median_dur": median_dur,
+        "median_gap": median_gap, "interval": interval, "adherence": adherence, "stalls": stalls,
+        "wrote": wrote, "wrote_pct": pct(wrote, len(settled)), "mem_count": mem_count,
         "stale_min": stale_min, "dispatch_stale_min": dispatch_stale_min,
         "run_stale_min": run_stale_min, "dispatch_run_gap_min": dispatch_run_gap_min,
     }
@@ -190,7 +218,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
     body: list[list[str]] = []
     for s in sorted(scouts, key=lambda x: x["name"]):
         gap = f"{s['median_gap']}m" if s["median_gap"] is not None else "-"
-        interval = f"{int(s['interval'])}m" if s["interval"] else "?"
+        interval = "cron" if s.get("cron") else (f"{int(s['interval'])}m" if s["interval"] else "?")
         dur = f"{s['median_dur']}m" if s["median_dur"] is not None else "-"
         runs_cell = f"{s['runs']}" + (f" ({s['failed']}F)" if s["failed"] else "")
         mem = "n/a" if s["mem_count"] is None else (str(s["mem_count"]) if s["mem_count"] else "0")
@@ -202,14 +230,16 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
 
     flags: list[str] = []
     for s in scouts:
+        if s["runs"] and not s["settled"]:
+            flags.append(f" * {s['name']}: {s['runs']} run(s) in the window but none settled (queued, in flight, or cancelled): NOT assessed, wait for an outcome.")
         if s["failed"] and s["completed"] == 0:
-            flags.append(f" * {s['name']}: EVERY run failed ({s['failed']}/{s['runs']}) — broken, not quiet.")
+            flags.append(f" * {s['name']}: EVERY settled run failed ({s['failed']}/{s['settled']}): broken, not quiet.")
         elif s["timeouts"]:
             flags.append(f" * {s['name']}: {s['timeouts']} timeout-shaped failure(s) (>={int(TIMEOUT_MINUTES)}m) — likely over-investigation; read the session log.")
         if s["stalls"]:
             flags.append(f" * {s['name']}: {s['stalls']} cadence stall(s) (gap >{int(STALL_FACTOR)}x interval) — coordinator skipped it (paused / drained / capped).")
-        if has_mem and s["runs"] >= 5 and s["mem_count"] == 0:
-            flags.append(f" * {s['name']}: {s['runs']} runs but an EMPTY scratchpad — not learning.")
+        if has_mem and s["settled"] >= 5 and s["mem_count"] == 0:
+            flags.append(f" * {s['name']}: {s['settled']} settled runs but an EMPTY scratchpad: not learning.")
         # Dispatching but not running: the coordinator's last_run_at has marched a full interval+
         # past the newest run that actually materialized — children are queuing without executing
         # (workers backed up / down, or runs stranded). Distinct from a cadence stall (gap between
@@ -220,22 +250,32 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
         elif s["stale_min"] is not None and s["interval"] and s["stale_min"] > STALL_FACTOR * s["interval"]:
             flags.append(f" * {s['name']}: last run {fmt_age(s['stale_min'])} ago vs a {int(s['interval'])}m cadence — may be drained from the flag.")
 
+    for s in scouts:
+        if s.get("cron"):
+            flags.append(
+                f" * {s['name']}: runs on a cron schedule, so cadence, stalls and staleness are NOT assessed here;"
+                " compare last_run_at and the newest run against its slots by hand."
+            )
     L += ["-" * 78, " worth a look", "-" * 78]
     L += sorted(set(flags)) if flags else [" (none — cadence, success, and memory all look nominal)"]
 
     L += ["", "-" * 78, " column key", "-" * 78,
           " runs      runs in the window; (NF) = N of them failed",
-          " ok        success rate — % of runs that reached a clean 'completed' status",
-          " wrote     report rate — % of runs that wrote or edited an inbox report (from",
+          " ok        success rate: % of settled runs (completed or failed; cancelled and",
+          "           in-flight rows are excluded, as is a failed row whose error names a",
+          "           cancellation) that reached a clean 'completed' status",
+          " wrote     report rate: % of settled runs that wrote or edited an inbox report (from",
           "           emitted_report_ids / edited_report_ids on the run row; legacy",
           "           signal-channel emits count too). Most healthy scouts write rarely —",
           "           judge signal-to-noise against the report statuses in inbox-reports-list.",
           " gap/ival  median gap between consecutive run starts / the configured",
           "           run_interval_minutes. gap well above ival = the scout is being skipped.",
+          "           'cron' = the scout runs on run_cron_schedule; its gaps are irregular by",
+          "           design, so adherence, stall and staleness flags are skipped for it.",
           " adher     cadence adherence — runs observed / runs expected across the window",
           "           span at that interval. 100% = fired on (nearly) every scheduled tick.",
           " med       median run duration (start -> finish). healthy runs finish in a couple",
-          "           of minutes; a ~30m median is timeout-shaped over-investigation.",
+          "           of minutes; a ~15m median is timeout-shaped over-investigation.",
           " mem       durable scratchpad entries attributed to this scout (via the run that",
           "           wrote them) in --scratchpad. 'n/a' = no --scratchpad passed; '0' = passed",
           "           but none matched (often the writing run falls outside the runs window)."]
@@ -258,7 +298,12 @@ def main() -> int:
         run_rows = [r for r in run_rows if r.get("skill_name") == args.skill]
 
     cfg_rows = rows(load(args.config)) if args.config else []
-    intervals = {r.get("skill_name"): r.get("run_interval_minutes") for r in cfg_rows}
+    # A cron scout's gaps are irregular by design, so interval-based scoring would misflag it.
+    intervals = {
+        r.get("skill_name"): (None if r.get("run_cron_schedule") else r.get("run_interval_minutes"))
+        for r in cfg_rows
+    }
+    cron_skills = {r.get("skill_name") for r in cfg_rows if r.get("run_cron_schedule")}
     last_run_by_skill = {r.get("skill_name"): r.get("last_run_at") for r in cfg_rows}
     now = parse_ts(args.now) if args.now else None
 
@@ -281,6 +326,8 @@ def main() -> int:
                      now, last_run_by_skill.get(name))
         for name, runs in by_skill.items()
     ]
+    for s in assessed:
+        s["cron"] = s["name"] in cron_skills
 
     starts = [s for r in run_rows if (s := parse_ts(r.get("started_at")))]
     if starts:

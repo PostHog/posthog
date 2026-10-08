@@ -287,8 +287,8 @@ function ExposureTime({ offsetMs, placement, onSeek }: ExposureTimeProps): JSX.E
 
 // The experiment analysis counts exposure events, and this session has none: that is the one claim
 // that holds wherever the viewer came from. The copy must not reference the recordings tab's list,
-// because when the exposure event is server-side that tab falls back to listing flag-active sessions
-// (see applySessionLinkability), and enrolled-only sessions are then exactly what its list shows.
+// because when the exposure event is server-side that tab's in-session scope falls back to listing
+// flag-active sessions, and enrolled-only sessions are then exactly what its list shows.
 const NOT_EXPOSED_CAVEAT =
     "The flag was active in this session, but no exposure event was captured here, so this session isn't where the experiment analysis counted this person's exposure."
 
@@ -343,7 +343,7 @@ function experimentIdFromPath(pathname: string): number | null {
 
 export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { seekToTimestamp } = useActions(sessionRecordingPlayerLogic)
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const experimentContextLogic = sessionRecordingExperimentContextLogic({
         sessionRecordingId: logicProps.sessionRecordingId,
     })
@@ -399,6 +399,13 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
     }
 
     const recordingStartMs = sessionPlayerData?.start?.valueOf() ?? null
+    // seekToTime rather than seekToTimestamp, because only seekToTime consumes a pending
+    // auto-skip. A click made before that skip fires would otherwise be overridden by it.
+    const seekToTimestamp = (timestampMs: number): void => {
+        if (recordingStartMs != null) {
+            seekToTime(timestampMs - recordingStartMs)
+        }
+    }
     const recordingEndMs =
         recordingStartMs != null && sessionPlayerData?.durationMs != null
             ? recordingStartMs + sessionPlayerData.durationMs

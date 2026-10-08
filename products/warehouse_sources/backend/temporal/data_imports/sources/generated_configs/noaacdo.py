@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class NoaaCdoSourceConfig(config.Config):
-    pass
+    api_token: str
+    dataset_id: str
+    station_id: str
+    start_date: str

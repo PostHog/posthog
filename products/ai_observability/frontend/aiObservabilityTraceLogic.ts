@@ -848,12 +848,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions, cache }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [`${urls.aiObservabilityTraces()}/:id`]: (
             { id },
             { event, timestamp, exception_ts, search, line, tab, msg }
         ) => {
-            actions.setTraceId(tryDecodeURIComponent(id ?? ''))
+            const traceId = tryDecodeURIComponent(id ?? '')
+            const isNewTrace = traceId !== values.traceId
+            actions.setTraceId(traceId)
             void addProductIntent({
                 product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
@@ -873,6 +875,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     parsedDate.subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString(),
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
+            } else if (isNewTrace) {
+                actions.setDateRange(null)
             }
             // Set search from URL param if provided, otherwise clear it.
             // Mark it as URL-driven so the listener doesn't write it straight back to the URL.

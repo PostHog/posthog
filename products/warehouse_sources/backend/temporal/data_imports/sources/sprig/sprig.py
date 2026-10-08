@@ -1,6 +1,9 @@
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urljoin, urlparse
+
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -23,6 +26,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sett
 @dataclasses.dataclass
 class SprigResumeConfig:
     next_cursor: str
+
+
+class SprigRedirectError(Exception):
+    """The API answered with a 3xx. Redirects are refused so the API key stays on the API host."""
+
+
+def _refuse_redirect(response: requests.Response) -> None:
+    if not 300 <= response.status_code < 400:
+        return
+    location = response.headers.get("Location") or ""
+    target = urlparse(urljoin(response.url or "", location)).hostname or "an unknown host"
+    raise SprigRedirectError(f"Sprig redirected the API request to {target}; refusing to follow")
 
 
 def _format_incremental_value(value: Any) -> Optional[int]:
@@ -99,6 +114,9 @@ def sprig_source(
             # Sprig returns `{"data": [...], "cursor": "<base64>"|null}` — the same field name
             # both as the response's next-page pointer and the request's pagination param.
             "paginator": JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
+            # A redirect must not carry the bearer token to another host; the REST client rejects
+            # any 3xx when redirects are off.
+            "allow_redirects": False,
         },
         "resource_defaults": None,
         "resources": [get_resource(endpoint, should_use_incremental_field)],
@@ -151,9 +169,10 @@ def validate_credentials(api_key: str) -> bool:
 
     Returns False only for auth failures (401/403). Transient or unexpected statuses (429,
     5xx, ...) are raised via `raise_for_status()` so they surface as a real error rather than
-    being misreported to the user as an invalid API key.
+    being misreported to the user as an invalid API key. A 3xx is refused before that check,
+    because `raise_for_status()` treats it as success.
     """
-    response = make_tracked_session().get(
+    response = make_tracked_session(allow_redirects=False).get(
         f"{SPRIG_API_BASE_URL}/v1/surveys",
         params={"limit": 1},
         headers={"Authorization": f"Bearer {api_key}"},
@@ -161,5 +180,6 @@ def validate_credentials(api_key: str) -> bool:
     )
     if response.status_code in (401, 403):
         return False
+    _refuse_redirect(response)
     response.raise_for_status()
     return True

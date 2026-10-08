@@ -73,6 +73,12 @@ class MCPRegistryServer(UUIDModel):
     # Whether measured stats may be shown outside PostHog. Stays False until the
     # server owner opts in, because it is their analytics data.
     measured_public = models.BooleanField(default=False)
+    # Which project a standalone (non-registry) row belongs to. Registry rows are global and
+    # leave this null. A standalone row exists only because one project's events named a
+    # server we could not match, and `serverInfo.name` is client-advertised — often an SDK
+    # template default — so unrelated projects routinely report the same name. Without an
+    # owner, all of them collapse into one row and their call volumes and tool names merge.
+    measured_team_id = models.IntegerField(null=True, blank=True)
 
     liveness = models.CharField(max_length=20, choices=LIVENESS_CHOICES, default="unprobed")
     auth_method = models.CharField(max_length=20, choices=AUTH_METHOD_CHOICES, default="unknown")

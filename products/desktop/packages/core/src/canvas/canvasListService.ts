@@ -24,7 +24,7 @@ export const DEFAULT_CANVAS_LIST_SETTINGS: CanvasListSettings = {
 interface CanvasListSpace {
   id: string;
   name: string;
-  channelType: "public" | "personal";
+  channelType: "public" | "personal" | "private";
 }
 
 interface CanvasListUser {

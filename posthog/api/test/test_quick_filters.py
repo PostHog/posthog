@@ -1,9 +1,13 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.quick_filters import QuickFilterSerializer
 from posthog.models.quick_filter import QuickFilter
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -50,6 +54,24 @@ class TestQuickFilters(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_list_quick_filters_pages_do_not_overlap_when_created_at_ties(self):
+        for index in range(5):
+            self._create_quick_filter(f"Filter {index}", f"$prop{index}")
+        QuickFilter.objects.filter(team=self.team).update(created_at="2026-01-01T00:00:00Z")
+        expected_order = [
+            str(filter_id)
+            for filter_id in QuickFilter.objects.filter(team=self.team).order_by("-id").values_list("id", flat=True)
+        ]
+
+        first_page = self.client.get(f"/api/environments/{self.team.id}/quick_filters/?limit=3")
+        second_page = self.client.get(f"/api/environments/{self.team.id}/quick_filters/?limit=3&offset=3")
+
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
+        paged_ids = [row["id"] for row in first_page.json()["results"]]
+        paged_ids += [row["id"] for row in second_page.json()["results"]]
+        self.assertEqual(paged_ids, expected_order)
 
     def test_list_quick_filters_by_context(self):
         self._create_quick_filter("Dashboard Filter", "$dashboard_prop")
@@ -133,3 +155,55 @@ class TestQuickFilters(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+MANUAL_OPTION = {"id": "prod", "value": "production", "label": "Production", "operator": "exact"}
+
+
+class TestQuickFilterSerializerOptions(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("auto_discovery_without_options", {"type": "auto-discovery"}, None, True, []),
+            (
+                "auto_discovery_drops_sent_options",
+                {"type": "auto-discovery", "options": [MANUAL_OPTION]},
+                None,
+                True,
+                [],
+            ),
+            ("manual_without_options", {"type": "manual-options"}, None, False, None),
+            ("manual_with_empty_options", {"type": "manual-options", "options": []}, None, False, None),
+            (
+                "manual_with_options",
+                {"type": "manual-options", "options": [MANUAL_OPTION]},
+                None,
+                True,
+                [MANUAL_OPTION],
+            ),
+            ("switch_manual_to_auto", {"type": "auto-discovery"}, "manual-options", True, []),
+            ("switch_auto_to_manual_without_options", {"type": "manual-options"}, "auto-discovery", False, None),
+            ("rename_auto_discovery", {"name": "Renamed"}, "auto-discovery", True, []),
+        ]
+    )
+    def test_options_depend_on_type(
+        self,
+        _name: str,
+        data: dict[str, Any],
+        instance_type: str | None,
+        expected_valid: bool,
+        expected_options: list[dict[str, Any]] | None,
+    ) -> None:
+        if instance_type is None:
+            serializer = QuickFilterSerializer(data={"name": "Environment", "property_name": "$environment", **data})
+        else:
+            instance_options = [] if instance_type == "auto-discovery" else [MANUAL_OPTION]
+            instance = QuickFilter(
+                name="Environment", property_name="$environment", type=instance_type, options=instance_options
+            )
+            serializer = QuickFilterSerializer(instance, data=data, partial=True)
+
+        self.assertEqual(serializer.is_valid(), expected_valid, serializer.errors)
+        if expected_valid:
+            self.assertEqual(serializer.validated_data.get("options"), expected_options)
+        else:
+            self.assertIn("options", serializer.errors)

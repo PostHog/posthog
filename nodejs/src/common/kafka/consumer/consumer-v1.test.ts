@@ -1,6 +1,5 @@
 import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
-import { defaultConfig } from '~/common/config/config'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { delay } from '../../utils/utils'
@@ -116,7 +115,6 @@ describe('consumer', () => {
             incrementalAssign: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
         }
-        defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = true
 
         // Mock the RdKafkaConsumer constructor to return our configured mock
         jest.mocked(require('node-rdkafka').KafkaConsumer).mockImplementation(() => mockRdKafkaConsumerInstance)
@@ -371,16 +369,6 @@ describe('consumer', () => {
     })
 
     describe('rebalancing', () => {
-        it('should set rebalancing state during partition revocation', () => {
-            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
-
-            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
-        })
-
         it('should clear rebalancing state during partition assignment', () => {
             consumer['rebalanceCoordination'].isRebalancing = true
 
@@ -391,8 +379,11 @@ describe('consumer', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
-        it('should call incrementalUnassign when no background tasks exist', async () => {
+        it('should unassign, call the revoke hook and resume consuming when no background tasks exist', async () => {
             consumer['backgroundTask'] = []
+            mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
+            const onPartitionsRevoked = jest.fn().mockResolvedValue(undefined)
+            consumer['onPartitionsRevoked'] = onPartitionsRevoked
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
@@ -402,9 +393,26 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
+            expect(onPartitionsRevoked).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 1 }])
+        })
+
+        it('should resume consuming when unassigning revoked partitions throws', () => {
+            consumer['backgroundTask'] = []
+            mockRdKafkaConsumer.incrementalUnassign.mockImplementation(() => {
+                throw new Error('KafkaConsumer is not connected')
+            })
+
+            expect(() =>
+                consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                    { topic: 'test-topic', partition: 1 },
+                ])
+            ).toThrow('KafkaConsumer is not connected')
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
         it('should wait for background tasks before calling incrementalUnassign', async () => {
+            mockRdKafkaConsumer.assignments.mockReturnValue([{ topic: 'test-topic', partition: 2 }])
             // Create controllable promises to test actual waiting behavior
             const task1 = triggerablePromise()
             const task2 = triggerablePromise()
@@ -438,33 +446,7 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
-        })
-
-        it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
-            defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
-            // Create a consumer with feature disabled
-            const consumerDisabled = new KafkaConsumer({
-                groupId: 'test-group',
-                topic: 'test-topic',
-            })
-
-            const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
-
-            // Add background tasks with metadata
-            // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [{ promise: Promise.resolve(), createdAt: Date.now() }])
-
-            consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            // Should proceed immediately without waiting
-            await delay(1)
-            expect(mockConsumerDisabled.incrementalUnassign).toHaveBeenCalledWith([
-                { topic: 'test-topic', partition: 1 },
-            ])
-
-            await consumerDisabled.disconnect()
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
     })
 })

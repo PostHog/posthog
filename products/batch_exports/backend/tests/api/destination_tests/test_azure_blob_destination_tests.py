@@ -5,7 +5,10 @@ import pytest
 
 from azure.storage.blob.aio import BlobServiceClient
 
-from products.batch_exports.backend.api.destination_tests.azure_blob import AzureBlobContainerTestStep, Status
+from products.batch_exports.backend.presentation.views.destination_tests.azure_blob import (
+    AzureBlobContainerTestStep,
+    Status,
+)
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.conftest import AZURITE_CONNECTION_STRING
 
 pytestmark = [pytest.mark.asyncio]
@@ -64,7 +67,29 @@ async def test_azure_blob_check_container_invalid_connection_string():
 
     assert result.status == Status.FAILED
     assert result.message is not None
-    assert "Invalid connection string format" in result.message
+    assert "Invalid connection string: Malformed connection string" in result.message
+
+
+async def test_azure_blob_check_container_emulator_connection_string():
+    test_step = AzureBlobContainerTestStep(
+        connection_string="UseDevelopmentStorage=true;AccountName=devstoreaccount1",
+        container_name="test-container",
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message is not None
+    assert "Invalid connection string" in result.message
+
+
+async def test_azure_blob_check_container_trailing_semicolon_connection_string(container_name, azurite_container):
+    test_step = AzureBlobContainerTestStep(
+        connection_string=AZURITE_CONNECTION_STRING + ";",
+        container_name=container_name,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED
 
 
 @pytest.mark.parametrize("step", [AzureBlobContainerTestStep()])

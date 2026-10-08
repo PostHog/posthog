@@ -1,24 +1,27 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
+import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -38,21 +41,30 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
-import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
     const [loading, setLoading] = useState(false)
     const handleNewPlaylist = async (): Promise<void> => {
         setLoading(true)
         try {
-            await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
-            reportRecordingPlaylistCreated('new')
+            await createPlaylist(
+                { _create_in_folder: 'Unfiled/Replay playlists', type: 'collection', creation_method: 'new' },
+                true
+            )
+        } catch (error: any) {
+            if (isAccessDeniedError(error)) {
+                lemonToast.error('You do not have access to create collections.')
+            } else {
+                lemonToast.error('Could not create the collection. Please try again.')
+            }
+            // Not a kea loader, so initKea's report gate does not run. Apply the same gate here.
+            if (shouldReportApiFailure(error)) {
+                posthog.captureException(error)
+            }
         } finally {
             setLoading(false)
         }
@@ -66,6 +78,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
+                                data-attr="replay-open-file-playback"
                                 to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
@@ -74,6 +87,7 @@ function Header(): JSX.Element {
                                 <IconDocument /> Playback from PostHog JSON file
                             </Link>
                             <Link
+                                data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
                                 buttonProps={{
                                     menuItem: true,
@@ -191,8 +205,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.Templates ? (
-                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -212,15 +224,10 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
     },
-    {
-        label: 'Filter templates',
-        key: ReplayTabs.Templates,
-        'data-attr': 'session-recordings-templates-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
@@ -229,14 +236,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
             className="-mt-4"
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
+                    label: replayTab.label,
                     key: replayTab.key,
                     link: urls.replay(replayTab.key),
                     tooltip: replayTab.tooltip,

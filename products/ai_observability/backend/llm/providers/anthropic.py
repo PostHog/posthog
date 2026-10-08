@@ -20,11 +20,13 @@ from products.ai_observability.backend.llm.errors import (
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
+    is_output_limit_error_message,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -177,6 +179,8 @@ class AnthropicAdapter:
 
             parsed: BaseModel | None = None
             if use_structured:
+                if response.stop_reason == "max_tokens":
+                    raise OutputTokenLimitError("The model reached its output token limit.")
                 assert request.response_format is not None
                 try:
                     parsed = request.response_format.model_validate_json(content)
@@ -215,6 +219,8 @@ class AnthropicAdapter:
                 return QuotaExceededError(str(error))
             if is_context_window_error_message(str(error)):
                 return ContextWindowExceededError(str(error))
+            if is_output_limit_error_message(str(error)):
+                return OutputTokenLimitError(str(error))
             return None
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):

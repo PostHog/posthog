@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class WixSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_id: str

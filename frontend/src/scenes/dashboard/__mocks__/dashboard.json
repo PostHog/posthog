@@ -42,21 +42,24 @@
                 "short_id": "FEUllims",
                 "name": "donut",
                 "description": null,
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "math": null,
-                            "name": "$pageview",
-                            "type": "events",
-                            "order": 0,
-                            "properties": [],
-                            "math_property": null
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "$pageview",
+                                "name": "$pageview",
+                                "math": "total",
+                                "math_property": null
+                            }
+                        ],
+                        "interval": "day",
+                        "trendsFilter": {
+                            "display": "ActionsPie"
                         }
-                    ],
-                    "display": "ActionsPie",
-                    "insight": "TRENDS",
-                    "interval": "day"
+                    }
                 },
                 "order": null,
                 "deleted": false,
@@ -176,21 +179,24 @@
                 "short_id": "ZLyv5MGc",
                 "name": "pageviews",
                 "description": null,
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "math": null,
-                            "name": "$pageview",
-                            "type": "events",
-                            "order": 0,
-                            "properties": [],
-                            "math_property": null
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "kind": "EventsNode",
+                                "event": "$pageview",
+                                "name": "$pageview",
+                                "math": "total",
+                                "math_property": null
+                            }
+                        ],
+                        "interval": "day",
+                        "trendsFilter": {
+                            "display": "ActionsLineGraph"
                         }
-                    ],
-                    "display": "ActionsLineGraph",
-                    "insight": "TRENDS",
-                    "interval": "day"
+                    }
                 },
                 "order": null,
                 "deleted": false,

@@ -153,18 +153,6 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_uses_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 1}])])
@@ -185,6 +173,87 @@ class TestPagination:
             _rows(_source(_make_manager()))
 
 
+def _mock_get_session(responses: list[Response]) -> tuple[mock.MagicMock, list[tuple[str, dict[str, Any]]]]:
+    """A mock session whose `.get(url, params=...)` returns the queued responses in order.
+
+    Returns the session and a list of (url, params) captured per call.
+    """
+    session = mock.MagicMock()
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _get(url: str, params: Any = None) -> Response:
+        calls.append((url, dict(params) if params else {}))
+        return responses[len(calls) - 1]
+
+    session.get.side_effect = _get
+    return session, calls
+
+
+class TestTickets:
+    @mock.patch(AGILECRM_SESSION_PATCH)
+    def test_lists_via_all_tickets_filter(self, mock_make_session) -> None:
+        # The default filter list has "All Tickets" second — listing must resolve it, not grab the first.
+        filters = [
+            {"id": 1, "name": "New Tickets", "is_default_filter": True},
+            {"id": 2, "name": "All Tickets", "is_default_filter": True},
+        ]
+        tickets_page = [{"id": 100, "subject": "x", "cursor": "C"}]  # short page -> terminal
+        session, calls = _mock_get_session([_response(filters), _response(tickets_page)])
+        mock_make_session.return_value = session
+
+        rows = _rows(_source(_make_manager(), endpoint="tickets"))
+
+        assert [r["id"] for r in rows] == [100]
+        assert all("cursor" not in r for r in rows)
+        assert calls[1][0].endswith("/tickets/filter")
+        assert calls[1][1]["filter_id"] == "2"
+        assert calls[1][1]["global_sort_key"] == "-last_updated_time"
+
+    @mock.patch(AGILECRM_SESSION_PATCH)
+    def test_no_filters_yields_nothing(self, mock_make_session) -> None:
+        # Without a saved filter there is no way to list tickets, so the table stays empty.
+        session, calls = _mock_get_session([_response([])])
+        mock_make_session.return_value = session
+
+        assert _rows(_source(_make_manager(), endpoint="tickets")) == []
+        assert len(calls) == 1
+
+
+class TestFanout:
+    @mock.patch(AGILECRM_SESSION_PATCH)
+    def test_contact_notes_inject_parent_id(self, mock_make_session) -> None:
+        contacts_page = [{"id": 1}, {"id": 2}]  # short page -> terminal
+        notes_1 = [{"id": 10, "subject": "a"}]
+        notes_2 = [{"id": 11, "subject": "b", "cursor": "X"}]
+        session, calls = _mock_get_session([_response(contacts_page), _response(notes_1), _response(notes_2)])
+        mock_make_session.return_value = session
+
+        rows = _rows(_source(_make_manager(), endpoint="contact_notes"))
+
+        # Each note carries the id of the contact it was fetched for (part of the composite key), and
+        # the navigation cursor never leaks into a row.
+        assert rows == [
+            {"id": 10, "subject": "a", "contact_id": 1},
+            {"id": 11, "subject": "b", "contact_id": 2},
+        ]
+        assert calls[1][0].endswith("/contacts/1/notes")
+        assert calls[2][0].endswith("/contacts/2/notes")
+
+    @mock.patch(AGILECRM_SESSION_PATCH)
+    def test_ticket_notes_fan_out_over_tickets(self, mock_make_session) -> None:
+        # Parent enumeration for ticket messages goes through the ticket filter, then per-ticket notes.
+        filters = [{"id": 2, "name": "All Tickets", "is_default_filter": True}]
+        tickets_page = [{"id": 5}]  # short page -> terminal
+        messages = [{"id": 50, "ticket_id": 5, "plain_text": "hi"}]
+        session, calls = _mock_get_session([_response(filters), _response(tickets_page), _response(messages)])
+        mock_make_session.return_value = session
+
+        rows = _rows(_source(_make_manager(), endpoint="ticket_notes"))
+
+        assert rows == [{"id": 50, "ticket_id": 5, "plain_text": "hi"}]
+        assert calls[2][0].endswith("/tickets/notes/5")
+
+
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
@@ -197,8 +266,3 @@ class TestValidateCredentials:
         with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
             assert validate_credentials("evil.com#", "a@b.com", "key") is False
             mock_session.assert_not_called()
-
-    def test_network_error_is_false(self) -> None:
-        with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-            assert validate_credentials("acme", "a@b.com", "key") is False

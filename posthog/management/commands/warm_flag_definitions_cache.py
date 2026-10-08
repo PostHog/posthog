@@ -1,6 +1,9 @@
 """
 Management command to warm the flag definitions cache used for SDK local evaluation.
 
+IMPORTANT: This command requires FLAGS_REDIS_URL to be set. It will error if the
+dedicated flags cache is not configured to prevent warming the wrong cache.
+
 Usage:
     # Initial cache warm (preserves existing caches)
     python manage.py warm_flag_definitions_cache
@@ -25,8 +28,10 @@ class Command(BaseHyperCacheCommand):
         self.add_warm_arguments(parser)
 
     def handle(self, *args, **options):
-        # No check_dedicated_cache_configured() needed — flag definitions use the
-        # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
+        # Check if dedicated flags cache is configured (fail fast)
+        if not self.check_dedicated_cache_configured():
+            return
+
         team_ids = options.get("team_ids")
         batch_size = options["batch_size"]
         stagger_ttl = not options["no_stagger"]

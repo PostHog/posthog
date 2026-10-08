@@ -12,6 +12,7 @@ import tempfile
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -41,6 +42,12 @@ class PRData:
     # The repo's default branch, so stacked-ness isn't tied to "master" (the hosted
     # runtime reviews repos whose trunk is "main").
     default_branch: str = "master"
+    # Set by the hosted server from GitHub's compare API. Its shallow checkout holds no history, so
+    # git cannot compute the merge base there (see diff_range).
+    merge_base_sha: str = ""
+    # Every path the diff touches, unquoted: a rename's old and new name both. `files` names a
+    # rename once, so a deny pattern would miss code moved out of a protected directory.
+    touched_paths: list[str] = field(default_factory=list)
 
     @property
     def stacked(self) -> bool:
@@ -50,6 +57,11 @@ class PRData:
     @property
     def file_paths(self) -> list[str]:
         return [f["filename"] for f in self.files]
+
+    @property
+    def deny_paths(self) -> list[str]:
+        """The paths the deny-list matches: the changed files plus every touched path."""
+        return list(dict.fromkeys([*self.file_paths, *self.touched_paths]))
 
     @property
     def lines_added(self) -> int:
@@ -85,6 +97,43 @@ TRUSTED_REACTOR_BOTS = {
     "hex-security-app[bot]",
     "veria-ai[bot]",
 }
+
+# A reviewer bot's 👀 outlives the review it announced when the bot fails
+# mid-run: reactions never expire, and no one can remove another app's
+# reaction. Past this age the 👀 is treated as abandoned instead of in flight,
+# so a wedged bot cannot block a PR forever. A reaction with no timestamp
+# counts as fresh, which fails toward waiting.
+BOT_EYES_MAX_AGE_SECONDS = 45 * 60
+
+
+def _reaction_age_seconds(created_at: str | None) -> float:
+    if not created_at:
+        return 0.0
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return 0.0
+    return (datetime.now(UTC) - created).total_seconds()
+
+
+def _is_bot_eyes(reaction: dict) -> bool:
+    return reaction.get("emoji") == "👀" and (reaction.get("user") or "").lower() in TRUSTED_REACTOR_BOTS
+
+
+def is_in_flight_bot_eyes(reaction: dict) -> bool:
+    """True for a 👀 from an allowlisted reviewer bot that has not aged out."""
+    return _is_bot_eyes(reaction) and _reaction_age_seconds(reaction.get("created_at")) <= BOT_EYES_MAX_AGE_SECONDS
+
+
+def drop_abandoned_bot_eyes(reactions: list[dict] | None) -> list[dict]:
+    """Drop reviewer-bot 👀 that aged past the in-flight cutoff.
+
+    The wait gate stops waiting on these, so every reader of a reaction list
+    must hide them too. A stale 👀 left in the reviewer prompt makes the LLM
+    refuse over a review that finished days ago, and the author cannot clear
+    the reaction because it belongs to the bot.
+    """
+    return [r for r in reactions or [] if not _is_bot_eyes(r) or is_in_flight_bot_eyes(r)]
 
 
 def is_bot_author(user: dict) -> bool:
@@ -415,16 +464,28 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
     return comments, pr_reactions
 
 
-def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
+def diff_range(base_sha: str, head_sha: str, merge_base_sha: str = "") -> str:
+    """The git revision range of the PR's own changes.
+
+    ``base...head`` diffs from the merge base, which git computes by walking history. A known merge
+    base gives the same diff as ``merge_base..head`` and needs only the two commits, which is all a
+    shallow checkout holds.
+    """
+    if merge_base_sha:
+        return f"{merge_base_sha}..{head_sha}"
+    return f"{base_sha}...{head_sha}"
+
+
+def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> list[dict]:
     """Get changed files with line counts and status from the local checkout."""
-    diff_range = f"{base_sha}...{head_sha}"
+    revisions = diff_range(base_sha, head_sha, merge_base_sha)
     run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
 
-    numstat = subprocess.run(["git", "diff", "--numstat", diff_range], **run_opts)
+    numstat = subprocess.run(["git", "diff", "--numstat", revisions], **run_opts)
     if numstat.returncode != 0:
         raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
 
-    name_status = subprocess.run(["git", "diff", "--name-status", diff_range], **run_opts)
+    name_status = subprocess.run(["git", "diff", "--name-status", revisions], **run_opts)
     status_map: dict[str, str] = {}
     for line in name_status.stdout.strip().splitlines():
         parts = line.split("\t", 1)
@@ -452,6 +513,24 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
     return files
 
 
+def git_touched_paths(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> list[str]:
+    """Every path the diff touches, with renames split into their old and new names.
+
+    `-z` keeps git from quoting a path with a newline or a quote in it, which would put a `"` in
+    front of the path and defeat every anchored deny pattern.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", "-z", diff_range(base_sha, head_sha, merge_base_sha)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git diff --name-only failed: {result.stderr.strip()}")
+    return [path for path in result.stdout.split("\0") if path]
+
+
 def new_diff_file(directory: Path) -> Path:
     """Create a fresh, empty diff file under an unpredictable name inside ``directory``.
 
@@ -465,8 +544,8 @@ def new_diff_file(directory: Path) -> Path:
     return Path(path)
 
 
-def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path) -> Path:
-    """Write the base...head PR diff to a fresh file in the checkout and return its path.
+def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> Path:
+    """Write the PR diff (see diff_range) to a fresh file in the checkout and return its path.
 
     Shared by the reviewer (feeds the LLM the diff to read) and the familiarity
     signal (parses the same diff for base-side modified line ranges), so the
@@ -474,7 +553,7 @@ def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path) -> Path:
     """
     dest = new_diff_file(repo_root)
     result = subprocess.run(
-        ["git", "diff", f"{base_sha}...{head_sha}"],
+        ["git", "diff", diff_range(base_sha, head_sha, merge_base_sha)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -548,14 +627,15 @@ _GENERATED_BY_RE = re.compile(r"^generated-by:[ \t]*(.+?)[ \t]*$", re.IGNORECASE
 _TASK_ID_RE = re.compile(r"^task-id:[ \t]*(.+?)[ \t]*$", re.IGNORECASE | re.MULTILINE)
 
 
-def parse_provenance_trailers(log_output: str) -> CommitProvenance:
-    """Parse `Generated-By:` / `Task-Id:` trailers out of `git log --format=%B%x1e` output.
+def provenance_from_messages(raw_messages: list[str]) -> CommitProvenance:
+    """Parse `Generated-By:` / `Task-Id:` trailers out of the PR's commit messages.
 
     Agent tooling stamps these trailers on every commit it authors, so any
     commit carrying one marks the PR as agent-authored. Values are collected
-    de-duplicated in first-seen order.
+    de-duplicated in first-seen order. The messages come from `git log` on a
+    local run and from GitHub's PR commits API on a hosted one.
     """
-    messages = [m for m in (raw.strip() for raw in log_output.split(_COMMIT_RECORD_SEPARATOR)) if m]
+    messages = [m for m in (raw.strip() for raw in raw_messages) if m]
     agent_commits = 0
     generated_by: list[str] = []
     task_ids: list[str] = []
@@ -572,6 +652,11 @@ def parse_provenance_trailers(log_output: str) -> CommitProvenance:
         generated_by=tuple(generated_by),
         task_ids=tuple(task_ids),
     )
+
+
+def parse_provenance_trailers(log_output: str) -> CommitProvenance:
+    """Parse `Generated-By:` / `Task-Id:` trailers out of `git log --format=%B%x1e` output."""
+    return provenance_from_messages(log_output.split(_COMMIT_RECORD_SEPARATOR))
 
 
 def pr_provenance(base_sha: str, head_sha: str, repo_root: Path) -> CommitProvenance | None:
@@ -631,6 +716,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     git_root = repo_root or Path.cwd()
     ensure_commits(pr_number, head_sha, base_ref, base_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
+    touched_paths = git_touched_paths(base_sha, head_sha, git_root)
 
     review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number, pr["user"]["login"])
 
@@ -647,6 +733,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
@@ -658,11 +745,11 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     )
 
 
-def check_team_membership(author: str, team_slug: str) -> bool:
-    """Check if author is an active member of the given GitHub team."""
+def check_team_membership(org: str, author: str, team_slug: str) -> bool:
+    """Check if author is an active member of the given GitHub team in ``org``."""
     try:
         result = subprocess.run(
-            ["gh", "api", f"orgs/PostHog/teams/{team_slug}/memberships/{author}"],
+            ["gh", "api", f"orgs/{org}/teams/{team_slug}/memberships/{author}"],
             capture_output=True,
             text=True,
             timeout=10,

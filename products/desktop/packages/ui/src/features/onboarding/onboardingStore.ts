@@ -1,4 +1,7 @@
-import type { OnboardingStep } from "@posthog/ui/features/onboarding/types";
+import {
+  ONBOARDING_STEPS,
+  type OnboardingStep,
+} from "@posthog/core/onboarding/steps";
 import { logger } from "@posthog/ui/shell/logger";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -34,8 +37,16 @@ export function migrateOnboardingState(
   persistedState: unknown,
 ): OnboardingStore {
   const state = persistedState as OnboardingStore;
+  if ((state.currentStep as string) === "select-repo") {
+    return { ...state, hasCompletedOnboarding: true };
+  }
   if ((state.currentStep as string) === "invite-code") {
     return { ...state, currentStep: "consent" };
+  }
+  // A step id from a retired set, for example "welcome", renders no branch in
+  // the flow, so the person sees an empty card until the self-heal moves them.
+  if (!ONBOARDING_STEPS.includes(state.currentStep)) {
+    return { ...state, currentStep: ONBOARDING_STEPS[0] };
   }
   return state;
 }
@@ -61,7 +72,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
     }),
     {
       name: "onboarding-store",
-      version: 1,
+      version: 3,
       migrate: migrateOnboardingState,
       partialize: (state) => ({
         currentStep: state.currentStep,

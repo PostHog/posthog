@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -49,6 +49,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.instance_settings import get_instance_setting
@@ -276,10 +277,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
-        with freeze_time("2012-01-01T03:21:34.000Z"):
+        with time_machine.travel("2012-01-01T03:21:34.000Z", tick=False):
             funnel = self._basic_funnel()
 
-        with freeze_time("2012-01-01T03:21:35.000Z"):
+        with time_machine.travel("2012-01-01T03:21:35.000Z", tick=False):
             # events
             stopped_after_signup_person_id = uuid.uuid4()
             _create_person(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
@@ -288,49 +289,49 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 person_id=stopped_after_signup_person_id,
             )
 
-        with freeze_time("2012-01-01T03:21:36.000Z"):
+        with time_machine.travel("2012-01-01T03:21:36.000Z", tick=False):
             stopped_after_pay_person_id = uuid.uuid4()
             _create_person(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
             self._signup_event(
                 distinct_id="stopped_after_pay",
                 person_id=stopped_after_pay_person_id,
             )
-        with freeze_time("2012-01-01T03:21:37.000Z"):
+        with time_machine.travel("2012-01-01T03:21:37.000Z", tick=False):
             self._pay_event(
                 distinct_id="stopped_after_pay",
                 person_id=stopped_after_pay_person_id,
             )
 
-        with freeze_time("2012-01-01T03:21:38.000Z"):
+        with time_machine.travel("2012-01-01T03:21:38.000Z", tick=False):
             had_anonymous_id_person_id = uuid.uuid4()
             _create_person(
                 distinct_ids=["had_anonymous_id", "completed_movie"],
                 team_id=self.team.pk,
             )
             self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
-        with freeze_time("2012-01-01T03:21:39.000Z"):
+        with time_machine.travel("2012-01-01T03:21:39.000Z", tick=False):
             self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
-        with freeze_time("2012-01-01T03:21:40.000Z"):
+        with time_machine.travel("2012-01-01T03:21:40.000Z", tick=False):
             self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
 
-        with freeze_time("2012-01-01T03:21:41.000Z"):
+        with time_machine.travel("2012-01-01T03:21:41.000Z", tick=False):
             just_did_movie_person_id = uuid.uuid4()
             _create_person(distinct_ids=["just_did_movie"], team_id=self.team.pk)
             self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
 
-        with freeze_time("2012-01-01T03:21:42.000Z"):
+        with time_machine.travel("2012-01-01T03:21:42.000Z", tick=False):
             wrong_order_person_id = uuid.uuid4()
             _create_person(distinct_ids=["wrong_order"], team_id=self.team.pk)
             self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-        with freeze_time("2012-01-01T03:21:43.000Z"):
+        with time_machine.travel("2012-01-01T03:21:43.000Z", tick=False):
             self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-        with freeze_time("2012-01-01T03:21:44.000Z"):
+        with time_machine.travel("2012-01-01T03:21:44.000Z", tick=False):
             self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
 
-        with freeze_time("2012-01-01T03:21:45.000Z"):
+        with time_machine.travel("2012-01-01T03:21:45.000Z", tick=False):
             create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
 
-        with freeze_time("2012-01-01T03:21:46.000Z"):
+        with time_machine.travel("2012-01-01T03:21:46.000Z", tick=False):
             result = funnel.calculate().results
             self.assertEqual(result[0]["name"], "user signed up")
 
@@ -1564,7 +1565,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-03"):
+        with time_machine.travel("2020-01-03", tick=False):
             # event
             person1_stopped_after_two_signups = _create_person(
                 distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
@@ -3163,10 +3164,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_same_event_same_timestamp(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             for _ in range(20):
                 _create_event(team=self.team, event="step one", distinct_id="test")
-        with freeze_time("2024-01-11T12:01:00"):
+        with time_machine.travel("2024-01-11T12:01:00", tick=False):
             _create_event(team=self.team, event="step two", distinct_id="test")
         query = FunnelsQuery(
             dateRange=DateRange(
@@ -4258,6 +4259,102 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0][1]["breakdown_value"], ["test'123"])
         self.assertEqual(results[0][1]["count"], 1)
 
+    @parameterized.expand(
+        [
+            ("text", {"Continue": [2, 1], "Details": [1, 1], "": [2, 1]}),
+            ("tag_name", {"button": [2, 1], "a": [1, 1], "div": [1, 1], "": [1, 0]}),
+            ("href", {"/details": [1, 1], "": [4, 2]}),
+        ]
+    )
+    def test_breakdown_by_element_property(self, breakdown: str, expected: dict[str, list[int]]) -> None:
+        button_chain = 'button:nth-child="1"nth-of-type="1"text="Continue";div:text="Container"'
+        link_chain = 'a:href="/details"nth-child="2"nth-of-type="1"text="Details";div:text="Container"'
+        for index, (elements_chain, converts) in enumerate(
+            [
+                (button_chain, True),
+                (button_chain, False),
+                (link_chain, True),
+                ('div:nth-child="0"nth-of-type="0"', True),
+                ("", False),
+            ]
+        ):
+            distinct_id = f"element-user-{index}"
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=distinct_id,
+                timestamp="2024-03-22T12:00:00Z",
+                elements_chain=elements_chain,
+            )
+            if converts:
+                _create_event(
+                    team=self.team,
+                    event="completed",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:01:00Z",
+                )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(breakdown=breakdown, breakdown_type=BreakdownType.ELEMENT),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(
+            {
+                steps[0]["breakdown_value"][0] if steps[0]["breakdown_value"] else "": [step["count"] for step in steps]
+                for steps in results
+            },
+            expected,
+        )
+
+    def test_element_breakdown_with_integer_value_raises_query_error(self) -> None:
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(breakdown=5, breakdown_type=BreakdownType.ELEMENT),
+        )
+
+        with self.assertRaises(QueryError):
+            FunnelsQueryRunner(query=query, team=self.team).calculate()
+
+    def test_element_breakdown_buckets_values_past_the_limit_as_other(self) -> None:
+        for text, user_count in [("Continue", 5), ("Details", 4), ("Back", 2), ("Close", 1)]:
+            for index in range(user_count):
+                distinct_id = f"{text}-user-{index}"
+                _create_person(team=self.team, distinct_ids=[distinct_id])
+                _create_event(
+                    team=self.team,
+                    event="$autocapture",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:00:00Z",
+                    elements_chain=f'button:nth-child="1"nth-of-type="1"text="{text}"',
+                )
+                _create_event(
+                    team=self.team,
+                    event="completed",
+                    distinct_id=distinct_id,
+                    timestamp="2024-03-22T12:01:00Z",
+                )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(
+                breakdown="text",
+                breakdown_type=BreakdownType.ELEMENT,
+                breakdown_limit=2,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(
+            {steps[0]["breakdown_value"][0]: [step["count"] for step in steps] for steps in results},
+            {"Continue": [5, 5], "Details": [4, 4], "Other": [3, 3]},
+        )
+
     def test_funnel_query_with_event_metadata_breakdown(self):
         _create_person(
             distinct_ids=[f"user_1"],
@@ -4529,14 +4626,14 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_multiple_events_same_timestamp_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:00:00"):
+        with time_machine.travel("2024-01-10T12:00:00", tick=False):
             _create_event(team=self.team, event="step zero", distinct_id="test")
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             for _ in range(30):
                 _create_event(team=self.team, event="step one", distinct_id="test")
             _create_event(team=self.team, event="exclusion", distinct_id="test")
             _create_event(team=self.team, event="step two", distinct_id="test")
-        with freeze_time("2024-01-10T12:02:00"):
+        with time_machine.travel("2024-01-10T12:02:00", tick=False):
             _create_event(team=self.team, event="step three", distinct_id="test")
         query = FunnelsQuery(
             dateRange=DateRange(
@@ -5418,7 +5515,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_events_same_timestamp_no_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             _create_event(team=self.team, event="step one, ten", distinct_id="test")
             _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
             _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
@@ -5867,7 +5964,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(result[1]["count"], 1)
 
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_same_event_different_property_filters(self):
         _create_person(distinct_ids=["user_both"], team_id=self.team.pk)
         _create_event(
@@ -5956,7 +6053,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_breakdown_value_boxing(self, _name, breakdown_type, breakdown_prop, group_type_index, needs_groups):
         if needs_groups:
             self._create_groups()
@@ -6019,7 +6116,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
 
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_session_breakdown_groups_results_by_session_property(self):
         # Three sessions across three users — two from google.com (one converts, one doesn't),
         # one from bing.com (converts). The funnel groups by session.$entry_referring_domain,

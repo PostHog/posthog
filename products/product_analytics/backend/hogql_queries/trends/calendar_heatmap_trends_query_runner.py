@@ -1,0 +1,90 @@
+from typing import Optional
+
+from posthog.schema import (
+    CalendarHeatmapQuery,
+    EventsHeatMapStructuredResult,
+    QueryTiming,
+    ResolvedDateRangeResponse,
+    TrendsQueryResponse,
+)
+
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+
+
+class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
+    """
+    A wrapper around TrendsQueryRunner that delegates to CalendarHeatmapQueryRunner
+    but returns the response in TrendsQueryResponse format for frontend compatibility.
+
+    This ensures that calendar heatmap queries return data in the format expected by
+    the frontend (with calendar_heatmap_data in the trends response).
+    """
+
+    def _calculate(self):
+        from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_query_runner import (
+            CalendarHeatmapQueryRunner,
+        )
+
+        # Convert TrendsQuery to CalendarHeatmapQuery. Forward calendarHeatmapFilter as-is
+        # so opt-in flags (e.g. bucketBySessionStart, set by the web analytics Active Hours
+        # tile) flow through without the wrapper needing to know about each one.
+        calendar_query = CalendarHeatmapQuery(
+            dateRange=self.query.dateRange,
+            filterTestAccounts=self.query.filterTestAccounts,
+            properties=self.query.properties,
+            series=self.query.series,
+            conversionGoal=getattr(self.query, "conversionGoal", None),
+            calendarHeatmapFilter=getattr(self.query, "calendarHeatmapFilter", None),
+        )
+
+        # Create and run calendar heatmap query runner
+        calendar_runner = CalendarHeatmapQueryRunner(
+            query=calendar_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+        calendar_response = calendar_runner._calculate()
+
+        return self._wrap_calendar_results(
+            calendar_response.results,
+            timings=calendar_response.timings,
+            hogql=calendar_response.hogql,
+        )
+
+    def _wrap_calendar_results(
+        self,
+        results: EventsHeatMapStructuredResult,
+        *,
+        timings: Optional[list[QueryTiming]] = None,
+        hogql: Optional[str] = None,
+    ) -> TrendsQueryResponse:
+        """Wrap an EventsHeatMapStructuredResult in the TrendsQueryResponse shape
+        the frontend's heatmap visualization consumes."""
+        return TrendsQueryResponse(
+            results=[
+                {
+                    "action": {
+                        "id": self.series_event(self.query.series[0]) if self.query.series else "heatmap",
+                        "type": "events",
+                        "order": 0,
+                        "name": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
+                        "math": self.query.series[0].math if self.query.series else "total",
+                    },
+                    "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
+                    "data": [],  # Empty array for non-time-series data
+                    "aggregated_value": results.allAggregations,
+                    "calendar_heatmap_data": results,  # Store the original heatmap data
+                    "count": results.allAggregations,
+                }
+            ],
+            timings=timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )

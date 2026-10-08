@@ -8,9 +8,13 @@ it is redacted from logs and raised error messages.
 """
 
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
+
+import structlog
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -32,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     MEM0_ENDPOINTS,
     MEMORIES_ENDPOINT,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Every memory carries at least one owning entity id (user_id / agent_id / app_id / run_id are
 # required at add time), so OR-ing the wildcard over all four matches the whole store. A bare
@@ -210,6 +216,40 @@ def mem0_source(
     )
 
 
+def _pages_until_page_rejected(resource: Any, *, resumed: bool) -> Iterator[list[Any]]:
+    """Yield the memories pages, ending the table when Mem0 rejects a page it told us to fetch.
+
+    Mem0 keeps putting a ``next`` link in the memories envelope past the point where it answers
+    that page with 400, so a store large enough to reach that page fails the whole sync and the
+    table never lands at all. Every request after the first targets a URL Mem0 itself handed us,
+    so a 400 there is Mem0 refusing to page deeper rather than a malformed request: finish the
+    table with the rows already read.
+
+    A 400 on the first request is a real request-validation failure (Mem0 documents a missing or
+    empty ``filters`` as the cause) and must still fail the run instead of syncing an empty table.
+    A resumed run starts on a saved ``next`` link, so its first request counts as a followed link.
+    """
+    followed_mem0_link = resumed
+    pages = iter(resource)
+    while True:
+        try:
+            page = next(pages)
+        except StopIteration:
+            return
+        except HTTPError as error:
+            status = error.response.status_code if error.response is not None else None
+            if status != 400 or not followed_mem0_link:
+                raise
+            logger.warning(
+                "mem0.memories_pagination_rejected",
+                endpoint=MEMORIES_ENDPOINT,
+                status_code=status,
+            )
+            return
+        followed_mem0_link = True
+        yield page
+
+
 def _memories_resource(
     client: ClientConfig,
     team_id: int,
@@ -264,7 +304,7 @@ def _memories_resource(
                 Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=state["next_url"], cutoff=cutoff)
             )
 
-    return rest_api_resource(
+    resource = rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -272,6 +312,8 @@ def _memories_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+    return _pages_until_page_rejected(resource, resumed=initial_paginator_state is not None)
 
 
 def _entities_resource(

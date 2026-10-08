@@ -10,6 +10,7 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.models.deletion_targets import (
     DeletionTarget,
+    HogQLSchema,
     UnreachableTargetError,
     dispatchable_here,
     placement_for,
@@ -134,3 +135,14 @@ def test_a_sibling_shards_over_the_role_its_target_declares() -> None:
         assert placement is not None
         assert sorted(placement.cluster.shards) == [1, 2]
         assert placement.cluster.shard_role == NodeRole.EVENTS
+
+
+def test_an_events_schema_target_cannot_take_the_property_rewrite_without_person_properties() -> None:
+    with pytest.raises(ValueError, match="stores_person_properties"):
+        DeletionTarget(
+            data_table="sharded_events",
+            read_table="events",
+            hogql_schema=HogQLSchema.LEGACY,
+            accepts_property_rewrite=True,
+            stores_person_properties=False,
+        )

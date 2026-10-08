@@ -26,10 +26,14 @@ outcome it could not confirm.
 from __future__ import annotations
 
 import io
+import re
 import csv
 import json
+import socket
+import asyncio
+import ipaddress
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, ClassVar
 
 import psycopg
@@ -37,50 +41,152 @@ import pyarrow as pa
 from psycopg import sql
 
 from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
+from products.batch_exports.backend.facade.destinations.postgres import (
     Fields,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLIntegrationNotFoundError,
     run_in_retryable_transaction,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer
+from products.batch_exports.backend.facade.pipeline import CSVStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
+    dedupe_merge_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    BATCH_INDEX_COLUMN,
+    is_owned_by,
+    is_published_by,
+    owned_marker,
+    published_marker,
+    run_scope,
+    stamp_batch_index,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.sql_types import (
     is_nested_type,
     postgres_type_for,
 )
 
-# Marks which batch of a run wrote a staged row, so re-applying a batch can delete exactly
-# what its previous attempt wrote instead of the whole staging table.
-BATCH_INDEX_COLUMN = "_ph_batch_index"
-
-# Proof this writer created a table, so a sync never drops or merges into one the customer
-# already had. `table_name` comes from the source's resource name, which a custom-source
-# manifest controls, so without it any table sharing that name is fair game.
-#
-# Stored as a Postgres comment because those follow the table's OID, surviving the rename in
-# `finalize_run`. Scoped by schema id because `table_name` collides across sources on purpose
-# and ownership must not.
-_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
-
-
-def _owned_marker(schema_id: str) -> str:
-    """Ownership marker scoped to the schema whose sync created the table."""
-    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
-
-
-def _published_comment(schema_id: str, run_uuid: str) -> str:
-    """Ownership marker plus the run that last published, so a replay can recognize itself."""
-    return f"{_owned_marker(schema_id)}:{run_uuid}"
+# The ownership and publish markers are stored as Postgres comments because those follow the
+# table's OID, surviving the rename in `finalize_run`.
 
 
 class UnrelatedTableExistsError(RuntimeError):
     """A sync would have replaced or mutated a table this writer never created."""
+
+
+HOST_RESOLUTION_TIMEOUT_SECONDS = 10
+
+IPV6_ONLY_HOST_DETAIL = (
+    "The host has only IPv6 addresses, and PostHog connects to destinations over IPv4. "
+    "Use a host name or address that has an IPv4 address, then run the sync again."
+)
+HOST_NOT_FOUND_DETAIL = "The host name does not exist. Check the host on the destination, then run the sync again."
+NETWORK_UNREACHABLE_DETAIL = (
+    "PostHog cannot reach the host's network. Check that the host is reachable from the internet over IPv4, "
+    "then run the sync again."
+)
+AUTHENTICATION_FAILED_DETAIL = (
+    "The database refused the user name or password. Update the credentials on the destination, "
+    "then run the sync again."
+)
+ACCESS_RULE_DETAIL = (
+    "The database does not allow connections from PostHog. Allow PostHog's IP addresses in the database's "
+    "access rules, then run the sync again."
+)
+UNKNOWN_DATABASE_DETAIL = (
+    "The database does not exist on this server. Check the database name on the destination, then run the sync again."
+)
+
+# Connection failures carry no SQLSTATE: libpq reports them as text only, so these match the
+# text. Each one fails the same way on every attempt. A server that sends its messages in another
+# language matches none of them, which falls back to the retries, the safe side.
+_CONNECT_CONFIGURATION_ERRORS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"Network is unreachable"), NETWORK_UNREACHABLE_DETAIL),
+    (re.compile(r"password authentication failed for user"), AUTHENTICATION_FAILED_DETAIL),
+    (re.compile(r'role ".*" does not exist'), AUTHENTICATION_FAILED_DETAIL),
+    (re.compile(r"no pg_hba\.conf entry for host"), ACCESS_RULE_DETAIL),
+    (re.compile(r'database ".*" does not exist'), UNKNOWN_DATABASE_DETAIL),
+)
+
+# psycopg tries each address of a host in turn and, when all fail, puts the last attempt's error
+# first and then this line before the list of every attempt. Only the last attempt decides: an
+# IPv6 address that is unreachable before an IPv4 one that timed out is still a timeout.
+_MULTIPLE_ATTEMPTS_LINE = "Multiple connection attempts failed"
+
+
+def connect_configuration_error_detail(err: BaseException) -> str | None:
+    """What the customer must fix when `err` stops every connection attempt, or None to retry."""
+    if isinstance(err, psycopg.errors.ConnectionTimeout):
+        return None
+    if isinstance(err, psycopg.errors.InvalidPassword | psycopg.errors.InvalidAuthorizationSpecification):
+        return AUTHENTICATION_FAILED_DETAIL
+    if isinstance(err, psycopg.errors.InvalidCatalogName):
+        return UNKNOWN_DATABASE_DETAIL
+    if not isinstance(err, psycopg.OperationalError):
+        return None
+
+    last_attempt = str(err).split(_MULTIPLE_ATTEMPTS_LINE, 1)[0]
+    for pattern, detail in _CONNECT_CONFIGURATION_ERRORS:
+        if pattern.search(last_attempt):
+            return detail
+    return None
+
+
+def _is_connect_error_retryable(err: Exception) -> bool:
+    return connect_configuration_error_detail(err) is None
+
+
+def _is_ipv6(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address.strip("[]")).version == 6
+    except ValueError:
+        return False
+
+
+async def _resolve(host: str, port: int) -> list[str]:
+    loop = asyncio.get_running_loop()
+    infos = await asyncio.wait_for(
+        loop.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP),
+        timeout=HOST_RESOLUTION_TIMEOUT_SECONDS,
+    )
+    return [str(info[4][0]) for info in infos]
+
+
+async def host_configuration_error_detail(host: str, port: int) -> str | None:
+    """What the customer must fix when `host` cannot work from here, or None to go on and connect.
+
+    A lookup that fails on our side (a timeout, an unreachable resolver) returns None, and
+    the connect retries handle it. Only an answer about the name itself is the customer's.
+    """
+    if not host or host.startswith("/"):
+        return None
+
+    if is_resolvable_hostname(host):
+        try:
+            addresses = await _resolve(host, port)
+        except TimeoutError:
+            return None
+        except socket.gaierror as err:
+            return None if is_temporary_resolution_failure(err) else HOST_NOT_FOUND_DETAIL
+        if not addresses:
+            return HOST_NOT_FOUND_DETAIL
+    else:
+        addresses = [host]
+
+    if all(_is_ipv6(address) for address in addresses) and not has_ipv6_route():
+        return IPV6_ONLY_HOST_DETAIL
+    return None
 
 
 # Postgres truncates identifiers past this, dropping the end — which is where our suffixes go.
@@ -98,14 +204,14 @@ def _scoped_identifier(base: str, suffix: str) -> str:
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
     # Run-scoped, so two runs of the same table never share a staging table.
-    return _scoped_identifier(ctx.table_name, f"__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}")
+    return _scoped_identifier(ctx.table_name, f"__ph_stage_{run_scope(ctx.run_uuid)}")
 
 
 def merge_stage_name(target: str, ctx: DestinationRunContext) -> str:
     # `target` is the live table on an incremental run, so it can already be at the identifier
     # limit. Reserve room for the suffix or the stage name truncates onto the live table, and
     # dropping the stage would drop it.
-    return _scoped_identifier(target, f"__ph_merge_{ctx.run_uuid.replace('-', '')[:8]}")
+    return _scoped_identifier(target, f"__ph_merge_{run_scope(ctx.run_uuid, 8)}")
 
 
 def _to_json_text(value: Any, *, from_map: bool) -> str | None:
@@ -173,21 +279,39 @@ class PostgresDestinationWriter:
 
     async def _make_client(self) -> PostgreSQLClient:
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await self._load_integration(self._ctx.integration_id)
+        try:
+            integration = await self._load_integration(self._ctx.integration_id)
+        except PostgreSQLIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
         return self._client_from_integration(integration)
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:
         client = await self._make_client()
+
+        # The pre-check resolves the host only to classify it; `connect()` resolves it again.
+        host_detail = await host_configuration_error_detail(client.host, client.port)
+        if host_detail is not None:
+            raise DestinationConfigurationError(self._ctx.destination_name, host_detail)
+
         # `connect()` resolves and dials the integration's hostname with no connection-time
         # address validation or pinning, same as batch exports' own Postgres destination on
         # this same client. An editor-controlled hostname could DNS-rebind to a private address
         # between resolution and connect; closing that needs pinning inside `PostgreSQLClient`
         # itself (posthog#86986 review discussion), which this product can't reach into, so
         # every caller of this shared client is fixed together rather than patched here alone.
-        async with client.connect():
+        async with AsyncExitStack() as stack:
+            # Entered apart from the body, so only a failure to connect is classified here, never
+            # an error the caller raises while it holds the connection.
+            try:
+                await stack.enter_async_context(client.connect(is_error_retryable=_is_connect_error_retryable))
+            except PostgreSQLConnectionError as err:
+                detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
+                if detail is not None:
+                    raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+                raise
             yield client
 
     @asynccontextmanager
@@ -255,6 +379,11 @@ class PostgresDestinationWriter:
             if field.name in existing:
                 continue
             async with self._write_cursor(client) as cursor:
+                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
+                # not accept `ADD COLUMN IF NOT EXISTS`. If it does not, every Redshift sync
+                # whose source grows a column fails here with a syntax error rather than
+                # evolving the table. Confirm against a real cluster. The guard above already
+                # skips columns the table has, so a plain `ADD COLUMN` would also do.
                 await cursor.execute(
                     sql.SQL("ALTER TABLE {}.{} ADD COLUMN IF NOT EXISTS {} {}").format(
                         sql.Identifier(self._schema),
@@ -385,10 +514,7 @@ class PostgresDestinationWriter:
         column_names = list(batch.schema.names)
 
         if full_refresh:
-            stamped = batch.append_column(
-                self._batch_index_column,
-                pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
-            )
+            stamped = stamp_batch_index(batch, ctx.batch_index)
             await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
             return batch.num_rows
 
@@ -404,20 +530,25 @@ class PostgresDestinationWriter:
         """Upsert a batch on the schema's primary keys, through a stage table."""
         run = self._ctx
         stage = merge_stage_name(target, run)
+        source = dedupe_merge_source(batch, list(run.primary_keys))
 
-        await self._ensure_merge_stage(client, stage, batch.schema)
-        await self._load_batch(client, stage, batch, column_names)
+        await self._ensure_merge_stage(client, target, stage, batch.schema)
+        await self._load_batch(client, stage, source, column_names)
         await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
 
-        return batch.num_rows
+        return source.num_rows
 
-    async def _ensure_merge_stage(self, client: PostgreSQLClient, stage: str, schema: pa.Schema) -> None:
+    async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.
 
         Created once per run and emptied between batches rather than created and dropped per
         batch. A table per batch is not free on someone else's server: each one writes catalog
         rows that later have to be vacuumed, and vacuuming catalog tables can need locks.
         `abort_run` and `finalize_run` drop it.
+
+        `target` is unused here because `ON CONFLICT` names its columns, so a stage carrying
+        only the batch's own columns is enough. Redshift's merge selects the destination's full
+        column list out of the stage, so its override builds the stage from `target` instead.
         """
         await client.acreate_table(
             self._schema, stage, self._fields_for(schema, with_batch_index=False), exists_ok=True
@@ -523,24 +654,12 @@ class PostgresDestinationWriter:
             # it as a literal is safe the same way the fixed constant was.
             await cursor.execute(
                 sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
-                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(_owned_marker(schema_id))
+                    sql.Identifier(self._schema), sql.Identifier(table), sql.Literal(owned_marker(schema_id))
                 )
             )
 
     async def _is_owned(self, client: PostgreSQLClient, table: str, schema_id: str) -> bool:
-        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
-        # character-prefix of another ("abc" of "abc123"), which would let a table another
-        # schema owns pass as owned here. Split on the marker's own `:` separators instead so
-        # the owning schema id is compared for exact equality; a published table carries the
-        # run uuid as a further segment after it, which this ignores.
-        comment = await self._table_comment(client, table)
-        if comment is None:
-            return False
-        marker, sep, rest = comment.partition(":")
-        if marker != _OWNERSHIP_COMMENT or not sep:
-            return False
-        owner = rest.split(":", 1)[0]
-        return owner == schema_id
+        return is_owned_by(await self._table_comment(client, table), schema_id)
 
     async def _table_comment(self, client: PostgreSQLClient, table: str) -> str | None:
         async with client.connection.cursor() as cursor:
@@ -563,7 +682,7 @@ class PostgresDestinationWriter:
             return False
         if not await self._table_exists(client, ctx.table_name):
             return False
-        return await self._table_comment(client, ctx.table_name) == _published_comment(ctx.schema_id, ctx.run_uuid)
+        return is_published_by(await self._table_comment(client, ctx.table_name), ctx.schema_id, ctx.run_uuid)
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
@@ -594,6 +713,9 @@ class PostgresDestinationWriter:
                 )
 
             async with self._write_cursor(client) as cursor:
+                # TODO: `RedshiftDestinationWriter` inherits this statement, and Redshift may
+                # not accept `DROP COLUMN IF EXISTS`. If it does not, every Redshift full
+                # refresh fails here and no run ever publishes. Confirm against a real cluster.
                 await cursor.execute(
                     sql.SQL("ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}").format(
                         sql.Identifier(self._schema),
@@ -621,7 +743,7 @@ class PostgresDestinationWriter:
                     sql.SQL("COMMENT ON TABLE {}.{} IS {}").format(
                         sql.Identifier(self._schema),
                         sql.Identifier(ctx.table_name),
-                        sql.Literal(_published_comment(ctx.schema_id, ctx.run_uuid)),
+                        sql.Literal(published_marker(ctx.schema_id, ctx.run_uuid)),
                     )
                 )
 

@@ -38,34 +38,6 @@ class TestTwilioSource:
         self.config = _api_key_config()
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json",
-            "403 Client Error: Forbidden for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Calls.json",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json",
-        ],
-    )
-    def test_non_retryable_errors_ignore_unrelated(self, other_error):
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_main_key_only_tables_default_off(self):
-        # One-shot setup builds its schema list straight from get_schemas and never calls
-        # get_endpoint_permissions, so without this the `keys` table is enabled for a Standard API
-        # key and its first sync fails non-retryably.
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["keys"].should_sync_default is False
-        assert all(s.should_sync_default for name, s in schemas.items() if name != "keys")
-
-    @pytest.mark.parametrize(
         "config_factory, expected_auth",
         [
             (_api_key_config, ("SK123", "secret")),

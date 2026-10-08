@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,16 +23,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
     DESCRIPTIONS,
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     MERGE_QUEUE_PULL_REQUESTS,
     PRIMARY_KEYS,
     SHOULD_SYNC_DEFAULT,
+    TEST_COLLECTIONS,
+    TESTS,
+    TRUNK_IO_API_VERSION_V1,
+    TRUNK_IO_API_VERSION_V2,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import (
     TrunkIoResumeConfig,
     TrunkRepo,
     failing_tests,
+    list_test_collections,
+    list_tests,
     merge_queue_pull_requests,
     quarantined_tests,
     unhealthy_tests,
@@ -52,6 +56,9 @@ MISSING_TARGET_BRANCH_ERROR = (
 class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.trunk.io/flaky-tests/api"
+
+    supported_versions = (TRUNK_IO_API_VERSION_V1, TRUNK_IO_API_VERSION_V2)
+    default_version = TRUNK_IO_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -81,7 +88,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS,
+            endpoints_for_version(self.resolve_api_version(api_version)),
             INCREMENTAL_FIELDS,
             names,
             descriptions=DESCRIPTIONS,
@@ -95,6 +102,8 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        # Every version keeps the repository-scoped v1 tables, and v2 accepts the same token, so
+        # the v1 probe holds for both pins.
         repo = TrunkRepo(host=config.repo_host, owner=config.repo_owner, name=config.repo_name)
         return validate_trunk_io_credentials(config.api_token, config.org_url_slug, repo)
 
@@ -109,6 +118,8 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
     ) -> SourceResponse:
         repo = TrunkRepo(host=config.repo_host, owner=config.repo_owner, name=config.repo_name)
         endpoint = inputs.schema_name
+        if endpoint not in endpoints_for_version(self.resolve_api_version(inputs.api_version)):
+            raise ValueError(f"Unknown Trunk.io endpoint: {endpoint}")
 
         if endpoint == "UnhealthyTests":
             items = unhealthy_tests(config.api_token, repo, config.org_url_slug, resumable_source_manager)
@@ -139,6 +150,10 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
                 if inputs.should_use_incremental_field
                 else None,
             )
+        elif endpoint == TEST_COLLECTIONS:
+            items = list_test_collections(config.api_token, resumable_source_manager)
+        elif endpoint == TESTS:
+            items = list_tests(config.api_token, resumable_source_manager)
         else:
             raise ValueError(f"Unknown Trunk.io endpoint: {endpoint}")
 
@@ -151,7 +166,7 @@ class TrunkIoSource(ResumableSource[TrunkIoSourceConfig, TrunkIoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TRUNK_IO,
+            name=ExternalDataSourceType.TRUNKIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Trunk.io (Trunk Technologies, Inc.)",
             caption="""Enter a Trunk.io API token to sync flaky test and merge queue data for a single repository.
@@ -161,6 +176,8 @@ Supported tables:
 - `QuarantinedTests`
 - `FailingTests`
 - `MergeQueuePullRequests` (needs a merge queue target branch below)
+- `TestCollections`
+- `Tests` (tests in your test collections)
 
 Create an API token in the Trunk app under Settings > Organization > General > API.
 """,

@@ -32,6 +32,8 @@ import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionReco
 import type { MiniFilterKey } from '../inspector/miniFiltersLogic'
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import type { InspectorListItem } from '../inspector/playerInspectorLogic'
+import { countryTitleFrom } from './countryTitleFrom'
+import { OverviewTab, groupOverviewItemsByTab } from './overviewTabs'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
 
@@ -43,24 +45,6 @@ function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | nu
 
 function canRenderDirectly(value: any): boolean {
     return typeof value === 'string' || typeof value === 'number' || React.isValidElement(value)
-}
-
-export function countryTitleFrom(
-    recordingProperties: Record<string, any> | undefined,
-    personProperties?: Record<string, any> | undefined
-): string {
-    const props = recordingProperties || personProperties
-    if (!props) {
-        return ''
-    }
-
-    // these prop names are safe between recording and person properties
-    // the "initial" person properties share the same name as the event properties
-    const country = COUNTRY_CODE_TO_LONG_NAME[props['$geoip_country_code'] as keyof typeof COUNTRY_CODE_TO_LONG_NAME]
-    const subdivision = props['$geoip_subdivision_1_name']
-    const city = props['$geoip_city_name']
-
-    return [city, subdivision, country].filter(Boolean).join(', ')
 }
 
 /**
@@ -82,7 +66,8 @@ export function getPropertyDisplayInfo(
         recordingProperties && property in recordingProperties
             ? // anything the query returned that doesn't match a core definition must be an event property
               getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-            : TaxonomicFilterGroupType.PersonProperties
+            : // a pinned key this recording lacks still has a type: a core session property stays a session property
+              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.PersonProperties
 
     const propertyFilterType: PropertyFilterType | undefined =
         propertyType === TaxonomicFilterGroupType.EventProperties
@@ -132,6 +117,8 @@ export interface playerMetaLogicValues {
     isPropertyPopoverOpen: boolean
     lastPageviewEvent: RecordingEventType | null | undefined
     loading: boolean
+    locationDisplay: string
+    overviewItemsByTab: Record<OverviewTab, OverviewItem[]>
     resolutionDisplay: string
     scaleDisplay: string
     sessionPerson: PersonType | null
@@ -219,6 +206,11 @@ export interface playerMetaLogicMeta {
             pinnedProperties: string[]
         ) => OverviewItem[]
         displayOverviewItems: (allOverviewItems: OverviewItem[], pinnedProperties: string[]) => OverviewItem[]
+        overviewItemsByTab: (displayOverviewItems: OverviewItem[]) => Record<OverviewTab, OverviewItem[]>
+        locationDisplay: (
+            sessionPlayerMetaData: SessionRecordingType | null,
+            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
+        ) => string
     }
 }
 
@@ -419,8 +411,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     : {}
                 const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                // Combine both recording and person properties
-                const allProperties = { ...recordingProperties, ...personProperties }
+                // session properties win, person properties may be from a later session
+                const allProperties = { ...personProperties, ...recordingProperties }
                 if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete allProperties['$os']
@@ -479,6 +471,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                   : JSON.stringify(value),
                         type: 'property',
                         property,
+                        propertyFilterType: propertyInfo.propertyFilterType,
                     })
                 })
 
@@ -503,6 +496,23 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const bIndex = pinnedProperties.indexOf(String(bKey))
                     return aIndex - bIndex
                 })
+            },
+        ],
+        overviewItemsByTab: [
+            (s) => [s.displayOverviewItems],
+            (displayOverviewItems: OverviewItem[]): Record<OverviewTab, OverviewItem[]> =>
+                groupOverviewItemsByTab(displayOverviewItems),
+        ],
+        locationDisplay: [
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (
+                sessionPlayerMetaData: SessionRecordingType | null,
+                recordingPropertiesById: Record<string, Record<string, any>>
+            ): string => {
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData.id]
+                    : undefined
+                return countryTitleFrom(recordingProperties, getAllPersonProperties(sessionPlayerMetaData))
             },
         ],
     })),

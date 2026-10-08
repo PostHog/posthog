@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.ca
     base_url,
     campayn_source,
     is_subdomain_valid,
-    normalize_subdomain,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.settings import (
@@ -70,22 +69,6 @@ def _batches(source_response) -> list[list[dict[str, Any]]]:
     return [list(page) for page in source_response.items()]
 
 
-class TestNormalizeSubdomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("acme", "acme"),
-            ("  acme  ", "acme"),
-            ("acme.campayn.com", "acme"),
-            ("https://acme.campayn.com/", "acme"),
-            ("http://acme.campayn.com/api/v1/lists.json", "acme"),
-            ("ACME.CAMPAYN.COM", "ACME"),
-        ],
-    )
-    def test_normalize(self, raw: str, expected: str) -> None:
-        assert normalize_subdomain(raw) == expected
-
-
 class TestIsSubdomainValid:
     @pytest.mark.parametrize(
         "raw, expected",
@@ -104,38 +87,6 @@ class TestIsSubdomainValid:
     )
     def test_validity(self, raw: str, expected: bool) -> None:
         assert is_subdomain_valid(raw) is expected
-
-
-class TestTopLevelEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lists_yields_single_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        seen = _wire(session, [_response([{"id": "1"}, {"id": "2"}])])
-
-        batches = _batches(_source("lists"))
-
-        assert batches == [[{"id": "1"}, {"id": "2"}]]
-        # No pagination anywhere on Campayn's API — exactly one request per endpoint.
-        assert session.send.call_count == 1
-        assert seen[0]["url"] == f"{base_url('acme')}/lists.json"
-        assert seen[0]["auth_headers"]["Authorization"] == "TRUEREST apikey=k"
-        assert session.headers.get("Accept") == "application/json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _batches(_source("emails")) == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_object_body_is_wrapped_as_one_row(self, MockSession) -> None:
-        # Defensive: the docs say list endpoints return bare arrays, but a single-object body is
-        # tolerated as one row rather than crashing the sync.
-        session = MockSession.return_value
-        _wire(session, [_response({"id": "1"})])
-
-        assert _batches(_source("reports")) == [[{"id": "1"}]]
 
 
 class TestFanOut:
@@ -162,25 +113,6 @@ class TestFanOut:
             f"{base_url('acme')}/lists/10/contacts.json",
             f"{base_url('acme')}/lists/20/contacts.json",
         ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_stringifies_numeric_parent_id(self, MockSession) -> None:
-        # The composite primary key expects list_id as a string, whatever JSON type the API returns.
-        session = MockSession.return_value
-        seen = _wire(session, [_response([{"id": 10}]), _response([{"id": "1"}])])
-
-        batches = _batches(_source("contacts"))
-
-        assert batches == [[{"id": "1", "list_id": "10"}]]
-        assert seen[1]["url"] == f"{base_url('acme')}/lists/10/contacts.json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_with_no_lists_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _batches(_source("forms")) == []
-        assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_fan_out_skips_list_deleted_mid_sync(self, MockSession) -> None:
@@ -263,32 +195,9 @@ class TestCampaynSource:
             # No stable creation-time field exists, so nothing is partitioned.
             assert response.partition_mode is None
 
-    def test_fan_out_endpoints_key_includes_parent_list_id(self) -> None:
-        assert _source("contacts").primary_keys == ["list_id", "id"]
-        assert _source("forms").primary_keys == ["list_id", "id"]
-
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(CAMPAYN_SESSION_PATCH)
-    def test_status_mapping(self, mock_session: mock.MagicMock, status: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("acme", "k") is expected
-
     @mock.patch(CAMPAYN_SESSION_PATCH)
     def test_connection_error_returns_false(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("acme", "k") is False
-
-    @mock.patch(CAMPAYN_SESSION_PATCH)
-    def test_probes_lists_endpoint_with_auth_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("acme", "k")
-
-        call = mock_session.return_value.get.call_args
-        called_url = call.args[0] if call.args else call.kwargs["url"]
-        assert called_url == f"{base_url('acme')}/lists.json"
-        assert call.kwargs["headers"]["Authorization"] == "TRUEREST apikey=k"

@@ -13,7 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
-import { SelectableCard } from '../components/SelectableCard'
+import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
@@ -169,8 +170,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
+                        {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
             )}
@@ -195,8 +196,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={true}
+                        {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
             )}

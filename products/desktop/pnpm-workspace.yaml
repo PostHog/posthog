@@ -14,7 +14,7 @@ catalog:
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
     '@posthog/brand': 0.11.0
-    '@posthog/quill': 0.3.0-beta.28
+    '@posthog/quill': 0.3.0-beta.29
     '@radix-ui/themes': ^3.2.1
     '@tanstack/react-query': ^5.100.14
     '@tanstack/react-router': ^1.170.10
@@ -148,3 +148,5 @@ patchedDependencies:
     app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch
     node-pty: patches/node-pty.patch
     react-hotkeys-hook: patches/react-hotkeys-hook.patch
+    # Drawer spring mass 3 -> 1: the stock open/close feels sluggish on mobilehog.
+    react-native-drawer-layout: patches/react-native-drawer-layout.patch

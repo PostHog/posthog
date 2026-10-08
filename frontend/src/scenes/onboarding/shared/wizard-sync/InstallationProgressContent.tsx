@@ -27,6 +27,7 @@ const HedgehogWizard = pngHoggie(wizardPng)
 export function InstallationProgressContent({
     workflowId,
     continueHint,
+    docsUrl = 'https://posthog.com/docs/getting-started/install',
     progress,
     mode,
     onViewReport,
@@ -40,6 +41,7 @@ export function InstallationProgressContent({
     workflowId?: string
     /** Shown while the run is in flight, to say it keeps going if the user navigates away. */
     continueHint?: ReactNode
+    docsUrl?: string
     /** Opens the run's handoff doc (the setup report) — the completed state's payoff. Only rendered
      * when the progress actually carries a doc. */
     onViewReport?: () => void
@@ -200,11 +202,7 @@ export function InstallationProgressContent({
                             Run it yourself
                         </LemonButton>
                     )}
-                    <LemonButton
-                        type={onRetryLocally ? 'secondary' : 'primary'}
-                        to="https://posthog.com/docs/getting-started/install"
-                        targetBlank
-                    >
+                    <LemonButton type={onRetryLocally ? 'secondary' : 'primary'} to={docsUrl} targetBlank>
                         Read the docs
                     </LemonButton>
                 </div>

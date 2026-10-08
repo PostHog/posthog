@@ -57,10 +57,9 @@ export interface BoxPlotAdaptedMeta<Meta = unknown> {
  *  don't have to redeclare it. */
 export type BoxPlotTooltipContext<Meta = unknown> = TooltipContext<BoxPlotAdaptedMeta<Meta>>
 
-/** Chart-level config. `axisOrientation` is always vertical for BoxPlot — there's no
- *  horizontal mode — so it's omitted from the consumer-visible config to avoid silently
- *  ignored values. */
-export interface BoxPlotConfig extends Omit<ChartConfig, 'axisOrientation'> {
+/** Chart-level config. `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws
+ *  the value axis along x, which suits a few long boxes better than a row of narrow columns. */
+export interface BoxPlotConfig extends ChartConfig {
     legend?: ChartLegendConfig
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
@@ -131,7 +130,9 @@ function BoxPlotInner<Meta = unknown>({
         meanRadius = 3,
         whiskerCapRatio = 0.6,
         boxStrokeWidth = 1.5,
+        axisOrientation = 'vertical',
     } = config ?? {}
+    const horizontal = axisOrientation === 'horizontal'
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
     const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
@@ -203,11 +204,11 @@ function BoxPlotInner<Meta = unknown>({
             const d3Scales = createBarScales(coloredSeries, scaleLabels, dimensions, {
                 scaleType: yScaleType,
                 barLayout,
-                axisOrientation: 'vertical',
+                axisOrientation,
                 stackedSeries: valueRangeSeries.length > 0 ? valueRangeSeries : undefined,
             })
 
-            const yTickCount = yTickCountForHeight(dimensions.plotHeight)
+            const yTickCount = yTickCountForHeight(horizontal ? dimensions.plotWidth : dimensions.plotHeight)
             const priv: BoxPlotPrivate = {
                 __boxPlot: { scales: d3Scales, datumsByKey, grouped },
             }
@@ -232,7 +233,7 @@ function BoxPlotInner<Meta = unknown>({
                 _private: priv,
             }
         },
-        [grouped, yScaleType, valueRangeSeries, datumsByKey]
+        [grouped, yScaleType, axisOrientation, horizontal, valueRangeSeries, datumsByKey]
     )
 
     const drawStatic = useCallback(
@@ -258,7 +259,7 @@ function BoxPlotInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
                     gridDash: theme.gridDashPattern,
-                    orientation: 'vertical',
+                    orientation: axisOrientation,
                     frame: !axisLineStyle,
                 })
             }
@@ -285,6 +286,7 @@ function BoxPlotInner<Meta = unknown>({
                     meanRadius,
                     whiskerCapRatio,
                     lineWidth: boxStrokeWidth,
+                    horizontal,
                 })
             }
 
@@ -296,7 +298,7 @@ function BoxPlotInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth]
+        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, axisOrientation, horizontal]
     )
 
     const drawHover = useCallback(
@@ -324,6 +326,7 @@ function BoxPlotInner<Meta = unknown>({
                 cursor: hoverPosition,
                 scales: priv.scales,
                 grouped: priv.grouped,
+                horizontal,
             })
             if (hits.size === 0) {
                 return false
@@ -349,12 +352,12 @@ function BoxPlotInner<Meta = unknown>({
                 if (!box) {
                     continue
                 }
-                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25))
+                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal)
                 drewAny = true
             }
             return drewAny
         },
-        [series]
+        [series, horizontal]
     )
 
     const renderTooltip = useCallback(
@@ -401,7 +404,7 @@ function BoxPlotInner<Meta = unknown>({
             <Chart<BoxPlotAdaptedMeta<Meta>>
                 series={visibleSeries}
                 labels={labels}
-                config={{ ...config, axisOrientation: 'vertical' }}
+                config={{ ...config, axisOrientation }}
                 theme={theme}
                 createScales={createScales}
                 drawStatic={drawStatic}

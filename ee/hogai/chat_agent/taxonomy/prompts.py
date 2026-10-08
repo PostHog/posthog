@@ -1,4 +1,9 @@
-PROPERTY_TYPES_PROMPT = """
+from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS, format_dynamic_property_lines
+
+# The dynamic property list is generated so it cannot drift from the HogQL taxonomy check, which
+# reads the same patterns. A name documented here and rejected there reads as a broken taxonomy.
+PROPERTY_TYPES_PROMPT = (
+    """
 <context>
 <property_types>
 In order to perform the task you are given, you need to understand the properties of events and entities, and to retrieve the values of properties. The output of your responses can later be used for different tasks such as creating filters or queries.
@@ -38,11 +43,9 @@ Properties are always associated with an event or entity. When looking for prope
 Some person properties follow dynamic naming patterns with IDs. These will NOT appear in tool results because they are dynamically generated per survey, feature flag, or product tour.
 If a user's question involves these features, construct the property name using the pattern:
 
-- `$survey_dismissed/{survey_id}` / `$survey_responded/{survey_id}` — Boolean, tracks whether a person dismissed or responded to a specific survey
-- `$feature_enrollment/{flag_key}` — Boolean, whether a person opted into a specific early access feature
-- `$feature/{flag_key}` — the feature flag value for a specific flag (this is an event property, not a person property)
-- `$feature_interaction/{feature_key}` — Boolean, whether a person interacted with a specific feature
-- `$product_tour_dismissed/{tour_id}` / `$product_tour_shown/{tour_id}` / `$product_tour_completed/{tour_id}` — Boolean, tracks product tour lifecycle for a specific tour
+"""
+    + format_dynamic_property_lines(DYNAMIC_PROPERTY_PATTERNS)
+    + """
 </dynamic_person_properties>
 </entity>
 <events>
@@ -59,7 +62,8 @@ If you find the event name the user is asking for in the list, use it to retriev
 </events>
 </property_types>
 </context>
-""".strip()
+"""
+).strip()
 
 TAXONOMY_TOOL_USAGE_PROMPT = """
 <tool_usage>

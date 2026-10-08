@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { dailyCronToTime, formatRunIntervalShort, prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
+import { dailyCronToTime, formatRunIntervalShort, scoutDisplayName } from '../../utils/scoutRunsWindow'
 import { scoutNextRun } from './scoutNextRun'
 
 function scoutSchedule(config: SignalScoutConfigApi): string {
@@ -32,7 +32,7 @@ export function ScoutFlowRow({ scout }: { scout: SignalScoutConfigApi }): JSX.El
                 />
             </div>
             <div className="flex min-w-0 flex-col gap-1">
-                <span className="truncate text-sm font-medium">{prettifyScoutSkillName(scout.skill_name)}</span>
+                <span className="truncate text-sm font-medium">{scoutDisplayName(scout)}</span>
                 <span className="truncate text-xs text-tertiary">
                     Checks {scout.description.trim() || 'your product data'} and reports useful findings.
                 </span>

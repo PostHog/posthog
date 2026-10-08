@@ -5,7 +5,7 @@ import time
 from typing import Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -43,7 +43,7 @@ class TestIntegrationModel(BaseTest):
 
     def test_sensitive_config_encrypted(self):
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
-        with freeze_time("2024-01-01T00:01:00Z"):
+        with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
                 integration = self.create_integration("slack")
 

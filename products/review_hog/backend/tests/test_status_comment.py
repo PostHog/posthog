@@ -9,10 +9,13 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,
@@ -21,6 +24,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
+    render_failed_body,
     render_final_body,
     render_in_progress_body,
     render_resolution_final_section,
@@ -43,13 +47,52 @@ _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 
+_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
+    (None, "Step 2/3 · Reviewing the pull request"),
+    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
+]
+
 
 class TestRenderInProgressBody:
-    @parameterized.expand(_STAGE_LINE_CASES)
-    def test_renders_the_stage_line_and_marker(self, progress: dict[str, Any] | None, expected_line: str) -> None:
-        body = render_in_progress_body("rid", progress)
+    @parameterized.expand(
+        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
+        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
+    )
+    def test_renders_the_stage_line_and_marker(
+        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
+    ) -> None:
+        body = render_in_progress_body("rid", progress, review_design=review_design)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
+
+
+class TestFlashHeader:
+    @parameterized.expand(
+        [
+            ("in_progress", lambda mode: render_in_progress_body("rid", None, review_mode=mode)),
+            (
+                "final",
+                lambda mode: render_final_body(
+                    "rid",
+                    counts=dict.fromkeys(IssuePriority, 0),
+                    published_count=0,
+                    held_back_count=0,
+                    threshold=IssuePriority.CONSIDER,
+                    review_url=None,
+                    review_mode=mode,
+                ),
+            ),
+            ("failed", lambda mode: render_failed_body("rid", review_mode=mode)),
+        ]
+    )
+    def test_every_status_header_names_flash_only_in_flash(self, _name: str, render) -> None:
+        # The status comment is rewritten in every state; a state that forgot the label would read
+        # as a full review mid-run or at the end, and a full run must never carry it.
+        flash, full = render(REVIEW_MODE_FLASH), render(REVIEW_MODE_FULL)
+        assert flash.startswith("### \U0001f994 PostHog Review (flash) ")
+        assert full.startswith("### \U0001f994 PostHog Review ")
+        assert "(flash)" not in full
+        assert "FLASH MODE" not in flash + full
 
 
 class TestRenderFinalBody:
@@ -99,7 +142,7 @@ class TestRenderFinalBody:
                 0,
                 IssuePriority.SHOULD_FIX,
                 None,
-                ["Nothing worth raising this time, so here's a calming picture instead:", "![", "pr-assets"],
+                ["Nothing worth raising this time. Enjoy the moment:", "!["],
                 ["Published", "stayed below"],
             ),
             # Posted on a prior crashed attempt (marker skip): published, but no link to render.
@@ -153,13 +196,28 @@ class TestRenderFinalBody:
             review_url=None,
             resolved_from=resolved_from,
             report_url="https://ph.test/project/1/code-review?review=rid",
+            marker=ReviewHogMarker(version="reviewhog-flash-9-9", fingerprint="abc1234"),
         )
         assert f"2 findings stayed below {expected}" in body, body
+        # The version rides in a hidden HTML comment, so it adds no visible text to the PR.
+        hidden = "<!-- reviewhog-version: reviewhog-flash-9-9 abc1234 -->"
+        assert hidden in body
+        assert "reviewhog-flash" not in body.replace(hidden, "")
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
         assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 
+    @parameterized.expand(
+        [
+            ("default_on", REVIEW_MODE_FULL, True, True),
+            ("author_opted_out", REVIEW_MODE_FULL, False, False),
+            # A clean flash turn never celebrates, whatever the setting says.
+            ("flash", REVIEW_MODE_FLASH, True, False),
+        ]
+    )
     @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
-    def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
+    def test_clean_review_media_follows_the_preference(
+        self, _name: str, review_mode: str, celebrate: bool, expect_media: bool, mock_choice: MagicMock
+    ) -> None:
         body = render_final_body(
             "rid",
             counts={IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
@@ -167,10 +225,44 @@ class TestRenderFinalBody:
             held_back_count=0,
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
+            review_mode=review_mode,
+            celebrate_clean_reviews=celebrate,
         )
 
-        assert "![A happy dog](https://example.test/dog.png)" in body
-        mock_choice.assert_called_once()
+        if expect_media:
+            assert "![A happy dog](https://example.test/dog.png)" in body
+            mock_choice.assert_called_once()
+        else:
+            assert "dog.png" not in body
+            assert "Enjoy the moment" not in body
+            mock_choice.assert_not_called()
+        if review_mode == REVIEW_MODE_FLASH:
+            assert "Nothing worth raising." in body
+
+    @parameterized.expand(
+        [
+            # A clean turn posts no review, so the status comment is the only place the note can appear.
+            ("clean_large_pr", 0, 4, True),
+            ("large_pr_with_findings", 2, 4, True),
+            ("normal_pr", 2, None, False),
+        ]
+    )
+    def test_large_pr_note_shows_whether_or_not_a_review_posts(
+        self, _name: str, must_fix: int, capped_lens_parts: int | None, expect_note: bool
+    ) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=must_fix,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            review_mode=REVIEW_MODE_FLASH,
+            capped_lens_parts=capped_lens_parts,
+        )
+
+        note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        assert (note in body) is expect_note
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -223,9 +315,10 @@ class TestEnsureStatusComment(BaseTest):
         mock_request.return_value.json.return_value = {"id": 777}
         report = self._report()
 
-        ensure_status_comment(self.team.id, str(report.id))
+        ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
+        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (flash) ")
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -381,11 +474,14 @@ class TestFinalizeStatusComment(BaseTest):
         report.status_comment_id = 555
         report.save(update_fields=["status_comment_id"])
 
-        fail_status_comment(self.team.id, report_id)
+        fail_status_comment(self.team.id, report_id, review_mode=REVIEW_MODE_FLASH)
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "couldn't finish this review" in body
+        # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
+        # leave a dead flash run reading as a full one.
+        assert body.startswith("### \U0001f994 PostHog Review (flash) ")
 
 
 class TestResolutionSection:

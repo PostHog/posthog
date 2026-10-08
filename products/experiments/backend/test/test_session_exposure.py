@@ -5,10 +5,14 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
 
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -19,6 +23,9 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
     IN_SESSION_EXPOSURE_ACTIVATION_REASON,
     IN_SESSION_EXPOSURE_UNMATCHABLE_REASON,
+    exposed_distinct_ids_select,
+    exposed_persons_select,
+    resolve_exposure_linkage,
     resolve_in_session_exposure_semantics,
 )
 from products.experiments.backend.session_exposure import resolve_session_exposure
@@ -210,3 +217,79 @@ class TestResolveInSessionExposureSemantics(BaseTest):
 
         assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         assert semantics.session_exposure is None
+
+
+def _variant_filter(query: ast.SelectQuery) -> list[str]:
+    # The population's WHERE is exactly `exposures.variant IN {variants}`; the constant carries
+    # the accepted variant keys.
+    assert isinstance(query.where, ast.CompareOperation)
+    assert isinstance(query.where.right, ast.Constant)
+    return list(query.where.right.value)
+
+
+def _select_aliases(query: ast.SelectQuery) -> list[str]:
+    return [column.alias for column in query.select if isinstance(column, ast.Alias)]
+
+
+# The watch shelf groups this population by person and buckets each person by its variant column,
+# so the projection and the multiple-variant opt-in are the seam it depends on; the recordings
+# list depends on the two-column shape staying unchanged.
+class TestExposedPopulationSelects(BaseTest):
+    def _experiment(self) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="checkout-cta",
+            name="checkout-cta",
+            created_by=self.user,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name="Checkout CTA copy",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            exposure_criteria={},
+        )
+
+    def test_exposed_persons_select_projects_attribution_and_the_distinct_ids_select_does_not(self) -> None:
+        experiment = self._experiment()
+        linkage = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variant=None)
+
+        persons = exposed_persons_select(linkage, include_multiple_variant=True)
+        assert _select_aliases(persons) == ["distinct_id", "person_id", "variant", "first_exposure_time"]
+        assert _variant_filter(persons) == ["control", "test", MULTIPLE_VARIANT_KEY]
+
+        distinct_ids = exposed_distinct_ids_select(linkage)
+        assert _select_aliases(distinct_ids) == ["distinct_id", "first_exposure_time"]
+        assert _variant_filter(distinct_ids) == ["control", "test"]
+
+    def test_variants_narrow_the_population(self) -> None:
+        experiment = self._experiment()
+
+        single = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variant="test")
+        assert single.requested_variants == ["test"]
+
+        listed = resolve_exposure_linkage(self.team, experiment_id=experiment.pk, variants=["test", "control", "test"])
+        assert listed.requested_variants == ["test", "control"]
+        assert _variant_filter(exposed_distinct_ids_select(listed)) == ["test", "control"]
+
+    @parameterized.expand(
+        [
+            ("unknown_variant_in_list", {"variants": ["control", "unknown"]}),
+            ("empty_list", {"variants": []}),
+            ("both_forms", {"variant": "control", "variants": ["test"]}),
+        ]
+    )
+    def test_a_bad_variants_request_is_refused(self, _name: str, kwargs: dict) -> None:
+        experiment = self._experiment()
+
+        with self.assertRaises(ValidationError):
+            resolve_exposure_linkage(self.team, experiment_id=experiment.pk, **kwargs)

@@ -2,6 +2,9 @@
 # TLS is required unless the URL says sslmode=disable (local dev) or sslmode=prefer.
 database_url = "${PGCOLLECTOR_SINK_URL}"
 retention_days = 14
+# Per-collector overrides, keyed by collector name (the ts_<name> table).
+[sink.retention]
+query_durations = 7
 
 [defaults]
 statement_timeout = "5s"
@@ -23,3 +26,8 @@ databases = ["posthog"]
 [servers.overrides]
 activity = { interval = "5s" }
 sizes = { enabled = false }
+
+# [servers.logs]
+# source = "cloudwatch"
+# log_group = "/aws/rds/cluster/<cluster-id>/postgresql"
+# sample_rows_over_ms = 100   # slower statements keep a row of their own; all go in the histogram

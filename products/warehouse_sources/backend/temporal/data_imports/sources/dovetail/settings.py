@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -16,7 +18,7 @@ DOVETAIL_BASE_URL = "https://dovetail.com/api"
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class DovetailEndpointConfig:
     name: str
     path: str
@@ -26,6 +28,9 @@ class DovetailEndpointConfig:
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    # A fan-out child whose API requires a filter with no "all" value is synced as the union of
+    # one pass per value; each entry holds the extra child params for one pass.
+    fanout_param_variants: tuple[dict[str, str], ...] = ()
 
 
 DOVETAIL_ENDPOINTS: dict[str, DovetailEndpointConfig] = {
@@ -79,6 +84,28 @@ DOVETAIL_ENDPOINTS: dict[str, DovetailEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "doc_id"},
+        ),
+    ),
+    "Fields": DovetailEndpointConfig(
+        name="Fields",
+        # `/v1/fields` requires `filter[project_id]` (or a workspace field group id) alongside
+        # `filter[field_set_type]`. The framework binds a resolved param in the path only, so the
+        # project filter rides in the path and the field set type is a per-pass child param.
+        path="/v1/fields?filter[project_id]={project_id}",
+        # The endpoint offers no date filter, only `project_id` / `workspace_field_group_id` /
+        # `field_set_type`, so this table is full refresh. A workspace field group's fields are
+        # listed under every project the group is linked to, so the project is part of the key.
+        primary_key=["project_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            # Field rows already carry `project_id`, so nothing needs injecting from the parent.
+            include_from_parent=[],
+        ),
+        fanout_param_variants=(
+            {"filter[field_set_type]": "data"},
+            {"filter[field_set_type]": "doc"},
         ),
     ),
 }

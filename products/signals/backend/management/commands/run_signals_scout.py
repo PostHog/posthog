@@ -26,6 +26,11 @@ class Command(BaseCommand):
             default=None,
             help='GitHub repository for the sandbox (e.g. "posthog/posthog"). Optional.',
         )
+        parser.add_argument(
+            "--note",
+            default=None,
+            help="One-off steering for this run only, rendered into its prompt. Optional.",
+        )
         parser.add_argument("--verbose", action="store_true")
 
     def handle(self, *args, **options):
@@ -37,6 +42,7 @@ class Command(BaseCommand):
                 repository=options["repository"],
                 verbose=options["verbose"],
                 triggered_by=TRIGGERED_BY_MANUAL,
+                run_note=options["note"],
             )
         except SkillNotFoundError as exc:
             raise CommandError(str(exc))

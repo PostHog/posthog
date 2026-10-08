@@ -84,7 +84,7 @@ test.describe('Insight side panel actions', () => {
 
             const patchPromise = page.waitForResponse(
                 (resp) =>
-                    resp.url().includes('/api/environments/') &&
+                    resp.url().includes('/api/projects/') &&
                     resp.url().includes('/insights/') &&
                     resp.request().method() === 'PATCH'
             )
@@ -141,16 +141,14 @@ test.describe('Insight side panel actions', () => {
         })
     })
 
-    test('Open subscriptions modal from side panel', async ({ page }) => {
-        const insight = new InsightPage(page)
-
+    test('Open subscriptions modal from insight header', async ({ page }) => {
         await test.step('navigate to seeded insight', async () => {
             await page.goto(insightUrl)
         })
 
-        await test.step('click subscribe and verify subscriptions modal opens', async () => {
-            await insight.openInfoPanel()
-            await page.getByTestId('insight-subscribe-dropdown-menu-item').click()
+        await test.step('click Monitor and open subscriptions', async () => {
+            await page.getByTestId('insight-notify-prominent-button').click()
+            await page.getByRole('menuitem', { name: /Subscriptions/ }).click()
             const modal = page.getByTestId('insight-subscriptions-modal')
             await expect(modal).toBeVisible()
         })

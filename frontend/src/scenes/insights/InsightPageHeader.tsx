@@ -22,6 +22,7 @@ import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeL
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     isActorsQuery,
+    isBIVisualizationNode,
     isDataVisualizationNode,
     isEventsQuery,
     isGroupsQuery,
@@ -82,6 +83,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
+    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
@@ -199,8 +201,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         tooltipPlacement="bottom"
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
+                                                const editorUrl = isBIVisualizationNode(query)
+                                                    ? urls.businessIntelligence
+                                                    : urls.sqlEditor
                                                 router.actions.push(
-                                                    urls.sqlEditor({
+                                                    editorUrl({
                                                         insightShortId: insight.short_id,
                                                         dashboard: dashboardId ?? undefined,
                                                         // Carry unsaved view-mode filter edits into the editor so they can be saved
@@ -208,17 +213,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     })
                                                 )
                                             } else if (insight.short_id) {
-                                                const editUrl = dashboardId
-                                                    ? combineUrl(urls.insightEdit(insight.short_id), {
-                                                          dashboard: dashboardId,
-                                                      }).url
-                                                    : urls.insightEdit(insight.short_id)
+                                                const editUrl = combineUrl(
+                                                    urls.insightEdit(insight.short_id),
+                                                    dashboardId ? { dashboard: dashboardId } : {},
+                                                    // Carry unsaved view-mode filter edits into the editor so they can be saved
+                                                    queryChanged ? { q: JSON.stringify(query) } : {}
+                                                ).url
                                                 push(editUrl)
                                             } else {
                                                 setInsightMode(ItemMode.Edit, null)
                                             }
                                         }}
                                         {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
+                                        {...(isBIVisualizationNode(query) && !biEnabled
+                                            ? {
+                                                  disabledReason:
+                                                      'Business intelligence is not enabled for this project',
+                                              }
+                                            : {})}
                                         data-attr="insight-edit-button"
                                     >
                                         Edit

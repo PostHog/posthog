@@ -56,6 +56,7 @@ import {
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
 import { floatToFront } from '../utils/floatToFront'
+import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -742,6 +743,20 @@ export function MenuFilterCombobox({
                 body: `Type at least ${minLen} characters to search ${description} we have seen.`,
             }
         }
+        // `groups` is already narrowed to the tabs this filter offers, so no group-type gate is
+        // needed here, unlike the mirror of this branch in InfiniteList.tsx.
+        const hiddenEventSearched = hiddenEventMatchingSearch(
+            searchQuery,
+            groups.find((g) => g.type === TaxonomicFilterGroupType.Events)?.excludedProperties
+        )
+        if (hiddenEventSearched) {
+            // `body` is load-bearing, not decoration: the recovery buttons below render only when it
+            // is absent, and neither of them can bring back an excluded name.
+            return {
+                title: `${hiddenEventSearched} isn't available here`,
+                body: "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
+            }
+        }
         const categoryLabel = singleGroup?.name ?? null
         if (trimmedLen > 0) {
             return {
@@ -755,8 +770,7 @@ export function MenuFilterCombobox({
 
     // --- Telemetry parity ---------------------------------------------------
     // Emit the legacy `taxonomic filter *` contract so the rebuild is
-    // comparable to the control/pill variants by feature-flag value (PostHog
-    // auto-attaches the active flag to every event). The meta scopes
+    // comparable to the classic picker. The meta scopes
     // (all/recent/pinned) have no single source group, so groupType is
     // undefined there — matching how legacy reports the active content tab.
     const telemetryGroupType = useMemo<TaxonomicFilterGroupType | undefined>(() => {
@@ -1313,6 +1327,7 @@ function Row({
     // The committed selection of a renamed series shows the series' name; the raw key
     // it queries moves to the value cell, like any other friendly-labelled row.
     const isRenamedSelection = isSelected && !!selectedRename && selectedRename.label !== cells.name
+    const itemTag = entry.group.getTag?.(entry.item)
     const name = isRenamedSelection ? selectedRename.label : cells.name
     const value = isRenamedSelection && selectedRename.raw !== selectedRename.label ? selectedRename.raw : cells.value
     const category = cells.category
@@ -1364,6 +1379,9 @@ function Row({
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
             <MatchedValueBadge entry={entry} />
+            {/* Whatever the group supplies for this item, the same node the classic list renders,
+                so a picker row carries its per-item state in either menu. */}
+            {itemTag && <span className="shrink-0 empty:hidden">{itemTag}</span>}
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

@@ -127,6 +127,20 @@ def get_or_create_webhook_hog_function(
     )
 
 
+def store_webhook_extra_inputs(hog_function_id: str, team_id: int, extra_inputs: dict[str, Any]) -> None:
+    """Write provider-returned webhook inputs (the signing secret) onto the receiving HogFunction.
+
+    The values a provider hands back on create are unrecoverable, so every caller has to persist
+    them the same way. `save` re-splits the secret inputs into `encrypted_inputs`.
+    """
+    hog_function = HogFunction.objects.get(id=hog_function_id, team_id=team_id)
+    hog_function.inputs = {
+        **(hog_function.inputs or {}),
+        **{key: {"value": value} for key, value in extra_inputs.items()},
+    }
+    hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+
 def create_and_register_webhook(
     source: WebhookSource,
     config: Config,
@@ -142,13 +156,7 @@ def create_and_register_webhook(
     )
 
     if result.success and result.extra_inputs:
-        hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=team_id)
-        assert hog_function.inputs is not None
-        hog_function.inputs = {
-            **hog_function.inputs,
-            **{key: {"value": value} for key, value in result.extra_inputs.items()},
-        }
-        hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+        store_webhook_extra_inputs(hog_fn_result.hog_function_id, team_id, result.extra_inputs)
 
     return WebhookSetupResult(
         success=result.success,

@@ -89,7 +89,7 @@ const LogsAlertsDestinationsCreateSchema = () => {
         .extend(LogsAlertsDestinationsCreateBody.shape)
         .extend({
             type: LogsAlertsDestinationsCreateBody.shape['type'].describe(
-                'Destination type. Use slack, webhook, or teams. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url.'
+                'Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.'
             ),
             slack_workspace_id: LogsAlertsDestinationsCreateBody.shape['slack_workspace_id'].describe(
                 'Slack workspace integration ID. Required when type is slack.'
@@ -102,6 +102,15 @@ const LogsAlertsDestinationsCreateSchema = () => {
             ),
             webhook_url: LogsAlertsDestinationsCreateBody.shape['webhook_url'].describe(
                 'Required when type is webhook or teams.'
+            ),
+            pagerduty_routing_key: LogsAlertsDestinationsCreateBody.shape['pagerduty_routing_key'].describe(
+                'The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty.'
+            ),
+            pagerduty_severity: LogsAlertsDestinationsCreateBody.shape['pagerduty_severity'].describe(
+                'Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.'
+            ),
+            pagerduty_region: LogsAlertsDestinationsCreateBody.shape['pagerduty_region'].describe(
+                'PagerDuty service region, us or eu. Defaults to us.'
             ),
         })
 }
@@ -129,6 +138,15 @@ const logsAlertsDestinationsCreate = (): ToolBase<
         }
         if (params.webhook_url !== undefined) {
             body['webhook_url'] = params.webhook_url
+        }
+        if (params.pagerduty_routing_key !== undefined) {
+            body['pagerduty_routing_key'] = params.pagerduty_routing_key
+        }
+        if (params.pagerduty_severity !== undefined) {
+            body['pagerduty_severity'] = params.pagerduty_severity
+        }
+        if (params.pagerduty_region !== undefined) {
+            body['pagerduty_region'] = params.pagerduty_region
         }
         const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
             method: 'POST',
@@ -484,6 +502,38 @@ const logsAnomaliesScan = (): ToolBase<
     },
 })
 
+const LogsAnomaliesSeriesBandsSchema = () => {
+    const LogsAnomaliesSeriesBandsCreateBody = orvalSchemas.LogsAnomaliesSeriesBandsCreateBody()
+    return LogsAnomaliesSeriesBandsCreateBody
+}
+
+const logsAnomaliesSeriesBands = (): ToolBase<
+    ReturnType<typeof LogsAnomaliesSeriesBandsSchema>,
+    Schemas.LogsSeriesBandsResponse
+> => ({
+    name: 'logs-anomalies-series-bands',
+    schema: LogsAnomaliesSeriesBandsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsAnomaliesSeriesBandsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.serviceName !== undefined) {
+            body['serviceName'] = params.serviceName
+        }
+        if (params.dateRange !== undefined) {
+            body['dateRange'] = params.dateRange
+        }
+        if (params.intervalMinutes !== undefined) {
+            body['intervalMinutes'] = params.intervalMinutes
+        }
+        const result = await context.api.request<Schemas.LogsSeriesBandsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/anomalies/series_bands/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LogsAttributeValuesListSchema = () => {
     const LogsValuesRetrieveQueryParams = orvalSchemas.LogsValuesRetrieveQueryParams()
     return LogsValuesRetrieveQueryParams
@@ -516,7 +566,7 @@ const logsAttributeValuesList = (): ToolBase<
 
 const LogsAttributesListSchema = () => {
     const LogsAttributesRetrieveQueryParams = orvalSchemas.LogsAttributesRetrieveQueryParams()
-    return LogsAttributesRetrieveQueryParams
+    return LogsAttributesRetrieveQueryParams.omit({ date_from: true, date_to: true })
 }
 
 const logsAttributesList = (): ToolBase<
@@ -534,6 +584,7 @@ const logsAttributesList = (): ToolBase<
                 attribute_type: params.attribute_type,
                 dateRange: params.dateRange,
                 filterGroup: params.filterGroup,
+                keys: params.keys,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -720,7 +771,7 @@ const LogsSparklineQuerySchema = () => {
 
 const logsSparklineQuery = (): ToolBase<
     ReturnType<typeof LogsSparklineQuerySchema>,
-    Schemas._LogsSparklineResponse
+    Schemas._LogsSparklineBucket[]
 > => ({
     name: 'logs-sparkline-query',
     schema: LogsSparklineQuerySchema(),
@@ -730,13 +781,12 @@ const logsSparklineQuery = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<Schemas._LogsSparklineResponse>({
+        const result = await context.api.request<Schemas._LogsSparklineBucket[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/sparkline/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
+        return result
     },
 })
 
@@ -775,6 +825,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-alerts-retrieve': logsAlertsRetrieve,
     'logs-alerts-simulate-create': logsAlertsSimulateCreate,
     'logs-anomalies-scan': logsAnomaliesScan,
+    'logs-anomalies-series-bands': logsAnomaliesSeriesBands,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,

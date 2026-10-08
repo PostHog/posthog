@@ -81,6 +81,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=discover_token,
                     flow=FlowKind.OAUTH_DISCOVER,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -152,6 +154,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=token,
                     flow=FlowKind.PERSONAL_INSTALL,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -195,7 +199,12 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 logger.warning("github_link: failed to fetch installation info", exc_info=True)
             return _error(exc.code)
 
-        user_github_integration_from_installation(user, installation_access, authorization)
+        user_github_integration_from_installation(
+            user,
+            installation_access,
+            authorization,
+            originating_organization_id=authorize_state.originating_organization_id,
+        )
 
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])

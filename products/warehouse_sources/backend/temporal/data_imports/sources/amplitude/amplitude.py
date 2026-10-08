@@ -223,6 +223,33 @@ def _get_events_rows(
         resumable_source_manager.save_state(AmplitudeResumeConfig(window_start=cursor.isoformat()))
 
 
+def _fetch_list(
+    session: requests.Session,
+    host: str,
+    path: str,
+    headers: dict[str, str],
+    data_selector: str | None,
+    name: str,
+    logger: FilteringBoundLogger,
+    params: Optional[dict[str, str]] = None,
+) -> list[Any]:
+    url = f"{host}{path}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
+
+    response = _get(session, url, headers)
+    if not response.ok:
+        logger.error(f"Amplitude {name} error: status={response.status_code}, body={response.text[:500]}")
+        response.raise_for_status()
+
+    body = response.json()
+    if data_selector is not None and isinstance(body, dict):
+        return body.get(data_selector, [])
+    if isinstance(body, list):
+        return body
+    return []
+
+
 def _get_list_rows(
     api_key: str,
     secret_key: str,
@@ -230,25 +257,68 @@ def _get_list_rows(
     config: AmplitudeEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
+    session = make_tracked_session()
+    yield from _fetch_list(
+        session,
+        _host(region),
+        config.path,
+        _auth_headers(api_key, secret_key),
+        config.data_selector,
+        config.name,
+        logger,
+    )
+
+
+def _get_fanout_rows(
+    api_key: str,
+    secret_key: str,
+    region: str,
+    config: AmplitudeEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    fanout = config.fanout
+    assert fanout is not None
+
     host = _host(region)
     headers = _auth_headers(api_key, secret_key)
     session = make_tracked_session()
 
-    url = f"{host}{config.path}"
-    response = _get(session, url, headers)
-    if not response.ok:
-        logger.error(f"Amplitude {config.name} error: status={response.status_code}, body={response.text[:500]}")
-        response.raise_for_status()
+    parents = _fetch_list(session, host, fanout.parent_path, headers, fanout.parent_data_selector, config.name, logger)
 
-    body = response.json()
-    if config.data_selector is not None and isinstance(body, dict):
-        items = body.get(config.data_selector, [])
-    elif isinstance(body, list):
-        items = body
-    else:
-        items = []
+    for parent in parents:
+        if not isinstance(parent, dict):
+            continue
+        parent_value = parent.get(fanout.join_field)
+        if not isinstance(parent_value, str) or not parent_value:
+            continue
 
-    yield from items
+        try:
+            rows = _fetch_list(
+                session,
+                host,
+                config.path,
+                headers,
+                config.data_selector,
+                config.name,
+                logger,
+                params={fanout.join_field: parent_value},
+            )
+        except requests.HTTPError as e:
+            # Amplitude answers 400 "Not found" for an event type deleted between listing the
+            # parents and querying it. Skip that parent instead of failing the whole table.
+            if e.response is not None and e.response.status_code == 400:
+                logger.warning(
+                    f"Amplitude {config.name}: skipping {fanout.join_field}={parent_value} (Amplitude returned 400)"
+                )
+                continue
+            raise
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            # Amplitude omits this on shared properties, so set it from the value we queried with.
+            row[fanout.join_field] = parent_value
+            yield row
 
 
 def _get_rows(
@@ -272,6 +342,8 @@ def _get_rows(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
+    elif config.fanout is not None:
+        yield from _get_fanout_rows(api_key, secret_key, region, config, logger)
     else:
         yield from _get_list_rows(api_key, secret_key, region, config, logger)
 

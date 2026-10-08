@@ -42,7 +42,6 @@ class TestGitHubTransport(SimpleTestCase):
         with (
             patch("posthog.egress.github.transport.consume_github_installation_sync") as consume,
             patch("requests.request", return_value=_response()),
-            patch("posthog.egress.github.transport.record_github_api_response"),
         ):
             github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
         consume.assert_not_called()

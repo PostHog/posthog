@@ -4,6 +4,13 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
+    StepResume,
+    WorkflowStepResumeSchema,
+    counterStepResume,
+    processStepResumes,
+} from '~/cdp/services/hogflows/step-resume.service'
+import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import {
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_PERSON,
@@ -179,6 +186,9 @@ type MatchedJob = {
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
+// Emitted by Django when a run a workflow step dispatched ends; `origin_key` names the parked job.
+export const WORKFLOW_STEP_RESUME_EVENT = '$workflow_step_resume'
+
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
 // or a workflow conversion goal.
 export class CdpHogflowSubscriptionMatcherConsumer<
@@ -225,7 +235,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
                 topic: KAFKA_CDP_INTERNAL_EVENTS,
             },
-            startAtLatest
+            {
+                ...startAtLatest,
+                ...(config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST
+                    ? { 'metadata.broker.list': config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST }
+                    : {}),
+            }
         )
         this.personDistinctIdKafkaConsumer = createKafkaConsumer(
             {
@@ -816,6 +831,38 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
+    // Step resumes name their job, so they skip the person and team gates the event parser applies.
+    public _splitStepResumes(messages: Message[]): { resumes: StepResume[]; rest: Message[] } {
+        const resumes: StepResume[] = []
+        const rest: Message[] = []
+        for (const message of messages) {
+            let parsed
+            try {
+                parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+            } catch {
+                rest.push(message)
+                continue
+            }
+            if (parsed.event.event !== WORKFLOW_STEP_RESUME_EVENT) {
+                rest.push(message)
+                continue
+            }
+            const props = WorkflowStepResumeSchema.safeParse(parsed.event.properties)
+            const key = props.success ? parseWorkflowStepDispatchKey(props.data.origin_key) : null
+            if (!props.success || !key) {
+                counterStepResume.labels({ outcome: 'parse_error' }).inc()
+                continue
+            }
+            resumes.push({ ...props.data, ...key })
+        }
+        return { resumes, rest }
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.processStepResumes')
+    public async processStepResumes(resumes: StepResume[]): Promise<void> {
+        await processStepResumes(this.cyclotronPool, resumes)
+    }
+
     @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
     public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
@@ -1122,11 +1169,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }),
             this.internalEventsKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
+                    const { resumes, rest } = this._splitStepResumes(messages)
+                    const events = await this._parseInternalEventsBatch(rest)
                     return {
-                        backgroundTask: this.processBatch(
-                            await this._parseInternalEventsBatch(messages),
-                            'internal_events'
-                        ),
+                        backgroundTask: Promise.all([
+                            this.processBatch(events, 'internal_events'),
+                            this.processStepResumes(resumes),
+                        ]).then(() => undefined),
                     }
                 })
             }),
@@ -1368,12 +1417,14 @@ function rewriteStatePersonId(
             personIdRepointed: true,
             personIdRepointVersion: newVersion,
         }
-        // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
-        // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
-        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
-        if (parsed.state.currentAction && !fillingNullAnchor) {
-            parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
+        // Mark the wake so the wait handler knows the matcher woke this job rather than a polling
+        // re-check. currentAction is always a wait_until_condition here (re-key scope). The two causes
+        // stay separate flags: counterHogflowRekeyWake judges whether waking on a merge is wasted churn,
+        // so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction) {
+            parsed.state.currentAction = fillingNullAnchor
+                ? { ...parsed.state.currentAction, anchorWake: true }
+                : { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))
     } catch (err) {

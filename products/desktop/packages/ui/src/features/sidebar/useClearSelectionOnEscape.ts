@@ -1,4 +1,4 @@
-import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { useEffect } from "react";
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -14,16 +14,16 @@ function isEditableTarget(target: EventTarget | null): boolean {
  * is has to answer Escape.
  */
 export function useClearSelectionOnEscape(): void {
+  const selectionStore = useScopedTaskSelectionStore();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (isEditableTarget(e.target)) return;
-      const { selectedTaskIds, clearSelection } =
-        useTaskSelectionStore.getState();
+      const { selectedTaskIds, clearSelection } = selectionStore.getState();
       if (selectedTaskIds.length === 0) return;
       clearSelection();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [selectionStore]);
 }

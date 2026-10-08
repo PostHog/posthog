@@ -1,0 +1,129 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Driver voice note triage via Gemini",
+  "scenario": "A dispatch platform lets drivers leave short voice notes about delivery issues. A Gemini model, reached through OpenRouter, listens to the audio and returns a one-line triage summary, with its reasoning hidden behind Gemini's thought-signature mechanism.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "otel"
+    ],
+    "providers": [
+      "openrouter"
+    ],
+    "frameworks": [],
+    "models": [
+      "google/gemini-3.1-flash-lite"
+    ],
+    "content_types": [
+      "input_audio",
+      "reasoning.text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_session_id": "3ba020b2-ef7a-70df-334b-9cd29f341a06",
+        "$ai_span_id": "777fdd366dc0d07b",
+        "$ai_trace_id": "d5b8ca5919700d6809af40cdf80be90c",
+        "$geoip_disable": true,
+        "environment": "prod",
+        "ai_input_cost_usd": 2.95e-05,
+        "service.name": "dispatchai",
+        "$ai_input_tokens": 94,
+        "$ai_output_tokens": 4,
+        "$ai_provider": "openrouter",
+        "$ai_span_name": "audio-classify",
+        "$ai_model": "google/gemini-3.1-flash-lite",
+        "$ai_latency": 1.959,
+        "$ai_input": {
+          "max_tokens": 1000,
+          "messages": [
+            {
+              "content": "You are a dispatch audio triage assistant. Listen to the driver's voice message and classify the issue as one of: delay, damage, delivery-complete, or request-help. Reply with a single short sentence summarizing the issue in plain language for the dispatcher. Do not add extra commentary, and do not ask the driver any clarifying questions.",
+              "role": "system"
+            },
+            {
+              "content": [
+                {
+                  "input_audio": {
+                    "data": "⟦media:otel_openrouter_input_audio__M7002300.wav⟧",
+                    "format": "wav"
+                  },
+                  "type": "input_audio"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "google/gemini-3.1-flash-lite",
+          "temperature": 0
+        },
+        "$ai_output_choices": {
+          "id": "gen-1727172498-Yz8Qm3Rp7XsNcT2ab12",
+          "object": "chat.completion",
+          "created": 2026140134,
+          "model": "google/gemini-3.1-flash-lite",
+          "provider": "Google",
+          "system_fingerprint": null,
+          "service_tier": "default",
+          "choices": [
+            {
+              "index": 0,
+              "logprobs": null,
+              "finish_reason": "stop",
+              "native_finish_reason": "STOP",
+              "message": {
+                "role": "assistant",
+                "content": "Delay at dock B7.",
+                "refusal": null,
+                "reasoning": null,
+                "reasoning_details": [
+                  {
+                    "type": "reasoning.text",
+                    "signature": "dHlMH+IyPAbU8iOUqNCa9LTDRAy4BWtpH2H8P8wJyPg1Ohb8Y5+bVPtZ8wbQohH1zpgGUQt1bBL4TAnaRnFNEAG/G0GqXobKzze7szkpiDguSJUY",
+                    "format": "google-gemini-v1",
+                    "index": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 94,
+            "completion_tokens": 4,
+            "total_tokens": 98,
+            "cost": 3.575e-05,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 25,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 3.575e-05,
+              "upstream_inference_prompt_cost": 2.975e-05,
+              "upstream_inference_completions_cost": 6e-06
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

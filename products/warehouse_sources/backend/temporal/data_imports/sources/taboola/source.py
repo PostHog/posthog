@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -71,7 +69,7 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TABOOLA,
+            name=ExternalDataSourceType.TABOOLA,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Taboola",
             caption="""Connect your Taboola account to pull your advertising data into the PostHog Data warehouse.
@@ -79,7 +77,7 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
 Backstage API credentials (client ID and secret) are issued by your Taboola account manager — they can't be self-served. Your account ID is the alphabetic account identifier shown in Taboola Ads (also called the account name).""",
             iconPath="/static/services/taboola.png",
             docsUrl="https://posthog.com/docs/cdp/sources/taboola",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -50,6 +50,7 @@ export interface metricsSamplesLogicValues {
     queryResults: MetricsViewerSeries[] // metricsViewerLogic
     selectedMetricType: OtelMetricTypeEnumApi | null // metricsViewerLogic
     currentTeamId: number | null // teamLogic
+    timezone: string // teamLogic
     activeTab: MetricsPanelTab
     aggregateRows: MetricsAggregateRow[]
     errorSpikes: _MetricErrorSpikeApi[]
@@ -157,7 +158,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'timezone'],
             metricsViewerLogic,
             ['metricName', 'dateFrom', 'dateTo', 'queryFilters', 'selectedMetricType', 'queryResults'],
         ],
@@ -194,12 +195,12 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                         return []
                     }
                     const metricName = values.metricName.trim()
-                    const dateFrom = resolveDate(values.dateFrom)
+                    const dateFrom = resolveDate(values.dateFrom, values.timezone)
                     if (!metricName || !dateFrom) {
                         return []
                     }
                     await breakpoint(300)
-                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
                     const response = await metricsSamplesCreate(String(values.currentTeamId), {
                         query: {
                             metricName,
@@ -230,12 +231,12 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     ) {
                         return []
                     }
-                    const dateFrom = resolveDate(values.dateFrom)
+                    const dateFrom = resolveDate(values.dateFrom, values.timezone)
                     if (!dateFrom) {
                         return []
                     }
                     await breakpoint(300)
-                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
                     const response = await metricsErrorSpikesRetrieve(String(values.currentTeamId), {
                         dateFrom,
                         ...(dateTo ? { dateTo } : {}),

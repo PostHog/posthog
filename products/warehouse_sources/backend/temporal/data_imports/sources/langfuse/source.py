@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -29,16 +27,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     HTTP_NOT_ALLOWED_ERROR,
     REPEATED_CURSOR_ERROR,
     RESPONSE_LIMIT_ERROR,
+    TABLE_NOT_IN_VERSION_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
     DEFAULT_VERSION,
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGFUSE_API_VERSION_V1,
+    LANGFUSE_API_VERSION_V2,
+    LANGFUSE_LEGACY_SUNSET,
     SUPPORTED_VERSIONS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -50,12 +51,12 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
-    # Langfuse is retiring its v1 public read endpoints at the (undated) v4 cutover. The source
-    # already reads Langfuse's current route for every resource that has one, so both labels share
-    # one wire and v1-pinned rows keep working — v1 is deprecated advisory-only (no vendor sunset
-    # date). `traces`/`sessions` have no lossless v2 replacement (v2 returns observation rows, not
-    # trace/session objects), so their cutover is a documented manual migration, not an auto repin.
-    deprecated_versions = (VersionDeprecation(version=LANGFUSE_API_VERSION_V1),)
+    # The replacement for `/traces` and `/sessions` returns observation rows, not trace or session
+    # objects, so v3 drops both tables and sources that sync them need a manual move.
+    deprecated_versions = (
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V1, sunset_at=LANGFUSE_LEGACY_SUNSET),
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V2, sunset_at=LANGFUSE_LEGACY_SUNSET),
+    )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -64,11 +65,11 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LANGFUSE,
+            name=ExternalDataSourceType.LANGFUSE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Langfuse",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync traces, observations, scores, sessions, prompts, and datasets from your Langfuse project.
+            caption="""Sync traces, observations, scores, sessions, prompts, datasets, and annotation queues from your Langfuse project.
 
 Find your project API keys in your Langfuse **Project settings > API Keys**. Set the host to match your data region (`https://cloud.langfuse.com` for EU, `https://us.cloud.langfuse.com` for US) or your self-hosted instance URL.""",
             iconPath="/static/services/langfuse.svg",
@@ -116,9 +117,10 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         return {
             "401 Client Error": "Invalid Langfuse API keys. Check the project public key and secret key, and make sure the host matches your Langfuse data region.",
             "403 Client Error": "Your Langfuse API keys do not have access to this resource. Check the keys and try again.",
-            # Every LANGFUSE_ENDPOINTS path is a collection route (no resource id in the URL), so a
-            # 404 here means the route itself doesn't exist on this host - typically a self-hosted
-            # instance running a Langfuse version that predates this endpoint. Retrying never helps.
+            # Every LANGFUSE_ENDPOINTS path is a collection route, and get_rows skips a fan-out child
+            # whose parent was deleted, so a 404 here means the route itself doesn't exist on this
+            # host - typically a self-hosted instance running a Langfuse version that predates this
+            # endpoint. Retrying never helps.
             "404 Client Error": "This Langfuse endpoint was not found on your host. Self-hosted instances on an older Langfuse version may not support it yet - upgrade your instance or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",
@@ -126,6 +128,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
+            TABLE_NOT_IN_VERSION_ERROR: "Langfuse retired the API for this table. Trace and session data is in the observations table: group its rows by traceId or sessionId.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -158,7 +161,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in ENDPOINTS
+            for endpoint in endpoints_for_version(self.resolve_api_version(api_version))
         ]
         if names is not None:
             names_set = set(names)
@@ -183,6 +186,12 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         resumable_source_manager: ResumableSourceManager[LangfuseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        api_version = self.resolve_api_version(inputs.api_version)
+        if inputs.schema_name not in endpoints_for_version(api_version):
+            raise ValueError(
+                f"{TABLE_NOT_IN_VERSION_ERROR}: '{inputs.schema_name}' is not available on API version {api_version}"
+            )
+
         return langfuse_source(
             host=config.host,
             public_key=config.public_key,

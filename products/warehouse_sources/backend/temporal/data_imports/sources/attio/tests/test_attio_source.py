@@ -9,6 +9,10 @@ class TestAttioSource:
     def setup_method(self):
         self.source = AttioSource()
 
+    @pytest.mark.parametrize("schema_name", ["companies", "notes", "tasks"])
+    def test_retry_budget_covers_every_endpoint(self, schema_name):
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name)
+
     @pytest.mark.parametrize(
         "pattern",
         [

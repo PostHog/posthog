@@ -5,6 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
@@ -14,11 +15,11 @@ import { DashboardTemplateChooser } from './dashboards/templates/DashboardTempla
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 
-export function NewDashboardModal(): JSX.Element {
+export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAfterCreation?: boolean }): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)
     const { hideNewDashboardModal, clearActiveDashboardTemplate, createDashboardFromTemplate } =
         useActions(newDashboardLogic)
-    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible } =
+    const { newDashboardModalVisible, activeDashboardTemplate, variableSelectModalVisible, isLoading } =
         useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
@@ -33,8 +34,9 @@ export function NewDashboardModal(): JSX.Element {
             dashboardTemplateChooserLogic({
                 scope: templateScope,
                 availabilityContexts: undefined,
+                redirectAfterCreation,
             }),
-        [templateScope]
+        [redirectAfterCreation, templateScope]
     )
     const { isLoading: blankDashboardLoading } = useValues(createChooserLogic)
     const { blankTileClicked } = useActions(createChooserLogic)
@@ -58,7 +60,8 @@ export function NewDashboardModal(): JSX.Element {
                     onChange={setTemplateFilter}
                     value={templateFilter}
                     fullWidth={true}
-                    autoFocus
+                    // A focused input makes iOS pan the viewport on swipe instead of scrolling the list.
+                    autoFocus={!isMobile()}
                     className="min-w-0 flex-1"
                 />
                 <LemonButton
@@ -77,10 +80,12 @@ export function NewDashboardModal(): JSX.Element {
 
     return (
         <DialogPrimitive
+            // Base UI would otherwise focus the filter input on open.
+            initialFocus={!isMobile()}
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
             className={cn(
-                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8',
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
                 // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
                 // that layer so dropdown options render above the dialog instead of behind it.
@@ -101,7 +106,7 @@ export function NewDashboardModal(): JSX.Element {
                     {activeDashboardTemplate ? (
                         <DashboardTemplateVariables />
                     ) : (
-                        <DashboardTemplateChooser scope={templateScope} />
+                        <DashboardTemplateChooser scope={templateScope} redirectAfterCreation={redirectAfterCreation} />
                     )}
                 </div>
             </div>
@@ -116,9 +121,13 @@ export function NewDashboardModal(): JSX.Element {
                     )}
                     <LemonButton
                         onClick={() => {
-                            activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
+                            if (activeDashboardTemplate) {
+                                createDashboardFromTemplate(activeDashboardTemplate, variables, redirectAfterCreation)
+                            }
                         }}
                         type="primary"
+                        loading={isLoading}
+                        disabled={isLoading}
                     >
                         Create
                     </LemonButton>

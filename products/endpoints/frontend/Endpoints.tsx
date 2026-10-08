@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -96,7 +96,13 @@ export const EndpointsTable = (): JSX.Element => {
                                 </LemonTag>
                             </>
                         }
-                        description={record.description}
+                        description={
+                            record.description ? (
+                                <Tooltip title={record.description}>
+                                    <span className="line-clamp-1 max-w-[30rem] break-all">{record.description}</span>
+                                </Tooltip>
+                            ) : undefined
+                        }
                     />
                 )
             },

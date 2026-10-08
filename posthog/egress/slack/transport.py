@@ -2,24 +2,21 @@ from typing import Any
 
 import requests
 
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.slack.observability import record_slack_api_exception, record_slack_api_response
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
+from posthog.egress.slack.observability import record_slack_api_response, slack_egress
+from posthog.egress.transport.transport import RecordedEgressClient
 
 
-class SlackEgressBudgetExhausted(EgressBudgetExhausted):
-    pass
+class SlackClient(RecordedEgressClient):
+    """Recorded, never gated. Slack applies its limits per method, workspace and app, and returns no
+    remaining-budget headers, so there is no single budget to draw from. Callers own reactive retries."""
 
+    observability = slack_egress
 
-class SlackClient(EgressClient):
     def __init__(self, app_id: str) -> None:
         self._app_id = app_id
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}
-
-    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return True
 
     def _record_response(
         self,
@@ -38,25 +35,6 @@ class SlackClient(EgressClient):
             method=method,
             endpoint=endpoint or "unknown",
         )
-
-    def _record_exception(
-        self,
-        *,
-        source: str,
-        scope: str | None,
-        method: str,
-        url: str,
-        endpoint: str | None,
-    ) -> None:
-        record_slack_api_exception(
-            source=source,
-            workspace_id=scope,
-            method=method,
-            endpoint=endpoint or "unknown",
-        )
-
-    def _budget_exhausted_error(self, scope: str) -> SlackEgressBudgetExhausted:
-        return SlackEgressBudgetExhausted(f"Slack egress budget exhausted for workspace {scope}")
 
 
 def slack_request(

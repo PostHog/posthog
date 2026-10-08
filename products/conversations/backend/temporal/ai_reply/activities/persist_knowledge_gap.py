@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 @activity.defn
 @close_db_connections
 async def support_persist_knowledge_gap_activity(input: PersistKnowledgeGapInput) -> None:
-    """Record knowledge gaps from the support pipeline as suggestions for the BK product."""
+    """Record gaps scheduled by workflow histories without the deferral patch."""
     if not input.missing:
         return
     created = await database_sync_to_async(_persist_sync, thread_sensitive=False)(input)

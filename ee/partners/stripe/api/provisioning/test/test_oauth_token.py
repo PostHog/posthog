@@ -12,12 +12,17 @@ from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_refresh_token
 
 from products.access_control.backend.models.access_control import AccessControl
 
-from ee.partners.stripe.api.provisioning.signature import compute_signature
-from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
+from ee.partners.stripe.api.provisioning.test.base import (
+    BASE_PATH,
+    HMAC_SECRET,
+    StripeProvisioningTestBase,
+    compute_signature,
+)
 
 TOKEN_URL = f"{BASE_PATH}/oauth/token"
 
@@ -129,6 +134,34 @@ class TestOAuthToken(StripeProvisioningTestBase):
             f"{BASE_PATH}/provisioning/resources/{self.team.id}", token=first["access_token"]
         )
         assert detail.status_code == 401
+
+    @parameterized.expand([("issued", False), ("stored_in_id_order", True)])
+    def test_consented_team_stays_first_across_refreshes_when_a_lower_id_team_is_provisioned(
+        self, _name: str, stored_in_id_order: bool
+    ) -> None:
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"stripe_project_id": "proj_earlier", "application": self.stripe_app}
+        )
+        consented = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, name="Consented"
+        )
+        self._seed_auth_code("code_consented", team_id=consented.id)
+
+        tokens = self._post_token({"grant_type": "authorization_code", "code": "code_consented"}).json()
+        if stored_in_id_order:
+            OAuthRefreshToken.objects.filter(token=tokens["refresh_token"]).update(
+                scoped_teams=[self.team.id, consented.id]
+            )
+        for _ in range(2):
+            res = self._post_token({"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]})
+            assert res.status_code == 200, res.content
+            tokens = res.json()
+
+        access_token = OAuthAccessToken.objects.get(token=tokens["access_token"])
+        assert access_token.scoped_teams == [consented.id, self.team.id]
+        res = self._post_signed_with_bearer(f"{BASE_PATH}/provisioning/resources", token=tokens["access_token"])
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(consented.id)
 
     def test_available_teams_exclude_acl_restricted_teams(self):
         self.organization.available_product_features = [

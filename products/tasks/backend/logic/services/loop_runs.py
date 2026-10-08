@@ -14,7 +14,6 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -131,7 +130,7 @@ def _context_outputs(context_target: dict | None) -> dict:
     }
 
 
-def render_context_target_block(context_target: dict | None) -> str:
+def render_context_target_block(context_target: dict | None, *, loop_id: str) -> str:
     """The publish contract appended to a loop's prompt when it maintains a context's deliverables.
 
     Empty for an unattached loop or a feed-only attachment — filing the run into the feed needs no
@@ -161,6 +160,8 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"`loop-channel-instructions-retrieve` and "
             f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
             f"carrying forward anything still true instead of rewriting from scratch."
+            " If a page read returns next_offset, continue with that offset, the same head_sha, and the same limit "
+            "until complete is true. Join all content chunks before editing. On a revision conflict, restart the read."
         )
     if outputs["canvas_id"]:
         lines.append(
@@ -168,7 +169,21 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
+            "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
+            "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
+            "reads are different conditions. Report the actual condition instead of requesting broader permissions."
         )
+    # A context-only target has no canvas, and the run holds no canvas scopes for one.
+    destination = "canvas" if outputs["canvas_id"] else "context page"
+    lines.append(
+        f"- Read failures with `tasks-list`, channel={channel_id}, status=failed, internal=all, and archived=all. "
+        "Use hog_flow_id for workflow-backed loops and `tasks-runs-list` for earlier runs of a task. "
+        f"When available, `loops-runs-retrieve` with id={loop_id} also accepts status=failed and next_cursor. "
+        f"Show task/run links and stored errors in the {destination}, not a saved Enabled label. If a read fails, "
+        "report the failure in the task response; do not mark the work complete."
+    )
     return "\n".join(lines)
 
 
@@ -187,15 +202,10 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team the user may see.
+    """Whether `canvas_id` is a canvas in this team the user may see."""
+    from products.canvas.backend.facade import access as canvas_facade
 
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = Channel.visible_to_q(user_id, relation="channel")
-    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
+    return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
@@ -700,7 +710,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
-    context_block = render_context_target_block(context_target)
+    context_block = render_context_target_block(context_target, loop_id=str(loop.id))
     execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
@@ -954,3 +964,58 @@ def dispatch_loop_run_terminal_notification(loop_id: str, team_id: int, event: s
         if isinstance(final_message, str) and final_message:
             payload = {**payload, "report": final_message}
     dispatch_loop_event(loop, event, payload)
+
+
+LOOP_PR_EVENTS = ("pr_created", "pr_merged", "pr_closed")
+LOOP_NOTIFIED_PR_EVENTS_STATE_KEY = "loop_notified_pr_events"
+_LOOP_PR_EVENT_BODIES = {
+    "pr_created": "Opened {pr_url}",
+    "pr_merged": "Merged {pr_url}",
+    "pr_closed": "Closed without merging: {pr_url}",
+}
+
+
+def dispatch_loop_pr_notification(run_id: str, event: str, pr_url: str) -> bool:
+    """Notify a loop's channels that one of its runs opened, merged, or closed a PR.
+
+    Returns True when the event went out. Each ``(event, pr_url)`` goes out once per run, because
+    GitHub can redeliver a webhook.
+    """
+    if event not in LOOP_PR_EVENTS:
+        return False
+    task_run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    if task_run is None:
+        return False
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    loop_id = task_run.task.loop_id or state.get("loop_id")
+    if not loop_id:
+        return False
+    # Scoped to the run's team for the same reason as handle_loop_run_terminal: run state is
+    # writable through the run-update endpoint.
+    loop = Loop.objects.for_team(task_run.team_id, canonical=True).filter(id=loop_id).first()
+    if loop is None:
+        return False
+
+    dedupe_key = f"{event}:{pr_url}"
+    with transaction.atomic():
+        locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+        locked_state = locked.state if isinstance(locked.state, dict) else {}
+        notified = locked_state.get(LOOP_NOTIFIED_PR_EVENTS_STATE_KEY)
+        notified = notified if isinstance(notified, list) else []
+        if dedupe_key in notified:
+            return False
+        locked.state = {**locked_state, LOOP_NOTIFIED_PR_EVENTS_STATE_KEY: [*notified, dedupe_key]}
+        locked.save(update_fields=["state", "updated_at"])
+
+    dispatch_loop_event(
+        loop,
+        event,
+        {
+            "task_id": str(task_run.task_id),
+            "task_run_id": str(task_run.id),
+            "url": pr_url,
+            "body": _LOOP_PR_EVENT_BODIES[event].format(pr_url=pr_url),
+            "dedupe_key": dedupe_key,
+        },
+    )
+    return True

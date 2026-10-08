@@ -35,7 +35,11 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import (
     enrich_props_with_descriptions,
@@ -43,6 +47,7 @@ from ee.hogai.chat_agent.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
@@ -231,7 +236,8 @@ class TaxonomyAgentToolkit:
         )
 
         qs = (
-            EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type, name__in=names)
+            EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
             .exclude(description__isnull=True)
             .exclude(description="")
         )
@@ -272,15 +278,10 @@ class TaxonomyAgentToolkit:
             sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
-        elif (
-            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
-            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
-        ):
+        elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
-            )
+            is_str = session_property_types().get(property_name) == PropertyType.String
         else:
             return TaxonomyErrorMessages.property_values_not_found(property_name, "session")
 
@@ -543,8 +544,10 @@ class TaxonomyAgentToolkit:
             )
 
         restricted = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+        qs = PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+            effective_project_id=self._team.project_id,
+            type=PropertyDefinition.Type.EVENT,
+            name__in=[item.property for item in response.results],
         )
         property_definitions = [prop async for prop in qs]
         property_to_type = {
@@ -683,11 +686,7 @@ class TaxonomyAgentToolkit:
                 status=status,
             )
         elif entity == "session":
-            props = [
-                (prop_name, prop["type"])
-                for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                if prop.get("type") is not None
-            ]
+            props = list(session_property_types().items())
 
             if props:
                 result = self._format_properties(self._enrich_props_with_descriptions("session", props))
@@ -727,8 +726,10 @@ class TaxonomyAgentToolkit:
             prop_type = PropertyDefinition.Type.PERSON
             group_type_index = None
 
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self._team,
+        property_definitions = PropertyDefinition.objects.alias(
+            effective_project_id=effective_project_id_expr()
+        ).filter(
+            effective_project_id=self._team.project_id,
             name__in=property_names,
             type=prop_type,
             group_type_index=group_type_index,
@@ -806,10 +807,10 @@ class TaxonomyAgentToolkit:
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_definitions_for_event_or_action(self, property_names: list[str]) -> dict[str, PropertyDefinitionOrVirtual]:
-        definitions = {
+        definitions: dict[str, PropertyDefinition] = {
             prop.name: prop
-            for prop in PropertyDefinition.objects.filter(
-                team=self._team,
+            for prop in PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                effective_project_id=self._team.project_id,
                 name__in=property_names,
                 type=PropertyDefinition.Type.EVENT,
             )

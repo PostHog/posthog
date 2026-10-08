@@ -1,0 +1,134 @@
+{
+    "XA1": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 75,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA2": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA3": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": 18,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA4": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA5": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA6": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA8": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA9": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA10": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 31,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA11": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA12": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 39,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA13": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA14": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA15": {
+        "is_real": true,
+        "severity": "consider",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA16": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA17": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 36,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA18": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "XA19": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA20": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA21": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 76,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "XA22": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": null,
+        "source": "verified-3-skeptics:3/3"
+    }
+}

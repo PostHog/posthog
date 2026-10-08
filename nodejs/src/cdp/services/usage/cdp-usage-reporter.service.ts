@@ -3,12 +3,17 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
 import { ValueMatcher } from '~/types'
 
-const USAGE_KEY = 'cdp_billable_invocations'
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000
 const MAX_PENDING_RECORDS = 2_000
 
 export interface CdpBillableInvocation {
     teamId: number
+    usageKey:
+        | 'cdp_billable_invocations'
+        | 'workflow_billable_invocations'
+        | 'workflow_emails_sent'
+        | 'workflow_push_sent'
+        | 'workflow_sms_sent'
     /** Identity of the billed thing. A replay must produce the same value, or it bills twice. */
     recordId: string
 }
@@ -31,7 +36,7 @@ export class CdpUsageReporterService {
     }
 
     reportBillableInvocation(invocation: CdpBillableInvocation): void {
-        this.batch.add(invocation.teamId, USAGE_KEY, invocation.recordId)
+        this.batch.add(invocation.teamId, invocation.usageKey, invocation.recordId)
         if (this.batch.size >= MAX_PENDING_RECORDS) {
             void this.flush()
             return

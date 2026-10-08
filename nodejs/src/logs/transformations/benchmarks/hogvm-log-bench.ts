@@ -1,5 +1,6 @@
 import { compileHog } from '~/cdp/templates/compiler'
 
+import { computeBenchStats, printBenchStatsTable } from './bench-stats'
 import { BENCH_LOG_RECORDS, BENCH_PROGRAMS, buildBenchGlobals } from './fixtures'
 import { execBenchProgram } from './hogvm-exec'
 
@@ -16,28 +17,13 @@ const WARMUP_ITERATIONS = 500
 const ITERATIONS = 5_000
 const TIMEOUT_MS = 10
 
-interface BenchStats {
-    programId: string
-    recordId: string
-    meanUs: number
-    p50Us: number
-    p95Us: number
-    p99Us: number
-    maxUs: number
-}
-
-function percentile(sorted: number[], p: number): number {
-    const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
-    return sorted[idx]
-}
-
 async function main(): Promise<void> {
     console.info(`Compiling ${BENCH_PROGRAMS.length} Hog programs via bin/hog...`)
     const compiled = await Promise.all(
         BENCH_PROGRAMS.map(async (program) => ({ program, bytecode: await compileHog(program.hog) }))
     )
 
-    const allStats: BenchStats[] = []
+    const allStats = []
 
     for (const { program, bytecode } of compiled) {
         for (const { id: recordId, record } of BENCH_LOG_RECORDS) {
@@ -59,35 +45,11 @@ async function main(): Promise<void> {
                 durationsUs.push(durationMs * 1000)
             }
 
-            durationsUs.sort((a, b) => a - b)
-            allStats.push({
-                programId: program.id,
-                recordId,
-                meanUs: durationsUs.reduce((a, b) => a + b, 0) / durationsUs.length,
-                p50Us: percentile(durationsUs, 50),
-                p95Us: percentile(durationsUs, 95),
-                p99Us: percentile(durationsUs, 99),
-                maxUs: durationsUs[durationsUs.length - 1],
-            })
+            allStats.push(computeBenchStats(program.id, recordId, durationsUs))
         }
     }
 
-    console.info(`\nHogVM per-record execution cost (${ITERATIONS} iterations each, µs):\n`)
-    const header = ['program', 'record', 'mean', 'p50', 'p95', 'p99', 'max']
-    const rows = allStats.map((s) => [
-        s.programId,
-        s.recordId,
-        s.meanUs.toFixed(1),
-        s.p50Us.toFixed(1),
-        s.p95Us.toFixed(1),
-        s.p99Us.toFixed(1),
-        s.maxUs.toFixed(1),
-    ])
-    const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)))
-    console.info(header.map((h, i) => h.padEnd(widths[i])).join('  '))
-    for (const row of rows) {
-        console.info(row.map((c, i) => c.padEnd(widths[i])).join('  '))
-    }
+    printBenchStatsTable('HogVM per-record execution cost', ITERATIONS, allStats)
 
     const overallMean = allStats.reduce((a, s) => a + s.meanUs, 0) / allStats.length
     console.info(`\nOverall mean across programs/records: ${overallMean.toFixed(1)}µs/record`)

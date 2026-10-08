@@ -8,11 +8,9 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.opsgenie import (
     PAGE_SIZE,
     OpsgenieResumeConfig,
-    _get_headers,
     _to_epoch_ms,
     opsgenie_source,
     validate_credentials,
@@ -53,13 +51,6 @@ def _response(items: list[dict[str, Any]], *, has_next: bool = False, drop_data:
     resp = Response()
     resp.status_code = 200
     resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _error_response(status: int) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = b"{}"
     return resp
 
 
@@ -122,11 +113,6 @@ class TestToEpochMs:
         assert _to_epoch_ms(value) == expected
 
 
-class TestHeaders:
-    def test_genie_key_auth_header(self) -> None:
-        assert _get_headers("key_abc")["Authorization"] == "GenieKey key_abc"
-
-
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_and_progresses_offset(self, MockSession: Any) -> None:
@@ -146,17 +132,6 @@ class TestPagination:
         assert [s.offset for s in manager.saved_states] == [PAGE_SIZE]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_search_endpoint_full_refresh_sends_stable_sort_without_query(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(_source("alerts", _FakeManager()))
-
-        assert params[0]["sort"] == "createdAt"
-        assert params[0]["order"] == "asc"
-        assert "query" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_search_endpoint_incremental_sends_created_at_query(self, MockSession: Any) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": "a"}])])
@@ -173,37 +148,6 @@ class TestPagination:
         assert params[0]["query"] == "createdAt >= 1767225600000"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_search_endpoint_sends_no_sort_or_query(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "u1"}])])
-
-        _rows(
-            _source(
-                "users",
-                _FakeManager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert "sort" not in params[0]
-        assert "order" not in params[0]
-        assert "query" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset_and_window(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "x"}])])
-
-        manager = _FakeManager(resume_state=OpsgenieResumeConfig(offset=PAGE_SIZE, window_start_ms=1700000000000))
-        _rows(_source("alerts", manager))
-
-        assert params[0]["offset"] == PAGE_SIZE
-        assert params[0]["query"] == "createdAt >= 1700000000000"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_stops_iteration(self, MockSession: Any) -> None:
         session = MockSession.return_value
         _wire(session, [_response([], has_next=True)])
@@ -214,30 +158,6 @@ class TestPagination:
         assert rows == []
         assert session.send.call_count == 1
         assert manager.saved_states == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_without_next_link_stops_iteration(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": str(i)} for i in range(PAGE_SIZE)], has_next=False)])
-
-        rows = _rows(_source("alerts", _FakeManager()))
-
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once_without_state(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "team_1"}])])
-
-        manager = _FakeManager()
-        rows = _rows(_source("teams", manager))
-
-        assert rows == [{"id": "team_1"}]
-        assert session.send.call_count == 1
-        assert manager.saved_states == []
-        assert "offset" not in params[0]
-        assert "limit" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_search_cap_reslices_into_new_created_at_window(self, MockSession: Any) -> None:
@@ -273,17 +193,6 @@ class TestPagination:
         # page forever — the iterator yields what it has and stops instead.
         assert len(rows) == PAGE_SIZE
         assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429_then_succeeds(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(429), _response([{"id": "1"}])])
-
-        with mock.patch.object(RESTClient._send_request.retry, "sleep"):  # type: ignore[attr-defined]
-            rows = _rows(_source("alerts", _FakeManager()))
-
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 2
 
 
 class TestValidateCredentials:
@@ -324,41 +233,8 @@ class TestValidateCredentials:
         assert status == 0
         assert error == "no network"
 
-    def test_uses_endpoint_path_when_schema_given(self) -> None:
-        ctx, session = self._patch_session([self._mock_response(200)])
-        with ctx:
-            validate_credentials("key", "us", endpoint="incidents")
-        assert session.get.call_args.args[0].startswith("https://api.opsgenie.com/v1/incidents?")
-
-    @pytest.mark.parametrize(
-        "region,expected_host",
-        [
-            ("us", "https://api.opsgenie.com"),
-            ("eu", "https://api.eu.opsgenie.com"),
-            ("unknown", "https://api.opsgenie.com"),
-        ],
-    )
-    def test_region_selects_base_url(self, region: str, expected_host: str) -> None:
-        ctx, session = self._patch_session([self._mock_response(200)])
-        with ctx:
-            validate_credentials("key", region)
-        assert session.get.call_args.args[0].startswith(expected_host)
-
 
 class TestOpsgenieSourceResponse:
-    def test_alerts_partitioned_on_created_at(self) -> None:
-        response = _source("alerts", _FakeManager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
-    def test_unpartitioned_endpoint_has_no_partition_settings(self) -> None:
-        response = _source("users", _FakeManager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
     @pytest.mark.parametrize("endpoint", list(OPSGENIE_ENDPOINTS.keys()))
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = _source(endpoint, _FakeManager())

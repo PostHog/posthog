@@ -44,7 +44,19 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'false',
 ]
 
-const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
+/** Every cookieless visitor shares this distinct id. */
+export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
+
+const BARE_CASE_SENSITIVE_ILLEGAL_IDS = [
+    '[object Object]',
+    'NaN',
+    'None',
+    'none',
+    'null',
+    '0',
+    'undefined',
+    COOKIELESS_SENTINEL_VALUE,
+]
 
 // we have seen illegal ids received but wrapped in double quotes
 // to protect ourselves from this we'll add the single- and double-quoted versions of the illegal ids
@@ -73,11 +85,11 @@ export const isDistinctIdIllegal = (id: string): boolean => {
 }
 
 /**
- * Ids no merge can ever involve. Wider than the illegal list, which is ids
- * that never resolve to a person anywhere: NUL cannot exist in Postgres
- * text (the capture path strips it from event.distinct_id but not from
- * $anon_distinct_id or alias property values), and over 400 code points
- * cannot exist in the varchar(400) column.
+ * Ids no merge can involve, a strict superset of isDistinctIdIllegal: NUL
+ * cannot exist in Postgres text and over 400 code points cannot fit the
+ * column. Every path that picks merge participants must agree, or a merge
+ * admits an id that fails at the column instead of settling.
  */
-export const isDistinctIdUnmergeable = (id: string): boolean =>
-    isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400
+export const isDistinctIdUnmergeable = (id: string): boolean => {
+    return isDistinctIdIllegal(id) || id.includes('\u0000') || [...id].length > 400
+}

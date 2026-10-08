@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -65,7 +63,7 @@ class WhopSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WHOP,
+            name=ExternalDataSourceType.WHOP,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Whop",
             caption=(
@@ -195,13 +193,22 @@ class WhopSource(
         is_valid, status = api_client.validate_credentials(config.api_key, config.company_id)
         if is_valid:
             return True, None
-        # A 403 means the key is genuine but lacks `company:basic:read`. Users may deliberately grant
-        # only the permissions for the tables they sync, so don't block source creation on it.
-        if status == 403 and schema_name is None:
-            return True, None
+        if status == 403:
+            # A 403 means the key is genuine but lacks `company:basic:read`. Users may deliberately
+            # grant only the permissions for the tables they sync, so don't block source creation.
+            if schema_name is None:
+                return True, None
+            return False, (
+                "Your Whop API key does not have permission to read this resource. Grant the missing read "
+                "permission in your Whop dashboard and reconnect."
+            )
         if status == 404:
             return False, "Whop could not find that company. Check the company ID and try again."
-        return False, "Invalid Whop API key or company ID."
+        if status is None or status == 429 or status >= 500:
+            return False, "Couldn't reach Whop to check your API key. Try again in a moment."
+        return False, (
+            "Whop rejected your API key. Create a new company API key in your Whop dashboard, then reconnect."
+        )
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:

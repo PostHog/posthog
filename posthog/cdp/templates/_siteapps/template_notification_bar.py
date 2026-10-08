@@ -51,6 +51,7 @@ export function onLoad({ inputs }) {
         .notification-bar p {
             margin: 0;
         }
+        ${inputs.cssOverride || ''}
     `
     const paragraph = Object.assign(document.createElement('p'), {
         innerHTML: inputs.notification,
@@ -157,6 +158,15 @@ function createShadowRoot(style) {
             ],
             "default": "yes",
             "description": "Remember if the user has closed the notification bar, and don't show it again. This resets if you update the notification bar's text.",
+        },
+        {
+            "key": "cssOverride",
+            "label": "Custom CSS",
+            "type": "string",
+            "default": "",
+            "description": 'CSS added to the notification bar. For example: ".notification-bar { font-size: 16px }"',
+            # CSS braces are not Hog placeholders
+            "templating": False,
         },
     ],
 )

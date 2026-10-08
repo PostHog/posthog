@@ -75,10 +75,16 @@ export function ItemSelectModalButton({ buttonProps }: ItemSelectModalButtonProp
 export function ItemSelectModal({ className, includeProtocol, includeRoot }: ItemSelectModalProps): JSX.Element {
     const [treeRoot, setTreeRoot] = useState('project://')
     const [key] = useState(() => `item-select-${counter++}`)
-    const props: ProjectTreeLogicProps = { key, root: treeRoot, includeRoot, hideFolders: ['shortcuts://'] }
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
     const { isOpen } = useValues(itemSelectModalLogic)
+    const props: ProjectTreeLogicProps = {
+        key,
+        root: treeRoot,
+        includeRoot,
+        hideFolders: ['shortcuts://'],
+        isActiveInPanel: isOpen,
+    }
     const { closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, editingItemId } = useValues(
         projectTreeLogic(props)

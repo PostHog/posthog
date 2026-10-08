@@ -247,7 +247,7 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
      * @nullable
      */
     readonly assignee: EarlyAccessFeatureSerializerCreateOnlyApiAssignee
-    /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
+    /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate. */
     feature_flag_id?: number
     readonly feature_flag: MinimalFeatureFlagApi
     _create_in_folder?: string

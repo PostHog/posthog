@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator, Callable
 from typing import Optional
 
@@ -155,7 +156,7 @@ class WebhookSourceManager:
                 table = self._transform_webhook_table(table)
 
                 if batch.add(table, path):
-                    merged = finalize_batch(batch.tables)
+                    merged = await asyncio.to_thread(finalize_batch, batch.tables)
                     await self._logger.adebug(
                         "webhook_batch_yield",
                         file_count=len(batch.items),
@@ -171,7 +172,7 @@ class WebhookSourceManager:
 
             # Yield any remaining rows
             if batch:
-                merged = finalize_batch(batch.tables)
+                merged = await asyncio.to_thread(finalize_batch, batch.tables)
                 await self._logger.adebug(
                     "webhook_batch_yield",
                     file_count=len(batch.items),

@@ -157,7 +157,17 @@ async def enforce_product_access(
     )
 
     if not allowed:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+        # The structured form enforce_desktop_access uses, so a client can read
+        # `code` and `reason` instead of matching message text.
+        config = get_product_config(product)
+        denial: dict[str, object] = {
+            "message": error,
+            "type": "permission_error",
+            "code": "product_access_denied",
+        }
+        if config is not None and config.denial_message is not None:
+            denial["reason"] = "product_retired"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": denial})
 
     await enforce_desktop_access(request, user, product)
     return user

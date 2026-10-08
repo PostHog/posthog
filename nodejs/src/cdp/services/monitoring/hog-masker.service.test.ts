@@ -16,7 +16,7 @@ import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
 describe('HogMasker', () => {
-    jest.retryTimes(3)
+    jest.retryTimes(3, { logErrorsBeforeRetry: true })
     describe('integration', () => {
         let now: number
         let hub: Hub

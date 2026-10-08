@@ -166,9 +166,6 @@ export class LegacyPluginExecutorService {
 
             let state = this.pluginState[invocation.hogFunction.id]
 
-            // NOTE: If this is set then we can add in the legacy storage
-            const legacyPluginConfigId = invocation.state.globals.inputs?.legacy_plugin_config_id
-
             setupPromiseCacheCounter.labels({ result: state ? 'hit' : 'miss' }).inc()
 
             if (!state) {
@@ -204,7 +201,6 @@ export class LegacyPluginExecutorService {
                             ...meta,
                             // Setup receives the real fetch always
                             fetch,
-                            storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
                 }
@@ -299,7 +295,8 @@ export class LegacyPluginExecutorService {
                     // NOTE: We override logger and fetch here so we can track the calls
                     logger: pluginLogger,
                     fetch: request,
-                    storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
+                    // Not on state.meta because state is cached across invocations
+                    person: globals.person,
                 })
 
                 addLog('info', `Function completed in ${performance.now() - start}ms.`)
@@ -312,7 +309,10 @@ export class LegacyPluginExecutorService {
                             ...state.meta,
                             logger: pluginLogger,
                         },
-                        this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
+                        this.legacyStorage(
+                            invocation.hogFunction.team_id,
+                            invocation.state.globals.inputs?.legacy_plugin_config_id
+                        )
                     )
                     result.execResult = transformedEvent
                 } else {

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 BASE_URL = "https://cronitor.io/api"
@@ -61,7 +63,58 @@ CRONITOR_ENDPOINTS: dict[str, CronitorEndpointConfig] = {
         # desc persists the incremental watermark only once the job completes.
         sort_mode="desc",
     ),
+    "groups": CronitorEndpointConfig(
+        name="groups",
+        primary_keys=["key"],
+        partition_key="created",
+    ),
+    "issues": CronitorEndpointConfig(
+        name="issues",
+        primary_keys=["key"],
+        # `state`, `ended`, and `duration` all change as an incident is worked, and the list offers
+        # only a relative `time` window rather than an absolute since-filter, so a full refresh is
+        # the only way to keep resolved incidents accurate.
+        partition_key="created",
+    ),
+    "sites": CronitorEndpointConfig(
+        name="sites",
+        primary_keys=["key"],
+        partition_key="created",
+    ),
+    "site_errors": CronitorEndpointConfig(
+        name="site_errors",
+        # The error key looks globally unique but the docs do not say so; the site key keeps the
+        # merge key unique table-wide across the fan-out.
+        primary_keys=["site_key", "key"],
+        # `last_seen` moves every time the error recurs, so partition on the stable first sighting.
+        partition_key="first_seen",
+    ),
 }
+
+
+@frozen
+class CronitorListEndpoint:
+    """A Cronitor resource served as a plain `page`/`pageSize` list."""
+
+    path: str
+    # Key the rows sit under in the response envelope.
+    envelope_key: str
+    params: tuple[tuple[str, str], ...] = ()
+
+
+# Endpoints synced by walking one paginated list, keyed by schema name.
+PAGINATED_LIST_ENDPOINTS: dict[str, CronitorListEndpoint] = {
+    # Sort by creation time so the page walk stays stable if monitors are added mid-sync.
+    "monitors": CronitorListEndpoint(path="/monitors", envelope_key="monitors", params=(("sort", "created"),)),
+    "groups": CronitorListEndpoint(path="/groups", envelope_key="groups"),
+    # `orderBy=started` keeps the page walk stable while issues are opened mid-sync.
+    "issues": CronitorListEndpoint(path="/issues", envelope_key="issues", params=(("orderBy", "started"),)),
+    "sites": CronitorListEndpoint(path="/sites", envelope_key="data"),
+}
+
+# The site errors list carries no site attribution of its own, so it is fanned out over the sites
+# list and each row is tagged with the site it was fetched for.
+SITE_ERRORS_ENDPOINT = CronitorListEndpoint(path="/site_errors", envelope_key="data")
 
 ENDPOINTS = tuple(CRONITOR_ENDPOINTS.keys())
 

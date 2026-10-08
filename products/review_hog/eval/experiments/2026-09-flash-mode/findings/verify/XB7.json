@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB7",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138 registers only an in-process on_commit callback, and 224-234 swallows a final dispatch exception. stamphog/backend/facade/api.py:149-155 only publishes delay(), while the first pending ReviewRun is created much later in the receiving task at tasks.py:1223-1229. Thus either failed publication after commit or process loss before publication leaves saved task output but no pending review intent/retry. The only production initial caller is this receiver; opened/ready webhook events are excluded from the bot/draft carve-out by tasks.py:160-168. test_inbox_trigger.py:358-369 demonstrates successful save and one failed broker dispatch without subsequent enqueue.",
+            "refutation": "I first checked whether the durable TaskRun output itself is reconciled, whether the task retries cover publication, and whether GitHub supplies a fallback. No periodic reader of that saved intent dispatches this task; its max_retries at tasks.py:1109 and retry branches operate only after Celery delivery. Repeated output saves can retry, but receivers.py:85-89 ignores state/status-only saves and tasks/webhooks.py:283-292 suppresses duplicate PR URL writes. Later pushes/reopens can recover a review, so the impact is a narrow failure-dependent omission rather than inevitable permanent loss. The committed-output-to-broker gap remains real and should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:131-138 registers publication as transaction.on_commit work, so the task output commits before the broker receives a message. _start_stamphog_review at :224-234 catches a publish error with only logging; Stamphog facade/api.py:149-155 only calls delay. Therefore an exhausted broker failure or process loss in the commit-to-callback window leaves no dispatch record/message. Stamphog tasks.py:1109 retries cannot help before that task is accepted, and its ReviewRun is created later at :1223-1229.",
+            "refutation": "First looked for the persisted TaskRun output acting as a recovery source, producer retries, and scheduled reconciliation. Another output save deliberately refires (receivers.py:73-79), but status-only saves are excluded (:85-89), and no mandatory later output follows the final PR write. The existing generic reconciler at posthog/tasks/tasks.py:270-303 only redispatches queued Tasks TaskRuns, not missing Stamphog review requests. tests/test_inbox_trigger.py:358-369 verifies the save survives a broker error but no eventual delivery. Opened/ready events are excluded by Stamphog tasks.py:160-168. Short publisher retries and later user actions are possible workarounds; they do not close the durable hand-off gap."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "review_hog/backend/receivers.py:126-138 registers an on_commit callback carrying the review arguments; the callback catches enqueue errors and logs at 224-234. The called facade does only process_inbox_pr_review.delay (stamphog/backend/facade/api.py:147-155), so there is no durable pending intent before the publication. A failed publication or process exit after the source commit leaves neither a Celery delivery nor a ReviewRun. The three retries at stamphog/backend/tasks/tasks.py:1109 apply only once execution begins. The opened bot-draft webhook is intentionally excluded from this review path at 160-168, and no pending-inbox dispatch reconciler is registered in tasks/schedules.py:1-13.",
+            "refutation": "I looked for an outbox hidden in the facade, callback failure propagation, producer recovery, and automatic source-save replay. The facade has no write, and the callback swallows the error, as tested by review_hog/backend/tests/test_inbox_trigger.py:358-369. Producer retries cannot recover a process that exits before publication or a failure after their finite attempts. Later output saves can refire, but ordinary completion/state saves are filtered by receivers.py:85-89 and no later eligible write is guaranteed. Thus keeping the caller save successful currently trades away its review request under a reachable broker/process failure; manual refire limits the impact."
+        }
+    ]
+}

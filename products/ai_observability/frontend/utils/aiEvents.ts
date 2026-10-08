@@ -15,13 +15,24 @@ const AI_STALE_EVENT_DAYS = 90
 const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
 
 /**
- * Checks if the team has sent any AI events.
- *
+ * Checks if the team has sent any AI events. Answers `null` when the check could not run.
+ */
+export async function hasRecentAIEvents(): Promise<boolean | null> {
+    try {
+        return await queryRecentAIEvents()
+    } catch {
+        // Callers re-run this on a timer, so rejecting files one error tracking issue per tick for
+        // as long as the tab stays open. `client_request_failure` already records both requests.
+        return null
+    }
+}
+
+/**
  * Uses a two-tier approach:
  * 1. Fast path: Check EventDefinition table (Postgres)
  * 2. Fallback: Query ClickHouse directly for recent events (for new users)
  */
-export async function hasRecentAIEvents(): Promise<boolean> {
+async function queryRecentAIEvents(): Promise<boolean> {
     // Fast path: check EventDefinition (works for most existing users)
     const aiEventDefinitions = await api.eventDefinitions.list({
         event_type: EventDefinitionType.Event,
@@ -54,13 +65,11 @@ let inFlightAiEventsCheck: Promise<boolean> | null = null
 
 async function runAiEventsCheck(): Promise<boolean> {
     try {
+        // An unanswerable check reads as "not seen yet"; the poll retries on its next tick.
         if (await hasRecentAIEvents()) {
             seenAiEvents = true
         }
         return seenAiEvents
-    } catch {
-        // A transient API failure reads as "not seen yet"; the poll retries on its next tick.
-        return false
     } finally {
         inFlightAiEventsCheck = null
     }

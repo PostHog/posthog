@@ -11,20 +11,19 @@ The shape we enforce:
   breaking the moment master ships a new pin. Raise the floor only when the
   code on master genuinely requires a newer uv feature.
 
-- .github/workflows/*.yml use setup-uv with an explicit exact version literal
-  (e.g. `version: '0.11.14'`). Every workflow pins the SAME exact version so
-  CI is deterministic across jobs. The pin must satisfy the pyproject floor.
-  An exact literal also avoids the historical GH API rate-limit issue caused
-  by range resolution (astral-sh/setup-uv#325).
+- .github/actions/setup-uv/action.yml holds CI's exact uv version. The Depot
+  mirror and jobs that check out older revisions keep matching exact pins.
+  Exact pins prevent CI from floating to a new release. setup-uv v7.6.0 uses
+  a static manifest rather than the rate-limited releases API used by v7.3.0.
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift.
 
 Performs four checks:
-1. Workflow pins are present, exact literals, and identical across all files.
-2. Workflow pin satisfies pyproject's required-version floor.
-3. Workflow pin can download the required Python version.
-4. Flox manifest uv version matches the workflow pin on major.minor.
+1. CI pins are present, exact literals, and identical across all files.
+2. The pin satisfies pyproject's required-version floor.
+3. The pin can download the required Python version.
+4. Flox manifest uv version matches the CI pin on major.minor.
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
@@ -107,31 +106,41 @@ def get_uv_version_from_flox() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
-    """Find all setup-uv usages in CI workflows and their version pins.
+def get_uv_pins_from_ci_files() -> dict[str, list[str | None]]:
+    """Find direct setup-uv usages in CI configuration and their version pins.
 
-    Returns a dict mapping workflow filename to list of version strings (or None
-    if a usage has no pin). Every usage must be pinned with an exact literal —
-    unpinned setup-uv would resolve via GitHub API on every job and hit rate
-    limits under concurrent load (see astral-sh/setup-uv#325).
+    Returns a dict mapping each repo-relative file to its direct setup-uv
+    versions. Composite actions are globbed rather than named, so a second
+    wrapper — a .depot mirror, or a future per-tool action — cannot carry an
+    unpinned setup-uv past this check.
     """
-    workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
+    repo_root = Path(__file__).parent.parent
+    ci_files = [
+        *sorted(repo_root.glob(".github/actions/*/action.y*ml")),
+        *sorted(repo_root.glob(".depot/actions/*/action.y*ml")),
+        *sorted((repo_root / ".github" / "workflows").glob("*.y*ml")),
+        *sorted((repo_root / ".depot" / "workflows").glob("*.y*ml")),
+    ]
     uv_usages: dict[str, list[str | None]] = {}
 
-    for workflow_file in sorted(workflows_dir.glob("*.yml")):
-        lines = workflow_file.read_text().splitlines()
+    for ci_file in ci_files:
+        lines = ci_file.read_text().splitlines()
         for i, line in enumerate(lines):
             if "setup-uv@" not in line:
                 continue
             version: str | None = None
-            for lookahead in lines[i + 1 : i + 6]:
-                if re.match(r"^\s+-\s+name:", lookahead):
+            step_indent = len(line) - len(line.lstrip()) - (0 if line.lstrip().startswith("- ") else 2)
+            for lookahead in lines[i + 1 :]:
+                if not lookahead.strip() or lookahead.lstrip().startswith("#"):
+                    continue
+                if len(lookahead) - len(lookahead.lstrip()) <= step_indent:
                     break
-                m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
+                m = re.fullmatch(r"\s+version:\s*(['\"]?)(\d+\.\d+\.\d+)\1\s*(?:#.*)?", lookahead)
                 if m:
-                    version = m.group(1)
+                    version = m.group(2)
                     break
-            uv_usages.setdefault(workflow_file.name, []).append(version)
+            path = str(ci_file.relative_to(repo_root))
+            uv_usages.setdefault(path, []).append(version)
 
     return uv_usages
 
@@ -177,10 +186,10 @@ def _divider() -> None:
 
 
 def label_workflow_pins(workflow_usages: dict[str, list[str | None]]) -> tuple[list[str], dict[str, list[str]]]:
-    """Split workflow usages into missing pins and pins grouped by version.
+    """Split usages into missing pins and pins grouped by version.
 
     Returns (missing_pins, pin_locations). Each usage is labelled with its
-    workflow name, plus a `(usage N)` suffix when a workflow has several.
+    repo-relative path, plus a `(usage N)` suffix when a file has several.
     """
     missing_pins: list[str] = []
     pin_locations: dict[str, list[str]] = {}
@@ -197,14 +206,14 @@ def label_workflow_pins(workflow_usages: dict[str, list[str | None]]) -> tuple[l
 
 
 def check_workflow_pins() -> tuple[bool, str | None]:
-    """Check 1: pins present, exact literals, and identical across workflows.
+    """Check 1: pins present, exact literals, and identical across CI files.
 
     Returns (ok, workflow_pin). The pin is the single agreed version, or None
     when it is missing or ambiguous.
     """
     _section("Check 1: CI workflow uv version pins")
 
-    workflow_usages = get_uv_versions_from_workflows()
+    workflow_usages = get_uv_pins_from_ci_files()
     missing_pins, pin_locations = label_workflow_pins(workflow_usages)
     distinct_pins = set(pin_locations)
 
@@ -214,8 +223,7 @@ def check_workflow_pins() -> tuple[bool, str | None]:
         for name in missing_pins:
             print(f"  - {name}")
         print()
-        print("  Without an exact pin, setup-uv may resolve via GitHub API and")
-        print("  hit rate limits under concurrent load (astral-sh/setup-uv#325).")
+        print("  Use the shared setup-uv action, or an exact pin for an older-revision job.")
         ok = False
 
     workflow_pin: str | None = None

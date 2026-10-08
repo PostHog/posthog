@@ -21,7 +21,11 @@ export class HogFlowFunctionsService {
         private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
 
-    async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
+    async buildHogFunction(
+        hogFlow: HogFlow,
+        configuration: Action['config'],
+        actionName?: string
+    ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
         if (!template) {
@@ -47,7 +51,15 @@ export class HogFlowFunctionsService {
             updated_at: '',
             // The action's config, plus flow-level send settings the email service needs at the
             // send choke point, where only the synthetic hog function is in scope.
-            metadata: { ...config, email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null },
+            metadata: {
+                ...config,
+                hog_flow_name: hogFlow.name,
+                hog_flow_action_name: actionName ?? null,
+                email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
+                email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
+                email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
+                email_sending_paused_by: hogFlow.email_sending_paused_by ?? null,
+            },
         }
 
         return hogFunction
@@ -119,6 +131,9 @@ export class HogFlowFunctionsService {
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
+                actionStepCount: invocation.state.actionStepCount,
+                customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
+                rerunAttempts: invocation.state.rerunAttempts,
             },
         }
 

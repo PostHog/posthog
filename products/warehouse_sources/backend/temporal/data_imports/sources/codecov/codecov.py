@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.settings import (
     CODECOV_ENDPOINTS,
     CodecovEndpointConfig,
+    CodecovResponseShape,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -108,6 +109,42 @@ def _format_start_date(cutoff: datetime) -> str:
     return cutoff.date().isoformat()
 
 
+def _totals_rows(data: Any, repo: str) -> list[dict[str, Any]]:
+    """One row of headline coverage per repository, with `totals` flattened into the root.
+
+    The per-file breakdown the same response carries is the `report_files` grain, so it is
+    dropped here — which also means the row's `files` is the file *count* from `totals`.
+    """
+    if not data:
+        return []
+    return [{**(data.get("totals") or {}), "repo": repo, "commit_file_url": data.get("commit_file_url")}]
+
+
+def _report_file_rows(data: Any, repo: str) -> list[dict[str, Any]]:
+    return [{**file, "repo": repo} for file in (data or {}).get("files") or []]
+
+
+def _tree_rows(nodes: Any, repo: str) -> Iterator[dict[str, Any]]:
+    """Flatten the nested directory tree into one row per node, at every depth."""
+    for node in nodes or []:
+        yield {**{key: value for key, value in node.items() if key != "children"}, "repo": repo}
+        yield from _tree_rows(node.get("children"), repo)
+
+
+def _unpaginated_rows(shape: CodecovResponseShape, data: Any, repo: str) -> list[dict[str, Any]]:
+    match shape:
+        case CodecovResponseShape.BARE_LIST:
+            return [{**item, "repo": repo} for item in data or []]
+        case CodecovResponseShape.TOTALS:
+            return _totals_rows(data, repo)
+        case CodecovResponseShape.REPORT_FILES:
+            return _report_file_rows(data, repo)
+        case CodecovResponseShape.TREE:
+            return list(_tree_rows(data, repo))
+        case _:
+            raise ValueError(f"Endpoint response shape {shape} is paginated")
+
+
 def parse_repositories(repositories: str | None) -> list[str]:
     """Split the optional comma-separated repository allow-list into clean names."""
     if not repositories:
@@ -187,8 +224,10 @@ def _get_top_level_rows(
 
     allowed = set(repositories)
     for results, next_url in _iter_pages(session, url, headers, logger):
-        # The repos list has no server-side name filter, so the allow-list applies client-side.
-        rows = [item for item in results if not allowed or item.get("name") in allowed]
+        rows = results
+        if config.filtered_by_repository_allow_list and allowed:
+            # The repos list has no server-side name filter, so the allow-list applies client-side.
+            rows = [item for item in results if item.get("name") in allowed]
         if rows:
             yield rows
             # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
@@ -215,7 +254,7 @@ def _get_fan_out_rows(
 
     cutoff = _normalize_cutoff(db_incremental_field_last_value) if should_use_incremental_field else None
     params: dict[str, Any] = {**config.extra_params}
-    if config.paginated:
+    if config.response_shape is CodecovResponseShape.PAGINATED_LIST:
         params = {"page_size": PAGE_SIZE, **config.extra_params}
     stop_field: str | None = None
     if cutoff is not None and config.incremental_fields:
@@ -241,10 +280,9 @@ def _get_fan_out_rows(
         resume_url = None  # only the resumed-into repo uses the saved URL; the rest start fresh
 
         try:
-            if not config.paginated:
-                # components returns a bare JSON array with no pagination envelope.
-                items = _fetch_page(session, url, headers, logger)
-                rows = [{**item, "repo": repo} for item in items or []]
+            if config.response_shape is not CodecovResponseShape.PAGINATED_LIST:
+                # Single-response endpoints: a bare array, or a report object we reshape.
+                rows = _unpaginated_rows(config.response_shape, _fetch_page(session, url, headers, logger), repo)
                 if rows:
                     yield rows
             else:

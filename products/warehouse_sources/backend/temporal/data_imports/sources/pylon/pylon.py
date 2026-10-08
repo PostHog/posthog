@@ -17,7 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.sett
     PylonEndpointConfig,
 )
 
-PYLON_BASE_URL = "https://api.usepylon.com"
+PYLON_US_BASE_URL = "https://api.usepylon.com"
+PYLON_EU_BASE_URL = "https://api.eu.usepylon.com"
+# Pylon issues region-scoped tokens: an EU-residency workspace's token only authenticates against the
+# EU host, and the US host rejects it with a 401 naming the correct region.
+PYLON_EU_TOKEN_PREFIX = "pylon_api_eu_"
 
 
 class PylonRetryableError(Exception):
@@ -32,6 +36,13 @@ class PylonResumeConfig:
     window_start: str | None = None
     # The custom-fields object_type currently being fanned out (fan-out endpoints only).
     object_type: str | None = None
+
+
+def base_url_for_token(api_token: str) -> str:
+    """Pick Pylon's regional API host from the token's prefix, defaulting to US."""
+    if api_token.startswith(PYLON_EU_TOKEN_PREFIX):
+        return PYLON_EU_BASE_URL
+    return PYLON_US_BASE_URL
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -96,7 +107,8 @@ def validate_credentials(api_token: str) -> bool:
         # redact_values masks the bearer token in logs/sample capture; allow_redirects=False keeps the
         # credentialed request from following an off-origin redirect that could leak the token.
         session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
-        response = session.get(f"{PYLON_BASE_URL}/me", headers=_get_headers(api_token), timeout=10)
+        base_url = base_url_for_token(api_token)
+        response = session.get(f"{base_url}/me", headers=_get_headers(api_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -105,6 +117,7 @@ def validate_credentials(api_token: str) -> bool:
 def _iter_pages(
     session: requests.Session,
     headers: dict[str, str],
+    base_url: str,
     path: str,
     params: dict[str, Any],
     logger: FilteringBoundLogger,
@@ -123,7 +136,7 @@ def _iter_pages(
         if cursor:
             page_params["cursor"] = cursor
 
-        data = _fetch_page(session, _build_url(f"{PYLON_BASE_URL}{path}", page_params), headers, logger)
+        data = _fetch_page(session, _build_url(f"{base_url}{path}", page_params), headers, logger)
         items = data.get("data") or []
         pagination = data.get("pagination") or {}
         next_cursor = pagination.get("cursor") if pagination.get("has_next_page") else None
@@ -145,6 +158,7 @@ def _iter_pages(
 def _get_simple_rows(
     session: requests.Session,
     headers: dict[str, str],
+    base_url: str,
     config: PylonEndpointConfig,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[PylonResumeConfig],
@@ -155,7 +169,7 @@ def _get_simple_rows(
         params["limit"] = config.limit
 
     start_cursor = resume.cursor if resume else None
-    for items, next_cursor in _iter_pages(session, headers, config.path, params, logger, start_cursor):
+    for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
         if items:
             yield items
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it; merge dedupes
@@ -167,6 +181,7 @@ def _get_simple_rows(
 def _get_fan_out_rows(
     session: requests.Session,
     headers: dict[str, str],
+    base_url: str,
     config: PylonEndpointConfig,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[PylonResumeConfig],
@@ -188,7 +203,7 @@ def _get_fan_out_rows(
         start_cursor = resume_cursor if index == 0 else None
         resume_cursor = None
 
-        for items, next_cursor in _iter_pages(session, headers, config.path, params, logger, start_cursor):
+        for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
             # Stamp the queried object_type so a single table covers every type and the composite
             # [object_type, id] primary key stays unique even if two types reuse an id.
             stamped = [{**item, "object_type": item.get("object_type") or object_type} for item in items]
@@ -205,6 +220,7 @@ def _get_fan_out_rows(
 def _get_windowed_rows(
     session: requests.Session,
     headers: dict[str, str],
+    base_url: str,
     config: PylonEndpointConfig,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[PylonResumeConfig],
@@ -251,7 +267,7 @@ def _get_windowed_rows(
         start_cursor = resume_cursor
         resume_cursor = None
 
-        for items, next_cursor in _iter_pages(session, headers, config.path, params, logger, start_cursor):
+        for items, next_cursor in _iter_pages(session, headers, base_url, config.path, params, logger, start_cursor):
             if items:
                 yield items
             if next_cursor:
@@ -272,6 +288,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = PYLON_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
+    base_url = base_url_for_token(api_token)
     # redact_values masks the bearer token in logs/sample capture; allow_redirects=False keeps the
     # credentialed request from following an off-origin redirect that could leak the token.
     session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
@@ -282,6 +299,7 @@ def get_rows(
         yield from _get_windowed_rows(
             session,
             headers,
+            base_url,
             config,
             logger,
             resumable_source_manager,
@@ -290,9 +308,9 @@ def get_rows(
             db_incremental_field_last_value,
         )
     elif config.fan_out_object_types:
-        yield from _get_fan_out_rows(session, headers, config, logger, resumable_source_manager, resume)
+        yield from _get_fan_out_rows(session, headers, base_url, config, logger, resumable_source_manager, resume)
     else:
-        yield from _get_simple_rows(session, headers, config, logger, resumable_source_manager, resume)
+        yield from _get_simple_rows(session, headers, base_url, config, logger, resumable_source_manager, resume)
 
 
 def pylon_source(

@@ -54,6 +54,10 @@ export interface IdentityProviderConfigForm {
     saml_entity_id: string
     saml_acs_url: string
     saml_x509_cert: string
+    oidc_issuer_url: string
+    oidc_client_id: string
+    oidc_client_secret: string
+    oidc_client_secret_cleared: boolean
     scim_enabled: boolean
     id_jag_issuer_url: string
     id_jag_jwks_url: string
@@ -68,6 +72,9 @@ type IdentityProviderConfigWritePayload = Pick<IdentityProviderConfigApi, 'domai
             | 'saml_entity_id'
             | 'saml_acs_url'
             | 'saml_x509_cert'
+            | 'oidc_issuer_url'
+            | 'oidc_client_id'
+            | 'oidc_client_secret'
             | 'scim_enabled'
             | 'id_jag_issuer_url'
             | 'id_jag_jwks_url'
@@ -85,6 +92,10 @@ const emptyIdentityProviderConfigForm = (): IdentityProviderConfigForm => ({
     saml_entity_id: '',
     saml_acs_url: '',
     saml_x509_cert: '',
+    oidc_issuer_url: '',
+    oidc_client_id: '',
+    oidc_client_secret: '',
+    oidc_client_secret_cleared: false,
     scim_enabled: false,
     id_jag_issuer_url: '',
     id_jag_jwks_url: '',
@@ -101,6 +112,10 @@ const formValuesFromConfig = (config: IdentityProviderConfigApi | null): Identit
     saml_entity_id: config?.saml_entity_id ?? '',
     saml_acs_url: config?.saml_acs_url ?? '',
     saml_x509_cert: config?.saml_x509_cert ?? '',
+    oidc_issuer_url: config?.oidc_issuer_url ?? '',
+    oidc_client_id: config?.oidc_client_id ?? '',
+    oidc_client_secret: '',
+    oidc_client_secret_cleared: false,
     scim_enabled: config?.scim_enabled ?? false,
     id_jag_issuer_url: config?.id_jag_issuer_url ?? '',
     id_jag_jwks_url: config?.id_jag_jwks_url ?? '',
@@ -129,6 +144,22 @@ const payloadFromForm = (
 
     if (configScope === ConfigScopeEnumApi.Scim) {
         return { ...commonPayload, scim_enabled: formValues.scim_enabled }
+    }
+
+    if (configScope === ConfigScopeEnumApi.Oidc) {
+        return {
+            ...commonPayload,
+            oidc_issuer_url: formValues.oidc_issuer_url.trim(),
+            oidc_client_id: formValues.oidc_client_id.trim(),
+            // A typed secret must win over the cleared flag. The flag stays set once the admin opens the
+            // input, so testing it first would send an empty secret and delete the credential instead of
+            // rotating it.
+            ...(formValues.oidc_client_secret
+                ? { oidc_client_secret: formValues.oidc_client_secret }
+                : formValues.oidc_client_secret_cleared
+                  ? { oidc_client_secret: '' }
+                  : {}),
+        }
     }
 
     return {
@@ -389,6 +420,12 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                     !isSecureUrl(formValues.id_jag_issuer_url)
                         ? 'Enter a valid URL that starts with https://'
                         : undefined,
+                oidc_issuer_url:
+                    props.configScope === ConfigScopeEnumApi.Oidc &&
+                    formValues.oidc_issuer_url &&
+                    !isSecureUrl(formValues.oidc_issuer_url)
+                        ? 'Enter a valid URL that starts with https://'
+                        : undefined,
                 id_jag_jwks_url:
                     props.configScope === ConfigScopeEnumApi.Xaa &&
                     formValues.id_jag_jwks_url &&
@@ -544,7 +581,10 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
         isConfigScopeValid: [
             (selectors) => [selectors.identityProviderConfig, (_, props) => props.configScope],
             (config: IdentityProviderConfigApi | null, configScope: ConfigScopeEnumApi | null): boolean =>
-                !!configScope && (!config?.config_scope || config.config_scope === configScope),
+                !!configScope &&
+                (!config ||
+                    config.config_scope === configScope ||
+                    (configScope !== ConfigScopeEnumApi.Oidc && !config.config_scope)),
         ],
         hasSamlDomainScopeConflict: [
             (selectors) => [
@@ -628,7 +668,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
                 return
             }
 
-            actions.resetIdentityProviderConfigForm(values.identityProviderConfigForm)
+            actions.resetIdentityProviderConfigForm(formValuesFromConfig(config))
             if (props.configId === NEW_CONFIG_ID && config.id) {
                 // Adopt the saved config's URL so another save updates it instead of creating a duplicate.
                 router.actions.replace(urls.identityProviderConfig(props.configScope, config.id))

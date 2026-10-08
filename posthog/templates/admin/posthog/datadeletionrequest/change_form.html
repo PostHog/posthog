@@ -225,7 +225,7 @@
                     style="padding: 10px 15px;
                            background: #d9534f;
                            color: white"
-                    onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
+                    data-confirm="Retry this failed request? It will be re-queued for execution.">Retry execution</button>
         </div>
     {% endif %}
     {% if can_verify %}
@@ -253,7 +253,89 @@
                     style="padding: 10px 15px;
                            background: #417690;
                            color: white"
-                    onclick="return confirm('Verify this request against ClickHouse now?');">Verify deletion</button>
+                    data-confirm="Verify this request against ClickHouse now?">Verify deletion</button>
         </div>
     {% endif %}
+    {% comment %}
+    Behaviour for ArrayTextareaWidget. It lives here rather than in the widget because a widget's
+    render() gets no request, so it cannot reach the nonce this policy requires, and because one
+    block covers every field instead of one copy per field.
+    {% endcomment %}
+    <script nonce="{{ request.csp_nonce }}">
+    (function () {
+        function parse(text) {
+            text = text.trim();
+            if (!text) {
+                return [];
+            }
+            if (text.startsWith("[")) {
+                // Python prints a list of strings with single quotes, so retry with them swapped
+                // for double quotes. Skip the swap when the text holds an escaped apostrophe (\'),
+                // because the swap turns it into an escaped double quote and changes the value.
+                // ArrayTextareaField.clean still parses that input with ast.literal_eval on submit.
+                var candidates = [text];
+                if (!text.includes("\\'")) {
+                    candidates.push(text.replace(/'/g, '"'));
+                }
+                for (var i = 0; i < candidates.length; i++) {
+                    try {
+                        var arr = JSON.parse(candidates[i]);
+                        if (Array.isArray(arr)) {
+                            return arr.map(function (s) { return String(s).trim(); }).filter(Boolean);
+                        }
+                    } catch (e) {}
+                }
+            }
+            return text.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+        }
+
+        document.querySelectorAll(".array-textarea-preview").forEach(function (preview) {
+            var textarea = document.getElementById(preview.dataset.textareaId);
+            if (!textarea) {
+                return;
+            }
+
+            function render() {
+                var items = parse(textarea.value);
+                preview.replaceChildren();
+                if (items.length === 0) {
+                    var empty = document.createElement("em");
+                    empty.style.color = "#999";
+                    empty.textContent = "No items";
+                    preview.appendChild(empty);
+                    return;
+                }
+                var label = document.createElement("strong");
+                label.textContent = items.length + " item(s):";
+                preview.appendChild(label);
+                items.forEach(function (item) {
+                    var code = document.createElement("code");
+                    code.style.cssText = "background:#e8e8e8;padding:2px 6px;border-radius:3px;margin:2px";
+                    // textContent, so a value containing markup is shown rather than parsed.
+                    code.textContent = item;
+                    preview.appendChild(document.createTextNode(" "));
+                    preview.appendChild(code);
+                });
+            }
+
+            function normalizeIfArray() {
+                // Rewrite an array literal to one per line. Only on paste and blur, so live
+                // editing is not clobbered.
+                if (!textarea.value.trim().startsWith("[")) {
+                    return;
+                }
+                var items = parse(textarea.value);
+                if (items.length > 0) {
+                    textarea.value = items.join("\n");
+                    render();
+                }
+            }
+
+            textarea.addEventListener("input", render);
+            textarea.addEventListener("blur", normalizeIfArray);
+            textarea.addEventListener("paste", function () { window.setTimeout(normalizeIfArray, 0); });
+            render();
+        });
+    })();
+    </script>
 {% endblock %}

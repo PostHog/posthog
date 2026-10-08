@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +59,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_METEO,
+            name=ExternalDataSourceType.OPENMETEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Open-Meteo",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -114,6 +112,19 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
             # start date before the archive begins). Retrying can never satisfy it.
             "Open-Meteo rejected the request": "Open-Meteo rejected the request. Check the locations and historical start date on this source, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_with_redacted_errors` has no retry loop of its own — it relies on the tracked
+        # session's urllib3 adapter to retry a connection failure, read timeout, or 429/5xx
+        # response. Once that budget is exhausted, the failure still carries an Open-Meteo host:
+        # a connection/timeout failure escapes with the host baked into urllib3's own message
+        # (`HTTPSConnectionPool(host='...', port=443): ...`), and an exhausted 429/5xx reaches
+        # `_fetch`'s `raise_for_status()` fallback, whose message carries the request URL instead.
+        # Either way Temporal retries the whole activity from the saved window/location checkpoint,
+        # so this is transient and self-recovering rather than a bug. Every Open-Meteo host is one
+        # of our own fixed hosts (never user input), so matching on the bare domain covers both
+        # message shapes without risking an unrelated failure.
+        return {"open-meteo.com"}
 
     def get_schemas(
         self,

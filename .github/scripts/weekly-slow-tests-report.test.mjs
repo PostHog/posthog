@@ -38,6 +38,8 @@ describe('weekly slow tests report', () => {
         assert.deepEqual(items, [expected])
 
         assert.match(captured.query, /attributes\['test\.outcome'\] = 'passed'/)
+        assert.match(captured.query, /median\(toFloat\(duration_nano\)\)/)
+        assert.doesNotMatch(captured.query, /toFloat64/)
         assert.match(captured.query, /lower\(resource_attributes\['ci\.repository'\]\) = lower\(\{repository\}\)/)
         assert.match(captured.query, /ci\.branch'\] = {for_branch} OR resource_attributes\['ci\.branch'\] LIKE {merge_queue_glob}/)
         assert.match(captured.query, /GROUP BY/)

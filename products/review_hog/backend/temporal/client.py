@@ -5,12 +5,12 @@ Four entry points across two workflows. Each workflow pairs a **blocking** CLI t
 `start_workflow`); the blocking form returns the `ReviewReport` id, the non-blocking form returns
 the workflow id and fires and forget (the run happens in the worker).
 
-`ReviewPRWorkflow` — the single-turn review:
+`ReviewPRQueueWorkflow` serializes requests and runs each turn in `ReviewPRWorkflow`:
 - `execute_review_pr_workflow` — used by the `run_review` management command so the CLI eval loop
   stays intact: run, see the outcome, read the report (stage progress streams in the worker log via
   `workflow.logger`).
-- `start_review_pr_workflow` — used by the production triggers (the label endpoint and the inbox
-  TaskRun-completion receiver); the report id is created when the run's fetch activity executes.
+- `start_review_pr_workflow` — used by production triggers; signals preserve new heads and Full
+  requests that arrive during an active review. Fetch creates the report id when a turn starts.
 
 `ResolvePRWorkflow` — triaging and settling a PR's unresolved review threads:
 - `execute_resolution_workflow` — the CLI entry (`run_resolution`), mirroring
@@ -39,10 +39,12 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
     ResolvePRWorkflowInputs,
+    ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     resolve_pr_workflow_id,
     review_branch_workflow_id,
@@ -52,9 +54,8 @@ from products.signals.backend.enums import ReportPriority
 
 logger = logging.getLogger(__name__)
 
-# Retry the whole review once on a hard failure; the re-run resumes (reuses persisted
-# chunk/perspective/verdict rows for the same head) rather than redoing the work.
-_PARENT_RETRY = RetryPolicy(maximum_attempts=2)
+# Resolution retries resume from the persisted thread watermarks.
+_RESOLUTION_RETRY = RetryPolicy(maximum_attempts=2)
 
 
 def workflow_running(workflow_id: str) -> bool:
@@ -93,6 +94,8 @@ def _build_inputs(
     head_branch: str | None,
     resolve_comments: bool | None = None,
     signal_priority: ReportPriority | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
+    requested_head_sha: str | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -129,6 +132,8 @@ def _build_inputs(
         signal_priority=signal_priority.value if signal_priority is not None else None,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
+        requested_head_sha=requested_head_sha,
     )
     return inputs, workflow_id
 
@@ -145,8 +150,9 @@ def execute_review_pr_workflow(
     repository: str | None = None,
     head_branch: str | None = None,
     resolve_comments: bool | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
 ) -> str:
-    """Start `ReviewPRWorkflow`, block until it completes, and return the `ReviewReport` id.
+    """Start or signal the review queue, wait for it to finish, and return the `ReviewReport` id.
 
     `team_id` / `user_id` are explicit identity (the team the review persists under; the user the
     sandbox tasks run as). `publish` defaults off so a CLI run never posts unless asked.
@@ -164,6 +170,7 @@ def execute_review_pr_workflow(
         repository=repository,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
     )
 
     # `sync_connect` is @async_to_sync, so call it from sync code (outside any running loop); the
@@ -172,15 +179,16 @@ def execute_review_pr_workflow(
     logger.info(f"Running ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} (publish={publish})")
     return asyncio.run(
         client.execute_workflow(
-            "review-pr",
-            inputs,
+            "review-pr-queue",
+            ReviewPRQueueInputs(requests=[inputs]),
             id=workflow_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             # A new turn may start once the prior one finishes (the living-report re-review);
             # re-triggering while a run is in flight joins that run rather than erroring.
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-            retry_policy=_PARENT_RETRY,
+            start_signal="request_review",
+            start_signal_args=[inputs],
         )
     )
 
@@ -198,8 +206,10 @@ def start_review_pr_workflow(
     repository: str | None = None,
     head_branch: str | None = None,
     resolve_comments: bool | None = None,
+    review_mode: str = REVIEW_MODE_FULL,
+    requested_head_sha: str | None = None,
 ) -> str:
-    """Start `ReviewPRWorkflow` without blocking and return the workflow id.
+    """Start or signal the review queue without blocking and return the workflow id.
 
     For the production triggers: the caller returns immediately while the review runs in the worker.
     `publish` is required (the caller decides explicitly). Safe to call from a synchronous DRF action
@@ -207,9 +217,8 @@ def start_review_pr_workflow(
     likewise. `acting_user_id` defaults None so the workflow resolves the PR author itself (the label
     trigger has not fetched the PR, so it cannot know the author); the inbox trigger sets it.
 
-    Re-triggering the same target while a review is in flight (e.g. a push fires `synchronize`) joins
-    the running workflow via `USE_EXISTING` rather than raising `WorkflowAlreadyStartedError` — so
-    the trigger never errors on a normal push. (Re-reviewing a mid-flight new head is the loop's job.)
+    A signal records requests that arrive during a review. Automatic pushes coalesce to the latest
+    head; explicit Full requests wait for an active Flash review without being discarded.
     """
     inputs, workflow_id = _build_inputs(
         team_id=team_id,
@@ -223,20 +232,26 @@ def start_review_pr_workflow(
         repository=repository,
         head_branch=head_branch,
         resolve_comments=resolve_comments,
+        review_mode=review_mode,
+        requested_head_sha=requested_head_sha,
     )
 
     client = sync_connect()
-    logger.info(f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} (publish={publish})")
+    logger.info(
+        f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} "
+        f"(publish={publish}, review_mode={review_mode})"
+    )
     # async_to_sync erases start_workflow's overloads, so mypy binds the wrong one.
     start_workflow = cast(Callable[..., Any], async_to_sync(client.start_workflow))
     start_workflow(
-        "review-pr",
-        inputs,
+        "review-pr-queue",
+        ReviewPRQueueInputs(requests=[inputs]),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        retry_policy=_PARENT_RETRY,
+        start_signal="request_review",
+        start_signal_args=[inputs],
     )
     return workflow_id
 
@@ -296,7 +311,7 @@ def execute_resolution_workflow(
             # new run may start once the prior finished (per-thread watermarks make it incremental).
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-            retry_policy=_PARENT_RETRY,
+            retry_policy=_RESOLUTION_RETRY,
         )
     )
 
@@ -323,6 +338,6 @@ def start_resolution_workflow(
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        retry_policy=_PARENT_RETRY,
+        retry_policy=_RESOLUTION_RETRY,
     )
     return workflow_id

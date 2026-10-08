@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -18,6 +21,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushed chan string
+}
+
+func (r *flushRecorder) Flush() {
+	r.ResponseRecorder.Flush()
+	select {
+	case r.flushed <- r.Body.String():
+	default:
+	}
+}
+
+type notificationRedisClient struct {
+	rueidis.Client
+	receiveCallback chan func(rueidis.PubSubMessage)
+	receiveCanceled chan struct{}
+}
+
+func (c *notificationRedisClient) Receive(
+	ctx context.Context,
+	_ rueidis.Completed,
+	callback func(rueidis.PubSubMessage),
+) error {
+	c.receiveCallback <- callback
+	<-ctx.Done()
+	close(c.receiveCanceled)
+	return ctx.Err()
+}
 
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 	logger := echo.New().Logger
@@ -158,6 +197,224 @@ func createJWTToken(audience string, claims jwt.MapClaims) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
 	tokenString, _ := token.SignedString([]byte(viper.GetString("jwt.secret")))
 	return tokenString
+}
+
+func TestStreamEventsHandlerDeliversEventsDuringPeriodicAccessCheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-periodic-access-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		var activeCalls atomic.Int32
+		var maxActiveCalls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicStatus := make(chan int)
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			call := calls.Add(1)
+			active := activeCalls.Add(1)
+			for {
+				maxActive := maxActiveCalls.Load()
+				if active <= maxActive || maxActiveCalls.CompareAndSwap(maxActive, active) {
+					break
+				}
+			}
+			defer activeCalls.Add(-1)
+
+			if call == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			if call == 2 {
+				close(periodicStarted)
+			}
+			select {
+			case status := <-periodicStatus:
+				return accessResponse(status), nil
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		defer cancelRequest()
+		request := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token",
+		}))
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan string, 1)}
+		e := echo.New()
+		subChan := make(chan events.Subscription, 1)
+		unSubChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, recorder))
+		}()
+
+		subscription := <-subChan
+		time.Sleep(30 * time.Second)
+		<-periodicStarted
+
+		subscription.EventChan <- map[string]string{"event": "received"}
+		<-recorder.flushed
+		assert.Contains(t, recorder.Body.String(), `"event":"received"`)
+		assert.Equal(t, int32(2), calls.Load())
+		assert.Equal(t, int32(1), maxActiveCalls.Load())
+
+		periodicStatus <- http.StatusForbidden
+		require.NoError(t, <-done)
+	})
+}
+
+func TestNotificationsHandlerDeliversMessagesDuringPeriodicAccessCheck(t *testing.T) {
+	miniredisServer := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{miniredisServer.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-notification-access-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicStatus := make(chan int)
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			close(periodicStarted)
+			select {
+			case status := <-periodicStatus:
+				return accessResponse(status), nil
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		redisClient := &notificationRedisClient{
+			Client:          client,
+			receiveCallback: make(chan func(rueidis.PubSubMessage), 1),
+			receiveCanceled: make(chan struct{}),
+		}
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		defer cancelRequest()
+		request := httptest.NewRequest(http.MethodGet, "/notifications", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token", "user_id": 42, "organization_id": "test-organization",
+		}))
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan string, 2)}
+		e := echo.New()
+		done := make(chan error, 1)
+		go func() {
+			done <- NotificationsHandler(redisClient)(e.NewContext(request, recorder))
+		}()
+
+		receive := <-redisClient.receiveCallback
+		time.Sleep(15 * time.Second)
+		<-periodicStarted
+		receive(rueidis.PubSubMessage{Message: `{"resolved_user_ids":[42],"body":"delivered"}`})
+
+		for {
+			body := <-recorder.flushed
+			if strings.Contains(body, `"body":"delivered"`) {
+				break
+			}
+		}
+
+		periodicStatus <- http.StatusForbidden
+		require.NoError(t, <-done)
+		<-redisClient.receiveCanceled
+	})
+}
+
+func TestStreamEventsHandlerCancelsPeriodicAccessCheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-periodic-cancel-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicCanceled := make(chan struct{})
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			close(periodicStarted)
+			<-request.Context().Done()
+			close(periodicCanceled)
+			return nil, request.Context().Err()
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		request := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token",
+		}))
+		e := echo.New()
+		subChan := make(chan events.Subscription, 1)
+		unSubChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
+		}()
+
+		<-subChan
+		time.Sleep(30 * time.Second)
+		<-periodicStarted
+		cancelRequest()
+
+		require.NoError(t, <-done)
+		<-periodicCanceled
+	})
+}
+
+func accessResponse(status int) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       http.NoBody,
+		Header:     make(http.Header),
+	}
+}
+
+func TestHandlersRejectRevokedAccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	viper.Set("jwt.authorization_url", server.URL)
+	t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
+	viper.Set("jwt.secret", "test-revoked-access-secret")
+	token := createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+		"team_id": 1, "api_token": "test-project-token", "user_id": 1, "organization_id": "test-organization",
+	})
+	e := echo.New()
+	for name, handler := range map[string]echo.HandlerFunc{
+		"stats":         StatsHandler(nil, nil, nil),
+		"events":        StreamEventsHandler(e.Logger, make(chan events.Subscription, 1), make(chan events.Subscription, 1)),
+		"notifications": NotificationsHandler(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			request := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+			request.Header.Set("Authorization", "Bearer "+token)
+			var httpError *echo.HTTPError
+			require.ErrorAs(t, handler(e.NewContext(request, httptest.NewRecorder())), &httpError)
+			assert.Equal(t, http.StatusUnauthorized, httpError.Code)
+		})
+	}
 }
 
 func TestStatsHandler_ReadsFromRedis(t *testing.T) {

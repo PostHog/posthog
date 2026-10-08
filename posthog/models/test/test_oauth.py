@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -115,7 +115,7 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.required_scopes, ["insight:read"])
         self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
 
-    @freeze_time("2024-01-01 00:00:00")
+    @time_machine.travel("2024-01-01 00:00:00", tick=False)
     def test_create_oauth_application_with_skip_authorization_fails(self):
         # Test that creating an application with skip_authorization=True raises an error
         with self.assertRaises(ValidationError):
@@ -613,7 +613,7 @@ class TestOAuthModels(TestCase):
         self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
         self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
         app = self._make_app("Narrowed App", "narrowed_client_id")
         other_app = self._make_app("Other App", "other_client_id")
@@ -646,7 +646,7 @@ class TestOAuthModels(TestCase):
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_application_sessions_stamps_sessions_revoked_at(self):
         app = self._make_app("Stamped App", "stamped_client_id")
         other_app = self._make_app("Untouched App", "untouched_client_id")

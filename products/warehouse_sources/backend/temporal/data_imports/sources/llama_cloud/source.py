@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,11 +9,11 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,8 +47,11 @@ class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeC
     # LlamaCloud versions its API in the endpoint path (see LLAMA_CLOUD_API_VERSION_V2): this source
     # already reads the v2-generation endpoints, so the legacy unversioned label and "v2" drive
     # identical requests. New sources default to "v2"; existing pins keep syncing byte-for-byte.
+    # LlamaCloud now files its v1 API under "Deprecated (v1)" with no published sunset date, so the
+    # legacy label is deprecated and its pins are repinned to "v2" by data migration (a pure relabel).
     supported_versions = (UNVERSIONED_API_VERSION, LLAMA_CLOUD_API_VERSION_V2)
     default_version = LLAMA_CLOUD_API_VERSION_V2
+    deprecated_versions = (VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -58,7 +60,7 @@ class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LLAMA_CLOUD,
+            name=ExternalDataSourceType.LLAMACLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LlamaCloud",
             docsUrl="https://posthog.com/docs/cdp/sources/llama-cloud",

@@ -45,7 +45,9 @@ CORE_ACTIVITY_ORDER = [
 ]
 
 
-def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset()) -> list:
+def _recording_activities(
+    calls: list[str], exclude: frozenset[str] = frozenset(), project_pending: bool = True
+) -> list:
     """Mock every delete_teams activity by name; each records its invocation order."""
 
     def _team_activity(name: str):
@@ -58,6 +60,11 @@ def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset(
     @activity.defn(name="deprovision_managed_warehouse_activity")
     async def deprovision_managed_warehouse_activity(inputs: OrganizationRecordInputs) -> None:
         calls.append("deprovision_managed_warehouse_activity")
+
+    @activity.defn(name="check_project_pending_deletion_activity")
+    async def check_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> bool:
+        calls.append("check_project_pending_deletion_activity")
+        return project_pending
 
     @activity.defn(name="delete_project_record_activity")
     async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
@@ -78,6 +85,7 @@ def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset(
     mocks = [
         *[_team_activity(name) for name in CORE_ACTIVITY_ORDER],
         deprovision_managed_warehouse_activity,
+        check_project_pending_deletion_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
         send_project_deleted_email_activity,
@@ -86,14 +94,14 @@ def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset(
     return [fn for fn in mocks if fn.__name__ not in exclude]
 
 
-async def _run(workflow, inputs, calls: list[str]) -> None:
+async def _run(workflow, inputs, calls: list[str], project_pending: bool = True) -> None:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=WORKFLOWS,
-            activities=_recording_activities(calls),
+            activities=_recording_activities(calls, project_pending=project_pending),
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -123,7 +131,23 @@ async def test_project_workflow_deletes_record_then_emails():
         DeleteProjectDataWorkflowInputs(team_ids=[1], project_id=42, user_id=7, project_name="proj"),
         calls,
     )
-    assert calls == [*CORE_ACTIVITY_ORDER, "delete_project_record_activity", "send_project_deleted_email_activity"]
+    assert calls == [
+        "check_project_pending_deletion_activity",
+        *CORE_ACTIVITY_ORDER,
+        "delete_project_record_activity",
+        "send_project_deleted_email_activity",
+    ]
+
+
+async def test_project_workflow_stops_when_project_is_not_pending_deletion():
+    calls: list[str] = []
+    await _run(
+        DeleteProjectDataWorkflow.run,
+        DeleteProjectDataWorkflowInputs(team_ids=[1], project_id=42, user_id=7, project_name="proj"),
+        calls,
+        project_pending=False,
+    )
+    assert calls == ["check_project_pending_deletion_activity"]
 
 
 async def test_environment_only_deletion_skips_project_record():

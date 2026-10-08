@@ -4,16 +4,15 @@ import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
@@ -86,6 +85,15 @@ export function normalizeMultiValue(value: unknown, legacySingle?: unknown): str
         }
     }
     return normalized
+}
+
+/** What the picker's dropdown says when it has no accounts to list. A failed listing request also
+ *  leaves the list empty, and claiming the connection reaches no accounts sends the user to fix
+ *  permissions they never lost. */
+export function accountsDropdownEmptyMessage(accountsError: string | null): string {
+    return accountsError
+        ? "Couldn't load your accounts. Reconnect the integration, or type the value in above."
+        : 'No accounts accessible by this integration.'
 }
 
 /** Generic account/resource picker for OAuth ad sources: a dropdown of the connected integration's
@@ -190,7 +198,10 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
-            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+            to={integrationAuthorizeUrl({
+                kind: integrationKind,
+                next: reconnectReturnUrl(window.location.pathname, window.location.search),
+            })}
             onClick={() =>
                 reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')
             }
@@ -338,11 +349,13 @@ function MultiAccountFieldWithOptions({
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     const options = useMemo<LemonInputSelectOption[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -439,11 +452,13 @@ function IntegrationAccountFieldWithDropdown({
     const { accounts, accountsLoading, accountsLoaded, accountsError, search } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
-    const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadIntegrationAccounts, setSearch } = useActions(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
 
     useEffect(() => {
-        loadAccounts()
-    }, [loadAccounts])
+        loadIntegrationAccounts()
+    }, [loadIntegrationAccounts])
 
     // The list is filtered server-side, so while a search term is active `accounts` holds the
     // matches rather than everything the connection can reach. Every "we found nothing" hint below
@@ -496,7 +511,7 @@ function IntegrationAccountFieldWithDropdown({
                             suggestionsLoading={accountsLoading}
                             onSearchChange={setSearch}
                             searchPlaceholder="Filter accounts…"
-                            emptyMessage="No accounts accessible by this integration."
+                            emptyMessage={accountsDropdownEmptyMessage(accountsError)}
                             noMatchMessage={() =>
                                 'No accounts match your filter. Clear it to see every account this connection can reach.'
                             }

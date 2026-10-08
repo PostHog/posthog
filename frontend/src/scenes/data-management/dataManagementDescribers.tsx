@@ -1,14 +1,16 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -23,6 +25,8 @@ const dataManagementActionsMapping: Record<
 > = {
     description: (change) => {
         return {
+            summary: summarizeDescriptionChange(change),
+            preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>
                     changed description to <strong>"{change?.after as string}"</strong>
@@ -59,6 +63,11 @@ const dataManagementActionsMapping: Record<
     verified: (change, logItem) => {
         const verified = detectBoolean(change?.after)
         return {
+            summary: [
+                <>
+                    marked as {verified ? 'verified' : 'unverified'} {verified && <IconVerifiedEvent />}
+                </>,
+            ],
             description: [
                 <>
                     marked {nameAndLink(logItem)} as <strong>{verified ? 'verified' : 'unverified'}</strong>{' '}
@@ -99,53 +108,34 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
     }
 
     if (logItem.activity == 'changed') {
-        let changes: Description[] = []
-        let changeSuffix: Description = (
+        const changes = describeMappedChanges(
+            logItem,
+            dataManagementActionsMapping,
+            <>
+                <DescribeType logItem={logItem} />: {nameAndLink(logItem)}
+            </>,
             <>
                 on <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
             </>
         )
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !dataManagementActionsMapping[change.field]) {
-                continue //  updates have to have a "field" to be described
-            }
-
-            const actionHandler = dataManagementActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        if (changes) {
+            return changes
         }
     }
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Deleted the <DescribeType logItem={logItem} />
+                </>,
+                nameAndLink(logItem)
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted{' '}
-                    <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> deleted <DescribeType logItem={logItem} />{' '}
+                    {nameAndLink(logItem)}
                 </>
             ),
         }

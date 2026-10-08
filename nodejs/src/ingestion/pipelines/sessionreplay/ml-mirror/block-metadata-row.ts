@@ -1,12 +1,16 @@
-/** One anonymized block's metadata as a flat row for the ML Parquet dataset; ids are pseudonyms. */
+import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { sessionStartTimestampFromUuidV7, usesRawSessionIdentifiers } from './session-identifier-format'
 
 export interface MlBlockMetadataRow {
+    format_version?: 2
+    session_start_ts_ms?: number
+    replay_index_entries?: ReplayIndexEntry[]
+    replay_index_truncated?: boolean
     session_id: string
     team_id: string
-    distinct_id: string
     block_url: string
     block_s3_key: string
     block_byte_start: number | null
@@ -52,10 +56,19 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
         return null
     }
     const { key, start, end } = parseBlockUrl(block.blockUrl)
+    const sessionStartTimestamp = sessionStartTimestampFromUuidV7(block.sessionId)
+    const rawIdentifiers = usesRawSessionIdentifiers(block.sessionId)
     return {
-        session_id: pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
-        team_id: pseudonymize(secret, PSEUDONYM_TEAM, String(block.teamId)),
-        distinct_id: pseudonymize(secret, PSEUDONYM_DISTINCT_ID, block.distinctId),
+        ...(rawIdentifiers ? { format_version: 2 as const } : {}),
+        replay_index_entries: block.replayIndexEntries,
+        replay_index_truncated: block.replayIndexTruncated,
+        ...(sessionStartTimestamp === null
+            ? {}
+            : {
+                  session_start_ts_ms: sessionStartTimestamp,
+              }),
+        session_id: rawIdentifiers ? block.sessionId : pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
+        team_id: rawIdentifiers ? String(block.teamId) : pseudonymize(secret, PSEUDONYM_TEAM, String(block.teamId)),
         block_url: block.blockUrl,
         block_s3_key: key,
         block_byte_start: start,

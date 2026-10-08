@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
+import { isProjectNameTaken } from './isProjectNameTaken'
 
 const MOCK_PRODUCT_NAMES = [
     'Lemonify',
@@ -35,9 +36,7 @@ export function CreateProjectModal({
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
-    const isNameTaken = !!currentOrganization?.projects?.some(
-        (project) => project.name.trim().toLowerCase() === name.trim().toLowerCase()
-    )
+    const isNameTaken = isProjectNameTaken(name, currentOrganization?.projects)
 
     const closeModal: () => void = () => {
         if (onClose) {

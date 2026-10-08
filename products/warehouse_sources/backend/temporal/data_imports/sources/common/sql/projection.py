@@ -1,7 +1,8 @@
 """Column-projection helpers shared by every SQL source.
 
 Semantics:
-- `enabled_columns is None` → `SELECT *`.
+- `enabled_columns is None` → `SELECT *`, unless the caller first resolves it against the
+  source catalog with `resolve_table_projection`.
 - `enabled_columns == []` → primary keys + incremental field only.
 - PKs + active incremental field are always retained: merges break without PKs,
   incremental can't advance without its cursor field.
@@ -11,7 +12,7 @@ Semantics:
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Generic, TypeVar
 
 import structlog
 
@@ -169,6 +170,45 @@ def project_arrow_columns(
     if not projected:
         return table
     return Table(name=table.name, columns=projected, parents=table.parents, alias=table.alias, type=table.type)
+
+
+@frozen
+class TableProjection(Generic[_ColumnT]):
+    """The columns a read projects, and the discovered table narrowed to them."""
+
+    enabled_columns: list[str] | None
+    table: Table[_ColumnT]
+
+
+def resolve_table_projection(
+    full_table: Table[_ColumnT],
+    *,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None = None,
+    incremental_field: str | None = None,
+    available_columns: list[str] | None = None,
+) -> TableProjection[_ColumnT]:
+    """Name the columns a read projects, and narrow `full_table` to them.
+
+    `enabled_columns is None` means the user kept every column. Rendered as `SELECT *`, that
+    fails for a source role which holds column grants instead of table grants, because the star
+    expands to columns the role may not read. Every catalog a source discovers from already
+    hides those columns, so naming them reads what the role holds, and returns the same rows for
+    a role that can read the whole table.
+
+    Resolve again on the connection that runs the read. The projection a source resolves while it
+    probes row counts and partitions can be minutes old. Naming a column the source dropped inside
+    that window fails the read with an error we classify as permanent, which disables the schema,
+    where `SELECT *` only returned fewer columns.
+
+    Pass `available_columns` for a source that must keep some discovered columns out of the
+    read. An empty catalog keeps the `SELECT *` fallback.
+    """
+    if enabled_columns is None:
+        names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
+        enabled_columns = list(names) or None
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))
 
 
 @frozen

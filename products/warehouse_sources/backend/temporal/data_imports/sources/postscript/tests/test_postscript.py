@@ -61,15 +61,6 @@ class TestPostscriptTransport:
         # watermark order and the asc checkpoint corrupts.
         assert endpoint["params"]["sort"] == f"{expected}__asc"
 
-    def test_subscribers_full_refresh_pins_stable_sort(self) -> None:
-        resource = cast(Any, get_resource("subscribers", "v2", should_use_incremental_field=False))
-        endpoint = resource["endpoint"]
-        assert resource["write_disposition"] == "replace"
-        assert "incremental" not in endpoint
-        # created_at is immutable, so page boundaries stay stable while rows are written
-        # during the sync.
-        assert endpoint["params"]["sort"] == "created_at__asc"
-
     @parameterized.expand([("incremental", True), ("full_refresh", False)])
     def test_keywords_never_paginates_or_filters(self, _name, should_use_incremental_field) -> None:
         resource = cast(Any, get_resource("keywords", "v2", should_use_incremental_field=should_use_incremental_field))

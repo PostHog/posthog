@@ -99,7 +99,7 @@ const meta: Meta = {
                 '/stats': {},
                 '/events': {},
                 '/api/billing/': { ...billingJson },
-                '/api/environments/:team_id/integrations': { results: [githubIntegration] },
+                '/api/projects/:team_id/integrations': { results: [githubIntegration] },
                 '/api/environments/:team_id/integrations/:id/github_repos': githubReposResponse,
                 '/api/projects/:project_id/tasks/:task_id/runs/:run_id/stream': () =>
                     new Response(TASK_RUN_STREAM_BODY, {

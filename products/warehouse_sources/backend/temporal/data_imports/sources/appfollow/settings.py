@@ -1,11 +1,16 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+APPFOLLOW_V2 = "v2"
+APPFOLLOW_V3 = "v3"
+
 # AppFollow's data model is app-centric: most data is queried per app via its store `ext_id`, and the
 # only way to discover a workspace's apps is to walk collections (`/account/apps`) and then their apps
-# (`/account/apps/app`). So the source exposes five endpoints across three request shapes:
+# (`/account/apps/app`). So the source exposes its endpoints across five request shapes:
 #
 #   - "list":   a single top-level GET whose rows live at the response root or under a body key
 #               (`app_collections` -> `apps`, `users` -> root). No app context needed. Full refresh.
@@ -16,7 +21,27 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #               server-side `last_modified` filter we drive incrementally off the review `updated` field.
 #   - "ratings": `/meta/ratings/history` — fans out over every app, offset/limit paginated, with a
 #               server-side `from` date filter we drive incrementally off the record `date` field.
-EndpointKind = Literal["list", "apps", "reviews", "ratings"]
+#   - "app_fanout": the ASO and review-statistics endpoints, which all take one `ext_id` per request
+#               and differ only in how they page and how they take time. `paginated`, `requires_country`
+#               and `time_mode` below describe those differences declaratively.
+#
+# API v3 replaces only the collection, app and review endpoints. Under a v3 pin those three tables move
+# to the v3 wire, and every other table stays on the v2 wire, which AppFollow still serves:
+#
+#   - "workspaces":     `app_collections` — `/workspaces`, rows are the values of the `collections` map.
+#   - "workspace_apps": `app_lists` — fans out over every workspace, `/workspaces/apps?appsId=<id>`.
+#   - "reviews_feed":   `reviews` — fans out over every workspace with a POST to `/reviews/feed`,
+#                       cursor paginated, with a `from` date filter we drive incrementally off `date`.
+EndpointKind = Literal[
+    "list", "apps", "reviews", "ratings", "app_fanout", "workspaces", "workspace_apps", "reviews_feed"
+]
+
+# How an "app_fanout" endpoint takes time:
+#   - "none":     no time parameter at all, so the endpoint returns its whole history (full refresh).
+#   - "snapshot": a single `date` parameter selecting one day. We request today and stamp that date on
+#                 every row, so the primary key and the partition key are always populated.
+#   - "window":   a `from`/`to` date range. `from` is the incremental cursor.
+TimeMode = Literal["none", "snapshot", "window"]
 
 # AppFollow requires a `from`/`to` window on the reviews and ratings endpoints. On a first (backfill)
 # sync we open the window all the way back to this date so the whole history is captured once; from
@@ -25,14 +50,15 @@ EndpointKind = Literal["list", "apps", "reviews", "ratings"]
 DEFAULT_START_DATE = "2008-01-01"
 
 
-@dataclass
+@frozen
 class AppfollowEndpointConfig:
     name: str
     path: str
     kind: EndpointKind
     primary_keys: list[str]
-    # Body key the rows live under. `None` means the response root is itself the row list.
-    data_key: Optional[str] = None
+    # Body key the rows live under. `None` means the response root is itself the row list. A tuple
+    # lists candidate keys for the endpoints whose response envelope AppFollow does not publish.
+    data_key: Optional[str | tuple[str, ...]] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
     # Stable, creation-style field to partition by — never an updated/last-modified field.
@@ -40,6 +66,12 @@ class AppfollowEndpointConfig:
     should_sync_default: bool = True
     # Max rows per page. Reviews cap at 100/page; ratings history uses offset/limit.
     page_size: int = 100
+    # "app_fanout" only: walk 1-indexed `page` until a page comes back empty.
+    paginated: bool = False
+    # "app_fanout" only: the endpoint requires a `country`, resolved per app.
+    requires_country: bool = False
+    # "app_fanout" only: see TimeMode.
+    time_mode: TimeMode = "none"
 
 
 _REVIEW_UPDATED_FIELD: IncrementalField = {
@@ -49,7 +81,7 @@ _REVIEW_UPDATED_FIELD: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
-_RATINGS_DATE_FIELD: IncrementalField = {
+_DATE_FIELD: IncrementalField = {
     "label": "date",
     "type": IncrementalFieldType.Date,
     "field": "date",
@@ -109,13 +141,115 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         data_key="ratings",
         partition_key="date",
         default_incremental_field="date",
-        incremental_fields=[_RATINGS_DATE_FIELD],
+        incremental_fields=[_DATE_FIELD],
+        should_sync_default=False,
+    ),
+    # Category rank positions per app. AppFollow v2 takes a single optional `date`, not a range, so
+    # this is a daily snapshot rather than rank history — we request today and stamp that date on
+    # every row. Off by default: 10 credits per app per sync.
+    "rankings": AppfollowEndpointConfig(
+        name="rankings",
+        path="/meta/rankings",
+        kind="app_fanout",
+        primary_keys=["ext_id", "country", "device", "genre_id", "date"],
+        data_key=("ranks", "rankings"),
+        partition_key="date",
+        time_mode="snapshot",
+        should_sync_default=False,
+    ),
+    # Tracked ASO keyword positions per app. Same daily-snapshot shape as `rankings`, plus 1-indexed
+    # `page` pagination. Off by default: 10 credits per app per page.
+    "keywords": AppfollowEndpointConfig(
+        name="keywords",
+        path="/aso/keywords",
+        kind="app_fanout",
+        primary_keys=["ext_id", "country", "device", "date", "keyword"],
+        data_key=("keywords",),
+        partition_key="date",
+        time_mode="snapshot",
+        paginated=True,
+        should_sync_default=False,
+    ),
+    # Store release history per app, including metadata changes. Resolves the `app_version` field on
+    # synced reviews. The endpoint requires a `country`, so the fan-out resolves one per app.
+    "app_versions": AppfollowEndpointConfig(
+        name="app_versions",
+        path="/meta/versions",
+        kind="app_fanout",
+        primary_keys=["ext_id", "country", "version"],
+        data_key=("versions",),
+        paginated=True,
+        requires_country=True,
+        should_sync_default=False,
+    ),
+    # Aggregate review and reply counts per app and day, so review volume can be charted without
+    # syncing every raw review. Incremental on `date` via the server-side `from` filter.
+    "reviews_stats": AppfollowEndpointConfig(
+        name="reviews_stats",
+        path="/reviews/stats",
+        kind="app_fanout",
+        primary_keys=["ext_id", "date"],
+        data_key=("stats", "reviews"),
+        partition_key="date",
+        time_mode="window",
+        default_incremental_field="date",
+        incremental_fields=[_DATE_FIELD],
         should_sync_default=False,
     ),
 }
 
-ENDPOINTS = tuple(APPFOLLOW_ENDPOINTS.keys())
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in APPFOLLOW_ENDPOINTS.items()
+_REVIEW_DATE_FIELD: IncrementalField = {
+    "label": "date",
+    "type": IncrementalFieldType.DateTime,
+    "field": "date",
+    "field_type": IncrementalFieldType.DateTime,
 }
+
+# v3 response schemas are published, so these keys and columns come from the v3 reference.
+APPFOLLOW_V3_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
+    **APPFOLLOW_ENDPOINTS,
+    "app_collections": AppfollowEndpointConfig(
+        name="app_collections",
+        path="/workspaces",
+        kind="workspaces",
+        primary_keys=["collectionId"],
+        partition_key="created",
+    ),
+    # `itemId` identifies an app within one workspace, so the key adds the workspace we stamp on.
+    "app_lists": AppfollowEndpointConfig(
+        name="app_lists",
+        path="/workspaces/apps",
+        kind="workspace_apps",
+        primary_keys=["collectionId", "itemId"],
+        data_key="apps",
+    ),
+    # The v3 feed has no last-modified filter, so the cursor is the review date. Edits to reviews
+    # older than the watermark are not re-synced. `date` and `app_version` are lifted from the nested
+    # `metaInformation` under their v2 names, because readers of this table key on those columns.
+    "reviews": AppfollowEndpointConfig(
+        name="reviews",
+        path="/reviews/feed",
+        kind="reviews_feed",
+        primary_keys=["itemId", "id"],
+        data_key="reviews",
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REVIEW_DATE_FIELD],
+    ),
+}
+
+ENDPOINTS_BY_VERSION: dict[str, dict[str, AppfollowEndpointConfig]] = {
+    APPFOLLOW_V2: APPFOLLOW_ENDPOINTS,
+    APPFOLLOW_V3: APPFOLLOW_V3_ENDPOINTS,
+}
+
+
+def endpoints_for_version(api_version: str) -> dict[str, AppfollowEndpointConfig]:
+    try:
+        return ENDPOINTS_BY_VERSION[api_version]
+    except KeyError:
+        raise ValueError(f"AppFollow: no endpoint catalog for API version {api_version!r}")
+
+
+# The table set is identical across versions, so a source keeps every table whichever version it is on.
+ENDPOINTS = tuple(APPFOLLOW_ENDPOINTS.keys())

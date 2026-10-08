@@ -32,7 +32,7 @@
     }
     .copy-feedback.visible { opacity: 1; }
     </style>
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
 document.addEventListener('click', function(e) {
     var el = e.target.closest('.copyable');
     if (!el) return;

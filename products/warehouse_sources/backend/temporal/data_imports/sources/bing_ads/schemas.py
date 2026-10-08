@@ -8,10 +8,18 @@ class BingAdsResource(str, Enum):
     CAMPAIGN_PERFORMANCE_REPORT = "campaign_performance_report"
     AD_GROUP_PERFORMANCE_REPORT = "ad_group_performance_report"
     AD_PERFORMANCE_REPORT = "ad_performance_report"
+    DESTINATION_URL_PERFORMANCE_REPORT = "destination_url_performance_report"
     KEYWORD_PERFORMANCE_REPORT = "keyword_performance_report"
 
 
 REPORT_CONFIG: dict[BingAdsResource, dict] = {
+    BingAdsResource.DESTINATION_URL_PERFORMANCE_REPORT: {
+        "report_type": "DestinationUrlPerformanceReportRequest",
+        "column_array_type": "ArrayOfDestinationUrlPerformanceReportColumn",
+        "column_field": "DestinationUrlPerformanceReportColumn",
+        "scope_type": "AccountThroughAdGroupReportScope",
+        "report_name": "Destination URL Performance Report",
+    },
     BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT: {
         "report_type": "CampaignPerformanceReportRequest",
         "column_array_type": "ArrayOfCampaignPerformanceReportColumn",
@@ -44,6 +52,28 @@ REPORT_CONFIG: dict[BingAdsResource, dict] = {
 
 
 RESOURCE_SCHEMAS: dict[BingAdsResource, dict] = {
+    BingAdsResource.DESTINATION_URL_PERFORMANCE_REPORT: {
+        "resource_name": "destination_url_performance_report",
+        "primary_key": ["AccountId", "AdId", "DestinationUrl", "CurrencyCode", "AdDistribution", "TimePeriod"],
+        "field_names": [
+            "AccountId",
+            "AdId",
+            "DestinationUrl",
+            "CurrencyCode",
+            "AdDistribution",
+            "TimePeriod",
+            "Clicks",
+            "Impressions",
+            "Spend",
+            "ConversionsQualified",
+        ],
+        "partition_keys": ["TimePeriod"],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "is_stats": True,
+        "partition_size": 1,
+        "filter_field_names": [("TimePeriod", IncrementalFieldType.Date)],
+    },
     BingAdsResource.CAMPAIGNS: {
         "resource_name": "campaigns",
         "primary_key": ["Id"],

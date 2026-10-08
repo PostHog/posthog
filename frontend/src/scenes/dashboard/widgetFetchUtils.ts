@@ -1,14 +1,26 @@
 import { dashboardsRunWidgetsRetrieve } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
-import type { DashboardTile, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile } from '~/types'
 
-export const WIDGET_CLIENT_TTL_MS = 15 * 60 * 1000
+import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from './dashboardUtils'
+
+export const WIDGET_CLIENT_TTL_MS = DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES * 60 * 1000
+
+export function isWidgetStale(
+    status: { loading?: boolean; error?: string | null; fetchedAt?: number } | undefined,
+    currentTime = Date.now()
+): boolean {
+    return (
+        !status?.loading &&
+        (!!status?.error || (!!status?.fetchedAt && currentTime - status.fetchedAt >= WIDGET_CLIENT_TTL_MS))
+    )
+}
 
 export function findNewlyAddedWidgetTiles(
     previousTileIds: ReadonlySet<number>,
-    tiles: DashboardTile<QueryBasedInsightModel>[] | undefined | null
-): DashboardTile<QueryBasedInsightModel>[] {
+    tiles: DashboardTile[] | undefined | null
+): DashboardTile[] {
     if (!tiles?.length) {
         return []
     }

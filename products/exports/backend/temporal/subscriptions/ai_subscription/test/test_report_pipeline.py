@@ -13,6 +13,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.exports.backend.models.subscription import AIQueryPlanStatus
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,
@@ -271,6 +272,23 @@ async def test_degraded_report_still_synthesizes(
     assert props["degraded"] is True
     assert props["failed_steps"] == 1
     assert props["query_coverage"] == 0.0
+
+
+@parameterized.expand(
+    [
+        ("manage_link_shown", True, True),
+        ("manage_link_hidden", False, False),
+    ]
+)
+def test_the_all_failed_notice_only_points_at_a_manage_link_that_ships(
+    _name: str, include_manage_link: bool, expects_recovery: bool
+) -> None:
+    # Without the gate the notice sends recipients to a manage control the delivered message does
+    # not contain, on every channel at once.
+    notice = _all_queries_failed_notice(2, include_manage_link=include_manage_link)
+
+    assert "all 2 queries the assistant wrote failed to run" in notice
+    assert ("Manage subscription link" in notice) is expects_recovery
 
 
 @patch(_SLO_CAPTURE)
@@ -616,6 +634,7 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     mock_frozen.assert_called_once()
     # Nothing new to freeze on a reused run — the caller must not re-persist the same plan.
     assert result.plan_to_persist is None
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @patch(_SLO_CAPTURE)
@@ -646,6 +665,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
     }
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
 @pytest.mark.parametrize(
@@ -824,6 +844,7 @@ async def test_unfreezable_plans_are_not_frozen(
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.plan_to_persist is None
+    assert result.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
 
 
 @patch(_SLO_CAPTURE)
@@ -831,7 +852,7 @@ async def test_unfreezable_plans_are_not_frozen(
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_frozen_prompt", side_effect=StoredPlanInvalidError("malformed"))
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_invalid_stored_plan_self_heals_by_replanning(
+async def test_stale_stored_plan_self_heals_and_records_planner_update(
     mock_bep: MagicMock, _mock_frozen: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
 ) -> None:
     # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
@@ -846,12 +867,17 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan={"bad": "plan"}
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        ai_query_plan={"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}},
     )
 
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+    assert result.query_plan_status == AIQueryPlanStatus.PLANNER_UPDATED
 
 
 def _charted_spec(
@@ -1056,16 +1082,26 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
         assert result.plan_to_persist is None
 
 
-@parameterized.expand([("flag_off", False), ("flag_on", True)])
+@parameterized.expand(
+    [
+        ("flag_off", False, True, False),
+        ("flag_on", True, True, True),
+        # A report that hides its charts closes the same gate as an unflagged team, so it
+        # builds no chart candidate and renders no PNG.
+        ("charts_not_included", True, False, False),
+    ]
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}.charts_enabled")
 @patch(f"{_RP}.render_charts", new_callable=AsyncMock)
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_charts_render_only_for_a_flagged_team(
+async def test_charts_render_only_for_a_flagged_team_that_includes_them(
     _name: str,
     enabled: bool,
+    include_charts: bool,
+    expected: bool,
     mock_bep: MagicMock,
     mock_run: AsyncMock,
     mock_render: AsyncMock,
@@ -1079,9 +1115,11 @@ async def test_charts_render_only_for_a_flagged_team(
     mock_render.return_value = ([], [])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
-    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), include_charts=include_charts
+    )
 
-    assert mock_run.call_args.kwargs["charts_enabled_for_team"] is enabled
+    assert mock_run.call_args.kwargs["charts_enabled_for_team"] is expected
 
 
 def _candidate(step_index: int, importance: int) -> ValidatedChart:

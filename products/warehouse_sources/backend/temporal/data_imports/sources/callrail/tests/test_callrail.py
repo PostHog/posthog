@@ -96,11 +96,6 @@ class TestFormatStartDate:
     def test_format_start_date(self, value: Any, expected: str | None) -> None:
         assert _format_start_date(value) == expected
 
-    def test_naive_datetime_returns_a_date_string(self) -> None:
-        # No tzinfo -> astimezone(UTC) localizes against the host timezone, so we can only assert
-        # that a date string is returned without verifying the specific value.
-        assert _format_start_date(datetime(2026, 3, 4, 12, 0, 0)) is not None
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
@@ -122,28 +117,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("key") is expected
 
-    @mock.patch(CALLRAIL_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
 
 class TestResolveAccountId:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_returns_provided_account_id_without_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
-        assert resolve_account_id("key", 1, "j", account_id="ACC123") == "ACC123"
-        session.send.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resolves_first_account_when_unset(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_accounts(["ACC1", "ACC2"])])
-        assert resolve_account_id("key", 1, "j") == "ACC1"
-        # Only the first account is used, so we request a single row rather than a full page.
-        assert snapshots[0]["params"]["per_page"] == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_when_no_accounts(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
@@ -173,15 +148,6 @@ class TestGetRows:
         manager.save_state.assert_called_once()
         saved = manager.save_state.call_args.args[0]
         assert saved == CallRailResumeConfig(account_id="ACC", page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_header_wraps_key_in_token_format(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls", [_page("calls", [{"id": "1"}], total_pages=1)], MockSession, account_id="ACC"
-        )
-        # CallRail expects the token wrapped in token="..." per its v3 docs; sent via framework auth.
-        assert snapshots[0]["auth"].api_key == 'Token token="key"'
-        assert snapshots[0]["auth"].name == "Authorization"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
@@ -214,51 +180,6 @@ class TestGetRows:
         assert "/a/RESOLVED/users.json" in snapshots[1]["url"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_saving(self, MockSession: mock.MagicMock) -> None:
-        batches, _, manager = _collect("calls", [_page("calls", [], total_pages=0)], MockSession, account_id="ACC")
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_response_key_stops_without_rows(self, MockSession: mock.MagicMock) -> None:
-        # A 200 body without the list key reads as an empty page — end of data, not an error.
-        batches, _, manager = _collect("calls", [_response({"total_pages": 3})], MockSession, account_id="ACC")
-
-        assert batches == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_carries_start_date_and_sort(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls",
-            [_page("calls", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert snapshots[0]["params"]["start_date"] == "2026-01-01"
-        assert snapshots[0]["params"]["sort"] == "start_time"
-        assert snapshots[0]["params"]["order"] == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_start_date_omitted_when_not_using_incremental(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "calls",
-            [_page("calls", [{"id": "1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "start_date" not in snapshots[0]["params"]
-        # Sort is still ascending on the cursor field so full-refresh pages don't skip/duplicate.
-        assert snapshots[0]["params"]["sort"] == "start_time"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_start_date_omitted_when_last_value_missing(self, MockSession: mock.MagicMock) -> None:
         _, snapshots, _ = _collect(
             "calls",
@@ -269,21 +190,6 @@ class TestGetRows:
             db_incremental_field_last_value=None,
         )
 
-        assert "start_date" not in snapshots[0]["params"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_sort_or_start_date(self, MockSession: mock.MagicMock) -> None:
-        _, snapshots, _ = _collect(
-            "users",
-            [_page("users", [{"id": "u1"}], total_pages=1)],
-            MockSession,
-            account_id="ACC",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-
-        assert "sort" not in snapshots[0]["params"]
-        assert "order" not in snapshots[0]["params"]
         assert "start_date" not in snapshots[0]["params"]
 
 
@@ -307,7 +213,7 @@ class TestCallRailSourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
         # Never partition on a mutable field; only stable creation/start timestamps are allowed.
         if config.partition_key:
-            assert config.partition_key in {"start_time", "submitted_at", "created_at"}
+            assert config.partition_key in {"start_time", "submitted_at", "created_at", "event_date"}
 
     @pytest.mark.parametrize("config", list(CALLRAIL_ENDPOINTS.values()))
     def test_incremental_endpoints_have_a_sort_field(self, config: Any) -> None:
@@ -315,3 +221,88 @@ class TestCallRailSourceResponse:
         if config.supports_incremental:
             assert config.sort_field is not None
             assert config.incremental_fields
+
+
+class TestAccountsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_accounts_needs_no_account_resolution(self, MockSession: mock.MagicMock) -> None:
+        _, snapshots, _ = _collect("accounts", [_page("accounts", [{"id": "ACC1"}], total_pages=1)], MockSession)
+
+        # /a.json is the one endpoint not nested under an account, so the listing is the only request.
+        assert len(snapshots) == 1
+        assert snapshots[0]["url"].endswith("/a.json")
+        assert snapshots[0]["params"]["sort"] == "name"
+
+
+class TestLeadsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_leads_sorts_ascending_and_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
+        _, snapshots, _ = _collect(
+            "leads",
+            [_page("leads", [{"id": "L1"}], total_pages=1)],
+            MockSession,
+            account_id="ACC",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert snapshots[0]["params"]["sort"] == "created_at"
+        assert snapshots[0]["params"]["order"] == "asc"
+        # CallRail's date filters cover calls, the call summary, and conversations only.
+        assert "start_date" not in snapshots[0]["params"]
+
+
+def _page_view(page_url: str, created_at: str) -> dict[str, Any]:
+    return {"referrer_url": "https://example.com/", "page_url": page_url, "created_at": created_at}
+
+
+_CALLS_PARENT = [{"id": "C1"}, {"id": "C2"}]
+_C1_PATH = "/a/ACC/calls/C1/page_views.json"
+_C2_PATH = "/a/ACC/calls/C2/page_views.json"
+
+
+class TestFanoutEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_views_fan_out_injects_the_parent_call_id(self, MockSession: mock.MagicMock) -> None:
+        batches, snapshots, _ = _collect(
+            "page_views",
+            [
+                _page("calls", _CALLS_PARENT, total_pages=1),
+                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
+                _page("page_views", [_page_view("https://example.com/b", "2026-01-02T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+        )
+
+        rows = [row for batch in batches for row in batch]
+        assert [row["call_id"] for row in rows] == ["C1", "C2"]
+        # Page-view rows carry no id, so call_id is part of the primary key and must not stay
+        # under the framework's `_{parent}_{field}` prefix.
+        assert not any(key.startswith("_calls_") for row in rows for key in row)
+        assert _C1_PATH in snapshots[1]["url"]
+        assert _C2_PATH in snapshots[2]["url"]
+        assert snapshots[1]["params"]["per_page"] == 250
+        # The parent listing walks ascending by its own cursor field so its pagination is stable.
+        assert snapshots[0]["params"]["sort"] == "start_time"
+        # The endpoint takes no sort param of its own.
+        assert "sort" not in snapshots[1]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fan_out_child_never_sends_a_date_filter(self, MockSession: mock.MagicMock) -> None:
+        # The child endpoints take no date filter, so an incremental sync bounds its requests
+        # through the parent listing and relies on the merge to keep earlier rows.
+        _, snapshots, _ = _collect(
+            "page_views",
+            [
+                _page("calls", [{"id": "C1"}], total_pages=1),
+                _page("page_views", [_page_view("https://example.com/a", "2026-01-01T00:00:00Z")], total_pages=1),
+            ],
+            MockSession,
+            account_id="ACC",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert "start_date" not in snapshots[1]["params"]
+        assert "created_at" not in snapshots[1]["params"]

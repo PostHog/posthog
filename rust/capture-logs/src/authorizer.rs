@@ -62,6 +62,30 @@ impl Authorizer {
         Ok(token)
     }
 
+    /// Resolve the token from a vendor-specific header that carries it verbatim, falling back to
+    /// `authorize`. For intakes such as Amazon Data Firehose, whose access key field is copied into
+    /// its own header. A pasted `Bearer ` prefix is tolerated, because the shape check would let it
+    /// through and the consumer would then drop every row for an unknown token.
+    pub fn authorize_from_header_or_bearer<'a>(
+        &self,
+        headers: &'a HeaderMap,
+        header_name: &str,
+        signal: Signal,
+    ) -> Result<&'a str, Rejection> {
+        let verbatim = headers
+            .get(header_name)
+            .and_then(|value| value.to_str().ok())
+            .map(strip_bearer)
+            .filter(|token| !token.is_empty());
+        match verbatim {
+            Some(token) => {
+                self.authorize_token(token, signal)?;
+                Ok(token)
+            }
+            None => self.authorize(headers, None, signal),
+        }
+    }
+
     /// Authorize a token that the caller resolved itself. The Datadog endpoint accepts the token
     /// in a path segment and in a bare `Authorization` value, so it cannot use `authorize`.
     pub fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
@@ -100,6 +124,11 @@ fn unauthorized(message: impl Into<String>) -> Rejection {
     )
 }
 
+/// Splits before it trims, so a value of exactly `Bearer ` still yields the empty token callers reject.
+fn strip_bearer(value: &str) -> &str {
+    value.split("Bearer ").last().unwrap_or("").trim()
+}
+
 /// Bearer header first, `?token=` second, matching what the handlers did individually.
 fn resolve_token<'a>(
     headers: &'a HeaderMap,
@@ -111,11 +140,7 @@ fn resolve_token<'a>(
     };
 
     if let Some(value) = headers.get("Authorization") {
-        return value
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
+        return Some(strip_bearer(value.to_str().unwrap_or("")))
             .filter(|token| !token.is_empty())
             .ok_or_else(missing);
     }

@@ -9,7 +9,8 @@
 //! after the produce acks. A failed produce is therefore re-derived while replay still folds the
 //! leaf. If the leaf expires before replay and the fold drops it, this repair no longer applies;
 //! eviction and reconcile remain its recovery paths. Composed bits come from
-//! [`recompute_stage2`](crate::workers::stage2_path::recompute_stage2); single-leaf ones from
+//! [`recompute_stage2_by_person`](crate::workers::stage2_person_inputs::recompute_stage2_by_person),
+//! which reads each person once for all their cohorts; single-leaf ones from
 //! [`diff_single_leaf_registers`](crate::workers::stage2_path::diff_single_leaf_registers), which
 //! is why `Unchanged` leaves still take part. The replay mints no transition, so the persisted
 //! register is the only record of what downstream was told. Store and produce failures hold the

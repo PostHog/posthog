@@ -12,6 +12,7 @@ from posthog.models.user import User
 from products.growth.backend.models import EnrichmentSignupSnapshot, OrganizationEnrichment, OrganizationEnrichmentFetch
 
 _COMMAND_MODULE = "products.growth.backend.management.commands.backfill_signup_enrichment"
+_GATES_MODULE = "products.growth.backend.enrichment.gates"
 
 
 def _window() -> dict[str, str]:
@@ -55,7 +56,7 @@ class TestBackfillSignupEnrichment(BaseTest):
         self._org(email="e@linear.app", joined_after=dt.timedelta(days=2))
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--delay=0", **_window())
@@ -75,7 +76,7 @@ class TestBackfillSignupEnrichment(BaseTest):
         target = self._org(email="a@stripe.com")
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="EU"),
             patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--delay=0", **_window())
@@ -85,7 +86,7 @@ class TestBackfillSignupEnrichment(BaseTest):
 
     def test_refuses_outside_us_and_eu(self):
         self._org(email="a@stripe.com")
-        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="DEV"):
+        with patch(f"{_GATES_MODULE}.get_instance_region", return_value="DEV"):
             with self.assertRaises(CommandError):
                 call_command("backfill_signup_enrichment", **_window())
 
@@ -94,7 +95,7 @@ class TestBackfillSignupEnrichment(BaseTest):
         second = self._org(email="b@vercel.com")
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(
                 f"{_COMMAND_MODULE}.dispatch_signup_enrichment", side_effect=[RuntimeError("temporal down"), None]
             ) as dispatch,
@@ -107,7 +108,7 @@ class TestBackfillSignupEnrichment(BaseTest):
     def test_dry_run_dispatches_nothing(self):
         self._org(email="a@stripe.com")
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--dry-run", **_window())

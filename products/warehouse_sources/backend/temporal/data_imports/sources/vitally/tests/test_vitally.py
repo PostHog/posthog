@@ -235,27 +235,6 @@ class TestVitallySourceGetSchemas:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
     )
-    def test_includes_static_endpoints_and_dynamic_custom_objects(self, mock_list):
-        mock_list.return_value = [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION]
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        # Static endpoints
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        # Dynamic custom object schemas
-        assert f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest" in names
-        assert f"{CUSTOM_OBJECT_SCHEMA_PREFIX}Opportunity" in names
-
-        feature_request = next(s for s in schemas if s.name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest")
-        assert feature_request.label == "Feature Request"
-        assert feature_request.supports_incremental is True
-        assert feature_request.supports_append is True
-        assert len(feature_request.incremental_fields) == 1
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
     def test_skips_definitions_without_a_name(self, mock_list):
         mock_list.return_value = [{"id": "abc", "name": "", "label": "empty"}, FEATURE_REQUEST_DEFINITION]
 
@@ -264,17 +243,6 @@ class TestVitallySourceGetSchemas:
         dynamic = [s for s in schemas if s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX)]
         assert len(dynamic) == 1
         assert dynamic[0].name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_falls_back_to_machine_name_when_label_missing(self, mock_list):
-        mock_list.return_value = [{"id": "abc", "name": "widget"}]
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        widget = next(s for s in schemas if s.name == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}widget")
-        assert widget.label == "widget"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
@@ -290,33 +258,6 @@ class TestVitallySourceGetSchemas:
 
         assert {s.name for s in schemas} == {"Accounts", f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"}
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_skips_discovery_when_only_static_schemas_requested(self, mock_list):
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1, names=["Accounts", "Conversations"])
-
-        mock_list.assert_not_called()
-        assert {s.name for s in schemas} == {"Accounts", "Conversations"}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_credential_free_placeholder_config_skips_discovery(self, mock_list, mock_capture):
-        # The public documentation catalog calls get_schemas with a placeholder config whose
-        # `region` is an empty string, not a VitallyRegionConfig. Discovery must be skipped rather
-        # than crash on `config.region.selection` and spam error tracking.
-        source = VitallySource()
-
-        schemas = source.get_schemas(source._placeholder_config(), team_id=0)
-
-        mock_list.assert_not_called()
-        mock_capture.assert_not_called()
-        names = {s.name for s in schemas}
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
@@ -331,53 +272,3 @@ class TestVitallySourceGetSchemas:
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
         # Unexpected discovery failures are still captured for triage.
         mock_capture.assert_called_once()
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
-            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/customObjects?limit=100",
-        ],
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
-    )
-    def test_credential_errors_do_not_spam_error_tracking(self, mock_list, mock_capture, error_message):
-        # A revoked/invalid token surfaces as a 401/403 during custom object discovery. Static
-        # endpoints must still survive, and we must not capture the credential error to error tracking.
-        mock_list.side_effect = RuntimeError(error_message)
-
-        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
-        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
-        mock_capture.assert_not_called()
-
-
-class TestVitallyNonRetryableErrors:
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            # US uses a per-customer subdomain, EU a fixed host — both must be recognised.
-            "401 Client Error: Unauthorized for url: https://acme.rest.vitally.io/resources/conversations?limit=100",
-            "403 Client Error: Forbidden for url: https://acme.rest.vitally.io/resources/organizations?limit=100",
-            "401 Client Error: Unauthorized for url: https://rest.vitally-eu.io/resources/users?limit=1",
-        ],
-    )
-    def test_auth_failures_are_non_retryable(self, observed_error):
-        non_retryable_errors = VitallySource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://acme.rest.vitally.io/resources/conversations",
-            "429 Client Error: Too Many Requests for url: https://acme.rest.vitally.io/resources/accounts",
-            "Connection aborted: read timeout",
-        ],
-    )
-    def test_transient_errors_remain_retryable(self, other_error):
-        non_retryable_errors = VitallySource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)

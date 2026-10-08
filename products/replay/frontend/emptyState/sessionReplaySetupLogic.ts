@@ -4,24 +4,39 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { SessionRecordingRetentionPeriod } from '~/types'
+
+// The recordings list defaults to the last 3 days server-side, which reads a project whose newest
+// recording is older than that as "nothing captured" and hides the scene behind the waiting
+// screen. Probe the project's retention period instead: no recording can outlive it, so it is the
+// widest window worth scanning. `legacy` (not a duration) and an unset period fall back to 90
+// days, as the recordings API does.
+function probeDateFrom(period: SessionRecordingRetentionPeriod | null | undefined): string {
+    return `-${period && period !== 'legacy' ? period : '90d'}`
+}
 
 /**
  * Setup detection for the session replay empty state. Three-state: recordings
  * exist → has-data; recording opt-in without recordings yet → waiting-for-data;
- * neither → needs-setup. No has-data cache: recordings expire with retention,
- * so a positive answer is not permanent.
+ * neither → needs-setup. Recordings expire with retention, so a cached has-data
+ * answer is revalidated in the background instead of trusted forever.
  */
 export const sessionReplaySetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.SESSION_REPLAY,
     path: ['products', 'replay', 'frontend', 'emptyState', 'sessionReplaySetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
-        const response = await api.recordings.list({ kind: NodeKind.RecordingsQuery, limit: 1 })
+        const currentTeam = teamLogic.findMounted()?.values.currentTeam
+        const response = await api.recordings.list({
+            kind: NodeKind.RecordingsQuery,
+            limit: 1,
+            date_from: probeDateFrom(currentTeam?.session_recording_retention_period),
+        })
         if (response.results.length > 0) {
             return 'has-data'
         }
-        return teamLogic.findMounted()?.values.currentTeam?.session_recording_opt_in
-            ? 'waiting-for-data'
-            : 'needs-setup'
+        return currentTeam?.session_recording_opt_in ? 'waiting-for-data' : 'needs-setup'
     },
     pollIntervalMs: 20000,
     // Enabling recording (from this empty state or settings) must flip the

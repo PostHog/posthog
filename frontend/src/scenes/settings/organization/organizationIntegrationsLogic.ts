@@ -16,6 +16,7 @@ export interface organizationIntegrationsLogicValues {
     getOrganizationIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'apple-ads'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
@@ -37,6 +38,7 @@ export interface organizationIntegrationsLogicValues {
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
+            | 'helpscout'
             | 'hubspot'
             | 'instagram'
             | 'intercom'
@@ -56,6 +58,7 @@ export interface organizationIntegrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -92,6 +95,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -113,6 +117,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -132,6 +137,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[],
@@ -150,6 +156,7 @@ export interface organizationIntegrationsLogicActions {
             installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -171,6 +178,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -190,6 +198,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[]
@@ -206,6 +215,7 @@ export interface organizationIntegrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'apple-ads'
                 | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
@@ -227,6 +237,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
+                | 'helpscout'
                 | 'hubspot'
                 | 'instagram'
                 | 'intercom'
@@ -246,6 +257,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]

@@ -25,6 +25,9 @@ const channel = (id: string, name: string): SlackChannelType => ({
     is_private_without_access: false,
 })
 
+// The channel someone picks before inviting the PostHog app to it.
+const notJoinedChannel: SlackChannelType = { ...channel('C7', 'launch-plans'), is_member: false }
+
 const channels: SlackChannelType[] = [
     channel('C1', 'alerts'),
     channel('C2', 'announcements'),
@@ -87,6 +90,27 @@ function MultipleSelectionScene(): JSX.Element {
     )
 }
 
+function PastedChannelIdScene(): JSX.Element {
+    const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+    const response = { channels: [channel('C1234567890', 'release-updates')] }
+    useStorybookMocks({
+        get: {
+            '/api/projects/:id/integrations/:intId/channels': response,
+            '/api/environments/:id/integrations/:intId/channels': response,
+        },
+    })
+
+    return (
+        <div className="p-4 max-w-2xl">
+            <SlackChannelPicker
+                integration={integration}
+                value={selectedChannel ?? undefined}
+                onChange={setSelectedChannel}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
@@ -124,6 +148,48 @@ export const RecentlySubscribedFirst: Story = {
 
 export const MultipleSelection: Story = {
     render: () => <MultipleSelectionScene />,
+}
+
+export const PastedChannelId: Story = {
+    render: () => <PastedChannelIdScene />,
+    play: async ({ canvasElement }) => {
+        const input = await within(canvasElement).findByRole('textbox')
+        await userEvent.click(input)
+        await userEvent.paste('C1234567890')
+        await within(document.body).findByText('#release-updates')
+    },
+}
+
+// The app is not in the picked channel yet. "Check again" re-reads that one channel from Slack,
+// so the warning clears as soon as someone runs the invite.
+export const MissingAppInChannel: Story = {
+    decorators: [
+        function NotJoinedMocks(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels: [...channels, notJoinedChannel] },
+                    '/api/environments/:id/integrations/:intId/channels': {
+                        channels: [...channels, notJoinedChannel],
+                    },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                value={`${notJoinedChannel.id}|#${notJoinedChannel.name}`}
+                onChange={() => {}}
+            />
+        </div>
+    ),
+    // The warning renders only once the membership lookup lands, so settle it before the
+    // screenshot rather than racing the banner into frame.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Check again')
+    },
 }
 
 // Typing a channel name and clicking away drops the search, because the picker takes an option

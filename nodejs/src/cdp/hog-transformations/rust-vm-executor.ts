@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -13,6 +14,7 @@ import {
     RustExecResult,
     isUnsupportedByRustVm,
     loadHogvmNodeModule,
+    programKey,
 } from './rust-vm'
 import { RustVmBatchScheduler } from './rust-vm-batch-scheduler'
 
@@ -24,9 +26,10 @@ import { RustVmBatchScheduler } from './rust-vm-batch-scheduler'
  * the Node VM.
  *
  * Two execution paths: `execute` runs one invocation synchronously on the JS thread
- * (`executeSync`); `executeBatched` enqueues into a {@link RustVmBatchScheduler} that coalesces
- * same-program invocations into one `executeBatch` FFI crossing per tick, executed off the JS
- * event loop.
+ * (`executeRegisteredSync`); `executeBatched` enqueues into a {@link RustVmBatchScheduler} that
+ * coalesces same-program invocations into one `executeRegisteredBatch` FFI crossing per tick,
+ * executed off the JS event loop. Both execute a program the addon registered once per distinct
+ * bytecode, so the per-event cost is the globals crossing, not re-marshalling and re-decoding.
  */
 
 export const rustVmExecution = new Counter({
@@ -41,22 +44,77 @@ export const rustVmExecutionDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
 })
 
+export const rustVmProgramRegistrations = new Counter({
+    name: 'hogvm_rust_program_registrations_total',
+    help: 'Programs registered with the Rust HogVM after a miss in the handle cache',
+})
+
+/** Bounds the Rust-side registry: one entry per distinct program, shared by every function with that bytecode. */
+export const MAX_REGISTERED_PROGRAMS = 500
+
+type RegistryBindings = Required<
+    Pick<HogvmNodeModule, 'registerProgram' | 'releaseProgram' | 'executeRegisteredSync' | 'executeRegisteredBatch'>
+>
+
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
 
+    /**
+     * Handles by bytecode content: every team has its own hog function row, so one template arrives
+     * as thousands of functions with identical bytecode and registers once. `dispose` is the single
+     * owner of releasing handles, so no caller releases directly and no handle is released twice.
+     */
+    private handles: LRUCache<string, number>
+
     constructor(private options: { mmdbPath: string }) {
-        this.scheduler = new RustVmBatchScheduler((program, events) => {
+        this.scheduler = new RustVmBatchScheduler(async (bytecode, events) => {
             const module_ = this.getModule()
             if (!module_) {
                 // Unreachable in practice: executeBatched checks the module before enqueueing.
-                return Promise.reject(new Error('Rust HogVM native module unavailable'))
+                throw new Error('Rust HogVM native module unavailable')
             }
-            return module_.executeBatch(program, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
+            const registry = this.registryOf(module_)
+            if (!registry) {
+                return module_.executeBatch(bytecode, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
+            }
+            // Resolve the handle in the same synchronous span as the FFI call: `handleFor`
+            // re-registers an evicted program, and nothing can release the handle before the call.
+            const handle = this.handleFor(registry, bytecode)
+            return registry.executeRegisteredBatch(handle, events, { parallel: true, maxSteps: RUST_MAX_STEPS })
+        })
+        this.handles = new LRUCache({
+            max: MAX_REGISTERED_PROGRAMS,
+            dispose: (handle) => this.getModule()?.releaseProgram?.(handle),
         })
     }
 
     private getModule(): HogvmNodeModule | null {
         return loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+    }
+
+    /**
+     * All four registry bindings, or null when the addon predates them: it is built and shipped
+     * separately from this code, and the caller then executes unregistered instead of throwing.
+     */
+    private registryOf(module_: HogvmNodeModule): RegistryBindings | null {
+        const { registerProgram, releaseProgram, executeRegisteredSync, executeRegisteredBatch } = module_
+        if (!registerProgram || !releaseProgram || !executeRegisteredSync || !executeRegisteredBatch) {
+            return null
+        }
+        return { registerProgram, releaseProgram, executeRegisteredSync, executeRegisteredBatch }
+    }
+
+    private handleFor(registry: RegistryBindings, bytecode: unknown[]): number {
+        const key = programKey(bytecode)
+        const cached = this.handles.get(key)
+        if (cached !== undefined) {
+            return cached
+        }
+
+        rustVmProgramRegistrations.inc()
+        const handle = registry.registerProgram(bytecode)
+        this.handles.set(key, handle)
+        return handle
     }
 
     /**
@@ -85,7 +143,7 @@ export class RustVmExecutor {
      * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
      * run it instead.
      *
-     * Runs through `executeSync` on the JS thread — the same threading model as the Node VM's
+     * Runs through `executeRegisteredSync` on the JS thread — the same threading model as the Node VM's
      * exec, minus the work. Executions are sub-millisecond and bounded by the step budget, so a
      * libuv thread-hop per invocation would cost more than the execution it offloads.
      */
@@ -103,9 +161,16 @@ export class RustVmExecutor {
 
         let rust
         try {
-            rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
-                maxSteps: RUST_MAX_STEPS,
-            })
+            const registry = this.registryOf(module_)
+            rust = registry
+                ? registry.executeRegisteredSync(
+                      this.handleFor(registry, invocation.hogFunction.bytecode),
+                      invocation.state.globals,
+                      { maxSteps: RUST_MAX_STEPS }
+                  )
+                : module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
+                      maxSteps: RUST_MAX_STEPS,
+                  })
         } catch (error) {
             // A throw here is the boundary or the native side, not the program's own error path —
             // marshalling failures (e.g. globals containing NaN or Infinity, which serde_json
@@ -121,7 +186,7 @@ export class RustVmExecutor {
 
     /**
      * Execute one transformation invocation via the batching scheduler: same-program invocations
-     * in flight during the same tick share one `executeBatch` call, off the JS event loop.
+     * in flight during the same tick share one `executeRegisteredBatch` call, off the JS event loop.
      * Returns null when the Node VM must run it instead — same fallback contract as `execute`,
      * with a batch event that failed JS→JSON conversion (`marshal_error:`) treated like the sync
      * path's boundary throw: that event alone falls back, having never executed.

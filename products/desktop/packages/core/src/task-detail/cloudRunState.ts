@@ -10,13 +10,18 @@ export interface CloudRunSessionLike {
   cloudStatus?: TaskRunStatus | null;
 }
 
+/** The run fields the status rule reads, so sidebar rows can pass their own task shape. */
+export interface CloudRunTaskLike {
+  latest_run?: { id?: string; status?: TaskRunStatus | null } | null;
+}
+
 /**
  * Effective run status for the UI: a terminal task status always wins;
  * otherwise the session's live status wins while the session belongs to the
  * task's latest run.
  */
 export function resolveEffectiveCloudStatus(
-  task: Task,
+  task: CloudRunTaskLike,
   session:
     | { taskRunId?: string | null; cloudStatus?: TaskRunStatus | null }
     | null

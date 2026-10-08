@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +5,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import deltalake
@@ -175,30 +174,26 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
         _patched_resolve(str(tmp_path / "does_not_exist"))
 
 
-def _set_delta_commit_log_mtimes(uri: str, times_by_version: dict[int, datetime]) -> None:
-    # delta-rs resolves a time-travel pin against the `_delta_log` commit files' modification times,
-    # not the `timestamp` inside each commit that `DeltaTable.history()` reports. Those mtimes come
-    # from a coarse filesystem clock that can collapse the gap between two back-to-back writes, so
-    # the test sets them explicitly and stays about the pin rather than about the clock.
-    for version, committed_at in times_by_version.items():
-        ts = committed_at.timestamp()
-        os.utime(Path(uri) / "_delta_log" / f"{version:020d}.json", (ts, ts))
-
-
-def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_path: Path) -> None:
-    uri = _write_parent_table(tmp_path)
-    v0 = deltalake.DeltaTable(uri).version()
-
-    # An in-flight full refresh has already committed a partial overwrite on top of v0.
-    deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
-
+def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing() -> None:
     snapshot_committed_at = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
-    _set_delta_commit_log_mtimes(uri, {v0: snapshot_committed_at, v0 + 1: snapshot_committed_at + timedelta(minutes=2)})
+    delta_table = Mock()
+    delta_table.history.return_value = [
+        {"version": 1, "timestamp": int((snapshot_committed_at + timedelta(minutes=2)).timestamp() * 1000)},
+        {"version": 0, "timestamp": int(snapshot_committed_at.timestamp() * 1000)},
+    ]
+    delta_table.version.return_value = 1
 
-    # The parent's last completed job finished after v0 landed and before the refresh started writing.
-    pinned = _patched_resolve(uri, snapshot_timestamp=snapshot_committed_at + timedelta(minutes=1))
+    def load_as_version(version: int | datetime) -> None:
+        delta_table.version.return_value = 1 if isinstance(version, datetime) else version
 
-    assert pinned.version == v0
+    delta_table.load_as_version.side_effect = load_as_version
+    with patch.object(warehouse_parent.deltalake, "DeltaTable", return_value=delta_table) as delta_table_class:
+        delta_table_class.is_deltatable.return_value = True
+        pinned = _patched_resolve(
+            "s3://warehouse/issues", snapshot_timestamp=snapshot_committed_at + timedelta(minutes=1)
+        )
+
+    assert pinned.version == 0
 
 
 class TestParentSnapshotCoversThrough(APIBaseTest):

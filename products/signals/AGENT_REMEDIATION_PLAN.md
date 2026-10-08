@@ -1,5 +1,8 @@
 # Self-driving inbox: agent remediation flow
 
+> Historical design for the original single-PR assignment API. The implementation
+> contract is now documented in [Signals work claims and pull requests](../../docs/internal/signals-pr-lifecycle.md).
+
 Follow-on to PR #92769.
 
 ## Goal

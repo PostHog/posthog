@@ -122,4 +122,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the user was last updated.",
         },
     },
+    "releases": {
+        "description": "A release in Aha! — a dated container of features and epics delivered together.",
+        "docs_url": "https://www.aha.io/api/resources/releases",
+        "columns": {
+            **_COMMON_COLUMNS,
+            "product_id": "Identifier of the product this release belongs to.",
+            "release_date": "Planned external release date.",
+            "development_started_on": "Date development on the release started.",
+            "released": "Whether the release has shipped.",
+            "parking_lot": "Whether the release is a parking lot for un-scheduled work.",
+            "workflow_status": "The release's current status in its workflow.",
+        },
+    },
+    "requirements": {
+        "description": "A requirement in Aha! — a child record under a feature capturing delivery detail.",
+        "docs_url": "https://www.aha.io/api/resources/requirements",
+        "columns": {
+            **_COMMON_COLUMNS,
+            "feature_id": "Identifier of the feature this requirement belongs to.",
+            "workflow_status": "The requirement's current status in its workflow.",
+            "assigned_to_user": "The user the requirement is assigned to.",
+            "description": "Description of the requirement.",
+        },
+    },
+    "idea_votes": {
+        "description": "A vote (endorsement) cast on an Aha! idea — the demand signal behind an idea.",
+        "docs_url": "https://www.aha.io/api/resources/idea_votes",
+        "columns": {
+            "id": "Unique identifier for the vote.",
+            "idea_id": "Identifier of the idea the vote was cast on.",
+            "weight": "Weight of the vote.",
+            "link": "URL of the idea the vote belongs to.",
+            "created_at": "Time at which the vote was cast.",
+            "updated_at": "Time at which the vote was last updated.",
+        },
+    },
 }

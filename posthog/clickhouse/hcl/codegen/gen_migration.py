@@ -70,6 +70,7 @@ NODE_ROLE_MEMBERS = {
 NON_TARGET_ROLES = {
     "batch_exports": "dump-baselined; no NodeRole member",
     "all": "the local-single dev node; mirrors what migrations produce",
+    "apm": "modeled for drift detection; no NodeRole member, so migrations cannot address it",
 }
 
 # Envs that mirror what the migrations produce rather than declaring intent, so they
@@ -121,6 +122,14 @@ def golden_name(role: str) -> str:
     }.get(role, role)
 
 
+def ensure_ref(ref: str) -> None:
+    """Fail on a ref git cannot resolve, before any golden lookup treats it as new."""
+    try:
+        run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+    except subprocess.CalledProcessError:
+        raise SystemExit(f"--ref {ref} does not resolve to a commit")
+
+
 def golden_at_ref(ref: str, env: str, role: str) -> str:
     """Read the composed golden for (env, role) at `ref`.
 
@@ -141,7 +150,13 @@ def golden_at_ref(ref: str, env: str, role: str) -> str:
             return run(["git", "show", f"{ref}:{path}"])
         except subprocess.CalledProcessError:
             continue
-    raise SystemExit(f"no golden for {env}/{role} at {ref} (tried current, pre-rename, and legacy layouts)")
+    # main() verified the ref, so reaching here means the ref resolves and the path
+    # does not: a role this PR introduces, whose baseline is an empty schema.
+    sys.stderr.write(
+        f"warning: no golden for {env}/{role} at {ref}; treating the role as new "
+        f"(empty baseline, so every object plans as a CREATE)\n"
+    )
+    return ""
 
 
 def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
@@ -168,6 +183,7 @@ def main() -> None:
         help="write the next numbered migration into posthog/clickhouse/migrations/ and bump max_migration.txt",
     )
     args = ap.parse_args()
+    ensure_ref(args.ref)
 
     envs_for_role: dict[str, set[str]] = {}
     env_roles: OrderedDict[str, list[str]] = OrderedDict()  # env -> roles, in manifest order

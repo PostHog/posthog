@@ -11,6 +11,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AccessControlLevel, AvailableFeature, SidePanelTab } from '~/types'
 
+import { NotebookComputeOptionsResponseApi } from 'products/notebooks/frontend/generated/api.schemas'
+
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 type StoryArgs = { panel: SidePanelTab; availableFeatures?: AvailableFeature[] }
@@ -22,6 +24,28 @@ type StoryArgs = { panel: SidePanelTab; availableFeatures?: AvailableFeature[] }
  */
 const OBJECT_SCENE_FLAG_ID = 1779
 const objectScenePageUrl = urls.featureFlag(OBJECT_SCENE_FLAG_ID)
+
+const DASHBOARDS_ALREADY_SET_UP = { count: 1, results: [] }
+const NO_RUNNING_KERNEL = { backend: null }
+const NOTEBOOK_COMPUTE_OPTIONS: NotebookComputeOptionsResponseApi = {
+    currency: 'USD',
+    cpu_rate_per_core_hour: 0.1,
+    memory_rate_per_gb_hour: 0.01,
+    default_preset_key: 'small',
+    presets: [
+        {
+            key: 'small',
+            name: 'Small',
+            description: 'Enough for most notebooks.',
+            cpu_cores: 1,
+            memory_gb: 2,
+            hourly_price: 0.12,
+        },
+    ],
+    allowed_cpu_cores: [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64],
+    allowed_memory_gb: [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256],
+    allowed_idle_timeout_seconds: [600, 1800, 3600, 10800, 21600, 43200],
+}
 
 const meta: Meta<StoryArgs> = {
     component: App,
@@ -45,6 +69,11 @@ const meta: Meta<StoryArgs> = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/dashboards/': DASHBOARDS_ALREADY_SET_UP,
+                '/api/projects/:team_id/notebooks/kernel/compute_options/': NOTEBOOK_COMPUTE_OPTIONS,
+                '/api/projects/:team_id/notebooks/:short_id/kernel/status/': NO_RUNNING_KERNEL,
+                '/api/projects/:team_id/activity_log': { results: [], count: 0 },
+                '/api/environments/:team_id/default_release_conditions/': { default_groups: [], enabled: false },
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:organization_id/pipeline_destinations/': { results: [] },

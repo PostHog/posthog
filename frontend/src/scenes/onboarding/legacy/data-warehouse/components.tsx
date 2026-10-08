@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { OnboardingStep } from '../OnboardingStep'
 
@@ -26,14 +26,14 @@ export function useDataWarehouseLoadingState(): { isLoading: boolean } {
     return { isLoading: availableSourcesLoading || availableSources === null }
 }
 
-export function ConnectorIconGrid({ connectors }: { connectors: SourceConfig[] }): JSX.Element | null {
+export function ConnectorIconGrid({ connectors }: { connectors: SourceConfigResponseApi[] }): JSX.Element | null {
     if (connectors.length === 0) {
         return null
     }
 
     return (
         <div className="flex flex-wrap justify-center gap-2">
-            {connectors.map((connector: SourceConfig) => (
+            {connectors.map((connector: SourceConfigResponseApi) => (
                 <div
                     key={connector.name}
                     className="size-8 rounded-md border border-border bg-bg-light flex items-center justify-center"

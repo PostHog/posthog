@@ -1,7 +1,11 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { deriveSessionLifecycleState } from "@posthog/core/sessions/sessionViewState";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
-import { useTaskSessionStarting } from "@posthog/ui/features/sessions/useSession";
+import {
+  useSessionForTask,
+  useSessionStore,
+} from "@posthog/ui/features/sessions/sessionStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
@@ -33,7 +37,16 @@ export function useTaskStatusInput(
 ): TaskStatusInput | null {
   const taskData = useChannelTaskData(task);
   const workspace = useWorkspace(task?.id);
-  const isAgentSessionStarting = useTaskSessionStarting(task?.id);
+  const session = useSessionForTask(task?.id);
+  const isTaskStarting = useSessionStore((state) =>
+    task ? state.startingTaskIds[task.id] !== undefined : false,
+  );
+  const isCloud =
+    workspace?.mode === "cloud" || task?.latest_run?.environment === "cloud";
+  const isAgentSessionStarting = task
+    ? deriveSessionLifecycleState(session, task, isCloud, isTaskStarting)
+        .isInitializing
+    : false;
   const { prState, hasDiff, prUrl } = useTaskPrStatus({
     // An empty id is the hook's own "nothing to look up", so this asks for no
     // query rather than one it throws away.

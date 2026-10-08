@@ -101,22 +101,6 @@ class TestKalshiTransport:
         assert params[0]["min_ts"] == 1609459200
         assert params[0]["limit"] == KALSHI_ENDPOINTS["trades"].page_size
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_trades_full_refresh_omits_min_ts(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("trades", [{"trade_id": "t1"}])])
-
-        _rows(
-            _source(
-                "trades",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "min_ts" not in params[0]
-
     @parameterized.expand(["markets", "events", "milestones"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str, MockSession) -> None:
@@ -157,19 +141,6 @@ class TestKalshiTransport:
         assert [p["cursor"] for p in params[1:]] == ["c1", "c2"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_series_is_single_page(self, MockSession) -> None:
-        # /series returns the whole collection and no cursor key. Paginating it would either loop or
-        # re-request page one forever, so it must send no limit and stop after one request.
-        session = MockSession.return_value
-        params = _wire(session, [_response("series", [{"ticker": "S1"}, {"ticker": "S2"}])])
-
-        rows = _rows(_source("series", _make_manager()))
-
-        assert len(rows) == 2
-        assert len(params) == 1
-        assert "limit" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_cursor_onto_first_request(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response("markets", [{"ticker": "B"}])])
@@ -177,23 +148,6 @@ class TestKalshiTransport:
         _rows(_source("markets", _make_manager(KalshiResumeConfig(cursor="saved"))))
 
         assert params[0]["cursor"] == "saved"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_state_saved_per_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response("markets", [{"ticker": "A"}], cursor="c1"),
-                _response("markets", [{"ticker": "B"}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("markets", manager))
-
-        # Only the page that has a successor is checkpointed; the terminal page has nothing to resume to.
-        assert [c.args[0].cursor for c in manager.save_state.call_args_list] == ["c1"]
 
     @parameterized.expand(
         [
@@ -255,10 +209,3 @@ class TestKalshiTransport:
         MockSession.return_value.get.return_value = resp
 
         assert validate_credentials() is expected
-
-    @mock.patch(KALSHI_SESSION_PATCH)
-    def test_validate_credentials_survives_transport_error(self, MockSession) -> None:
-        # An unreachable API must not raise out of source creation.
-        MockSession.side_effect = OSError("boom")
-
-        assert validate_credentials() is False

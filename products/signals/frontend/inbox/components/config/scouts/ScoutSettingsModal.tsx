@@ -9,7 +9,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutSurface } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { ScoutConfigForm } from './ScoutConfigControls'
 
 /**
@@ -31,14 +31,16 @@ export function ScoutSettingsModal({
 }): JSX.Element {
     const { updatingScoutIds, deletingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
+    const [hasUnsavedInput, setHasUnsavedInput] = useState(false)
 
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title={`${prettifyScoutSkillName(config.skill_name)} settings`}
+            title={`${scoutDisplayName(config)} settings`}
             description="Changes take effect on this scout's next run."
             width={560}
+            hasUnsavedInput={hasUnsavedInput}
         >
             <ScoutConfigForm
                 config={config}
@@ -46,6 +48,7 @@ export function ScoutSettingsModal({
                 onDelete={(configId) => deleteScout(configId, surface)}
                 deleting={deletingScoutIds.includes(config.id)}
                 updating={updatingScoutIds.includes(config.id)}
+                onUnsavedChange={setHasUnsavedInput}
             />
         </LemonModal>
     )

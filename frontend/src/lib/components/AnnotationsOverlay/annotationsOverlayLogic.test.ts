@@ -3,13 +3,16 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType } from '~/types'
 
 import { annotationsOverlayLogic } from './annotationsOverlayLogic'
+import { projectAnnotationsLogic } from './projectAnnotationsLogic'
 
 jest.spyOn(Storage.prototype, 'getItem')
 
@@ -173,12 +176,29 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED_3: RawAnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 
+const OTHER_PROJECT_ID = 999
+/** ID 30 at 2022-08-10T04:00:00.000Z, in a project other than the current one */
+const MOCK_ANNOTATION_FROM_OTHER_PROJECT: RawAnnotationType = {
+    id: 30,
+    content: 'MOCK_ANNOTATION_FROM_OTHER_PROJECT',
+    date_marker: '2022-08-10T04:00:00.000Z',
+    dashboard_item: null,
+    insight_short_id: null,
+    insight_name: null,
+    insight_derived_name: null,
+    scope: AnnotationScope.Project,
+    ...BASE_MOCK_ANNOTATION,
+}
+
 function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): void {
     const insight = {
         result: {},
         id: MOCK_INSIGHT_NUMERIC_ID,
         short_id: MOCK_INSIGHT_SHORT_ID,
-        filters: { insight: 'TRENDS', interval },
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], interval },
+        },
         timezone,
     }
     useMocks({
@@ -371,6 +391,89 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it('shows only the annotations of the project the insight comes from, read-only', async () => {
+            useInsightMocks()
+            useMocks({
+                get: {
+                    [`/api/projects/${OTHER_PROJECT_ID}/annotations/`]: {
+                        results: [MOCK_ANNOTATION_FROM_OTHER_PROJECT],
+                    },
+                },
+            })
+            // The same insight already shows on its own project's page, for example in another scene tab.
+            const ownProjectLogic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            ownProjectLogic.mount()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                sourceProject: { id: OTHER_PROJECT_ID, timezone: 'Europe/Moscow' },
+            })
+            logic.mount()
+            await expectLogic(projectAnnotationsLogic({ projectId: OTHER_PROJECT_ID })).toDispatchActions([
+                'loadAnnotationsSuccess',
+            ])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                readOnly: true,
+                relevantAnnotations: [deserializeAnnotation(MOCK_ANNOTATION_FROM_OTHER_PROJECT, 'Europe/Moscow')],
+            })
+            ownProjectLogic.unmount()
+        })
+
+        it.each([
+            {
+                annotationsScope: AnnotationScope.Organization,
+                expected: [
+                    MOCK_ANNOTATION_ORG_SCOPED,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3,
+                    MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1,
+                ],
+            },
+            {
+                annotationsScope: AnnotationScope.Project,
+                expected: [
+                    MOCK_ANNOTATION_PROJECT_SCOPED,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1,
+                    MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
+                ],
+            },
+        ])('narrows to annotations with the $annotationsScope scope', async ({ annotationsScope, expected }) => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            const vizLogic = insightVizDataLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            await expectLogic(vizLogic, () => {
+                vizLogic.actions.updateInsightFilter({ annotationsScope })
+            }).toDispatchActions(['updateQuerySource'])
+
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: expected.map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
 

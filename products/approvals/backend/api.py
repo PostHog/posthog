@@ -22,6 +22,7 @@ from posthog.permissions import (
 )
 
 from products.approvals.backend.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
+from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.permissions import CanApprove, CanCancel
 from products.approvals.backend.serializers import (
@@ -183,6 +184,9 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     premium_feature_on_cloud = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # TODO(experiment-approval-policies): temporary. Experiment policies are hidden mirrors of flag policies
+        # until they are enforced. See experiment_policy_sync.py.
+        queryset = queryset.exclude(action_key__in=SYNCED_ACTION_KEYS)
         filters = self.request.query_params
 
         if "action_key" in filters:
@@ -210,7 +214,10 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 action_key=action_key,
                 organization=self.organization,
                 team=self.team,
-            ).exists()
+            )
+            # TODO(experiment-approval-policies): ignore hidden mirrors so this error cannot reveal them.
+            .exclude(action_key__in=SYNCED_ACTION_KEYS)
+            .exists()
         ):
             raise exceptions.ValidationError(
                 "A policy for this action already exists. You can edit the existing policy instead."

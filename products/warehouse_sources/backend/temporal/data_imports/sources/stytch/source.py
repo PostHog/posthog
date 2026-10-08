@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -24,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.set
     STYTCH_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import (
+    PRODUCT_LINE_MISMATCH_MESSAGES,
     StytchResumeConfig,
     check_endpoint_access,
     stytch_source,
@@ -43,7 +42,7 @@ class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.STYTCH,
+            name=ExternalDataSourceType.STYTCH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Stytch",
             keywords=["auth", "authentication", "identity"],
@@ -51,7 +50,7 @@ class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
 
 You can find both under [API keys](https://stytch.com/dashboard/api-keys) in your Stytch dashboard. Live credentials (`project-live-...`) sync from `api.stytch.com`; test credentials (`project-test-...`) sync your test environment's data from `test.stytch.com`.
 
-The `organizations` and `members` tables are only available for Stytch B2B projects.""",
+Every Stytch project is either a consumer project or a B2B project, and the two have separate tables. The `users` and `sessions` tables are only available for consumer projects, and the `organizations` and `members` tables only for B2B projects.""",
             iconPath="/static/services/stytch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stytch",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -86,13 +85,16 @@ The `organizations` and `members` tables are only available for Stytch B2B proje
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        # Stytch reports credential failures as 400/401 JSON with a stable `error_type`, which the
-        # transport surfaces in the raised message. Retrying can never fix these.
+        # Stytch reports credential and product-line failures as 400/401 JSON with a stable
+        # `error_type`, which the transport surfaces in the raised message. Retrying can never fix
+        # these.
         return {
             "error_type=invalid_project_id_authentication": "Your Stytch project ID is invalid. Check it in your Stytch dashboard under API keys, then reconnect.",
             "error_type=invalid_secret_authentication": "Your Stytch secret is invalid or has been revoked. Create a new secret in your Stytch dashboard under API keys, then reconnect.",
             "error_type=unauthorized_credentials": "Your Stytch credentials were rejected. Check your project ID and secret in your Stytch dashboard, then reconnect.",
             "error_type=invalid_authorization_header": "Your Stytch credentials are malformed. Re-enter your project ID and secret, then reconnect.",
+            # Shared with the schema picker's per-table reason so both name the same next step.
+            **{f"error_type={error_type}": message for error_type, message in PRODUCT_LINE_MISMATCH_MESSAGES.items()},
         }
 
     def get_schemas(

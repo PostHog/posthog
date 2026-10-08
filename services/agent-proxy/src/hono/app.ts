@@ -96,6 +96,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
 
         const lastEventId = c.req.header('Last-Event-ID') ?? c.req.header('last-event-id') ?? null
         const startLatest = c.req.query('start') === 'latest'
+        const resyncCapable = c.req.query('resync') === '1'
         const streamKey = getStreamKey(claims.runId)
 
         // Reserve a concurrency slot before any Redis work; each accepted stream holds a
@@ -109,7 +110,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Too many concurrent stream connections' }, 503)
         }
 
-        logger.info('stream:open', { run, lastEventId: lastEventId ?? undefined, startLatest })
+        logger.info('stream:open', { run, lastEventId: lastEventId ?? undefined, startLatest, resyncCapable })
 
         // The abort signal from the raw Request fires when the client disconnects.
         const signal = c.req.raw.signal
@@ -124,6 +125,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
                 startLatest,
                 presenceGated: claims.presenceGated,
                 isTerminal: claims.isTerminal,
+                resyncCapable,
             })
 
             // Race each generator chunk against the client-disconnect abort signal.

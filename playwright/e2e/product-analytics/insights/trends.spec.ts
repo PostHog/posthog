@@ -237,7 +237,9 @@ test.describe('Trends insights', () => {
             await expect(firefoxRow).toContainText(customEventsWithBreakdown.expected.firefoxAmountSum)
         })
 
-        await test.step('switch to Number chart and verify bold number shows net sum of 35', async () => {
+        await test.step('remove the breakdown, switch to Number chart and verify bold number shows net sum of 35', async () => {
+            await insight.trends.removeBreakdown()
+            await insight.trends.waitForChart()
             await insight.trends.selectChartType(/^Number/)
             await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
         })

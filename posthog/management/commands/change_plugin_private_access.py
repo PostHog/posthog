@@ -45,7 +45,7 @@ def run(options):
     )
 
     org = Organization.objects.get(pk=organization_id)
-    org_current_plugins = org.plugin_set.all()
+    org_current_plugins = Plugin.objects.filter(has_private_access=org)
     logger.info(
         f"Organization {org.name} currently has explicit access to plugins: [{', '.join([str(plugin.name) for plugin in org_current_plugins])}]"
     )

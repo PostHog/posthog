@@ -8,6 +8,7 @@ import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCa
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import { tasksConfigCreate, tasksConfigList, tasksMeConfigCreate } from 'products/tasks/frontend/generated/api'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
     ModelChoiceApi,
     TasksAIRunPreferencesApi,
@@ -32,17 +33,26 @@ function isDraftChanged(draft: AIRunPreferenceDraft, stored: AIRunPreferenceDraf
     return draft.model !== stored.model || draft.reasoning_effort !== stored.reasoning_effort
 }
 
+// A Pi default is authored in PostHog Desktop, and its models are not in this catalogue, so it
+// cannot be edited here. Seeding it as empty keeps the editor on ACP, and any save made here
+// moves the stored default to ACP rather than blocking the person.
 function draftFromStored(stored: TasksAIRunPreferencesApi | null | undefined): AIRunPreferenceDraft {
-    return { model: stored?.model ?? null, reasoning_effort: stored?.reasoning_effort ?? null }
+    return stored?.model && stored.runtime !== TaskRuntimeEnumApi.Pi
+        ? { model: stored.model, reasoning_effort: stored.reasoning_effort ?? null }
+        : EMPTY_DRAFT
 }
 
 // The adapter is a property of the model, so it comes off the catalogue rather than the model id's
 // spelling — the settings picker offers Codex models too, and a new harness must not be mislabelled.
 function payloadFromDraft(draft: AIRunPreferenceDraft, catalogue: ModelChoiceApi[]): TasksAIRunPreferencesApi {
+    if (!draft.model) {
+        return { runtime: null, runtime_adapter: null, model: null, reasoning_effort: null }
+    }
     return {
-        runtime_adapter: draft.model ? getRuntimeAdapterForModel(catalogue, draft.model) : null,
+        runtime: TaskRuntimeEnumApi.Acp,
+        runtime_adapter: getRuntimeAdapterForModel(catalogue, draft.model),
         model: draft.model,
-        reasoning_effort: draft.model ? (draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort']) : null,
+        reasoning_effort: draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort'],
     }
 }
 
@@ -59,6 +69,7 @@ export interface taskAgentDefaultsLogicValues {
     myPreferenceStored: AIRunPreferenceDraft
     myPreferences: TasksUserConfigResponseApi | null
     myPreferencesLoading: boolean
+    myStoredPreferences: TasksAIRunPreferencesApi | null
     teamDraft: AIRunPreferenceDraft
     teamDraftDirty: boolean
     teamDraftState: DraftState
@@ -143,13 +154,17 @@ export interface taskAgentDefaultsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         teamDraft: (teamDraftState: DraftState) => AIRunPreferenceDraft
         myDraft: (myDraftState: DraftState) => AIRunPreferenceDraft
-        myPreferenceStored: (
+        myStoredPreferences: (
             myPreferences: TasksUserConfigResponseApi | null,
             myConfig: TasksUserConfigResponseApi | null
-        ) => AIRunPreferenceDraft
+        ) => TasksAIRunPreferencesApi | null
+        myPreferenceStored: (myStoredPreferences: TasksAIRunPreferencesApi | null) => AIRunPreferenceDraft
         teamDraftDirty: (teamDraft: AIRunPreferenceDraft, teamPreferences: TasksAIRunPreferencesApi | null) => boolean
         myDraftDirty: (myDraft: AIRunPreferenceDraft, myPreferenceStored: AIRunPreferenceDraft) => boolean
-        canResetMyPreference: (myDraft: AIRunPreferenceDraft, myPreferenceStored: AIRunPreferenceDraft) => boolean
+        canResetMyPreference: (
+            myDraft: AIRunPreferenceDraft,
+            myStoredPreferences: TasksAIRunPreferencesApi | null
+        ) => boolean
     }
 }
 
@@ -252,10 +267,16 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
         // The save response is read first so the reset button settles in the same tick as the
         // save; `myConfig` (refreshed alongside it) is what's there on mount and after a
         // project-level write.
-        myPreferenceStored: [
+        myStoredPreferences: [
             (s) => [s.myPreferences, s.myConfig],
-            (saved: TasksUserConfigResponseApi | null, loaded: TasksUserConfigResponseApi | null) =>
-                draftFromStored((saved ?? loaded)?.ai_run_preferences),
+            (
+                saved: TasksUserConfigResponseApi | null,
+                loaded: TasksUserConfigResponseApi | null
+            ): TasksAIRunPreferencesApi | null => (saved ?? loaded)?.ai_run_preferences ?? null,
+        ],
+        myPreferenceStored: [
+            (s) => [s.myStoredPreferences],
+            (stored: TasksAIRunPreferencesApi | null): AIRunPreferenceDraft => draftFromStored(stored),
         ],
         // Whether there's anything to send.
         teamDraftDirty: [
@@ -270,9 +291,9 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
         // Nothing to fall back to when neither the draft nor the stored preference pins a model — the
         // effort alone is never stored without one.
         canResetMyPreference: [
-            (s) => [s.myDraft, s.myPreferenceStored],
-            (draft: AIRunPreferenceDraft, stored: AIRunPreferenceDraft): boolean =>
-                Boolean(draft.model || stored.model),
+            (s) => [s.myDraft, s.myStoredPreferences],
+            (draft: AIRunPreferenceDraft, stored: TasksAIRunPreferencesApi | null): boolean =>
+                Boolean(draft.model || stored?.model),
         ],
     }),
 

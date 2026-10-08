@@ -193,6 +193,10 @@ pub async fn remote_config(
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 
+    // Raw filters, deliberately outside the fail-closed config-format boundary the
+    // evaluation paths use: Django's own view reads `payloads["true"]` just as raw and is
+    // shadow-compared against this one, so a Rust-only version guard would read as a
+    // permanent mismatch.
     let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
     // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`: the stored

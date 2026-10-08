@@ -12,9 +12,11 @@ from posthog.models import Team
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import ManifestDraftResult
 
-_DRAFT_PATH = "products.warehouse_sources.backend.presentation.views.external_data_source.draft_manifest_sync"
-_FETCH_PATH = "products.warehouse_sources.backend.presentation.views.external_data_source.fetch_docs_text"
-_FLAG_PATH = "products.warehouse_sources.backend.presentation.views.external_data_source.is_custom_source_ai_builder_enabled_for_team"
+_DRAFT_PATH = (
+    "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.draft_manifest_sync"
+)
+_FETCH_PATH = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.fetch_docs_text"
+_FLAG_PATH = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_custom_source_ai_builder_enabled_for_team"
 _THROTTLE_SCOPES = (
     "custom_source_ai_builder_burst",
     "custom_source_ai_builder_sustained",

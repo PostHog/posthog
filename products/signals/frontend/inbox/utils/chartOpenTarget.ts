@@ -76,5 +76,5 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
     if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
         return { url, label: 'Open in SQL editor' }
     }
-    return { url, label: 'Open as new insight' }
+    return { url, label: 'Open insight' }
 }

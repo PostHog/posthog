@@ -19,8 +19,9 @@ import {
     TableRow,
 } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { RuntimeIcon } from '../RuntimeIcon'
 import { EventActions } from './EventActions'

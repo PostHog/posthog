@@ -5,7 +5,7 @@ import pytest
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import approvals, artifact_store, ci_status, repos, runs
-from products.visual_review.backend.models import Repo, Run
+from products.visual_review.backend.models import QuarantinedIdentifier, Repo, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -42,7 +42,30 @@ class TestCommitStatusChecks:
         assert check["context"] == "PostHog Visual Review / storybook"
         assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
-    def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api, mocker):
+    @pytest.mark.parametrize(
+        ("quarantined_difference", "description"),
+        [
+            (None, "No visual changes"),
+            ("changed", "No gating changes; 1 quarantined snapshot differs"),
+            ("removed", "No gating changes; 1 quarantined snapshot differs"),
+        ],
+    )
+    def test_complete_run_posts_success_when_no_changes(
+        self, github_repo, mock_github_api, mocker, quarantined_difference, description
+    ):
+        snapshots = [SnapshotManifestItem(identifier="snap", content_hash="same")]
+        baseline = {"snap": "same"}
+        if quarantined_difference:
+            if quarantined_difference == "changed":
+                snapshots.append(SnapshotManifestItem(identifier="flaky", content_hash="drifted"))
+            baseline["flaky"] = "base"
+            QuarantinedIdentifier.objects.create(
+                team_id=github_repo.team_id,
+                repo=github_repo,
+                identifier="flaky",
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+            )
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=github_repo.id,
@@ -50,21 +73,24 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
-                baseline_hashes={"snap": "same"},
+                snapshots=snapshots,
+                baseline_hashes={},
             ),
             team_id=github_repo.team_id,
         )
 
         mocker.patch(
             "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
-            return_value=({"snap": "same"}, 0),
+            return_value=(baseline, 0),
         )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         runs.complete_run(run.id)
+        if quarantined_difference:
+            runs.finish_processing(run.id)
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
-        assert statuses[-1]["description"] == "No visual changes"
+        assert statuses[-1]["description"] == description
         # A full run posts to the gating context that branch protection evaluates.
         assert statuses[-1]["context"] == "PostHog Visual Review / storybook"
 
@@ -143,7 +169,7 @@ class TestCommitStatusChecks:
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] is not None
 
-    def test_subsequent_run_updates_existing_comment(self, github_repo, mock_github_api):
+    def test_subsequent_run_posts_a_new_comment(self, github_repo, mock_github_api):
         github_repo.enable_pr_comments = True
         github_repo.save(update_fields=["enable_pr_comments"])
 
@@ -175,11 +201,13 @@ class TestCommitStatusChecks:
         )
         runs.finish_processing(run2.id)
 
+        # A silent edit of the first comment gives reviewers no cue that new changes
+        # arrived, so the second run deletes it and posts its prompt at the bottom.
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
-        updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
-        assert len(created) == 1
-        assert len(updated) == 1
-        assert f"/visual_review/runs/{run2.id}" in updated[0]["body"]
+        deleted = [c for c in mock_github_api.issue_comments if c["action"] == "deleted"]
+        assert len(created) == 2
+        assert [c["id"] for c in deleted] == [created[0]["id"]]
+        assert f"/visual_review/runs/{run2.id}" in created[1]["body"]
 
     def test_complete_run_does_not_comment_twice_on_retry(self, github_repo, mock_github_api):
         github_repo.enable_pr_comments = True

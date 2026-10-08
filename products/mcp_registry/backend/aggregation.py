@@ -73,7 +73,7 @@ def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
             )
         tool_rows = tools_response.results or []
 
-        resolution = resolve_measured_server(server_name)
+        resolution = resolve_measured_server(server_name, team.id)
         MCPMeasuredStats.objects.for_team(team.id).update_or_create(
             team_id=team.id,
             server_name=server_name,

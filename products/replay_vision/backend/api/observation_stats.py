@@ -11,7 +11,7 @@ from typing import Any, Literal, get_args
 
 from django.db import connection
 from django.db.models import Count, Max, Min, Q, QuerySet, TextField
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, TruncDate
 from django.utils import timezone
 
@@ -221,28 +221,34 @@ def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
 
 def _classifier_stats(queryset: QuerySet[ReplayObservation]) -> tuple[dict[str, Any], list[str]]:
     # `.order_by()` skips a wasted sort inside the CTE; the outer aggregate doesn't need ordering.
-    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
-    inner_sql, inner_params = succeeded.values("scanner_result").query.sql_with_params()
+    # The CTE is read three times, so Postgres materializes it. Project only the two tag arrays, because
+    # a whole `scanner_result` per row also carries the model reasoning text into that tuplestore.
+    model_output = KeyTransform("model_output", "scanner_result")
+    succeeded = (
+        queryset.filter(status=ObservationStatus.SUCCEEDED)
+        .order_by()
+        .annotate(
+            _tags=KeyTransform("tags", model_output),
+            _tags_freeform=KeyTransform("tags_freeform", model_output),
+        )
+    )
+    inner_sql, inner_params = succeeded.values("_tags", "_tags_freeform").query.sql_with_params()
     # One query: per-bucket tag counts plus a sentinel `total` row counting observations that emitted any tag.
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
             WITH succeeded AS ({inner_sql})
             SELECT 'fixed' AS bucket, tag, COUNT(*) AS c
-            FROM succeeded s, jsonb_array_elements_text(
-                COALESCE(s.scanner_result -> 'model_output' -> 'tags', '[]'::jsonb)
-            ) AS tag
+            FROM succeeded s, jsonb_array_elements_text(COALESCE(s._tags, '[]'::jsonb)) AS tag
             GROUP BY tag
             UNION ALL
             SELECT 'freeform' AS bucket, tag, COUNT(*) AS c
-            FROM succeeded s, jsonb_array_elements_text(
-                COALESCE(s.scanner_result -> 'model_output' -> 'tags_freeform', '[]'::jsonb)
-            ) AS tag
+            FROM succeeded s, jsonb_array_elements_text(COALESCE(s._tags_freeform, '[]'::jsonb)) AS tag
             GROUP BY tag
             UNION ALL
             SELECT 'total' AS bucket, NULL AS tag, COUNT(*) AS c FROM succeeded s
-            WHERE COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'tags'), 0) > 0
-               OR COALESCE(jsonb_array_length(s.scanner_result -> 'model_output' -> 'tags_freeform'), 0) > 0
+            WHERE COALESCE(jsonb_array_length(s._tags), 0) > 0
+               OR COALESCE(jsonb_array_length(s._tags_freeform), 0) > 0
             """,
             inner_params,
         )
@@ -276,15 +282,20 @@ def _rank_counts(counts: dict[str, int]) -> list[dict[str, Any]]:
 
 def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     # `.order_by()` skips a wasted sort inside the subquery; the outer aggregate doesn't need ordering.
-    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
-    inner_sql, inner_params = succeeded.values("scanner_result").query.sql_with_params()
+    # Project only the score, so neither statement below reads a whole `scanner_result` per row.
+    succeeded = (
+        queryset.filter(status=ObservationStatus.SUCCEEDED)
+        .order_by()
+        .annotate(_score=KeyTransform("score", KeyTransform("model_output", "scanner_result")))
+    )
+    inner_sql, inner_params = succeeded.values("_score").query.sql_with_params()
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
             WITH scored AS (
-                SELECT ((scanner_result -> 'model_output' ->> 'score')::float) AS score
+                SELECT ((s._score #>> '{{}}')::float) AS score
                 FROM ({inner_sql}) s
-                WHERE jsonb_typeof(scanner_result -> 'model_output' -> 'score') = 'number'
+                WHERE jsonb_typeof(s._score) = 'number'
             )
             SELECT
                 COUNT(*),
@@ -315,9 +326,9 @@ def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation])
         cursor.execute(
             f"""
             WITH scored AS (
-                SELECT ((scanner_result -> 'model_output' ->> 'score')::float) AS score
+                SELECT ((s._score #>> '{{}}')::float) AS score
                 FROM ({inner_sql}) s
-                WHERE jsonb_typeof(scanner_result -> 'model_output' -> 'score') = 'number'
+                WHERE jsonb_typeof(s._score) = 'number'
             )
             SELECT
                 LEAST(

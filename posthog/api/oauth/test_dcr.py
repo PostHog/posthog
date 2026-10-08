@@ -1,8 +1,10 @@
 import base64
 import hashlib
+import ipaddress
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -10,6 +12,8 @@ from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
+
+PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -41,7 +45,8 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    def test_register_full_client(self):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IPS)
+    def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
             {
@@ -50,6 +55,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "none",
+                "logo_uri": "https://example.com/logo.png",
             },
             format="json",
         )
@@ -58,10 +64,29 @@ class TestDynamicClientRegistration(APIBaseTest):
         data = response.json()
         self.assertEqual(data["client_name"], "Test MCP Client")
         self.assertEqual(len(data["redirect_uris"]), 2)
+        self.assertEqual(data["logo_uri"], "https://example.com/logo.png")
 
         # Verify name stored
         app = OAuthApplication.objects.get(client_id=data["client_id"])
         self.assertEqual(app.name, "Test MCP Client")
+        self.assertEqual(app.logo_uri, "https://example.com/logo.png")
+
+    def test_register_drops_an_unusable_logo_without_failing(self):
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "logo_uri": "http://example.com/logo.png",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        data = response.json()
+        self.assertNotIn("logo_uri", data)
+
+        app = OAuthApplication.objects.get(client_id=data["client_id"])
+        self.assertIsNone(app.logo_uri)
 
     def test_register_localhost_http_allowed(self):
         response = self.client.post(

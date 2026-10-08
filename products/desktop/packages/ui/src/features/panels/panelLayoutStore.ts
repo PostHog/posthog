@@ -1,5 +1,5 @@
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { contentHash } from "@posthog/core/code-review/contentHash";
+import type { InjectedBlock } from "@posthog/core/editor/injectedBlocks";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -60,13 +60,9 @@ interface PanelLayoutStore {
     filePath: string,
     asPreview?: boolean,
   ) => void;
-  openChannelContextInSplit: (
+  openInjectedBlockTab: (
     taskId: string,
-    context: { channelName: string | null; body: string },
-  ) => void;
-  openCanvasInstructionsInSplit: (
-    taskId: string,
-    instructions: { body: string },
+    tab: { block: InjectedBlock; label: string },
   ) => void;
   openAutoresearchTab: (taskId: string) => void;
   openArtifactTab: (
@@ -258,35 +254,17 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         });
       },
 
-      openChannelContextInSplit: (taskId, context) => {
-        const tabId = `context-${context.channelName ?? "channel"}`;
-        const label = `${context.channelName ? `${channelDisplayLabel(context.channelName)} ` : ""}CONTEXT.md`;
+      openInjectedBlockTab: (taskId, { block, label }) => {
+        const tabId = `injected-block:${block.kind}:${contentHash(block.body)}`;
         set((state) =>
           updateTaskLayout(
             state,
             taskId,
             (layout) =>
               coreOpenReadonlyTab(layout, tabId, label, {
-                type: "context",
-                channelName: context.channelName,
-                body: context.body,
+                type: "injected-block",
+                block,
               }) as Partial<TaskLayout>,
-          ),
-        );
-      },
-
-      openCanvasInstructionsInSplit: (taskId, instructions) => {
-        set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreOpenReadonlyTab(
-                layout,
-                "canvas-instructions",
-                "Canvas instructions",
-                { type: "canvas-instructions", body: instructions.body },
-              ) as Partial<TaskLayout>,
           ),
         );
       },
@@ -562,7 +540,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     }),
     {
       name: "panel-layout-store",
-      version: 10,
+      version: 11,
       migrate: () => ({ taskLayouts: {} }),
       storage: createJSONStorage(() => panelLayoutStorage),
     },

@@ -1,5 +1,5 @@
 # Flags datetime.now() and similar time-dependent calls in test methods that lack
-# @freeze_time protection. These cause flaky failures when CI runs near midnight UTC
+# a frozen clock. These cause flaky failures when CI runs near midnight UTC
 # because events land in a different day bucket than the assertion expects.
 #
 # See: https://github.com/PostHog/posthog/pull/48675 for context
@@ -24,27 +24,46 @@ rules:
                 metavariable: $FUNC
                 regex: ^test_
           - pattern-not-inside: |
-                @freeze_time(...)
+                @time_machine.travel(...)
                 def $F(...):
                     ...
           - pattern-not-inside: |
-                @freeze_time(...)
+                @time_machine.travel(...)
                 class $C(...):
                     ...
           - pattern-not-inside: |
-                @freeze_time(...)
+                @time_machine.travel(...)
                 class $C:
                     ...
           - pattern-not-inside: |
-                with freeze_time(...):
+                with time_machine.travel(...):
                     ...
           - pattern-not-inside: |
-                with freeze_time(...) as $FT:
+                with time_machine.travel(...) as $FT:
+                    ...
+          # time_machine.travel only decorates unittest.TestCase subclasses, so a
+          # pytest-style class freezes its clock with an autouse fixture instead.
+          - pattern-not-inside: |
+                class $C(...):
+                    @pytest.fixture(autouse=True)
+                    def $FIX(...):
+                        with time_machine.travel(...):
+                            ...
+                    ...
+          - pattern-not-inside: |
+                class $C:
+                    @pytest.fixture(autouse=True)
+                    def $FIX(...):
+                        with time_machine.travel(...):
+                            ...
                     ...
       message: |
-          `datetime.now()` (or similar) in a test without `@freeze_time` causes
+          `datetime.now()` (or similar) in a test without a frozen clock causes
           flaky failures when CI runs near midnight UTC. Wrap the test method or
-          class with `@freeze_time("...")` or use `with freeze_time("..."):`.
+          class with `@time_machine.travel("...", tick=False)`, or use
+          `with time_machine.travel("...", tick=False):`. The class decorator
+          only works on a unittest.TestCase subclass; a pytest-style class needs
+          an autouse fixture that enters the same context manager.
       languages: [python]
       severity: WARNING
       metadata:

@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1247_oauthaccesstoken_token_idx"),
         ("replay_vision", "0028_replayscannerpromptsuggestion"),
-        ("workflows", "0008_teamworkflowsconfig"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

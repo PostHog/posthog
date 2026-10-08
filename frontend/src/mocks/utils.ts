@@ -43,26 +43,86 @@ const toResponse = (result: MockResult): Response => {
     return HttpResponse.json(result)
 }
 
+const ENVIRONMENTS_PATH = /(^|\/)api\/environments\//
+
+const withoutTrailingSlash = (path: string): string => path.replace(/\/$/, '')
+
+// The key two registrations share when MSW matches them against the same requests. A `:param`
+// segment matches any single segment, so its name carries no meaning, and a trailing slash is
+// stripped before a handler is registered.
+const matchKey = (path: string): string =>
+    withoutTrailingSlash(path)
+        .split('/')
+        .map((segment) => (segment.startsWith(':') ? ':param' : segment))
+        .join('/')
+
+// `/api/environments/` is a deprecated alias of `/api/projects/`: EnvironmentsRewriteMiddleware
+// rewrites it in-process to the same viewset, so a mock registered on one path must answer the
+// other. Serving the twin here keeps the existing environments registrations working while the
+// frontend moves to the canonical projects path.
+// The alias is one-way on purpose. A projects registration never answers an environments request,
+// so a hand-written environments URL left in source still fails its test.
+const projectsTwinFor = (path: string, registeredPaths: Set<string>): string | null => {
+    if (!ENVIRONMENTS_PATH.test(path)) {
+        return null
+    }
+    const twin = path.replace(ENVIRONMENTS_PATH, '$1api/projects/')
+    // The same route registered on both paths needs no twin.
+    return registeredPaths.has(matchKey(twin)) ? null : twin
+}
+
+// True when `pattern` matches every request `other` matches and more, because it has a `:param`
+// segment where `other` names a literal. MSW answers with the first match, so a looser pattern
+// registered earlier hides the stricter one.
+const covers = (pattern: string, other: string): boolean => {
+    const loose = matchKey(pattern).split('/')
+    const strict = matchKey(other).split('/')
+    if (loose.length !== strict.length) {
+        return false
+    }
+    let looserSomewhere = false
+    for (let i = 0; i < loose.length; i++) {
+        if (loose[i] === strict[i]) {
+            continue
+        }
+        if (loose[i] !== ':param') {
+            return false
+        }
+        looserSomewhere = true
+    }
+    return looserSomewhere
+}
+
 export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
     const handlers: HttpHandler[] = []
+    // A twin that would hide a projects route the map registers on purpose goes last instead of in
+    // place. Only those move, because registration order decides which handler MSW picks and tests
+    // depend on the order their mocks resolve in.
+    const deferred: HttpHandler[] = []
     Object.entries(mocks)
         .filter((entry): entry is [HttpMethod, Record<string, MockSignature>] => !!entry[1])
         .forEach(([method, mockHandlers]) => {
+            const paths = Object.keys(mockHandlers)
+            const registeredPaths = new Set(paths.map(matchKey))
+            const projectsPaths = paths.filter((path) => !ENVIRONMENTS_PATH.test(path))
             Object.entries(mockHandlers).forEach(([path, handler]) => {
-                const pathWithoutTrailingSlash = path.replace(/\/$/, '')
-                handlers.push(
-                    (http[method] as (typeof http)['get'])(pathWithoutTrailingSlash, async (info) => {
-                        // Function handlers and static values support the same MockResult forms:
-                        // a `[status, body]` tuple, a Response, or a plain JSON body. Static
-                        // `[status, body]` tuples used to be serialized as a literal array body,
-                        // which silently broke every mock relying on the status.
-                        if (typeof handler === 'function') {
-                            return toResponse(await handler(info))
-                        }
-                        return toResponse(handler as MockResult)
-                    })
-                )
+                // Function handlers and static values support the same MockResult forms: a
+                // `[status, body]` tuple, a Response, or a plain JSON body. Static `[status, body]`
+                // tuples used to be serialized as a literal array body, which silently broke every
+                // mock relying on the status.
+                const resolve = async (info: MockResolverInfo): Promise<Response> =>
+                    typeof handler === 'function' ? toResponse(await handler(info)) : toResponse(handler as MockResult)
+
+                handlers.push((http[method] as (typeof http)['get'])(withoutTrailingSlash(path), resolve))
+
+                const twin = projectsTwinFor(path, registeredPaths)
+                if (twin) {
+                    const target = projectsPaths.some((projectsPath) => covers(twin, projectsPath))
+                        ? deferred
+                        : handlers
+                    target.push((http[method] as (typeof http)['get'])(withoutTrailingSlash(twin), resolve))
+                }
             })
         })
-    return handlers
+    return [...handlers, ...deferred]
 }

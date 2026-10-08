@@ -29,17 +29,6 @@ interface RendererStoreSchema {
   [key: string]: string;
 }
 
-interface QuickAskStoreSchema {
-  panelEnabled: boolean;
-  shortcut: string;
-  defaultChannelId: string;
-  defaultRepositories: string[];
-  defaultGithubIntegrationId: number;
-  defaultAdapter: string;
-  defaultModel: string;
-  defaultEffort: string;
-}
-
 export interface WindowStateSchema {
   x: number | undefined;
   y: number | undefined;
@@ -63,21 +52,6 @@ export const focusStore = new Store<FocusStoreSchema>({
   name: "focus",
   cwd: userDataDir,
   defaults: { sessions: {} },
-});
-
-export const quickAskStore = new Store<QuickAskStoreSchema>({
-  name: "quick-ask",
-  cwd: userDataDir,
-  defaults: {
-    panelEnabled: false,
-    shortcut: "",
-    defaultChannelId: "",
-    defaultRepositories: [],
-    defaultGithubIntegrationId: 0,
-    defaultAdapter: "",
-    defaultModel: "",
-    defaultEffort: "",
-  },
 });
 
 export const windowStateStore = new Store<WindowStateSchema>({

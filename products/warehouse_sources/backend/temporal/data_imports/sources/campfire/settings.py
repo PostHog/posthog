@@ -1,17 +1,27 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 CAMPFIRE_BASE_URL = "https://api.meetcampfire.com"
 
+DEFAULT_PAGE_SIZE = 500
+
+# (connect, read) seconds. Without it a stalled Campfire response holds an import worker forever.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
 # Every incremental-capable Campfire list endpoint filters on the same server-side
 # `last_modified_at__gte` param (ISO 8601), documented to cover both active and deleted records.
+LAST_MODIFIED_AT = "last_modified_at"
+LAST_MODIFIED_AT_PARAM = "last_modified_at__gte"
 LAST_MODIFIED_AT_FIELD: list[IncrementalField] = [
     {
-        "label": "last_modified_at",
+        "label": LAST_MODIFIED_AT,
         "type": IncrementalFieldType.DateTime,
-        "field": "last_modified_at",
+        "field": LAST_MODIFIED_AT,
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -25,7 +35,10 @@ class CampfireEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable created-at style field confirmed present in the endpoint's response schema.
     partition_key: str | None = None
-    page_size: int = 500
+    # False for the endpoints that return a bare JSON array and document no page-size or
+    # pagination params, so rows arrive in one response and `limit` would be undocumented.
+    paginated: bool = True
+    page_size: int = DEFAULT_PAGE_SIZE
     # Opt into DRF cursor pagination: pass an empty `cursor=` on the first request and follow
     # the `next` link. Recommended by Campfire for large/syncing endpoints.
     use_cursor: bool = False
@@ -38,6 +51,18 @@ class CampfireEndpointConfig:
     # endpoint's default six-month date window).
     extra_params: dict[str, str] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Set where the endpoint is only reachable per parent record, so rows are collected by
+    # iterating the parent listing first.
+    fanout: DependentEndpointConfig | None = None
+
+    @property
+    def data_selector(self) -> str:
+        # DRF list endpoints wrap rows in `results`; the unpaginated ones return a bare array.
+        return "results" if self.paginated else "$"
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
 
 
 CAMPFIRE_ENDPOINTS: dict[str, CampfireEndpointConfig] = {
@@ -117,6 +142,13 @@ CAMPFIRE_ENDPOINTS: dict[str, CampfireEndpointConfig] = {
         name="chart_of_accounts",
         path="/coa/api/account",
     ),
+    # Legal entities. Returns every entity in one bare array, with no page-size or
+    # last_modified filter documented, so this table is full refresh only.
+    "chart_entities": CampfireEndpointConfig(
+        name="chart_entities",
+        path="/coa/api/entity",
+        paginated=False,
+    ),
     "contracts": CampfireEndpointConfig(
         name="contracts",
         path="/rr/api/v1/contracts",
@@ -128,10 +160,57 @@ CAMPFIRE_ENDPOINTS: dict[str, CampfireEndpointConfig] = {
         incremental_fields=LAST_MODIFIED_AT_FIELD,
         partition_key="created_at",
     ),
+    # Subscription schedules hang off a contract, so there is no account-wide listing: the
+    # rows are collected by walking `contracts` and fetching each contract's subscriptions.
+    "contract_subscriptions": CampfireEndpointConfig(
+        name="contract_subscriptions",
+        path="/rr/api/v1/contracts/{contract_id}/subscriptions",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+        paginated=False,
+        # `id` is scoped per contract as far as the docs commit to, and every row carries the
+        # contract it belongs to.
+        primary_keys=["contract", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="contracts",
+            resolve_param="contract_id",
+            resolve_field="id",
+            include_from_parent=[],
+            # The child takes no page-size param, so the parent listing asks for its own.
+            parent_params={"limit": DEFAULT_PAGE_SIZE},
+        ),
+    ),
+    "products": CampfireEndpointConfig(
+        name="products",
+        path="/rr/api/v1/product",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
+    "customers": CampfireEndpointConfig(
+        name="customers",
+        path="/rr/api/v1/customers",
+        incremental_fields=LAST_MODIFIED_AT_FIELD,
+        partition_key="created_at",
+    ),
 }
+
 
 ENDPOINTS = tuple(CAMPFIRE_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in CAMPFIRE_ENDPOINTS.items()
 }
+
+
+def probe_path(schema_name: str) -> str | None:
+    """The path a credential probe should call for a schema, or None when it is not a schema.
+
+    A fan-out child's path carries an unresolved parent placeholder, so its parent listing is
+    probed instead.
+    """
+    config = CAMPFIRE_ENDPOINTS.get(schema_name)
+    if config is None:
+        return None
+    if config.fanout is not None:
+        return CAMPFIRE_ENDPOINTS[config.fanout.parent_name].path
+    return config.path

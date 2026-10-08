@@ -66,7 +66,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
+import {
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagWithV1Config,
+    MultivariateFlagVariant,
+} from '~/types'
+
+import { runningExperimentId } from 'products/feature_flags/frontend/runningExperimentId'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -158,7 +165,7 @@ function SortableVariantHeader({
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         originalFeatureFlag,
         multivariateEnabled,
         variants,
@@ -174,6 +181,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
+    // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
+    const lockedByExperimentId = runningExperimentId(featureFlag)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
@@ -1115,12 +1125,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
-                                <div className="rounded border p-3 bg-bg-light">
+                                <div className="rounded border p-3 bg-bg-light flex flex-col gap-2">
+                                    {lockedByExperimentId !== null && (
+                                        <LemonBanner type="info">
+                                            Release conditions are managed by the running experiment.{' '}
+                                            <Link
+                                                to={urls.experiment(lockedByExperimentId)}
+                                                data-attr="feature-flag-form-experiment-release-conditions-link"
+                                            >
+                                                Edit them in the experiment
+                                            </Link>
+                                        </LemonBanner>
+                                    )}
                                     <FeatureFlagReleaseConditionsCollapsible
                                         id={String(props.id)}
                                         flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        readOnly={lockedByExperimentId !== null}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -6580,8 +6580,26 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+        # A negative limit slices the ranked values from the end, which would keep all but one of them.
+        negative_limit_result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {
+                    "breakdowns": [{"property": "browser", "type": "event"}],
+                    "breakdown_limit": -1,
+                },
+            }
+        )
+
+        negative_limit_values = {c.get("breakdown_value") for c in negative_limit_result}
+        self.assertEqual(negative_limit_values, {BREAKDOWN_OTHER_STRING_LABEL})
+
     def test_retention_with_virtual_person_property_breakdown(self):
-        with freeze_time("2020-01-12T12:00:00Z"):
+        with time_machine.travel("2020-01-12T12:00:00Z", tick=False):
             # Create person with initial referring domain
             _create_person(
                 team_id=self.team.pk,

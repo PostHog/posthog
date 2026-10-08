@@ -42,6 +42,7 @@ export class SessionMetadataStore extends KafkaMetadataSink<ReplayEventsOutput> 
                 message_count: metadata.messageCount || 0,
                 snapshot_source: metadata.snapshotSource,
                 snapshot_library: metadata.snapshotLibrary,
+                snapshot_mode: metadata.snapshotMode,
                 event_count: metadata.eventCount || 0,
                 retention_period_days: metadata.retentionPeriodDays,
                 is_deleted: metadata.isDeleted ? 1 : 0,

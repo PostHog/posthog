@@ -625,3 +625,44 @@ describe("OsService.getClaudePermissions", () => {
     });
   });
 });
+
+describe("OsService.readFileAsDataUrl", () => {
+  const clipboardFile = path.join(
+    os.tmpdir(),
+    "posthog-code-clipboard",
+    "attachment-a",
+    "shot.png",
+  );
+  const lookAlike = "/work/repo/posthog-code-clipboard/attachment-a/shot.png";
+
+  it.each([
+    {
+      name: "reads an image the composer saved",
+      requested: clipboardFile,
+      resolvesTo: clipboardFile,
+      expected: "data:image/png;base64,aW1n",
+    },
+    {
+      name: "rejects a look-alike folder outside the temp dir",
+      requested: lookAlike,
+      resolvesTo: lookAlike,
+      expected: null,
+    },
+    {
+      name: "rejects a clipboard file that links elsewhere",
+      requested: clipboardFile,
+      resolvesTo: "/Users/me/secret.png",
+      expected: null,
+    },
+  ])("$name", async ({ requested, resolvesTo, expected }) => {
+    mockRealpath.mockImplementation(async (p: string) =>
+      p === requested ? resolvesTo : p,
+    );
+    mockStat.mockResolvedValue({ size: 3 });
+    mockReadFile.mockResolvedValue(Buffer.from("img"));
+    const { service } = createService();
+
+    expect(await service.readFileAsDataUrl(requested, 1024)).toBe(expected);
+    expect(mockReadFile).toHaveBeenCalledTimes(expected ? 1 : 0);
+  });
+});

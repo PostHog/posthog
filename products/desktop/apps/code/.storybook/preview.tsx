@@ -1,9 +1,11 @@
 import "./mocks/electron-trpc";
 import "./mocks/renderer-storage";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Theme } from "@radix-ui/themes";
 import "@radix-ui/themes/styles.css";
 import type { Preview } from "@storybook/react-vite";
 import MockDate from "mockdate";
+import { useEffect } from "react";
 import "../../../packages/ui/src/styles/globals.css";
 import { withAppProviders } from "./withAppProviders";
 
@@ -40,6 +42,9 @@ const preview: Preview = {
     withAppProviders,
     (Story, context) => {
       const isDark = context.globals.theme !== "light";
+      useEffect(() => {
+        useThemeStore.getState().setTheme(isDark ? "dark" : "light");
+      }, [isDark]);
       // The app's themeStore puts this on the document, and quill's tokens hang
       // off it. Anything portaled out of the story root (a popover, a dropdown)
       // reads the document rather than the Theme below it, so without this a

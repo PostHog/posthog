@@ -1,3 +1,8 @@
+from products.error_tracking.backend.temporal.alerts import (
+    ACTIVITIES as ALERT_ACTIVITIES,
+    WORKFLOWS as ALERT_WORKFLOWS,
+    ErrorTrackingAlertDeliveryWorkflow,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
     ACTIVITIES as LIFECYCLE_ACTIVITIES,
     WORKFLOWS as LIFECYCLE_WORKFLOWS,
@@ -32,9 +37,21 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
-WORKFLOWS = SYMBOL_SET_WORKFLOWS + SPIKE_EVENT_WORKFLOWS + RECOMMENDATIONS_REFRESH_WORKFLOWS + WEEKLY_DIGEST_WORKFLOWS
+# Alert delivery rides the error tracking queue, not the lifecycle one: outbound Slack
+# I/O must not share worker slots with issue-state work such as auto-merge.
+WORKFLOWS = (
+    SYMBOL_SET_WORKFLOWS
+    + SPIKE_EVENT_WORKFLOWS
+    + RECOMMENDATIONS_REFRESH_WORKFLOWS
+    + WEEKLY_DIGEST_WORKFLOWS
+    + ALERT_WORKFLOWS
+)
 ACTIVITIES = (
-    SYMBOL_SET_ACTIVITIES + SPIKE_EVENT_ACTIVITIES + RECOMMENDATIONS_REFRESH_ACTIVITIES + WEEKLY_DIGEST_ACTIVITIES
+    SYMBOL_SET_ACTIVITIES
+    + SPIKE_EVENT_ACTIVITIES
+    + RECOMMENDATIONS_REFRESH_ACTIVITIES
+    + WEEKLY_DIGEST_ACTIVITIES
+    + ALERT_ACTIVITIES
 )
 
 __all__ = [
@@ -42,6 +59,7 @@ __all__ = [
     "LIFECYCLE_ACTIVITIES",
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
+    "ErrorTrackingAlertDeliveryWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",

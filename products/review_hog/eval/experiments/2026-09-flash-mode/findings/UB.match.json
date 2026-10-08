@@ -1,0 +1,42 @@
+{
+    "UB1": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Asserts bool(context.get(\"self_driving_review\")) accepts any truthy JSON value instead of a strict boolean check, at review_local.py:321 \u2014 exactly cluster 3's claim and anchor; not cluster 5, which is about rendering trusted provenance off the flag rather than how the flag is parsed."
+    },
+    "UB2": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Asserts the receiver leg queues Stamphog on any output.pr_url after only the toggle check and process_inbox_pr_review never verifies bot author, repo, or implementation-run linkage, unlike the webhook leg \u2014 cluster 2's claim about the receiver leg lacking positive PR-to-run linkage; rejected cluster 31 because that is about re-checking the toggle, not PR identity."
+    },
+    "UB3": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Asserts process_inbox_pr_review (tasks.py:1115-1150) resolves the repo from pr_url and never loads or validates task_run_id against that repo/signal report \u2014 the same missing PR-to-run linkage as cluster 2; rejected cluster 73 because that is about the webhook-leg branch fallback binding the wrong run, not the receiver leg skipping linkage entirely."
+    },
+    "UB4": {
+        "cluster": 16,
+        "confidence": "high",
+        "reason": "Asserts the deferred facade.api import in _start_stamphog_review sits outside its try/except so an import failure raises from the on_commit callback \u2014 cluster 16's exact claim; rejected cluster 25 (robust=False cancelling the second hook) since UB4 is about the import placement, only mentioning non-robust behavior as a consequence."
+    },
+    "UB5": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Asserts the initial inbox dispatch at facade/api.py:128-157 is fire-and-forget with no retry or outbox, so a broker publish failure silently loses the review \u2014 cluster 58's claim and anchor; rejected cluster 54 because UB5 explicitly says the receiver catches the exception (loss, not propagation into the save path) and cluster 28 because no publish timeout is claimed."
+    },
+    "UB6": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Asserts GitHub rejects approval reviews on draft PRs so post_approve_review fails for every self-driving draft, causing Temporal retries \u2014 no cluster makes this claim; cluster 56 (dirty mergeable_state inert for drafts) and cluster 6 (draft gate keyed on self_driving alone) share the draft topic but assert different defects."
+    },
+    "UB7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Asserts process_inbox_pr_review (tasks.py:1178-1186) writes inbox_review provenance from caller values without bot-author, repo-native-head, or find_signal_implementation_run checks that the webhook path applies \u2014 identical to cluster 2's receiver-leg claim; rejected cluster 68 because that concerns the webhook resolver hook trusting team_id/signal_report_id, not the receiver leg."
+    },
+    "UB8": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Asserts the Celery task trusts acting_user_id and creates the run without re-reading stamphog_review_inbox_prs, so an opt-out between queue and execution is ignored \u2014 cluster 31's queue-time-trust claim at tasks.py:1109/facade/api.py:138; rejected cluster 17 because that is about team-membership ownership of acting_user_id, not toggle staleness."
+    }
+}

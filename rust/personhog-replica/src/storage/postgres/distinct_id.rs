@@ -18,6 +18,7 @@ impl DistinctIdLookup for PostgresStorage {
         person_id: i64,
         consistency: ConsistencyLevel,
         limit: Option<i64>,
+        cursor_id: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
         let client = current_client_name();
         let method = current_method_name();
@@ -36,16 +37,54 @@ impl DistinctIdLookup for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        // Identified (non-anonymous) distinct_ids must survive the LIMIT, so consumers that
-        // read the first id get the user-defined one. The regex mirrors ANONYMOUS_REGEX in
-        // posthog/utils.py (keep in sync). The inner LIMIT bounds the scan for pathological
-        // persons with enormous distinct_id sets; beyond it the selection is best-effort.
-        let rows = match limit {
-            Some(l) => {
+        // When only a limit is provided (no cursor), identified (non-anonymous)
+        // distinct_ids must survive the LIMIT, so consumers that read the first id
+        // get the user-defined one. The regex mirrors ANONYMOUS_REGEX in
+        // posthog/utils.py (keep in sync).
+        let rows = match (cursor_id, limit) {
+            // No composite index on (person_id, id) — cursor branches scan all rows for the
+            // person per page instead of seeking. Fine for bulk-delete; add the index if needed.
+            (Some(cursor), Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
                     r#"
-                    SELECT capped.distinct_id, capped.version
+                    SELECT distinct_id, version, id
+                    FROM posthog_persondistinctid
+                    WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
+                          AND id > $3
+                    ORDER BY id ASC
+                    LIMIT $4
+                    "#,
+                    team_id as i32,
+                    person_id,
+                    cursor,
+                    l
+                )
+                .fetch_all(&mut *conn)
+                .await?
+            }
+            (Some(cursor), None) => {
+                sqlx::query_as!(
+                    DistinctIdWithVersion,
+                    r#"
+                    SELECT distinct_id, version, id
+                    FROM posthog_persondistinctid
+                    WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
+                          AND id > $3
+                    ORDER BY id ASC
+                    "#,
+                    team_id as i32,
+                    person_id,
+                    cursor
+                )
+                .fetch_all(&mut *conn)
+                .await?
+            }
+            (None, Some(l)) => {
+                sqlx::query_as!(
+                    DistinctIdWithVersion,
+                    r#"
+                    SELECT capped.distinct_id, capped.version, capped.id
                     FROM (
                         SELECT distinct_id, version, id
                         FROM posthog_persondistinctid
@@ -62,11 +101,11 @@ impl DistinctIdLookup for PostgresStorage {
                 .fetch_all(&mut *conn)
                 .await?
             }
-            _ => {
+            (None, None) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
                     r#"
-                    SELECT distinct_id, version
+                    SELECT distinct_id, version, id
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
                     "#,

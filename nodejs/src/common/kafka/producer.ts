@@ -165,6 +165,7 @@ export class KafkaProducerWrapper {
                     timeoutMs: 10_000,
                     sendException: false,
                     timeoutMessage: `Kafka produce callback timeout for topic "${topic}"`,
+                    span: false,
                 },
                 () =>
                     new Promise((resolve, reject) => {

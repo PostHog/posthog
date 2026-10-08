@@ -22,7 +22,7 @@ describe('ScoutSlackDestination', () => {
         // msw handlers reset between tests, so register per test rather than once per file.
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/': () => [200, { results: workspaces }],
+                '/api/projects/:team_id/integrations/': () => [200, { results: workspaces }],
             },
         })
     })

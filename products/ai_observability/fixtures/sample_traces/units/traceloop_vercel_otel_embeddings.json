@@ -1,0 +1,163 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Biome reference search via OTel-instrumented embeddings",
+  "scenario": "A procedural level-generation service embeds a designer's biome notes through the Vercel AI SDK, exported over OpenTelemetry/Traceloop, to search a vector store of reusable biome layout templates. The trace has two search steps, the second splitting the note into two fragments before embedding.",
+  "summary": {
+    "events": {
+      "$ai_embedding": 2,
+      "$ai_span": 2
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/traceloop",
+      "opentelemetry/vercel-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "text-embedding-3-small"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_input_tokens_cost_usd": 6.000000000000002e-08,
+        "$ai_parent_id": "bd776c22dca29acb",
+        "$ai_session_id": "e6347b52-0647-749a-56ef-c9d939af8d09",
+        "$ai_span_id": "0018b7fb5007d0f3",
+        "$ai_span_name": "openai.embeddings text-embedding-3-small",
+        "$ai_trace_id": "90192de4d0f7b3b16285c0c35d3b9b9f",
+        "$geoip_disable": true,
+        "service.name": "levelgen-api",
+        "host": "levelgen-worker-7f9b2c1",
+        "$ai_input_tokens": 3,
+        "$ai_model": "text-embedding-3-small",
+        "$ai_provider": "openai",
+        "$ai_latency": 0.340480022,
+        "$ai_lib": "opentelemetry/traceloop",
+        "$ai_input": [
+          {
+            "parts": [
+              {
+                "content": "swamp biome with heavy fog",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "33f670fcfb2dccb7",
+        "$ai_session_id": "e6347b52-0647-749a-56ef-c9d939af8d09",
+        "$ai_span_id": "bd776c22dca29acb",
+        "$ai_span_name": "search-level-design-references.doEmbed",
+        "$ai_trace_id": "90192de4d0f7b3b16285c0c35d3b9b9f",
+        "$geoip_disable": true,
+        "workflow_name": "search",
+        "service.name": "levelgen-api",
+        "host": "levelgen-worker-7f9b2c1",
+        "$ai_latency": 0.340792038,
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_input_state": {
+          "action": "search"
+        },
+        "$ai_output_state": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "event": "$ai_embedding",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_input_tokens_cost_usd": 2.2e-07,
+        "$ai_parent_id": "29f2ee0b71199447",
+        "$ai_session_id": "e6347b52-0647-749a-56ef-c9d939af8d09",
+        "$ai_span_id": "5b73c2fc9d277da7",
+        "$ai_span_name": "openai.embeddings text-embedding-3-small",
+        "$ai_trace_id": "90192de4d0f7b3b16285c0c35d3b9b9f",
+        "$geoip_disable": true,
+        "service.name": "levelgen-api",
+        "host": "levelgen-worker-7f9b2c1",
+        "$ai_input_tokens": 11,
+        "$ai_model": "text-embedding-3-small",
+        "$ai_provider": "openai",
+        "$ai_latency": 0.360270742,
+        "$ai_lib": "opentelemetry/traceloop",
+        "$ai_input": [
+          {
+            "parts": [
+              {
+                "content": "overgrown ruins with bioluminescent moss",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "parts": [
+              {
+                "content": "narrow canyon pass with collapsed rope bridge crossing",
+                "type": "text"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": []
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "c5ad91fcc66a8792",
+        "$ai_session_id": "e6347b52-0647-749a-56ef-c9d939af8d09",
+        "$ai_span_id": "29f2ee0b71199447",
+        "$ai_span_name": "search-level-design-references.doEmbed",
+        "$ai_trace_id": "90192de4d0f7b3b16285c0c35d3b9b9f",
+        "$geoip_disable": true,
+        "workflow_name": "search",
+        "service.name": "levelgen-api",
+        "host": "levelgen-worker-7f9b2c1",
+        "$ai_latency": 0.360671059,
+        "$ai_lib": "opentelemetry/vercel-ai",
+        "$ai_framework": "vercel",
+        "$ai_input_state": {
+          "action": "search"
+        },
+        "$ai_output_state": {
+          "status": "completed"
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

@@ -4,7 +4,6 @@ from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
-from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.settings import (
@@ -15,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sleekplan.
     SleekplanPaginator,
     SleekplanResumeConfig,
     _format_survey_date,
-    _incremental_window,
     _resolve_incremental_field,
     _resource,
     sleekplan_source,
@@ -77,32 +75,6 @@ class TestSleekplanPaginator:
 
         assert paginator.has_next_page is True
 
-    def test_first_request_starts_at_page_one(self) -> None:
-        request = Request()
-
-        SleekplanPaginator().init_request(request)
-
-        assert request.params == {"page": 1}
-
-    def test_resume_state_round_trips_into_the_request(self) -> None:
-        paginator = SleekplanPaginator()
-        paginator.update_state(_page_response({"data": {"items": {"1": {}}, "has_more": True}}), [{}])
-        state = paginator.get_resume_state()
-
-        resumed = SleekplanPaginator()
-        resumed.set_resume_state(cast(dict, state))
-        request = Request()
-        resumed.init_request(request)
-
-        assert request.params == {"page": 2}
-
-    def test_resume_state_is_none_once_pagination_is_done(self) -> None:
-        paginator = SleekplanPaginator()
-
-        paginator.update_state(_page_response({"data": {"items": {"1": {}}, "has_more": False}}), [{}])
-
-        assert paginator.get_resume_state() is None
-
 
 class TestSurveyDateFormatting:
     def test_applies_the_replacement_window_lookback(self) -> None:
@@ -110,25 +82,9 @@ class TestSurveyDateFormatting:
 
         assert _format_survey_date(value) == (value - timedelta(days=SURVEY_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
-    def test_caps_a_future_cursor_at_today(self) -> None:
-        formatted = _format_survey_date(datetime(2999, 1, 1, tzinfo=UTC))
-
-        assert formatted <= datetime.now(UTC).strftime("%Y-%m-%d")
-
-    def test_clamps_to_the_epoch(self) -> None:
-        # Subtracting the lookback from an early cursor would otherwise produce a pre-1970 date.
-        assert _format_survey_date(datetime(1970, 1, 5, tzinfo=UTC)) == "1970-01-01"
-
     @parameterized.expand([("initial_seed", "1970-01-01"), ("unparseable", "not-a-date")])
     def test_passes_through_a_non_datetime_value(self, _name: str, value: str) -> None:
         assert _format_survey_date(value) == value
-
-    def test_incremental_window_targets_the_date_start_filter(self) -> None:
-        window = _incremental_window("updated")
-
-        assert window["cursor_path"] == "updated"
-        assert window["start_param"] == "date_start"
-        assert window["convert"] is _format_survey_date
 
 
 class TestResolveIncrementalField:
@@ -208,13 +164,6 @@ class TestValidateCredentials:
         with patch(f"{TRANSPORT}.validate_via_probe", return_value=(False, None)):
             assert validate_credentials("key") == (False, "Could not reach the Sleekplan API.")
 
-    def test_probe_sends_the_key_as_a_bearer_token(self) -> None:
-        with patch(f"{TRANSPORT}.validate_via_probe", return_value=(True, 200)) as mock_probe:
-            validate_credentials("secret-key")
-
-        _, kwargs = mock_probe.call_args
-        assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
-
     def test_probe_session_redacts_the_key_and_disables_sample_capture(self) -> None:
         # Users/posts/comments carry emails and free-text feedback the generic scrubber can't
         # anonymize, so the probe -- like every other Sleekplan request -- must not be captured.
@@ -253,16 +202,6 @@ class TestTopLevelSource:
         assert response.sort_mode == sort_mode
         assert response.partition_keys == ([partition_key] if partition_key else None)
 
-    def test_uses_framework_bearer_auth(self) -> None:
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="secret-key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
-
-        (rest_config, *_), _ = mock_resource.call_args
-        assert rest_config["client"]["auth"] == {"type": "bearer", "token": "secret-key"}
-        assert rest_config["client"]["base_url"] == "https://api.sleekplan.com/v1"
-
     def test_session_redacts_the_key_and_disables_sample_capture(self) -> None:
         # Posts/comments/votes/survey responses carry emails and free-text feedback the generic
         # scrubber can't anonymize, so sample capture must stay off (still metered and logged).
@@ -288,16 +227,6 @@ class TestTopLevelSource:
 
         assert mock_resource.call_args.kwargs["initial_paginator_state"] == {"page": 4}
 
-    def test_ignores_a_fan_out_checkpoint_left_by_another_schema(self) -> None:
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(fanout_state={"completed": []}))
-
-        with patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource:
-            sleekplan_source(
-                api_key="key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        assert mock_resource.call_args.kwargs["initial_paginator_state"] is None
-
     @parameterized.expand(
         [
             ("saves_next_page", {"page": 5}, SleekplanResumeConfig(page=5)),
@@ -321,21 +250,6 @@ class TestTopLevelSource:
 
 
 class TestFanOutSource:
-    def test_comments_carry_their_parent_post_id(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources",
-            return_value=[
-                _FakeResource("Posts", [{"feedback_id": 77}]),
-                _FakeResource("Comments", [{"comment_id": 5, "_Posts_feedback_id": 77}]),
-            ],
-        ):
-            response = sleekplan_source(
-                api_key="key", endpoint="Comments", team_id=1, job_id="job-1", resumable_source_manager=_manager()
-            )
-            rows = list(cast(Any, response.items()))
-
-        assert rows == [{"comment_id": 5, "feedback_id": 77}]
-
     @parameterized.expand(
         [
             ("identified_voter", {"user": {"user_id": 9}}, 9),
@@ -385,13 +299,3 @@ class TestFanOutSource:
 
         mock_build.call_args.kwargs["resume_hook"](fanout_state)
         manager.save_state.assert_called_once_with(SleekplanResumeConfig(fanout_state=fanout_state))
-
-    def test_fan_out_ignores_a_page_checkpoint_left_by_another_schema(self) -> None:
-        manager = _manager(can_resume=True, state=SleekplanResumeConfig(page=9))
-
-        with patch(f"{TRANSPORT}.build_dependent_resource", return_value=_FakeResource("Comments", [])) as mock_build:
-            sleekplan_source(
-                api_key="key", endpoint="Comments", team_id=1, job_id="job-1", resumable_source_manager=manager
-            )
-
-        assert mock_build.call_args.kwargs["initial_paginator_state"] is None

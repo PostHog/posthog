@@ -8,9 +8,9 @@ import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
 import { HotkeyRadio } from './HotkeyRadio'
 
 interface OpenDismissReportDialogParams {
-    /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
+    /** Report title for single-report copy. Ignored when `selectedCount` is set. */
     reportTitle?: string | null
-    /** When greater than 1, copy reflects a bulk dismiss of the current selection. */
+    /** How many reports the selection bar holds. When set, the copy counts reports instead of naming one. */
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Dismissing closes it, so the copy says so. */
     hasOpenPr?: boolean
@@ -19,6 +19,9 @@ interface OpenDismissReportDialogParams {
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
      * so the person only has to write the note. */
     initialReason?: DismissalReasonValue
+    /** Replaces the default title, description and submit label. Today uses them to ask for a reason
+     * after the report was already dismissd, so the copy must not ask to dismiss it again. */
+    copy?: { title: string; description: string; submitLabel: string }
     /** Called with the chosen reason, note and optional repo correction once the user confirms. */
     onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
@@ -37,17 +40,21 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL
  */
 export function openDismissReportDialog({
     reportTitle,
-    selectedCount = 1,
+    selectedCount,
     hasOpenPr = false,
     hotkeys = false,
     initialReason,
+    copy,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
-    const isBulk = selectedCount > 1
-    const title = isBulk
-        ? `Dismiss ${selectedCount} reports?`
+    // The selection bar knows the count and no titles, so its copy counts reports even when one
+    // report is selected. Every other caller names the report instead.
+    const isSelection = selectedCount !== undefined
+    const isPlural = (selectedCount ?? 1) > 1
+    const title = isSelection
+        ? `Dismiss ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
         : `Dismiss report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
-    const description = isBulk
+    const description = isPlural
         ? `These reports leave your inbox. Your feedback is saved on each report, and your note goes to the agents that filed them.${
               hasOpenPr ? ' Any open pull request for these reports is closed.' : ''
           }`
@@ -56,8 +63,8 @@ export function openDismissReportDialog({
           }`
 
     LemonDialog.openForm({
-        title,
-        description,
+        title: copy?.title ?? title,
+        description: copy?.description ?? description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
         initialValues: {
@@ -98,7 +105,7 @@ export function openDismissReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: 'Dismiss & teach the agent' },
+        primaryButtonProps: { children: copy?.submitLabel ?? 'Dismiss & teach the agent' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {

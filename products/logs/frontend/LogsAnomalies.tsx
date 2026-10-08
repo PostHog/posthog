@@ -71,7 +71,7 @@ function SeriesBands(): JSX.Element {
         return (
             <EmptyMessage
                 title="Log volume by series"
-                description="See a week of log volume for each series a service emits, with the expected range learned from previous weeks. Choose a service to start."
+                description="See a week of log volume for each series a service emits. Choose a service to start."
             />
         )
     }
@@ -109,9 +109,14 @@ function SeriesBands(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto" data-attr="logs-anomalies-band-charts">
             <div className="text-secondary text-sm">
-                Log volume per hour from {formatWindowBound(seriesBands.window_start)} to{' '}
-                {formatWindowBound(seriesBands.window_end)}, against the range seen at the same time of week in the
-                previous weeks. Marked points fell outside that range. Click a bucket to read its logs.
+                Log volume from {formatWindowBound(seriesBands.window_start)} to{' '}
+                {formatWindowBound(seriesBands.window_end)}.{' '}
+                {seriesBands.series.some((series) =>
+                    series.buckets.some((bucket) => bucket.lower !== null && bucket.upper !== null)
+                )
+                    ? 'Expected ranges target 99% coverage for individual buckets when traffic patterns stay stable. Marked points fall outside the range and need investigation.'
+                    : 'Expected ranges need at least four weeks of sustained traffic before this window. Try a more recent window, or check back as history builds.'}{' '}
+                Click a bucket to read its logs.
             </div>
             {seriesBands.series_truncated ? (
                 <div data-attr="logs-anomalies-truncated">
@@ -136,10 +141,13 @@ function SeriesBands(): JSX.Element {
     )
 }
 
-export function learningBaselineLabel(bandReadyAt: string, windowEnd: string): string {
+export function learningBaselineLabel(bandReadyAt: string | null, windowEnd: string): string {
+    if (bandReadyAt === null) {
+        return 'No expected range for this window'
+    }
     // Round up: a wait of just over two days still needs a third day of data.
     const days = Math.max(1, Math.ceil(dayjs(bandReadyAt).diff(windowEnd, 'day', true)))
-    return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'}`
+    return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'} of history`
 }
 
 function formatWindowBound(timestamp: string): string {
@@ -162,17 +170,20 @@ const SeriesCard = memo(function SeriesCard({
     const { openLogsForBucket } = useActions(logsAnomaliesLogic)
     // The backend dates the wait, so its history threshold stays out of here and the two cannot drift.
     const bandReadyAt = series.band_ready_at
+    const hasBand = series.buckets.some((bucket) => bucket.lower !== null && bucket.upper !== null)
     return (
         <div className="rounded border bg-surface-primary p-3" data-attr="logs-anomalies-series">
             <div className="mb-2 flex items-center gap-2">
                 <LogTag level={series.severity as LogMessage['severity_text']} />
                 {series.namespace ? <LemonTag>{series.namespace}</LemonTag> : null}
                 {series.environment ? <LemonTag>{series.environment}</LemonTag> : null}
-                {bandReadyAt ? (
+                {bandReadyAt || !hasBand ? (
                     <Tooltip
-                        title={`First seen ${formatDay(series.history_start)}. The expected range starts ${formatDay(
+                        title={
                             bandReadyAt
-                        )}.`}
+                                ? `Sustained traffic starts ${formatDay(series.history_start)}. A rolling window of this length has enough earlier history from ${formatDay(bandReadyAt)}. For a fixed historical window, choose a more recent date range.`
+                                : 'There is no expected range for this window. Choose a more recent window, or select a bucket to read its logs.'
+                        }
                     >
                         <LemonTag type="caution">{learningBaselineLabel(bandReadyAt, windowEnd)}</LemonTag>
                     </Tooltip>

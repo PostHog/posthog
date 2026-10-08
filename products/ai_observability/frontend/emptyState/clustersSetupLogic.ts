@@ -18,6 +18,8 @@ const CLUSTERING_RUN_EVENTS = ['$ai_trace_clusters', '$ai_generation_clusters', 
 export const clustersSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.LLM_CLUSTERS,
     path: ['products', 'ai_observability', 'frontend', 'emptyState', 'clustersSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const response = await api.queryHogQL(
             hogql`SELECT 1 FROM events WHERE event IN ${CLUSTERING_RUN_EVENTS} AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY LIMIT 1`,
@@ -27,7 +29,12 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         if ((response.results?.length ?? 0) > 0) {
             return 'has-data'
         }
-        return (await hasRecentAIEvents()) ? 'waiting-for-data' : 'needs-setup'
+        const seenAiEvents = await hasRecentAIEvents()
+        if (seenAiEvents === null) {
+            // Preserve any existing setup screen while the check cannot answer.
+            return null
+        }
+        return seenAiEvents ? 'waiting-for-data' : 'needs-setup'
     },
     // Runs are emitted about once a day, so a slow poll is enough to flip the
     // screen; the wizard flow is what needs the needs-setup → waiting flip.

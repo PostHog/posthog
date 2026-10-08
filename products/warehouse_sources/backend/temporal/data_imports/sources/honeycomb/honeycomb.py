@@ -1,6 +1,8 @@
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -38,12 +40,22 @@ SAFE_RECIPIENT_TARGET_TYPES = frozenset({"email", "slack"})
 ENDPOINTS_WITH_CREDENTIAL_PAYLOADS = frozenset({"recipients", "triggers", "burn_alerts"})
 REDACTED_VALUE = "[REDACTED]"
 
+# How far back a full refresh (or the first incremental sync) reads SLO hourly counts.
+SLO_COUNTS_HISTORY_LOOKBACK = timedelta(days=90)
+# Each counts-history request covers one window per SLO; a week is 168 hourly buckets.
+SLO_COUNTS_HISTORY_WINDOW = timedelta(days=7)
+SECONDS_PER_HOUR = 3600
+
 
 class HoneycombRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class HoneycombSloCountsUnavailableError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class HoneycombResumeConfig:
     # The fan-out dataset currently being processed, bookmarked by its stable slug (not a
     # positional index) so datasets created/deleted between a crash and the retry can't resume
@@ -51,6 +63,8 @@ class HoneycombResumeConfig:
     # rows may not have been durably flushed — and merge dedupes on the primary key. None for
     # environment-level endpoints, which are a single request with nothing to resume.
     dataset_slug: str | None = None
+    # The same bookmark for the board views fan-out, which walks boards instead of datasets.
+    board_id: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -118,6 +132,41 @@ def _fetch_list_skipping_missing(
         if exc.response is not None and exc.response.status_code == 404:
             return []
         raise
+
+
+def _fetch_slo_counts_buckets(
+    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
+) -> list[dict[str, Any]] | None:
+    """Fetch one SLO's hourly count buckets, or None on 404 (SLO deleted, or feature off)."""
+    try:
+        data = _fetch_page(session, url, headers, logger).json()
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
+    buckets = data.get("buckets") if isinstance(data, dict) else None
+    return buckets if isinstance(buckets, list) else []
+
+
+def _to_epoch_seconds(value: Any) -> int | None:
+    """Normalise a persisted watermark (int epoch, datetime, or string) to epoch seconds."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return int(value)
+    if isinstance(value, datetime):
+        return int((value if value.tzinfo else value.replace(tzinfo=UTC)).timestamp())
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return int((parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).timestamp())
+    return None
 
 
 def _sanitize_recipient(recipient: dict[str, Any]) -> dict[str, Any]:
@@ -214,12 +263,91 @@ def _iter_fan_out(
         manager.save_state(HoneycombResumeConfig(dataset_slug=dataset_slug))
 
 
+def _iter_board_views(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: HoneycombEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[HoneycombResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk every board and emit its views as one batch, bookmarking progress by board id."""
+    board_ids = [board["id"] for board in _fetch_list(session, f"{base_url}/1/boards", headers, logger)]
+
+    resume = manager.load_state() if manager.can_resume() else None
+    start_index = 0
+    if resume is not None and resume.board_id is not None and resume.board_id in board_ids:
+        start_index = board_ids.index(resume.board_id)
+        logger.debug(f"Honeycomb: resuming {config.name} fan-out from board={resume.board_id}")
+
+    for board_id in board_ids[start_index:]:
+        url = f"{base_url}{config.path.format(board_id=board_id)}"
+        items = _fetch_list_skipping_missing(session, url, headers, logger)
+        if not items:
+            continue
+        yield [{**item, "board_id": board_id} for item in items]
+        manager.save_state(HoneycombResumeConfig(board_id=board_id))
+
+
+def _iter_slo_counts_history(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: HoneycombEndpointConfig,
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Emit hourly SLO count buckets, one batch per time window across every SLO.
+
+    Windows are the outer loop so each batch's max `start_time` never goes backwards, which
+    keeps the ascending incremental watermark safe to checkpoint after every batch. The
+    watermark hour itself is re-read: the latest bucket is often `is_partial` and keeps
+    growing until the hour completes, and merge on the primary key replaces it."""
+    now = int(datetime.now(UTC).timestamp())
+    floor = now - int(SLO_COUNTS_HISTORY_LOOKBACK.total_seconds())
+    watermark = _to_epoch_seconds(db_incremental_field_last_value)
+    # The lookback also floors the watermark: a non-epoch value (e.g. a user-picked count
+    # column) would otherwise walk decades of empty windows, one request per SLO each.
+    start = floor if watermark is None else max(watermark, floor)
+    start -= start % SECONDS_PER_HOUR
+
+    slos: list[tuple[str, str]] = []
+    for dataset_slug in _list_dataset_slugs(session, base_url, headers, logger):
+        for slo in _fetch_list_skipping_missing(session, f"{base_url}/1/slos/{dataset_slug}", headers, logger):
+            slos.append((dataset_slug, slo["id"]))
+
+    window_seconds = int(SLO_COUNTS_HISTORY_WINDOW.total_seconds())
+    window_start = start
+    while window_start < now:
+        window_end = min(window_start + window_seconds, now)
+        query = urlencode({"start_time": window_start, "end_time": window_end})
+        rows: list[dict[str, Any]] = []
+        found_any = False
+        for dataset_slug, slo_id in slos:
+            url = f"{base_url}{config.path.format(dataset_slug=dataset_slug, slo_id=slo_id)}?{query}"
+            buckets = _fetch_slo_counts_buckets(session, url, headers, logger)
+            if buckets is None:
+                continue
+            found_any = True
+            rows.extend({**bucket, "dataset_slug": dataset_slug, "slo_id": slo_id} for bucket in buckets)
+        # One deleted SLO 404s on its own; every SLO 404ing means the endpoint is off for this
+        # team, which must fail loudly rather than finish as an empty sync.
+        if slos and not found_any and window_start == start:
+            raise HoneycombSloCountsUnavailableError(
+                "Honeycomb SLO counts history is unavailable for this API key: every SLO returned 404"
+            )
+        if rows:
+            yield rows
+        window_start = window_end
+
+
 def get_rows(
     api_key: str,
     region: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HoneycombResumeConfig],
+    db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = HONEYCOMB_ENDPOINTS[endpoint]
     base_url = _base_url(region)
@@ -237,6 +365,14 @@ def get_rows(
             yield [_sanitize_row(config.name, row) for row in rows]
         return
 
+    if config.scope == HoneycombScope.PER_BOARD:
+        yield from _iter_board_views(session, base_url, headers, config, logger, resumable_source_manager)
+        return
+
+    if config.scope == HoneycombScope.PER_SLO_TIME_WINDOW:
+        yield from _iter_slo_counts_history(session, base_url, headers, config, logger, db_incremental_field_last_value)
+        return
+
     yield from _iter_fan_out(session, base_url, headers, config, logger, resumable_source_manager)
 
 
@@ -246,6 +382,7 @@ def honeycomb_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[HoneycombResumeConfig],
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config = HONEYCOMB_ENDPOINTS[endpoint]
 
@@ -257,6 +394,7 @@ def honeycomb_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,

@@ -1,0 +1,57 @@
+name: PR comment density
+
+# Reusable workflow, called by pr-housekeeping.yml on PR open and push.
+# Push-cancels-previous-push comes from the caller's concurrency group.
+
+on:
+    workflow_call:
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    comment-density:
+        name: Warn on comment-heavy diffs
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # The fork token cannot write comments, and the queue's batch PR is the
+        # union of PRs that were each already checked.
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/check_comment_density.py
+                      .github/scripts/post-comment-density-section.mjs
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
+
+            # The API diff needs no history fetch. It refuses very large diffs.
+            - name: Fetch PR diff
+              id: diff
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" -H "Accept: application/vnd.github.diff" > pr.diff; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::notice::Could not fetch the PR diff (too large or unavailable); skipping the comment density check."
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Measure comment share
+              id: measure
+              if: steps.diff.outputs.available == 'true'
+              run: python3 .github/scripts/check_comment_density.py < pr.diff
+
+            - name: Post to the CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  AVAILABLE: ${{ steps.diff.outputs.available }}
+                  STATUS: ${{ steps.measure.outputs.status }}
+                  SUMMARY: ${{ steps.measure.outputs.summary }}
+                  BODY: ${{ steps.measure.outputs.body }}
+              run: node .github/scripts/post-comment-density-section.mjs

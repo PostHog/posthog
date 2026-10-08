@@ -18,7 +18,7 @@ describe("PrRefChip", () => {
   const href = "https://github.com/PostHog/posthog/pull/23985";
 
   async function hoverChip(): Promise<void> {
-    const link = screen.getByText("PostHog/posthog#23985").closest("a");
+    const link = screen.getByText("#23985").closest("a");
     expect(link).not.toBeNull();
     await userEvent.hover(link as HTMLAnchorElement);
   }
@@ -37,6 +37,9 @@ describe("PrRefChip", () => {
     expect(
       await screen.findByText("Show pull request status in sessions"),
     ).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-slot="tooltip-content"]'),
+    ).toHaveTextContent("PostHog/posthog#23985");
     expect(screen.getByText("Created by @octocat")).toBeInTheDocument();
     expect(screen.getByText("CI passed")).toBeInTheDocument();
   });

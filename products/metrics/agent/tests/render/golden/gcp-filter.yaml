@@ -1,0 +1,55 @@
+receivers:
+    googlecloudmonitoring:
+        project_id: '${env:GCP_PROJECT_ID}'
+        collection_interval: '${env:GCP_COLLECTION_INTERVAL:-60s}'
+        metrics_list:
+            - metric_descriptor_filter: 'metric.type = starts_with("compute.googleapis.com/")'
+            - metric_descriptor_filter: 'resource.type = "gce_instance"'
+
+processors:
+    # Shed load instead of buffering unbounded memory when PostHog is unreachable.
+    memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+    batch:
+    # Cloud Monitoring resources carry no service.name; give them one so they
+    # group in the Metrics UI. `insert` never overrides a scraped job_name.
+    resource/gcp:
+        attributes:
+            - key: service.name
+              value: '${env:GCP_SERVICE_NAME:-google-cloud-monitoring}'
+              action: insert
+
+exporters:
+    otlphttp:
+        # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
+        # public ingest route is /i/v1/metrics, so pin the per-signal path.
+        metrics_endpoint: '${env:POSTHOG_HOST:-https://us.i.posthog.com}${env:POSTHOG_INGEST_PATH:-/i/v1/metrics}'
+        compression: gzip
+        headers:
+            authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+        retry_on_failure:
+            enabled: true
+
+extensions:
+    health_check:
+        endpoint: 0.0.0.0:13133
+
+service:
+    # Expose the collector's own metrics (scrape health, queue depth, drops)
+    # on :8888 so the agent is self-observable, the way vmagent exposes its.
+    telemetry:
+        metrics:
+            readers:
+                - pull:
+                      exporter:
+                          prometheus:
+                              host: 0.0.0.0
+                              port: 8888
+    extensions: [health_check]
+    pipelines:
+        metrics:
+            receivers: [googlecloudmonitoring]
+            processors: [memory_limiter, resource/gcp, batch]
+            exporters: [otlphttp]

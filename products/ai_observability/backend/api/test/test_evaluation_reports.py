@@ -1,11 +1,13 @@
 import uuid
 import datetime as dt
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -267,7 +269,7 @@ class TestEvaluationReportApi(APIBaseTest):
     def test_list_reports(self):
         report_with_runs = self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         report_without_runs = self._create_report(evaluation=self._create_boolean_evaluation())
-        with freeze_time("2026-08-10T12:00:00Z"):
+        with time_machine.travel("2026-08-10T12:00:00Z", tick=False):
             EvaluationReportRun.objects.create(
                 report=report_with_runs,
                 content={},
@@ -275,7 +277,7 @@ class TestEvaluationReportApi(APIBaseTest):
                 period_start=timezone.now() - dt.timedelta(hours=1),
                 period_end=timezone.now(),
             )
-        with freeze_time("2026-08-11T12:00:00Z"):
+        with time_machine.travel("2026-08-11T12:00:00Z", tick=False):
             EvaluationReportRun.objects.create(
                 report=report_with_runs,
                 content={},
@@ -298,6 +300,38 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(results_by_id[str(report_with_runs.id)]["last_generated_at"], "2026-08-11T12:00:00Z")
         self.assertEqual(results_by_id[str(report_without_runs.id)]["generated_report_count"], 0)
         self.assertIsNone(results_by_id[str(report_without_runs.id)]["last_generated_at"])
+
+    @parameterized.expand(
+        [
+            ("report_configs", EvaluationReport._meta.db_table, ""),
+            ("report_runs", EvaluationReportRun._meta.db_table, "{report_id}/runs/"),
+        ]
+    )
+    def test_paginated_list_orders_by_a_unique_tie_breaker(self, _name: str, table: str, path_suffix: str) -> None:
+        # created_at is not unique, so offset pagination skips or repeats tied rows unless the
+        # query also orders by id.
+        report = self._create_report()
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={},
+            metadata={},
+            period_start=timezone.now() - dt.timedelta(hours=1),
+            period_end=timezone.now(),
+        )
+        url = self.base_url + path_suffix.format(report_id=report.id)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ordered_selects = [
+            query["sql"]
+            for query in captured.captured_queries
+            if f'FROM "{table}"' in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        self.assertTrue(ordered_selects, f"no ordered select on {table} was captured")
+        order_by = ordered_selects[-1].split("ORDER BY")[-1].split("LIMIT")[0]
+        self.assertRegex(order_by, rf'"{table}"\."created_at" DESC.*"{table}"\."id" ASC')
 
     def test_list_filters_by_evaluation(self) -> None:
         report = self._create_report()
@@ -523,7 +557,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.json().get("attr"), "rrule")
 
     def test_create_scheduled_defaults_starts_at(self):
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         report = EvaluationReport.objects.get()
@@ -712,7 +746,7 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_update_report(self):
         report = self._create_report()
-        with freeze_time("2026-01-15T16:37:42Z"):
+        with time_machine.travel("2026-01-15T16:37:42Z", tick=False):
             response = self.client.patch(
                 f"{self.base_url}{report.id}/",
                 {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
@@ -768,7 +802,14 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertFalse(report.deleted)
         self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 1)
 
-    def test_runs_action_returns_paginated_shape(self):
+    @parameterized.expand(
+        [
+            ("boolean", None),
+            ("numeric_rule_removed", {}),
+            ("numeric_rule_cleared", {"passing_rule": None}),
+        ]
+    )
+    def test_runs_action_returns_paginated_shape(self, _name: str, output_config: dict[str, object] | None) -> None:
         report = self._create_report()
         EvaluationReportRun.objects.create(
             report=report,
@@ -777,6 +818,9 @@ class TestEvaluationReportApi(APIBaseTest):
             period_start=timezone.now() - dt.timedelta(hours=1),
             period_end=timezone.now(),
         )
+        if output_config is not None:
+            Evaluation.objects.filter(id=self.evaluation.id).update(output_type="numeric", output_config=output_config)
+
         response = self.client.get(f"{self.base_url}{report.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
@@ -784,6 +828,13 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertIn("count", body)
         self.assertEqual(body["count"], 1)
         self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(self.client.get(f"{self.base_url}{report.id}/").status_code, status.HTTP_200_OK)
+        self.assertIn(str(report.id), {item["id"] for item in self.client.get(self.base_url).json()["results"]})
+        if output_config is not None:
+            self.assertFalse(EvaluationReport.objects.deliverable().filter(id=report.id).exists())
+            self.assertEqual(
+                self.client.post(f"{self.base_url}{report.id}/generate/").status_code, status.HTTP_400_BAD_REQUEST
+            )
 
     # The /runs/ and /generate/ custom @actions have to declare required_scopes explicitly;
     # without them the default scope resolver returns None for non-CRUD action names and PAK

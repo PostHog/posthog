@@ -1,5 +1,5 @@
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -679,7 +679,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(
         event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
     )
-    @freeze_time("2019-12-31")
+    @time_machine.travel("2019-12-31", tick=False)
     @snapshot_clickhouse_queries
     def test_basic_funnel_correlation_with_properties(self):
         query = FunnelsQuery(
@@ -2430,7 +2430,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
         )
         return FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
 
-    @freeze_time("2020-01-14")
+    @time_machine.travel("2020-01-14", tick=False)
     def test_sql_injection_quote_breakout_in_correlation_names(self):
         """Verify SQL injection via quote breakout in funnelCorrelationNames is escaped."""
         query = self._setup_basic_funnel()
@@ -2456,7 +2456,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
                 self.assertNotIn("unexpected", error_msg, f"SQL injection may have worked with payload: {payload}")
 
-    @freeze_time("2020-01-14")
+    @time_machine.travel("2020-01-14", tick=False)
     def test_sql_injection_in_exclude_event_names(self):
         """Verify SQL injection via funnelCorrelationExcludeEventNames is escaped."""
         query = self._setup_basic_funnel()
@@ -2473,7 +2473,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 error_msg = str(e).lower()
                 self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
 
-    @freeze_time("2020-01-14")
+    @time_machine.travel("2020-01-14", tick=False)
     def test_special_characters_in_property_names_are_handled(self):
         """Verify special characters in property names don't cause SQL errors."""
         query = self._setup_basic_funnel()

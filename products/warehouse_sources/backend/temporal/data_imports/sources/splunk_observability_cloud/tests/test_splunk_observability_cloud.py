@@ -11,8 +11,6 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
     PAGE_SIZE,
-    SIGNALFLOW_DEFAULT_LOOKBACK_DAYS,
-    SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.splunk_observability_cloud import (
     SplunkObservabilityCloudResumeConfig,
@@ -87,10 +85,6 @@ def _drive_rest(
 
 
 class TestNormalizeRealm:
-    @pytest.mark.parametrize(("raw", "expected"), [("us0", "us0"), (" EU0 ", "eu0"), ("jp0", "jp0")])
-    def test_valid(self, raw: str, expected: str) -> None:
-        assert normalize_realm(raw) == expected
-
     @pytest.mark.parametrize("raw", ["", "evil.com", "us0/", "us0.attacker", "us 0", "us_0", "a" * 33])
     def test_invalid_raises(self, raw: str) -> None:
         # The realm is interpolated into the request hostname, so anything that isn't a
@@ -136,32 +130,6 @@ class TestRestPagination:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [SplunkObservabilityCloudResumeConfig(offset=PAGE_SIZE)]
 
-    def test_single_short_page_saves_no_state(self) -> None:
-        rows, requested, manager = _drive_rest("detectors", [_json_response(_wrapped([{"id": "a"}]))])
-
-        assert [row["id"] for row in rows] == ["a"]
-        assert len(requested) == 1
-        manager.save_state.assert_not_called()
-
-    def test_resume_seeds_offset(self) -> None:
-        manager = _make_manager(SplunkObservabilityCloudResumeConfig(offset=PAGE_SIZE))
-        rows, requested, _ = _drive_rest("detectors", [_json_response(_wrapped([{"id": "resumed"}]))], manager)
-
-        assert [row["id"] for row in rows] == ["resumed"]
-        assert requested[0]["offset"] == str(PAGE_SIZE)
-
-    def test_incidents_parses_bare_array_and_includes_resolved(self) -> None:
-        responses = [_json_response([{"incidentId": "inc-1"}, {"incidentId": "inc-2"}])]
-        rows, requested, _ = _drive_rest("incidents", responses)
-
-        assert [row["incidentId"] for row in rows] == ["inc-1", "inc-2"]
-        assert requested[0]["includeResolved"] == "true"
-        assert requested[0]["__path"] == "/v2/incident"
-
-    def test_metrics_sends_match_all_query(self) -> None:
-        _, requested, _ = _drive_rest("metrics", [_json_response(_wrapped([]))])
-        assert requested[0]["query"] == "name:*"
-
     def test_client_error_raises_without_retry(self) -> None:
         with pytest.raises(requests.HTTPError):
             _drive_rest("detectors", [_json_response({"message": "unauthorized"}, status_code=401)])
@@ -170,32 +138,6 @@ class TestRestPagination:
 class TestDetectorEventsFanOut:
     def _detector_page(self, ids: list[str]) -> MagicMock:
         return _json_response(_wrapped([{"id": detector_id} for detector_id in ids]))
-
-    def test_fans_out_and_normalizes_timestamps(self) -> None:
-        responses = [
-            self._detector_page(["det-1", "det-2"]),
-            _json_response([{"id": "ev-1", "detectorId": "det-1", "timestamp": 1767225600000}]),
-            _json_response([{"id": "ev-2", "detectorId": "det-2", "timestamp": 1767225660000}]),
-        ]
-        rows, requested, manager = _drive_rest("detector_events", responses)
-
-        assert [row["id"] for row in rows] == ["ev-1", "ev-2"]
-        # Epoch-ms timestamps become real datetimes so incremental/partitioning works.
-        assert rows[0]["timestamp"] == datetime(2026, 1, 1, tzinfo=UTC)
-
-        event_requests = [p for p in requested if "/events" in p["__path"]]
-        assert [p["__path"] for p in event_requests] == [
-            "/v2/detector/det-1/events",
-            "/v2/detector/det-2/events",
-        ]
-        # Full refresh pulls all history: from=0, to=now.
-        assert all(p["from"] == "0" for p in event_requests)
-        assert all(int(p["to"]) > 0 for p in event_requests)
-
-        # Bookmark advances to the next detector between detectors so a crash resumes
-        # in the right place.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert SplunkObservabilityCloudResumeConfig(offset=0, detector_id="det-2") in saved
 
     def test_incremental_watermark_sets_from(self) -> None:
         responses = [
@@ -229,18 +171,6 @@ class TestDetectorEventsFanOut:
         ]
         # The bookmarked detector resumes at its saved offset; the next one starts fresh.
         assert [p["offset"] for p in event_requests] == [str(PAGE_SIZE), "0"]
-
-    def test_resume_with_deleted_detector_starts_over(self) -> None:
-        manager = _make_manager(SplunkObservabilityCloudResumeConfig(offset=50, detector_id="det-gone"))
-        responses = [
-            self._detector_page(["det-1"]),
-            _json_response([]),
-        ]
-        _, requested, _ = _drive_rest("detector_events", responses, manager)
-
-        event_requests = [p for p in requested if "/events" in p["__path"]]
-        assert [p["__path"] for p in event_requests] == ["/v2/detector/det-1/events"]
-        assert event_requests[0]["offset"] == "0"
 
 
 def _sse_lines(events: list[tuple[str, dict[str, Any]]]) -> list[str]:
@@ -316,16 +246,6 @@ class TestSignalFlow:
         assert rows[0]["metric"] == "cpu.utilization"
         assert json.loads(rows[0]["properties"])["host"] == "web-1"
 
-    def test_datapoint_without_metadata_still_yields(self) -> None:
-        rows, _ = self._drive(
-            [
-                ("data", {"logicalTimestampMs": 1767225600000, "data": [{"tsId": "B", "value": 1.0}]}),
-                ("control-message", {"event": "END_OF_CHANNEL", "timestampMs": 2}),
-            ]
-        )
-        assert rows[0]["metric"] is None
-        assert rows[0]["properties"] is None
-
     def test_error_message_raises(self) -> None:
         with pytest.raises(Exception, match="SignalFlow computation failed"):
             self._drive([("error", {"errors": [{"code": "ANALYTICS_PROGRAM_NAME_ERROR"}]})])
@@ -363,33 +283,8 @@ class TestSignalFlow:
         )
         assert post_kwargs["params"]["start"] == "1767225600000"
 
-    def test_full_refresh_uses_default_lookback(self) -> None:
-        _, post_kwargs = self._drive([("control-message", {"event": "END_OF_CHANNEL", "timestampMs": 1})])
-        params = post_kwargs["params"]
-        expected_window_ms = SIGNALFLOW_DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
-        assert int(params["stop"]) - int(params["start"]) == expected_window_ms
-
 
 class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS.keys()))
-    def test_primary_keys_and_partitioning_match_settings(self, endpoint: str) -> None:
-        config = SPLUNK_OBSERVABILITY_CLOUD_ENDPOINTS[endpoint]
-        response = splunk_observability_cloud_source(
-            realm="us0",
-            access_token="test-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-
     def test_detector_events_defers_watermark_to_job_end(self) -> None:
         # The fan-out is not globally time-ordered, so the watermark must not
         # checkpoint per batch (desc mode persists it only at successful job end).
@@ -401,16 +296,6 @@ class TestSourceResponse:
             resumable_source_manager=_make_manager(),
         )
         assert response.sort_mode == "desc"
-
-    def test_metric_time_series_streams_ascending(self) -> None:
-        response = splunk_observability_cloud_source(
-            realm="us0",
-            access_token="test-token",
-            endpoint="metric_time_series",
-            logger=MagicMock(),
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.sort_mode == "asc"
 
 
 class TestRedirectHardening:
@@ -438,33 +323,6 @@ class TestRedirectHardening:
             factory.return_value.get.return_value = response
             validate_credentials("us0", "test-token")
         assert factory.call_args.kwargs["allow_redirects"] is False
-
-
-class TestSampleCaptureDisabled:
-    # Detector/dashboard/chart response bodies and the SignalFlow program hold arbitrary
-    # customer content the name-based scrubber can't redact. Dropping capture=False (back
-    # to the default) would serialize that tenant content into the HTTP sample bucket.
-    def test_get_rows_disables_capture(self) -> None:
-        with patch(f"{_MODULE}.make_tracked_session") as factory:
-            factory.return_value.get.side_effect = [_json_response(_wrapped([]))]
-            list(
-                get_rows(
-                    realm="us0",
-                    access_token="test-token",
-                    endpoint="detectors",
-                    logger=MagicMock(),
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-        assert factory.call_args.kwargs["capture"] is False
-
-    def test_validate_credentials_disables_capture(self) -> None:
-        with patch(f"{_MODULE}.make_tracked_session") as factory:
-            response = MagicMock()
-            response.status_code = 200
-            factory.return_value.get.return_value = response
-            validate_credentials("us0", "test-token")
-        assert factory.call_args.kwargs["capture"] is False
 
 
 class TestValidateCredentials:

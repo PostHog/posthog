@@ -10,20 +10,16 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
-from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
-    PostgresInsertInputs,
     insert_into_postgres_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -31,8 +27,10 @@ from products.batch_exports.backend.tests.temporal.destinations.postgres.utils i
     TEST_MODELS,
     assert_clickhouse_records_in_postgres,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    NeverFinishingActivity,
     mocked_start_batch_export_run,
 )
 
@@ -538,11 +536,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
         **postgres_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_postgres_activity_from_stage")
-    async def never_finish_activity(_: PostgresInsertInputs) -> str:
-        while True:
-            activity.heartbeat()
-            await asyncio.sleep(1)
+    never_finish = NeverFinishingActivity("insert_into_postgres_activity_from_stage")
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -551,7 +545,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                never_finish_activity,
+                never_finish.defn,
                 insert_into_internal_stage_activity,
                 finish_batch_export_run,
             ],
@@ -564,7 +558,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            await asyncio.sleep(5)
+            await never_finish.wait_until_started()
             await handle.cancel()
 
             with pytest.raises(WorkflowFailureError):

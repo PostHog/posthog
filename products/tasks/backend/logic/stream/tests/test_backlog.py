@@ -71,3 +71,15 @@ class TestTaskRunStreamBacklogIndex(SimpleTestCase):
         assert index.has_gap_before({"event_id": "boot2-5"})  # unknown boot, mid-sequence
         assert not index.has_gap_before({"event_id": "boot2-1"})  # a boot's first event has no predecessor
         assert not index.has_gap_before({"type": "notification"})  # unstamped entries carry no signal
+        assert not index.has_gap_before({"event_id": "boot1-16"})
+        assert not index.has_gap_before(_chunk("boot1-13", "agent_message_chunk"))
+        assert not index.has_gap_before(_chunk("boot1-13", "agent_thought_chunk"))
+        assert index.has_gap_before(_chunk("boot1-13", "tool_call_update"))
+
+
+def _chunk(event_id: str, session_update: str) -> dict:
+    return {
+        "type": "notification",
+        "event_id": event_id,
+        "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": session_update}}},
+    }

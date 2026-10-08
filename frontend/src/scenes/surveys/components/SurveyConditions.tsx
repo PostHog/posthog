@@ -10,6 +10,7 @@ import {
     IconLaptop,
     IconPerson,
 } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { SurveyConditionSummary, SurveyConditionType } from 'scenes/surveys/utils'
 
@@ -20,6 +21,7 @@ export const SURVEY_CONDITION_ICON: Record<SurveyConditionType, ComponentType<{ 
     events: IconBolt,
     actions: IconCursorClick,
     flag: IconFlag,
+    flag_variant: IconFlag,
     targeting: IconPerson,
     wait_period: IconClock,
 }
@@ -27,13 +29,15 @@ export const SURVEY_CONDITION_ICON: Record<SurveyConditionType, ComponentType<{ 
 export function SurveyConditionsList({ conditions }: { conditions: SurveyConditionSummary[] }): JSX.Element {
     return (
         <div className="flex flex-col gap-1.5">
-            {conditions.map(({ type, label, value }) => {
+            {conditions.map(({ type, label, value, href }) => {
                 const Icon = SURVEY_CONDITION_ICON[type]
                 return (
                     <div key={type} className="flex items-center gap-2 text-sm">
                         <Icon className="text-muted shrink-0 text-base" />
                         <span className="text-muted whitespace-nowrap">{label}</span>
-                        <span className="ml-auto text-right truncate">{value}</span>
+                        <span className="ml-auto text-right truncate">
+                            {href ? <Link to={href}>{value}</Link> : value}
+                        </span>
                     </div>
                 )
             })}

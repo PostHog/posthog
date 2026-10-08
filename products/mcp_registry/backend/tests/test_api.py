@@ -1,9 +1,14 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
+
+from posthog.models import PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.ranking import compute_ranking_run
@@ -118,6 +123,12 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert response.status_code == 200
         data: dict[str, Any] = response.json()
         assert {score["version"] for score in data["scores"]} == {"v1_metadata_prior", "v2_measured_trust"}
+        # rank_score is a queryset annotation only the ranked list gets. Unless the detail
+        # path fills it from the score it already looked up, it reads null right beside a
+        # populated scores array.
+        assert data["rank_score"] == next(
+            score["score"] for score in data["scores"] if score["version"] == "v2_measured_trust"
+        )
         assert data["measured_stats"][0]["calls"] == 50_000
         assert data["connect"]["recommended"] == "remote_oauth"
         assert data["connect"]["methods"][-1]["method"] == "remote_api_key"
@@ -157,6 +168,12 @@ class TestMCPRegistryAPI(APIBaseTest):
         payload = self.client.get(self._url("discover/"), {"intent": "relay webhooks"}).json()
 
         assert payload["candidates"][0]["id"] == str(on_topic.id)
+        # Ordering is relevance combined with score, so returning only `score` leaves a
+        # reader sorting by a number the response never sent: the list reads as unsorted.
+        combined = [candidate["combined_score"] for candidate in payload["candidates"]]
+        assert all(value is not None for value in combined)
+        assert combined == sorted(combined, reverse=True)
+        assert payload["candidates"][0]["relevance"] is not None
 
     def test_discover_returns_one_row_per_server(self) -> None:
         # Several tools matching one intent used to duplicate the server in the results.
@@ -259,6 +276,56 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
         assert [row["calls"] for row in rows] == [999_999, 50_000]
 
+    def _staff_bearer_headers(self, kind: str) -> dict[str, str]:
+        self.user.is_staff = True
+        self.user.save()
+        if kind == "personal_api_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="staff key", user=self.user, secure_value=hash_key_value(key), scopes=["mcp_registry:read"]
+            )
+            return {"authorization": f"Bearer {key}"}
+        application = OAuthApplication.objects.create(
+            name="agent",
+            client_id="agent_client_id",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_staff_token",
+            scope="mcp_registry:read",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return {"authorization": "Bearer pha_staff_token"}
+
+    def test_fleet_tier_refuses_oauth_tokens_even_for_staff(self) -> None:
+        # A self-registered OAuth client that consents a staff user must not inherit the
+        # cross-project view: the fleet tier stays with session and personal API keys.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        headers = self._staff_bearer_headers("oauth")
+
+        assert self.client.get(self._url("measured_projects/"), headers=headers).status_code == 403
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+
+    def test_fleet_tier_accepts_staff_personal_api_keys(self) -> None:
+        # Personal API keys are minted by the user themselves, so staff keep the fleet view.
+        servers = self._seed_index()
+        self._seed_another_projects_stats(servers["measured"])
+
+        headers = self._staff_bearer_headers("personal_api_key")
+
+        rows = self.client.get(self._url("measured_projects/"), headers=headers).json()
+        assert [row["team_id"] for row in rows] == [self.team.id + 1, self.team.id]
+        detail = self.client.get(self._url(f"{servers['measured'].id}/"), headers=headers).json()
+        assert sorted(row["calls"] for row in detail["measured_stats"]) == [50_000, 999_999]
+
     def _reassign_measurements_to_another_project(self, server: MCPRegistryServer) -> None:
         MCPMeasuredStats.objects.unscoped().filter(server=server).update(team_id=self.team.id + 1)
         compute_ranking_run("v2_measured_trust")
@@ -319,6 +386,55 @@ class TestMCPRegistryAPI(APIBaseTest):
         detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
 
         assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
+
+    def test_co_measurer_does_not_read_the_other_projects_tool_names(self) -> None:
+        # A tool row records no team, so when two projects measure one server there is no
+        # way to tell whose traffic named a tool. Having a row of your own is therefore
+        # not licence to read the rest.
+        servers = self._seed_index()
+        for name, source in (("probed_tool", "tools_list"), ("learned_from_traffic", "analytics")):
+            MCPRegistryTool.objects.create(
+                server=servers["measured"],
+                name=name,
+                description="",
+                source=source,
+                last_seen_at=timezone.now(),
+            )
+        self._seed_another_projects_stats(servers["measured"])
+
+        detail = self.client.get(self._url(f"{servers['measured'].id}/")).json()
+
+        # The caller keeps its own measured figures, but not the shared tool names.
+        assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
+        assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
+
+    def test_analytics_tools_stay_hidden_on_a_server_with_no_measurements(self) -> None:
+        # On a server nobody has measured, both row counts are zero, which used to read as
+        # "sees every row" and hand out the analytics-derived tool names. Those names
+        # outlive the rows that produced them: re-keying a standalone row onto its owning
+        # project leaves the old server holding tools and no stats.
+        servers = self._seed_index()
+        MCPRegistryTool.objects.create(
+            server=servers["unmeasured"],
+            name="learned_from_traffic",
+            description="",
+            source="analytics",
+            last_seen_at=timezone.now(),
+        )
+
+        detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert [tool["name"] for tool in detail["tools"]] == ["query_analytics"]
+
+        # Staff keep the fleet view, which is the point of that tier.
+        self.user.is_staff = True
+        self.user.save()
+        staff_detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert sorted(tool["name"] for tool in staff_detail["tools"]) == [
+            "learned_from_traffic",
+            "query_analytics",
+        ]
 
     def test_measured_only_rows_from_another_project_stay_hidden(self) -> None:
         # A row absent from the official registry exists only because another project's

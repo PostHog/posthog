@@ -46,7 +46,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "reviews": {
-        "description": "App Store and Google Play reviews for your tracked apps, incrementally synced on the review's last-modified timestamp.",
+        "description": "App Store and Google Play reviews for your tracked apps, incrementally synced on the review's last-modified timestamp (API v2) or its date (API v3).",
         "docs_url": "https://docs.api.appfollow.io/reference/reviews_api_v2_reviews_get-1",
         "columns": {
             "id": "AppFollow's internal review identifier.",
@@ -68,6 +68,54 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_answer": "Whether the review has a developer reply.",
             "was_changed": "Whether the review was edited.",
             "user_id": "Store user id of the author, if available.",
+        },
+    },
+    "rankings": {
+        "description": "A daily snapshot of each tracked app's category rank positions in the store charts.",
+        "docs_url": "https://docs.api.appfollow.io/reference/rankings_api_v2_meta_rankings_get-1",
+        "columns": {
+            "ext_id": "External store id of the app the rank belongs to.",
+            "country": "Two-letter country code the rank was measured in.",
+            "device": "Device the rank was measured for (for example iphone, ipad).",
+            "genre_id": "Store genre (category) id the rank is within.",
+            "category": "Store genre (category) name the rank is within.",
+            "position": "The app's position in that category chart.",
+            "date": "Day the snapshot was taken.",
+        },
+    },
+    "keywords": {
+        "description": "A daily snapshot of the search position your tracked apps hold for each keyword you track in AppFollow.",
+        "docs_url": "https://docs.api.appfollow.io/reference/keywords_api_v2_aso_keywords_get-1",
+        "columns": {
+            "ext_id": "External store id of the app the keyword is tracked for.",
+            "store": "Store the keyword is tracked on.",
+            "country": "Two-letter country code the keyword is tracked in.",
+            "device": "Device the keyword is tracked for.",
+            "keyword": "The tracked search term.",
+            "pos": "The app's search result position for the keyword.",
+            "popularity": "Keyword popularity score, from 0 to 100.",
+            "date": "Day the snapshot was taken.",
+        },
+    },
+    "app_versions": {
+        "description": "Store release history for your tracked apps, including metadata changes. Resolves the app version recorded on each review.",
+        "docs_url": "https://docs.api.appfollow.io/reference/versions__any_changes_including_meta_data__api_v2_meta_versions_get-1",
+        "columns": {
+            "ext_id": "External store id of the app the release belongs to.",
+            "country": "Two-letter country code the release was published in.",
+            "version": "The app version string.",
+            "release_date": "When the version was released in the store.",
+            "whats_new": "Release notes the developer published with the version.",
+        },
+    },
+    "reviews_stats": {
+        "description": "Aggregate review and reply counts per app and day, so review volume can be charted without syncing every raw review.",
+        "docs_url": "https://docs.api.appfollow.io/reference/stat_reviews_api_v2_reviews_stats_get-1",
+        "columns": {
+            "ext_id": "External store id of the app the statistics are for.",
+            "date": "Day the statistics are for.",
+            "reviews": "Number of reviews collected that day.",
+            "replies": "Number of developer replies posted that day.",
         },
     },
     "ratings_history": {

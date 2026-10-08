@@ -118,20 +118,25 @@ class TestScopeGatingInSource:
 
     @parameterized.expand(
         [
-            ("granted", {"scopes": [LEADS_SCOPE]}, True),
-            ("not_granted", {"scopes": ["tickets"]}, False),
-            ("unknown", {}, True),
+            ("granted", {"scopes": [LEADS_SCOPE]}, None),
+            ("not_granted", {"scopes": ["tickets"]}, LEADS_SCOPE),
+            ("unknown", {}, None),
         ]
     )
-    def test_leads_offered_only_when_the_scope_is_not_provably_missing(
-        self, _name: str, integration_config: dict[str, Any], expected: bool
+    def test_leads_is_always_offered_and_names_the_scope_it_needs(
+        self, _name: str, integration_config: dict[str, Any], expected_scope: str | None
     ) -> None:
         source = HubspotSource()
         with patch.object(source, "get_oauth_integration", return_value=_integration(integration_config)):
             names = {schema.name for schema in source.get_schemas(self._config(), team_id=1)}
+            permissions = source.get_endpoint_permissions(self._config(), 1, ["leads", "deals"])
 
-        assert ("leads" in names) is expected
-        assert "deals" in names
+        assert {"leads", "deals"} <= names
+        assert permissions["deals"] is None
+        if expected_scope is None:
+            assert permissions["leads"] is None
+        else:
+            assert expected_scope in (permissions["leads"] or "")
 
     def test_sync_fails_with_an_actionable_error_when_the_scope_is_missing(self) -> None:
         source = HubspotSource()

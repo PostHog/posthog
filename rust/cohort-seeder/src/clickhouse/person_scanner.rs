@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use uuid::Uuid;
 
+use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::person_sql::{person_boundaries_sql, person_scan_sql, PersonScanSpec};
 use super::scan_volume::{self, ScanKind};
@@ -31,15 +32,15 @@ struct PersonIdRow {
 
 #[derive(Clone)]
 pub struct PersonScanner {
-    client: clickhouse::Client,
+    client: ClickHouseClient,
 }
 
 impl PersonScanner {
-    pub fn new(client: clickhouse::Client) -> Self {
+    pub fn new(client: ClickHouseClient) -> Self {
         Self { client }
     }
 
-    /// Stream the run's live person ids in ClickHouse order, keeping the first id of every new
+    /// Stream the run's person ids in ClickHouse order, keeping the first id of every new
     /// chunk as a range boundary — memory is bounded by the chunk-count ceiling, never the table
     /// size. When the ceiling saturates, the final unbounded range absorbs the remainder and the
     /// scan stops early rather than failing a run over a column-width constraint.

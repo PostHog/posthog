@@ -126,6 +126,11 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances that disconnected unexpectedly',
     })
 
+    private static readonly unhandledRejectionsTotal = new Counter({
+        name: 'recording_rasterizer_unhandled_rejections_total',
+        help: 'Number of unhandled promise rejections suppressed by the worker guard',
+    })
+
     // --- Concurrency ---
 
     private static readonly concurrentActivities = new Gauge({
@@ -182,6 +187,10 @@ export class RasterizationMetrics {
 
     public static browserCrashed(): void {
         this.browserCrashesTotal.inc()
+    }
+
+    public static incrementUnhandledRejection(): void {
+        this.unhandledRejectionsTotal.inc()
     }
 
     // Labeled counters only expose series after the first increment; the

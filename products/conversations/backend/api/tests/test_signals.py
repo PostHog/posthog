@@ -9,7 +9,14 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
+from products.conversations.backend.ai.human_outcome import record_human_outcome
+from products.conversations.backend.models import (
+    ConversationDeliveryPart,
+    EmailChannel,
+    EmailOutboxMessage,
+    TeamConversationsSlackConfig,
+    Ticket,
+)
 from products.conversations.backend.models.constants import Channel
 
 
@@ -51,6 +58,18 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": is_private},
         )
 
+    def _create_ai_message(
+        self, content: str, *, is_private: bool = True, deleted: bool = False, item_context: dict | None = None
+    ) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context={"author_type": "AI", "is_private": is_private, **(item_context or {})},
+            deleted=deleted,
+        )
+
     def test_customer_message_updates_stats(self, mock_on_commit):
         comment = self._create_customer_message("Hello from customer")
 
@@ -61,6 +80,26 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
+    @patch("products.conversations.backend.signals.capture_message_received")
+    @patch("products.conversations.backend.signals.capture_message_sent")
+    def test_public_workflow_message_counts_without_emitting_a_trigger_event(
+        self, mock_sent, mock_received, mock_on_commit
+    ):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Automated reply",
+            item_context={"author_type": "workflow", "is_private": False},
+        )
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1
+        assert self.ticket.last_message_text == "Automated reply"
+        assert self.ticket.unread_customer_count == 1
+        mock_sent.assert_not_called()
+        mock_received.assert_not_called()
+
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")
 
@@ -70,6 +109,145 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "Response from team"
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 1  # Team messages increment this
+
+    def test_first_public_human_reply_records_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page, then reload to send a pageview."
+        ai_draft = self._create_ai_message(draft)
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message("Drop the recorder snippet on checkout only, then hard-refresh to send a pageview.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "edited"
+
+    def test_used_question_sent_unchanged_stays_used(self, mock_on_commit):
+        question = "Which SDK are you using?"
+        ai_draft = self._create_ai_message(
+            f"Suggested question for the customer:\n- {question}\n\nChecked the docs.\n\nStill unknown:\n- SDK version",
+            item_context={"persist_as": "clarification", "clarifying_questions": [question]},
+        )
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message(question)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_used_question_then_unrelated_send_is_ignored(self, mock_on_commit):
+        question = "Which SDK are you using?"
+        ai_draft = self._create_ai_message(
+            f"Suggested question for the customer:\n- {question}",
+            item_context={"persist_as": "clarification", "clarifying_questions": [question]},
+        )
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "ignored"
+
+    def test_second_public_human_reply_does_not_overwrite_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_private_human_note_does_not_record_human_outcome(self, mock_on_commit):
+        self._create_ai_message("Add the snippet to the head of every page.")
+        self._create_team_message("Add the snippet to the head of every page.", is_private=True)
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
+
+    def test_human_reply_without_ai_note_does_not_record_human_outcome(self, mock_on_commit):
+        self._create_team_message("Add the snippet to the head of every page.")
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
+
+    def test_public_ai_reply_is_not_treated_as_a_draft(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("Totally different automated billing answer.", is_private=False)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_deleted_ai_note_is_not_the_similarity_target(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("A deleted unrelated draft.", deleted=True)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_human_reply_before_ai_note_does_not_block_later_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_team_message("Looking into this.")
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_human_reply_clears_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_team_message("Taking this.")
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "done"
+        assert self.ticket.ai_triage["result"] == "clarified"
+
+    def test_private_human_note_clears_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_team_message("Taking this.", is_private=True)
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "done"
+
+    def test_customer_reply_does_not_clear_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_customer_message("We're on the JavaScript SDK.")
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "awaiting_clarification"
+
+    @patch("products.conversations.backend.signals.capture_message_sent")
+    @patch(
+        "products.conversations.backend.signals.maybe_record_human_outcome",
+        side_effect=RuntimeError("boom"),
+    )
+    def test_human_outcome_failure_does_not_block_message_analytics(self, _mock_record, mock_sent, mock_on_commit):
+        self._create_team_message("Thanks")
+        mock_sent.assert_called_once()
 
     def test_multiple_messages_accumulate(self, mock_on_commit):
         self._create_customer_message("First")
@@ -270,10 +448,14 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"},
+        )
         slack_ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -292,12 +474,15 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": False},
         )
 
-        mock_delay.assert_called_once()
-        call_kwargs = mock_delay.call_args[1]
-        assert call_kwargs["author_email"] == self.user.email
+        mock_wake.assert_called_once()
+        part = ConversationDeliveryPart.objects.unscoped().get()
+        assert part.payload is not None
+        assert part.payload["author_email"] == self.user.email
+        assert part.route == {"channel": "C123", "thread_ts": "1700000000.000100"}
+        assert part.client_msg_id
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
         slack_ticket = Ticket.objects.create_with_number(
@@ -318,10 +503,10 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": True},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
-    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+    @patch("products.conversations.backend.signals.wake_delivery_part")
+    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_wake, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
         slack_ticket = Ticket.objects.create_with_number(
@@ -341,7 +526,7 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "customer", "is_private": False},
         )
 
-        mock_delay.assert_not_called()
+        mock_wake.assert_not_called()
 
     @patch("products.conversations.backend.signals.invalidate_tickets_cache")
     def test_message_invalidates_tickets_cache(self, mock_invalidate, mock_on_commit):
@@ -476,6 +661,7 @@ class TestEmailReplySignalGuard(BaseTest):
             ("inbound_team_email_blocked", "support", True, True, 0),
             ("in_app_agent_reply_sent", "support", False, True, 1),
             ("customer_email_blocked", "customer", True, True, 0),
+            ("workflow_public_reply_sent", "workflow", False, False, 1),
         ]
     )
     def test_email_outbox_guard(self, _mock_on_commit, _name, author_type, from_email, has_created_by, expected_count):
@@ -500,6 +686,8 @@ class TestIsOutboundReply:
         [
             ("private_ai_note", {"author_type": "AI", "is_private": True}, None, False),
             ("public_ai_reply", {"author_type": "AI", "is_private": False}, None, True),
+            ("public_workflow_reply", {"author_type": "workflow", "is_private": False}, None, True),
+            ("private_workflow_note", {"author_type": "workflow", "is_private": True}, None, False),
             ("human_team_reply", {"author_type": "support", "is_private": False}, 42, True),
             ("private_human_note", {"author_type": "support", "is_private": True}, 42, False),
             ("customer_message", {"author_type": "customer", "is_private": False}, None, False),

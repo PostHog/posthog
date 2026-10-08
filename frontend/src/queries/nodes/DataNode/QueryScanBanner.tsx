@@ -1,0 +1,54 @@
+import clsx from 'clsx'
+
+import { IconSparkles } from '@posthog/icons'
+
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { QueryScanState, queryScanStatLine } from './queryScan'
+import { QueryScanFindingList } from './QueryScanFindingList'
+
+export interface QueryScanBannerProps {
+    queryScan: QueryScanState | null
+    /** Opens the assistant on the findings. Left out where there is no editor to write into. */
+    onFixWithAI?: () => void
+    className?: string
+}
+
+export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScanBannerProps): JSX.Element | null {
+    if (!queryScan) {
+        return null
+    }
+
+    const { summary, findings, assistantPrompt } = queryScan
+    const fixable = findings.filter((finding) => finding.actionable)
+    const notes = findings.filter((finding) => !finding.actionable)
+
+    return (
+        <div className={clsx('flex flex-col gap-2 shrink-0', className)} data-attr="query-scan">
+            <span className="text-xs text-secondary">{queryScanStatLine(summary)}</span>
+            {fixable.length > 0 && (
+                <LemonBanner type="warning">
+                    <QueryScanFindingList findings={fixable} dropBulletIfSingle />
+                    {onFixWithAI && assistantPrompt && (
+                        <LemonButton
+                            className="mt-2"
+                            type="secondary"
+                            size="small"
+                            icon={<IconSparkles />}
+                            onClick={onFixWithAI}
+                            data-attr="query-scan-fix-with-ai"
+                        >
+                            Fix with AI
+                        </LemonButton>
+                    )}
+                </LemonBanner>
+            )}
+            {notes.length > 0 && (
+                <div className="text-xs text-secondary" data-attr="query-scan-note">
+                    <QueryScanFindingList findings={notes} dropBulletIfSingle />
+                </div>
+            )}
+        </div>
+    )
+}

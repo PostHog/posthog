@@ -111,7 +111,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Survey appearance customization."
+            "description": "Optional appearance customization. Omit this to keep the default styling. whiteLabel=true requires the organization to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available. surveyPopupDelaySeconds must be non-negative."
         },
         "conditions": {
             "anyOf": [
@@ -1178,7 +1178,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms."
+            "description": "Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with user approval; never remove targeting rules to work around validation."
         },
         "translations": {
             "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."

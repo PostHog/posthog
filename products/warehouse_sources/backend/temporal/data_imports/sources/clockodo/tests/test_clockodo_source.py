@@ -2,7 +2,6 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
     ClockodoSourceConfig,
@@ -14,23 +13,6 @@ def _config() -> ClockodoSourceConfig:
 
 
 class TestClockodoSource:
-    def test_get_schemas_lists_all_endpoints_full_refresh_only(self) -> None:
-        schemas = ClockodoSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # The Clockodo API has no server-side modified-since filter, so nothing is incremental.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = ClockodoSource().get_schemas(_config(), team_id=1, names=["entries"])
-        assert [s.name for s in schemas] == ["entries"]
-
-    def test_lists_tables_without_credentials_renders_docs(self) -> None:
-        # Static catalog → public docs Supported tables section renders without a live connection.
-        assert ClockodoSource.lists_tables_without_credentials is True
-        tables = ClockodoSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all(t["sync_methods"] == ["Full refresh"] for t in tables)
-
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
         with patch(

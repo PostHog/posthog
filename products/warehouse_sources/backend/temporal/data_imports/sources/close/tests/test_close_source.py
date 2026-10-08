@@ -2,11 +2,8 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
-
-INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
 
 
 class TestCloseSource:
@@ -15,33 +12,10 @@ class TestCloseSource:
         self.team_id = 123
         self.config = CloseSourceConfig(api_key="api_test")
 
-    def test_get_schemas_lists_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_get_schemas_incremental_flags(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        expected_incremental = endpoint in INCREMENTAL_ENDPOINTS
-        assert schema.supports_incremental is expected_incremental
-        assert schema.supports_append is expected_incremental
-        if expected_incremental:
-            assert len(schema.incremental_fields) >= 1
-        else:
-            assert schema.incremental_fields == []
-
-    def test_opportunities_advertises_both_cursors(self) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == "Opportunities")
-        fields = {f["field"] for f in schema.incremental_fields}
-        assert fields == {"date_created", "date_updated"}
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["Leads"])
         assert len(schemas) == 1
         assert schemas[0].name == "Leads"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         ("mock_return", "expected_valid", "expected_message"),

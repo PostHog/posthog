@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { DescriptionList, formatDate } from '@posthog/mcp-ui'
 import { Badge, Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
+import { resolveStackReferences } from './stackReferences'
 import { type ExceptionData, StackTraceView } from './StackTraceView'
 
 export interface ErrorDetailsEventData {
@@ -62,7 +63,12 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
     // Show the first (most recent) event
     const event = events[0]
     const properties = event.properties ?? {}
-    const exceptions = extractExceptions(properties)
+    const exceptionsByEvent = new Map(
+        events.flatMap((pageEvent) =>
+            pageEvent.uuid ? [[pageEvent.uuid, extractExceptions(pageEvent.properties ?? {})] as const] : []
+        )
+    )
+    const exceptions = resolveStackReferences(extractExceptions(properties), exceptionsByEvent)
 
     const exceptionType = firstString(properties.$exception_types) ?? exceptions[0]?.type ?? 'Error'
     const exceptionMessage = firstString(properties.$exception_values) ?? exceptions[0]?.value ?? ''

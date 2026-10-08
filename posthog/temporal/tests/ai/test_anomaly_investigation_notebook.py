@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
+from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -24,7 +24,7 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         )
         return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
 
-    def test_builds_well_formed_tiptap_doc(self) -> None:
+    def test_builds_markdown_the_cell_tools_accept(self) -> None:
         report = InvestigationReport(
             verdict="true_positive",
             metric_meaning="Unique users who loaded a page under /pricing each day.",
@@ -42,19 +42,19 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             recommendations=["Confirm the spike with the marketing team.", "Hold further alerting for 24h."],
             tool_calls_used=3,
         )
-        doc = build_investigation_notebook(self._make_context(report))
+        ctx = self._make_context(report)
+        markdown = build_investigation_markdown(ctx)
 
-        assert doc["type"] == "doc"
-        headings = [node for node in doc["content"] if node.get("type") == "heading"]
-        heading_texts = [node["content"][0]["text"] for node in headings if node.get("content")]
-        assert any("Verdict" == t for t in heading_texts)
-        assert any("What this metric measures" == t for t in heading_texts)
-        assert any("Hypotheses" == t for t in heading_texts)
-        assert any("Recommendations" == t for t in heading_texts)
+        assert "## Verdict" in markdown
+        assert "## What this metric measures" in markdown
+        assert "## Hypotheses" in markdown
+        assert "## Recommendations" in markdown
+        assert "### Run details" in markdown
+        assert "- Campaign ID 42 launched at 2024-06-01 08:00" in markdown
 
-        # The saved insight node is present and uses the insight's short_id.
-        ph_queries = [node for node in doc["content"] if node.get("type") == "ph-query"]
-        assert len(ph_queries) == 1
+        # The source insight stays live through a SavedInsightNode Query component.
+        assert '<Query title="pageviews/day"' in markdown
+        assert f'query={{{{"kind":"SavedInsightNode","shortId":"{ctx.insight.short_id}"}}}}' in markdown
 
     def test_handles_inconclusive_verdict_with_empty_sections(self) -> None:
         report = InvestigationReport(
@@ -64,14 +64,9 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             recommendations=[],
             tool_calls_used=0,
         )
-        doc = build_investigation_notebook(self._make_context(report))
-        # Recommendations and Hypotheses headings should be absent when lists are empty.
-        heading_texts = [
-            node["content"][0]["text"]
-            for node in doc["content"]
-            if node.get("type") == "heading" and node.get("content")
-        ]
-        assert "Hypotheses" not in heading_texts
-        assert "Recommendations" not in heading_texts
-        assert "What this metric measures" not in heading_texts
-        assert "Verdict" in heading_texts
+        markdown = build_investigation_markdown(self._make_context(report))
+
+        assert "## Hypotheses" not in markdown
+        assert "## Recommendations" not in markdown
+        assert "## What this metric measures" not in markdown
+        assert "## Verdict" in markdown

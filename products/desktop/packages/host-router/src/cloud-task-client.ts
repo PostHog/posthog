@@ -1,14 +1,33 @@
 import type { CloudTaskClient } from "@posthog/core/cloud-task/cloudTaskClient";
 import type { SendCommandInput } from "@posthog/core/cloud-task/schemas";
+import { SharedCloudTaskSubscriptions } from "@posthog/core/cloud-task/sharedCloudTaskSubscriptions";
 import type { CloudTaskUpdatePayload } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
 import { HOST_TRPC_CLIENT, type HostTrpcClient } from "./client";
 
 @injectable()
 export class TrpcCloudTaskClient implements CloudTaskClient {
+  private readonly subscriptions: SharedCloudTaskSubscriptions;
+
   constructor(
     @inject(HOST_TRPC_CLIENT) private readonly client: HostTrpcClient,
-  ) {}
+  ) {
+    this.subscriptions = new SharedCloudTaskSubscriptions({
+      subscribe: (taskId, runId, handlers) => {
+        const subscription = this.client.cloudTask.onUpdate.subscribe(
+          { taskId, runId },
+          {
+            onData: handlers.onUpdate,
+            onError: handlers.onError,
+            onStarted: handlers.onStarted,
+            onComplete: handlers.onComplete,
+          },
+        );
+        return () => subscription.unsubscribe();
+      },
+      unwatch: (taskId, runId) => this.unwatch(taskId, runId),
+    });
+  }
 
   getContext(): Promise<{ apiHost: string; teamId: number } | null> {
     return this.client.cloudTask.context.query();
@@ -38,11 +57,11 @@ export class TrpcCloudTaskClient implements CloudTaskClient {
     onError: (error: unknown) => void,
     onStarted: () => void,
   ): () => void {
-    const subscription = this.client.cloudTask.onUpdate.subscribe(
-      { taskId, runId },
-      { onData: onUpdate, onError, onStarted },
-    );
-    return () => subscription.unsubscribe();
+    return this.subscriptions.subscribe(taskId, runId, {
+      onUpdate,
+      onError,
+      onStarted,
+    });
   }
 
   sendCommand(input: SendCommandInput) {

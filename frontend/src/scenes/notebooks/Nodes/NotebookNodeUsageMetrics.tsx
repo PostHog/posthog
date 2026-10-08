@@ -12,7 +12,7 @@ import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environme
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind, ProductKey, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
+import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     UsageMetricCard,
@@ -133,11 +133,9 @@ function UsageMetricsEmptyState(): JSX.Element {
     })
     return (
         <ProductIntroduction
-            productName="Customer analytics"
             thingName="usage metric"
             description="Once created, usage metrics will be displayed here."
             isEmpty={true}
-            productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
             action={() => openModal()}
             disabledReason={restrictedReason ?? undefined}

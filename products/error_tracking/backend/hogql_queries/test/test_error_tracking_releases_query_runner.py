@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
@@ -61,7 +61,7 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return ErrorTrackingReleasesQueryRunner(team=self.team, query=query).calculate()
 
-    @freeze_time("2024-01-10T12:00:00Z")
+    @time_machine.travel("2024-01-10T12:00:00Z", tick=False)
     def test_folds_releases_across_merged_fingerprints(self) -> None:
         self.create_issue(ISSUE_ID, ["fp-a", "fp-b"])
         self.create_issue(OTHER_ISSUE_ID, ["fp-other"])
@@ -102,7 +102,7 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.namespaces == ["com.example.android", "com.example.ios"]
         assert response.total == 7
 
-    @freeze_time("2024-01-10T12:00:00Z")
+    @time_machine.travel("2024-01-10T12:00:00Z", tick=False)
     def test_app_namespace_filter_and_occurrence_order(self) -> None:
         self.create_issue(ISSUE_ID, ["fp-a"])
         for release, count in [
@@ -123,7 +123,7 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.namespaces == ["com.example.android", "com.example.ios"]
         assert response.total == 4
 
-    @freeze_time("2024-01-10T12:00:00Z")
+    @time_machine.travel("2024-01-10T12:00:00Z", tick=False)
     def test_latest_orders_by_first_seen_then_version(self) -> None:
         self.create_issue(ISSUE_ID, ["fp-a"])
         for day, release in [
@@ -142,7 +142,7 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Releases that share a first bucket order by version number. Unversioned releases sort last.
         assert [r.version for r in response.results] == ["2.8.0", "3a1b2c", "3.0.0", "2.9.0", None]
 
-    @freeze_time("2024-01-10T12:00:00Z")
+    @time_machine.travel("2024-01-10T12:00:00Z", tick=False)
     def test_counts_an_event_at_the_inclusive_range_end(self) -> None:
         self.create_issue(ISSUE_ID, ["fp-a"])
         self.create_exception("fp-a", "2024-01-08T00:00:00Z", ("com.example.ios", "3.0.0", "1600"))

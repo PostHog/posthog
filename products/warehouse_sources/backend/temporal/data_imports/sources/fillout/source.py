@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,14 +43,16 @@ class FilloutSource(SimpleSource[FilloutSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FILLOUT,
+            name=ExternalDataSourceType.FILLOUT,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fillout",
             iconPath="/static/services/fillout.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/fillout",
             caption="""Enter a Fillout API key to sync forms and submissions.
 
 Supported endpoints:
 - `forms`
+- `form_metadata`
 - `submissions`
 
 You can generate an API key in your Fillout account under **Settings → Developer**.
@@ -92,6 +92,11 @@ You can generate an API key in your Fillout account under **Settings → Develop
         return {
             "401 Client Error": "Invalid Fillout API key. Please update your key and reconnect.",
             "403 Client Error": "Fillout API key is missing the required permissions. Please update the key and reconnect.",
+            # A 400 replays identically on every retry, unlike 401 (a key the REST engine's own
+            # retry can't fix, but that's already caught above) or 429/5xx (already
+            # RESTClientRetryableError). Matched on both regional hosts, same as the 401/403 entries.
+            "400 Client Error: Bad Request for url: https://api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
+            "400 Client Error: Bad Request for url: https://eu-api.fillout.com": "Fillout rejected the request. Check that the API key can access this form, then reconnect. If this keeps happening, contact support.",
         }
 
     def get_schemas(

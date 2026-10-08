@@ -14,6 +14,7 @@ import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metr
 import { initMetrics, shutdownMetrics } from '~/session-replay/recording-rasterizer/otel-metrics'
 
 import { createActivities } from './activities'
+import { installUnhandledRejectionGuard } from './install-unhandled-rejection-guard'
 
 prometheus.collectDefaultMetrics()
 RasterizationMetrics.initialize()
@@ -21,6 +22,8 @@ RasterizationMetrics.initialize()
 initMetrics()
 
 const log = createLogger()
+
+installUnhandledRejectionGuard(log, () => RasterizationMetrics.incrementUnhandledRejection())
 
 // Route Temporal SDK logs through our JSON logger so all output is structured.
 Runtime.install({
@@ -130,7 +133,20 @@ async function main(): Promise<void> {
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
         activities: createActivities(pool, playerHtml),
-        maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
+        // A render's memory grows for minutes after pickup, so a fixed slot count keeps taking work on a
+        // pod that is already near its limit. The tuner stops taking work above these targets, and the
+        // ramp throttle gives each new render time to show its memory before the next slot opens.
+        tuner: {
+            tunerOptions: {
+                targetMemoryUsage: config.tunerTargetMemoryUsage,
+                targetCpuUsage: config.tunerTargetCpuUsage,
+            },
+            activityTaskSlotOptions: {
+                minimumSlots: 1,
+                maximumSlots: config.maxConcurrentActivities,
+                rampThrottle: config.tunerRampThrottleMs,
+            },
+        },
         dataConverter: config.secretKey
             ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
             : undefined,

@@ -34,6 +34,21 @@ export function createForceDevModeDefine(): Record<string, string> | undefined {
   };
 }
 
+// The main process decides custom-cloud availability at runtime from
+// app.isPackaged and the build channel. The renderer cannot see either, so
+// both vite configs bake the same answer here. A packaged build forced into
+// dev mode (FORCE_DEV_MODE) must NOT offer Custom, because its store still
+// refuses to hold a target.
+export function createCustomCloudDefine(
+  isDevServer: boolean,
+): Record<string, string> {
+  return {
+    "import.meta.env.VITE_POSTHOG_CUSTOM_CLOUD_BUILD": JSON.stringify(
+      String(isDevServer || process.env.VITE_POSTHOG_BUILD_CHANNEL === "test"),
+    ),
+  };
+}
+
 const baseAliases: Alias[] = [
   { find: "@main", replacement: path.resolve(__dirname, "./src/main") },
   { find: "@renderer", replacement: path.resolve(__dirname, "./src/renderer") },
@@ -42,12 +57,32 @@ const baseAliases: Alias[] = [
 
 export const workspaceAliases: Alias[] = [
   {
+    find: /^@posthog\/agent-contracts\/(.+)$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent-contracts/src/$1",
+    ),
+  },
+  {
+    find: /^@posthog\/agent-contracts$/,
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent-contracts/src/index.ts",
+    ),
+  },
+  {
     find: /^@posthog\/agent\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/agent/src/$1.ts"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent/src/$1.ts",
+    ),
   },
   {
     find: "@posthog/agent",
-    replacement: path.resolve(__dirname, "../../packages/agent/src/index.ts"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/agent/src/index.ts",
+    ),
   },
   {
     find: /^@posthog\/shared\/(.+)$/,
@@ -61,7 +96,7 @@ export const workspaceAliases: Alias[] = [
     find: "@posthog/enricher",
     replacement: path.resolve(
       __dirname,
-      "../../packages/enricher/src/index.ts",
+      "../../../../packages/agent/packages/enricher/src/index.ts",
     ),
   },
   {
@@ -75,10 +110,6 @@ export const workspaceAliases: Alias[] = [
   {
     find: /^@posthog\/api-client\/(.+)$/,
     replacement: path.resolve(__dirname, "../../packages/api-client/src/$1"),
-  },
-  {
-    find: /^@posthog\/quick-ask\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/quick-ask/src/$1"),
   },
   {
     find: /^@posthog\/ui\/(.+)$/,
@@ -123,7 +154,10 @@ export const mainAliases: Alias[] = [
   },
   {
     find: /^@posthog\/git\/(.+)$/,
-    replacement: path.resolve(__dirname, "../../packages/git/src/$1"),
+    replacement: path.resolve(
+      __dirname,
+      "../../../../packages/agent/packages/git/src/$1",
+    ),
   },
   ...workspaceAliases,
 ];

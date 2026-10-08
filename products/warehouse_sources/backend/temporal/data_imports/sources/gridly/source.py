@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,7 +37,7 @@ class GridlySource(ResumableSource[GridlySourceConfig, GridlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GRIDLY,
+            name=ExternalDataSourceType.GRIDLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Gridly",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -87,7 +85,7 @@ Find the **View ID** in Gridly by opening your grid, selecting a view, and openi
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop the
             # sync. Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.gridly.com": "Your Gridly API key is invalid or has been revoked. Create a new API key in your Gridly company settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.gridly.com": "Your Gridly API key can't access this view. Grant the key access to the view (or use a Full Access key), then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.gridly.com": "Your Gridly API key can't access this view or the projects, databases, and grids this table reads. Grant the key access (or use a Full Access key), then reconnect.",
         }
 
     def get_schemas(

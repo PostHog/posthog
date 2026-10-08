@@ -1,11 +1,12 @@
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import pyarrow as pa
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -15,8 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
     CheckoutComResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    FINANCIAL_ACTIONS_UNAVAILABLE_MARKER,
     SYNC_BUDGET_EXCEEDED_MARKER,
     UNRESOLVED_REFERENCES_MARKER,
+    CheckoutComFinancialActionsUnavailableError,
     CheckoutComSyncBudgetExceeded,
     CheckoutComUnresolvedReferencesError,
     checkout_com_payments_source,
@@ -35,6 +38,9 @@ SESSION_PATCH = (
 )
 
 NOW = "2024-03-01T00:00:00Z"
+# Stored watermark for the budget tests. A payment stamped with exactly this value is the
+# boundary row the search re-reads every run, because the range starts at the watermark.
+BUDGET_WATERMARK = "2024-02-28T00:00:00Z"
 
 
 class _FakeResponse:
@@ -155,8 +161,12 @@ def _source(
     )
 
 
-@freeze_time(NOW)
 class TestPaymentsWindowWalking:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(PAGE_LIMIT_PATCH, 2)
     @mock.patch(SESSION_PATCH)
     def test_full_page_subdivides_window_and_yields_ascending(self, mock_make_session):
@@ -306,8 +316,12 @@ class TestPaymentsWindowWalking:
         assert "query_required" in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
 class TestPaymentActionsFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "actions_payload",
         [
@@ -374,18 +388,283 @@ class TestPaymentActionsFanout:
         with pytest.raises(CheckoutComSyncBudgetExceeded) as excinfo:
             _collect_rows(response, collected)
 
-        # Returning here reported the schema Completed over a range holding no rows, so the
-        # gap was invisible. Rows found before the cut-off still land, the interrupted window
-        # is not checkpointed, and the run fails so the gap surfaces as latest_error.
+        # A full-refresh run cannot commit a partial slice, so it raises: returning would
+        # report the schema Completed over a range holding no rows and the gap would be
+        # invisible. The interrupted window is not checkpointed.
         assert [row["id"] for row in collected] == ["act_1"]
         assert len(session.lookups) == 1
         assert manager.saved_states == []
-        # The source classifies this as retryable by matching the marker in the message.
+        # The source classifies this as retryable by matching the marker in the message,
+        # and the message states the lag rather than the internal budget.
         assert SYNC_BUDGET_EXCEEDED_MARKER in str(excinfo.value)
+        assert "behind" in str(excinfo.value)
+        assert "budget" not in str(excinfo.value)
+
+    @mock.patch(LOOKUP_BUDGET_PATCH, 1)
+    @mock.patch(SESSION_PATCH)
+    def test_incremental_budget_run_commits_its_prefix_instead_of_raising(self, mock_make_session):
+        # The regression this guards: raising here discards every staged batch and the staged
+        # watermark, so a backlogged incremental table burned its whole budget each run and
+        # committed nothing, falling further behind every day.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[_FakeResponse(json_data={"items": [{"id": "act_1"}]})],
+        )
+        mock_make_session.side_effect = [session]
+        logger = mock.MagicMock()
+
+        rows = _rows(
+            _source(
+                "payment_actions",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=BUDGET_WATERMARK,
+                logger=logger,
+            )
+        )
+
+        # The prefix lands (no raise), so the pipeline finalizes it and promotes the watermark.
+        assert [row["id"] for row in rows] == ["act_1"]
+        assert len(session.lookups) == 1
+        warning = logger.warning.call_args[0][0]
+        assert "behind" in warning
+
+    @parameterized.expand(
+        [
+            # Nothing landed, so there is no value to promote the watermark to.
+            ("no rows landed", "2024-02-29T06:00:00Z", {"items": []}),
+            # The only row is the boundary payment the watermark already covers. Counting it
+            # as progress would promote the watermark to where it already sat, so every
+            # scheduled run would re-cover this range forever while reporting success.
+            ("only rows at the watermark", BUDGET_WATERMARK, {"items": [{"id": "act_1"}]}),
+        ]
+    )
+    @mock.patch(LOOKUP_BUDGET_PATCH, 1)
+    @mock.patch(SESSION_PATCH)
+    def test_incremental_budget_run_that_cannot_advance_the_watermark_raises(
+        self, _name, first_requested_on, lookup_payload, mock_make_session
+    ):
+        # Ending cleanly here would report Completed while the table stayed where it was,
+        # so the run must stay a failure and retry.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", first_requested_on),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[_FakeResponse(json_data=lookup_payload)],
+        )
+        mock_make_session.side_effect = [session]
+
+        response = _source(
+            "payment_actions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=BUDGET_WATERMARK,
+        )
+        with pytest.raises(CheckoutComSyncBudgetExceeded):
+            _rows(response)
 
 
-@freeze_time(NOW)
+def _financial_actions_page(actions: list[dict[str, Any]], next_token: Optional[str] = None) -> _FakeResponse:
+    payload: dict[str, Any] = {"count": len(actions), "limit": 100, "data": actions}
+    if next_token is not None:
+        payload["_links"] = {
+            "next": {
+                "href": f"https://api.checkout.com/financial-actions?payment_id=pay_1&pagination_token={next_token}"
+            }
+        }
+    return _FakeResponse(json_data=payload)
+
+
+def _financial_action(action_id: str) -> dict[str, Any]:
+    return {
+        "action_id": action_id,
+        "payment_id": "pay_1",
+        "action_type": "Capture",
+        "processed_on": "2024-02-29T06:00:01Z",
+        "breakdown": [{"breakdown_type": "Scheme Fixed Fee", "holding_currency": "USD"}],
+    }
+
+
+class TestFinancialActionsFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    @mock.patch(SESSION_PATCH)
+    def test_fetches_the_ledger_per_payment_and_keys_it_to_the_payment(self, mock_make_session):
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[_financial_actions_page([_financial_action("act_1")])],
+        )
+        mock_make_session.side_effect = [session]
+
+        rows = _rows(_source("financial_actions", start_date="2024-02-28"))
+
+        assert rows == [
+            {
+                "action_id": "act_1",
+                "payment_id": "pay_1",
+                "action_type": "Capture",
+                "processed_on": "2024-02-29T06:00:01Z",
+                "breakdown": [{"breakdown_type": "Scheme Fixed Fee", "holding_currency": "USD"}],
+                "payment_requested_on": "2024-02-29T06:00:00Z",
+            }
+        ]
+        assert session.lookups == [
+            {
+                "url": "https://api.checkout.com/financial-actions",
+                "params": {"payment_id": "pay_1", "limit": 100},
+                "auth": mock.ANY,
+                "timeout": mock.ANY,
+            }
+        ]
+
+    @mock.patch(SESSION_PATCH)
+    def test_follows_the_pagination_token_and_stops_on_the_terminal_page(self, mock_make_session):
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[
+                _financial_actions_page([_financial_action("act_1")], next_token="tok_2"),
+                _financial_actions_page([_financial_action("act_2")]),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        rows = _rows(_source("financial_actions", start_date="2024-02-28"))
+
+        assert [row["action_id"] for row in rows] == ["act_1", "act_2"]
+        # Only the token is carried forward; the next page is rebuilt against our own host.
+        assert [lookup["params"] for lookup in session.lookups] == [
+            {"payment_id": "pay_1", "limit": 100},
+            {"payment_id": "pay_1", "limit": 100, "pagination_token": "tok_2"},
+        ]
+
+    @mock.patch(SESSION_PATCH)
+    def test_a_next_token_that_never_advances_does_not_loop(self, mock_make_session):
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[
+                _financial_actions_page([_financial_action("act_1")], next_token="tok_2"),
+                _financial_actions_page([_financial_action("act_2")], next_token="tok_2"),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        rows = _rows(_source("financial_actions", start_date="2024-02-28"))
+
+        assert [row["action_id"] for row in rows] == ["act_1", "act_2"]
+        assert len(session.lookups) == 2
+
+    @mock.patch(LOOKUP_BUDGET_PATCH, 1)
+    @mock.patch(SESSION_PATCH)
+    def test_each_page_spends_one_lookup_from_the_run_budget(self, mock_make_session):
+        # The regression this guards: taking the budget once per payment instead of once
+        # per page lets a paginating payment issue unbounded requests inside one lookup.
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[_financial_actions_page([_financial_action("act_1")], next_token="tok_2")],
+        )
+        mock_make_session.side_effect = [session]
+
+        response = _source(
+            "financial_actions",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=BUDGET_WATERMARK,
+        )
+        rows = _rows(response)
+
+        assert [row["action_id"] for row in rows] == ["act_1"]
+        assert len(session.lookups) == 1
+
+    @mock.patch(SESSION_PATCH)
+    def test_every_lookup_404ing_fails_instead_of_syncing_an_empty_ledger(self, mock_make_session):
+        # A 404 here is not "this payment has no actions" — the endpoint returns an empty
+        # `data` array for that. Reporting Completed over an empty settlement table would
+        # make reconciliation silently wrong.
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[_FakeResponse(status_code=404)],
+        )
+        mock_make_session.side_effect = [session]
+
+        with pytest.raises(CheckoutComFinancialActionsUnavailableError) as excinfo:
+            _rows(_source("financial_actions", start_date="2024-02-28"))
+
+        assert FINANCIAL_ACTIONS_UNAVAILABLE_MARKER in str(excinfo.value)
+
+    @mock.patch(SESSION_PATCH)
+    def test_a_404_alongside_resolved_actions_is_tolerated(self, mock_make_session):
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[
+                _financial_actions_page([_financial_action("act_1")]),
+                _FakeResponse(status_code=404),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        rows = _rows(_source("financial_actions", start_date="2024-02-28"))
+
+        assert [row["action_id"] for row in rows] == ["act_1"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_an_answered_empty_ledger_beside_a_404_is_tolerated(self, mock_make_session):
+        # A payment with no actions yet answers 200 with an empty `data` array, which proves
+        # the route works. Counting rows instead of answered lookups failed this run as an
+        # unroutable endpoint even though one lookup succeeded.
+        session = _FakeSession(
+            search_responses=[
+                _search_page(
+                    [
+                        _payment("pay_1", "2024-02-29T06:00:00Z"),
+                        _payment("pay_2", "2024-02-29T18:00:00Z"),
+                    ]
+                )
+            ],
+            lookup_responses=[
+                _financial_actions_page([]),
+                _FakeResponse(status_code=404),
+            ],
+        )
+        mock_make_session.side_effect = [session]
+
+        assert _rows(_source("financial_actions", start_date="2024-02-28")) == []
+
+    @mock.patch(SESSION_PATCH)
+    def test_an_empty_ledger_across_every_payment_completes(self, mock_make_session):
+        session = _FakeSession(
+            search_responses=[_search_page([_payment("pay_1", "2024-02-29T06:00:00Z")])],
+            lookup_responses=[_financial_actions_page([])],
+        )
+        mock_make_session.side_effect = [session]
+
+        assert _rows(_source("financial_actions", start_date="2024-02-28")) == []
+
+
 class TestCustomersFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_email_only_references_resolve_once_per_customer(self, mock_make_session):
         # `/payments/search` returns customers as an email with no `cus_` id; requiring an
@@ -483,8 +762,12 @@ class TestCustomersFanout:
         assert "jo@example.com" not in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
 class TestInstrumentsFanout:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_resolves_instrument_ids_via_payment_detail(self, mock_make_session):
         # `/payments/search` describes a card source (fingerprint, last4) without an
@@ -599,8 +882,12 @@ class TestInstrumentsFanout:
         assert manager.saved_states == []
 
 
-@freeze_time(NOW)
 class TestPaymentsCustomerIdColumn:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @mock.patch(SESSION_PATCH)
     def test_rows_carry_customer_id_resolved_once_per_email(self, mock_make_session):
         # Search rows reference their customer by email alone, so without resolution the
@@ -680,8 +967,12 @@ class TestPaymentsCustomerIdColumn:
         assert len(session.lookups) == 1
 
 
-@freeze_time(NOW)
 class TestUnresolvableReferences:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(NOW, tick=False):
+            yield
+
     @pytest.mark.parametrize(
         "schema_name, payment",
         [

@@ -3,7 +3,7 @@ import {
   computeScoutRollups,
   getScoutOrigin,
   prettifyScoutSkillName,
-  scoutSkillNameFromSlug,
+  resolveScoutRouteName,
 } from "@posthog/core/scouts/scoutPresentation";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
@@ -19,18 +19,17 @@ import { ScoutDetailHeader } from "./ScoutDetailHeader";
 import { ScoutOutputSection } from "./ScoutOutputSection";
 
 export function ScoutDetailView({
-  skillSlug,
+  routeName,
   highlightFindingId,
   tab,
 }: {
-  skillSlug: string;
+  /** Scout skill name from the route. Older links carry a stripped slug. */
+  routeName: string;
   /** Emission id from a shared finding link – expanded and scrolled to when present. */
   highlightFindingId?: string;
   tab: ScoutDetailTab;
 }) {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const skillName = scoutSkillNameFromSlug(skillSlug);
-  const displayName = prettifyScoutSkillName(skillName);
   const { showAgentTab, showTab } = useAgentsPageActions();
 
   const configsQuery = useScoutConfigs();
@@ -39,6 +38,8 @@ export function ScoutDetailView({
     isLoading: configsLoading,
     isError: configsError,
   } = configsQuery;
+  const skillName = resolveScoutRouteName(routeName, configs);
+  const displayName = prettifyScoutSkillName(skillName);
   const runsQuery = useScoutRuns(skillName);
   const {
     data: runsWindow,

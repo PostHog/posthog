@@ -1,9 +1,11 @@
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import serializers
 
+from products.dashboards.backend.api.dashboard import DashboardWriteOpenApiSerializer
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
+from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
 
 
@@ -19,6 +21,13 @@ def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[s
 
 
 class TestDashboardPatchOpenApiContract:
+    def test_write_schemas_exclude_legacy_collaborator_level(self) -> None:
+        supported_level = RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value
+        for serializer in (DashboardWriteOpenApiSerializer(), PatchedDashboardOpenApiSerializer()):
+            field = serializer.fields["restriction_level"]
+            assert isinstance(field, serializers.IntegerField)
+            assert field.min_value == field.max_value == supported_level
+
     def test_patched_dashboard_openapi_covers_runtime_patch_fields(self) -> None:
         runtime_fields = dashboard_patch_runtime_openapi_field_names()
         openapi_fields = frozenset(PatchedDashboardOpenApiSerializer().fields.keys())
@@ -39,6 +48,35 @@ class TestDashboardPatchOpenApiContract:
         assert not missing, (
             "Generated OpenAPI schema for dashboard PATCH must include every agent-facing runtime field. "
             f"Missing: {sorted(missing)}."
+        )
+
+    def test_tile_layouts_documented_as_writable_patch_field(self) -> None:
+        tiles_field = PatchedDashboardOpenApiSerializer().fields["tiles"]
+        assert isinstance(tiles_field, serializers.ListSerializer)
+        tile_serializer = tiles_field.child
+        assert isinstance(tile_serializer, serializers.Serializer)
+        tile_fields = tile_serializer.fields
+        assert "layouts" in tile_fields, (
+            "DashboardPatchTileOpenApiSerializer must document 'layouts' so the dashboard-update MCP tool can "
+            f"set a tile's grid position and size. Got: {sorted(tile_fields)}."
+        )
+        layouts_field = tile_fields["layouts"]
+        assert isinstance(layouts_field, serializers.Serializer)
+        breakpoints = layouts_field.fields
+        assert {"sm", "xs"}.issubset(breakpoints), f"Tile layouts must expose sm/xs. Got: {sorted(breakpoints)}."
+        sm_field = breakpoints["sm"]
+        assert sm_field.required, (
+            "Tile layouts must require 'sm'. A write replaces the tile's whole layouts value, so a payload "
+            "carrying only 'xs' erases the desktop placement the dashboard renders from."
+        )
+        assert isinstance(sm_field, serializers.Serializer)
+        assert {"x", "y", "w", "h"}.issubset(sm_field.fields), (
+            f"Tile layout box must expose x/y/w/h. Got: {sorted(sm_field.fields)}."
+        )
+        optional = sorted(name for name, field in sm_field.fields.items() if not field.required)
+        assert not optional, (
+            "Every tile layout box field must be required, because a write replaces the tile's whole "
+            f"layouts value instead of merging into it. Optional: {optional}."
         )
 
     def test_filters_documented_as_writable_patch_field(self) -> None:

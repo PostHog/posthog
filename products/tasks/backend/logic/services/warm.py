@@ -84,11 +84,13 @@ class SandboxWarmer:
     ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None] | None] = {
         Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
         Task.OriginProduct.USER_CREATED: None,
+        Task.OriginProduct.SIGNAL_REPORT: _ai_credits_checker,
     }
 
     ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
         Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=10, per_org=100),
+        Task.OriginProduct.SIGNAL_REPORT: WarmPoolCaps(per_user=10, per_org=100),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 
@@ -158,7 +160,10 @@ class SandboxWarmer:
         (429) when the warm pool is full.
         """
         # Quota is a gateway/cache call — check it before taking the row lock, never while holding it.
-        self.enforce_quota(self.task.origin_product, self.task.team, self.user)
+        origin_product = self.task.origin_product
+        team = self.task.team
+        self.enforce_quota(origin_product, team, self.user)
+        pool_full = self.at_capacity(origin_product, team, self.user)
 
         new_run: TaskRun
         with transaction.atomic():
@@ -202,7 +207,7 @@ class SandboxWarmer:
                     if resume_source is None:
                         raise WarmSourceChanged
 
-            if self.at_capacity(locked.origin_product, locked.team, self.user):
+            if pool_full:
                 raise Throttled(detail="Warm-pool capacity reached. Release an idle warm session and try again.")
 
             run_state: dict[str, Any] = {

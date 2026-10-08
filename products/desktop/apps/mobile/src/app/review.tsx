@@ -10,7 +10,6 @@ import {
   useDismissedReportsStore,
 } from "@/features/inbox/stores/dismissedReportsStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
-import { useIntegrations } from "@/features/tasks/hooks/useIntegrations";
 import { useThemeColors } from "@/lib/theme";
 
 export default function ReviewScreen() {
@@ -18,7 +17,6 @@ export default function ReviewScreen() {
   const themeColors = useThemeColors();
   const decided = useDismissedReportsStore(decidedIds);
   const setCurrentIndex = useInboxStore((s) => s.setCurrentIndex);
-  const { repositoryOptions } = useIntegrations();
 
   const { reports, isLoading } = useInboxReports();
 
@@ -46,10 +44,7 @@ export default function ReviewScreen() {
     <View className="flex-1 bg-background">
       <FloatingBackButton />
       <View style={{ paddingTop: insets.top + 56 }} className="flex-1">
-        <TinderView
-          reports={tinderReports}
-          repositoryOptions={repositoryOptions}
-        />
+        <TinderView reports={tinderReports} />
       </View>
     </View>
   );

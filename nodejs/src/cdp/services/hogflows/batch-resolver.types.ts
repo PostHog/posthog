@@ -28,6 +28,7 @@ export const BatchResolverStateSchema = z.object({
         properties: z.array(z.record(z.string(), z.any())).optional(),
         filter_test_accounts: z.boolean().optional(),
         tag_names: z.array(z.string()).optional(),
+        assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
         assigned_to_user_ids: z.array(z.number()).optional(),
         all_roles_unassigned: z.boolean().optional(),
     }),

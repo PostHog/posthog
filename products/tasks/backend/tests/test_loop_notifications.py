@@ -249,6 +249,20 @@ class TestDispatchLoopEventEmailReport(LoopNotificationsTestCase):
         template_context = mock_email_message_cls.call_args.kwargs["template_context"]
         self.assertEqual(template_context["report"], expected_report)
 
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.is_email_available", return_value=True)
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.EmailMessage")
+    def test_pr_event_email_does_not_share_the_run_email_key(
+        self, mock_email_message_cls, _mock_email_available, _mock_create_notification
+    ):
+        loop = self.create_loop(notifications={"email": {"enabled": True, "events": ["run_completed", "pr_merged"]}})
+
+        dispatch_loop_event(loop, "run_completed", {"task_run_id": "run-1"})
+        dispatch_loop_event(loop, "pr_merged", {"task_run_id": "run-1", "dedupe_key": "pr_merged:https://x/pull/1"})
+
+        campaign_keys = [call.kwargs["campaign_key"] for call in mock_email_message_cls.call_args_list]
+        self.assertEqual(len(set(campaign_keys)), 2)
+
 
 class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
     def setUp(self):
@@ -283,6 +297,23 @@ class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
         fake_client.chat_postMessage.assert_called_once_with(
             channel="C123",
             text='*Loop "Daily digest" finished*\nWeekly summary: all green.',
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_report_over_the_limit_keeps_links_out_of_the_cut(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack()
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+        sql_link = "[the query](https://us.posthog.com/project/2/sql?open_query=" + "SELECT%201%20" * 300 + ")"
+
+        dispatch_loop_event(loop, "run_completed", {"report": f"Errors rose, see {sql_link} for details."})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text='*Loop "Daily digest" finished*\nErrors rose, see the query for details.',
             unfurl_links=False,
             unfurl_media=False,
         )

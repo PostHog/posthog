@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -39,10 +40,13 @@ def bluetally_source(
 ) -> SourceResponse:
     config = BLUETALLY_ENDPOINTS[endpoint]
 
-    # Sorting on `created_at` ascending keeps offset pagination stable even as new rows are
-    # appended mid-sync.
-    params: dict[str, Any] = {"sort": config.sort, "order": "asc"}
-    if tenant_id:
+    params: dict[str, Any] = {}
+    if config.sort:
+        # Sorting on `created_at` ascending keeps offset pagination stable even as new rows are
+        # appended mid-sync.
+        params["sort"] = config.sort
+        params["order"] = "asc"
+    if tenant_id and config.accepts_tenant_id:
         params["tenant_id"] = tenant_id
 
     rest_config: RESTAPIConfig = {
@@ -53,7 +57,9 @@ def bluetally_source(
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
             # BlueTally reports no total anywhere; termination is short/empty page (OffsetPaginator default).
-            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None)
+            if config.paginated
+            else SinglePagePaginator(),
         },
         "resources": [
             {
@@ -61,17 +67,19 @@ def bluetally_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    # Every list endpoint returns a bare JSON array. A non-list 200 (wrapped payload,
-                    # proxy HTML, …) is a permanent API-contract violation — fail loud instead of
-                    # syncing the stray object as a row.
+                    "data_selector": config.data_selector,
+                    # The rows always arrive as a JSON array, bare or under `data_selector`. A 200
+                    # that doesn't carry one (wrapped payload, proxy HTML, …) is a permanent
+                    # API-contract violation — fail loud instead of syncing the stray object as a row.
                     "data_selector_required": True,
                 },
             }
         ],
     }
 
+    # Only offset pagination has a position worth persisting; a single-page endpoint is one request.
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
+    if config.paginated and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             initial_paginator_state = {"offset": resume.offset}
@@ -87,7 +95,7 @@ def bluetally_source(
         team_id,
         job_id,
         db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
+        resume_hook=save_checkpoint if config.paginated else None,
         initial_paginator_state=initial_paginator_state,
     )
 
@@ -100,19 +108,26 @@ def bluetally_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # We request `sort=created_at&order=asc`, so rows arrive oldest-first.
-        sort_mode="asc",
+        # We request `sort=created_at&order=asc`, so rows arrive oldest-first. Endpoints that take
+        # no sort parameter make no ordering guarantee, so they declare none.
+        sort_mode="asc" if config.sort else None,
         column_hints=resource.column_hints,
     )
 
 
-def validate_credentials(api_key: str, tenant_id: str | None = None, path: str = "/assets") -> bool:
-    query: dict[str, Any] = {"limit": 1}
-    if tenant_id:
+def validate_credentials(api_key: str, tenant_id: str | None = None, endpoint: str = "assets") -> bool:
+    config = BLUETALLY_ENDPOINTS[endpoint]
+    query: dict[str, Any] = {}
+    if config.paginated:
+        query["limit"] = 1
+    if tenant_id and config.accepts_tenant_id:
         query["tenant_id"] = tenant_id
+    url = f"{BLUETALLY_BASE_URL}{config.path}"
+    if query:
+        url = f"{url}?{urlencode(query)}"
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{BLUETALLY_BASE_URL}{path}?{urlencode(query)}",
+        url,
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
     )
     return ok

@@ -31,7 +31,7 @@ describe('eventIngestionRestrictionLogic', () => {
         logic.values.eventIngestionRestrictions
         await delay(1)
         const hasMatchingCall = (api.get as jest.Mock).mock.calls.some(
-            (call) => call[0] === `api/environments/${MOCK_TEAM_ID}/event_ingestion_restrictions/`
+            (call) => call[0] === `api/projects/${MOCK_TEAM_ID}/event_ingestion_restrictions/`
         )
         expect(hasMatchingCall).toBe(true)
 

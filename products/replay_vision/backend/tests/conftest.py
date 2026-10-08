@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 
 from django.conf import settings
 
@@ -30,3 +31,12 @@ async def gemini_redis():
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(autouse=True)
+def _no_prompt_question_model_call():
+    """Every scanner save condenses its prompt with a model call. Tests fall back to the prompt's first line
+    unless they patch the client themselves."""
+    with patch("products.replay_vision.backend.prompt_questions.genai.Client") as client:
+        client.return_value.models.generate_content.side_effect = RuntimeError("no model calls in tests")
+        yield client

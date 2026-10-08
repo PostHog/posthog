@@ -21,9 +21,19 @@ export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
     `{project.url}/error_tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
 // In single-exec mode $mcp_tool_name is always the 'exec' dispatcher; the inner tool the agent
-// actually invoked rides on $mcp_exec_tool_call_name, so fall back the same way the backend does.
-const MCP_EFFECTIVE_TOOL_EXPR =
-    'event.properties.$mcp_exec_tool_call_name ? event.properties.$mcp_exec_tool_call_name : event.properties.$mcp_tool_name'
+// actually invoked rides on $mcp_exec_tool_call_name. Rejected calls only carry the target.
+const MCP_EFFECTIVE_TOOL_EXPR = `(() -> {
+    if (event.properties.$mcp_exec_tool_call_name) {
+        return event.properties.$mcp_exec_tool_call_name;
+    }
+    if (event.properties.$mcp_tool_name = 'exec'
+        and event.properties.$mcp_exec_verb = 'call'
+        and event.properties.$mcp_exec_target_tool
+        and event.properties.$mcp_exec_target_tool != 'unrecognized') {
+        return event.properties.$mcp_exec_target_tool;
+    }
+    return event.properties.$mcp_tool_name;
+})()`
 
 // How long one failing tool stays deduped. Long enough to collapse a retry loop, short enough that
 // a breakage that is still happening reappears in the channel.
@@ -1331,8 +1341,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         },
                         // A hog template that is a single {…} expression resolves to the expression's raw
                         // value, so this string becomes a whole block: a chart of the alerted insight when
-                        // the anomaly investigation rendered one (`insight_chart_url` set by
-                        // investigate_anomaly_activity), otherwise the plain divider — Slack has no way to
+                        // one was rendered (`insight_chart_url`, set for any firing alert by
+                        // dispatch_alert_notification), otherwise the plain divider. Slack has no way to
                         // omit a block conditionally, and an image block with an empty URL fails the send.
                         "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
                         {
@@ -1734,6 +1744,17 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$billing_alert_firing':
+        case '$billing_alert_resolved':
+        case '$billing_alert_errored':
+        case '$billing_alert_auto_disabled':
+            return 'billing-alerts'
+        case '$replay_vision_alert_firing':
+        case '$replay_vision_alert_resolved':
+        case '$replay_vision_alert_errored':
+        case '$replay_vision_alert_auto_disabled':
+        case '$replay_vision_alert_match':
+            return 'replay-vision-alerts'
         default:
             return 'standard'
     }

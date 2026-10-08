@@ -18,6 +18,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+    _safe_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.settings import (
@@ -240,7 +244,16 @@ def _fetch(session: requests.Session, url: str) -> dict[str, Any]:
         except requests.HTTPError as exc:
             raise requests.HTTPError(_redact_apikey(str(exc)), response=exc.response) from None
 
-    return response.json()
+    try:
+        return response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        # Every successful response carries the resolved grid cell, so an empty or non-JSON 2xx body
+        # is a truncated transfer or an edge-injected page rather than Open-Meteo output. The host is
+        # ours rather than customer-configured, so there is no login-page variant of this that a
+        # retry cannot clear. `_safe_url` drops the query string, which carries the API key.
+        raise RESTClientRetryableError(
+            f"Open-Meteo returned a non-JSON response from {_safe_url(response.url)} (status {response.status_code})"
+        ) from e
 
 
 def parse_time(value: str) -> datetime:

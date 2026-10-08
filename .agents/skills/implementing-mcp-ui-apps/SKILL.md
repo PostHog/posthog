@@ -6,7 +6,7 @@ description: 'Guide for adding MCP UI apps — interactive visualizations that r
 # Implementing MCP UI apps
 
 MCP UI apps are interactive React visualizations that render alongside tool results
-in MCP clients (e.g. Claude Desktop). They're built with the Mosaic component library
+in MCP clients (e.g. Claude Desktop). They're built with the Quill component library
 and served via Cloudflare Workers Static Assets.
 
 Full reference: [services/mcp/CONTRIBUTING.md](../../../services/mcp/CONTRIBUTING.md).
@@ -39,7 +39,7 @@ are shown as plain text/JSON in the chat.
 products/{product}/mcp/
   apps/                          # React view components (you write these)
     EntityView.tsx               # Detail view
-    EntityListView.tsx           # List view (uses ListDetailView from Mosaic)
+    EntityListView.tsx           # List view (uses ListDetailView from @posthog/mcp-ui)
     index.ts                     # Barrel exports
   tools.yaml                     # YAML config: ui_apps + tools
 
@@ -87,7 +87,7 @@ export function MyEntityView({ data }: { data: MyEntityData }): ReactElement {
 }
 ```
 
-**List view** — uses `ListDetailView` from Mosaic for the list-to-detail state machine:
+**List view** — uses `ListDetailView` from `@posthog/mcp-ui` for the list-to-detail state machine:
 
 ```tsx
 import { type ReactElement, type ReactNode } from 'react'

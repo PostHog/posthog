@@ -1,0 +1,507 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'.",
+    "properties": {
+        "metric_event": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+        },
+        "metric_properties": {
+            "anyOf": [
+                {
+                    "description": "Event or person property filters that narrow which events are counted.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "anyOf": [
+                                            {
+                                                "enum": [
+                                                    "exact",
+                                                    "is_not",
+                                                    "icontains",
+                                                    "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
+                                                    "regex",
+                                                    "not_regex",
+                                                    "gt",
+                                                    "gte",
+                                                    "lt",
+                                                    "lte",
+                                                    "is_set",
+                                                    "is_not_set",
+                                                    "is_date_exact",
+                                                    "is_date_before",
+                                                    "is_date_after",
+                                                    "between",
+                                                    "not_between",
+                                                    "min",
+                                                    "max",
+                                                    "in",
+                                                    "not_in",
+                                                    "is_cleaned_path_exact",
+                                                    "flag_evaluates_to",
+                                                    "semver_eq",
+                                                    "semver_neq",
+                                                    "semver_gt",
+                                                    "semver_gte",
+                                                    "semver_lt",
+                                                    "semver_lte",
+                                                    "semver_tilde",
+                                                    "semver_caret",
+                                                    "semver_wildcard",
+                                                    "icontains_multi",
+                                                    "not_icontains_multi"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "default": "exact"
+                                    },
+                                    "type": {
+                                        "const": "event",
+                                        "default": "event",
+                                        "description": "Event properties",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "gte",
+                                            "lt",
+                                            "lte",
+                                            "is_set",
+                                            "is_not_set",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "between",
+                                            "not_between",
+                                            "min",
+                                            "max",
+                                            "in",
+                                            "not_in",
+                                            "is_cleaned_path_exact",
+                                            "flag_evaluates_to",
+                                            "semver_eq",
+                                            "semver_neq",
+                                            "semver_gt",
+                                            "semver_gte",
+                                            "semver_lt",
+                                            "semver_lte",
+                                            "semver_tilde",
+                                            "semver_caret",
+                                            "semver_wildcard",
+                                            "icontains_multi",
+                                            "not_icontains_multi"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "person",
+                                        "default": "person",
+                                        "description": "Person properties",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "maxItems": 10,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event."
+        },
+        "previous_experiments_limit": {
+            "default": 10,
+            "description": "How many experiments to return, most recently launched first, then drafts, 1 to 25.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "number"
+        },
+        "shared_metrics_limit": {
+            "default": 10,
+            "description": "How many shared metrics to return, most reused first, 1 to 25.",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "number"
+        },
+        "target_event": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+        },
+        "target_properties": {
+            "anyOf": [
+                {
+                    "description": "Event or person property filters that narrow which events are counted.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "anyOf": [
+                                            {
+                                                "enum": [
+                                                    "exact",
+                                                    "is_not",
+                                                    "icontains",
+                                                    "not_icontains",
+                                                    "starts_with",
+                                                    "not_starts_with",
+                                                    "ends_with",
+                                                    "not_ends_with",
+                                                    "regex",
+                                                    "not_regex",
+                                                    "gt",
+                                                    "gte",
+                                                    "lt",
+                                                    "lte",
+                                                    "is_set",
+                                                    "is_not_set",
+                                                    "is_date_exact",
+                                                    "is_date_before",
+                                                    "is_date_after",
+                                                    "between",
+                                                    "not_between",
+                                                    "min",
+                                                    "max",
+                                                    "in",
+                                                    "not_in",
+                                                    "is_cleaned_path_exact",
+                                                    "flag_evaluates_to",
+                                                    "semver_eq",
+                                                    "semver_neq",
+                                                    "semver_gt",
+                                                    "semver_gte",
+                                                    "semver_lt",
+                                                    "semver_lte",
+                                                    "semver_tilde",
+                                                    "semver_caret",
+                                                    "semver_wildcard",
+                                                    "icontains_multi",
+                                                    "not_icontains_multi"
+                                                ],
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "default": "exact"
+                                    },
+                                    "type": {
+                                        "const": "event",
+                                        "default": "event",
+                                        "description": "Event properties",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "type": "string"
+                                    },
+                                    "label": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "operator": {
+                                        "enum": [
+                                            "exact",
+                                            "is_not",
+                                            "icontains",
+                                            "not_icontains",
+                                            "starts_with",
+                                            "not_starts_with",
+                                            "ends_with",
+                                            "not_ends_with",
+                                            "regex",
+                                            "not_regex",
+                                            "gt",
+                                            "gte",
+                                            "lt",
+                                            "lte",
+                                            "is_set",
+                                            "is_not_set",
+                                            "is_date_exact",
+                                            "is_date_before",
+                                            "is_date_after",
+                                            "between",
+                                            "not_between",
+                                            "min",
+                                            "max",
+                                            "in",
+                                            "not_in",
+                                            "is_cleaned_path_exact",
+                                            "flag_evaluates_to",
+                                            "semver_eq",
+                                            "semver_neq",
+                                            "semver_gt",
+                                            "semver_gte",
+                                            "semver_lt",
+                                            "semver_lte",
+                                            "semver_tilde",
+                                            "semver_caret",
+                                            "semver_wildcard",
+                                            "icontains_multi",
+                                            "not_icontains_multi"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "person",
+                                        "default": "person",
+                                        "description": "Person properties",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "boolean"
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "maxItems": 10,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains."
+        },
+        "target_url_contains": {
+            "anyOf": [
+                {
+                    "maxLength": 1000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+        }
+    },
+    "type": "object"
+}

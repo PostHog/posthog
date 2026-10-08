@@ -1,7 +1,12 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from posthog.schema import ActionsNode, Breakdown, ExperimentEventExposureConfig, MultipleVariantHandling
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -12,10 +17,8 @@ from products.experiments.backend.hogql_queries.cuped_config import CupedQueryCo
 class ExperimentQueryContext:
     """Experiment-level invariants shared across query construction.
 
-    This is a transitional and organizational object: it carries the
-    experiment-scoped parameters that the builder receives at construction
-    time so future extracted modules can take a single, stable input
-    instead of threading each parameter individually.
+    The query builder and the modules it delegates to, such as the exposure
+    query builder, take this one object instead of each parameter.
     """
 
     team: Team
@@ -36,13 +39,44 @@ class ExperimentQueryContext:
 
 @dataclass(frozen=True)
 class ExperimentPrecomputationContext:
-    """Explicit precomputation inputs supplied at build time.
+    """Precomputation inputs supplied at build time, not at construction.
 
-    Replaces post-construction mutation of the builder's job-id attributes.
-    The builder is needed to generate the precompute queries before any job
-    IDs exist (chicken-and-egg), so job IDs can only be supplied once they
-    are known, at the build call.
+    The builder generates the precompute queries before any job IDs exist,
+    so the caller can supply the job IDs only at the build call.
     """
 
     exposure_job_ids: list[str] | None = None
     metric_events_job_ids: list[str] | None = None
+
+
+@frozen
+class MaturityGate:
+    """Excludes entities whose maturity window has not ended when the query is built.
+
+    Every maturity filter of one build uses this gate, so they all compare against
+    the same cutoff. ``computed_at`` is the only time input.
+    """
+
+    enabled: bool
+    computed_at: datetime
+
+    @classmethod
+    def of(cls, context: ExperimentQueryContext, *, computed_at: datetime) -> "MaturityGate":
+        return cls(enabled=context.only_count_matured_users, computed_at=computed_at)
+
+    def condition(self, anchor: ast.Expr, window_seconds: int) -> ast.Expr | None:
+        """``anchor + window <= cutoff``, or None when maturity filtering is off or the window is empty.
+
+        ``anchor`` is the per-entity timestamp that the window starts from, for example
+        ``min(timestamp)`` of the exposure events.
+        """
+        if not self.enabled or window_seconds == 0:
+            return None
+        return parse_expr(
+            "{anchor} + toIntervalSecond({window_seconds}) <= toDateTime({cutoff}, 'UTC')",
+            placeholders={
+                "anchor": anchor,
+                "window_seconds": ast.Constant(value=window_seconds),
+                "cutoff": ast.Constant(value=self.computed_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")),
+            },
+        )

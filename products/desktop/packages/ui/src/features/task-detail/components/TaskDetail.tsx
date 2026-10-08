@@ -5,17 +5,19 @@ import { useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
 import { useBlurOnEscape } from "../../../hooks/useBlurOnEscape";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
 import { logger } from "../../../shell/logger";
+import { useArchiveShortcut } from "../../archive/useArchiveShortcut";
 import { useTaskArchive } from "../../archive/useTaskArchive";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useChannels } from "../../canvas/hooks/useChannels";
 import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
+import { useFilingTasksStore } from "../../canvas/stores/filingTasksStore";
 import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
 } from "../../code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "../../code-review/reviewNavigationStore";
 import { useFileSearchStore } from "../../command/fileSearchStore";
-import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
 import { useRightPanelStore } from "../../navigation/rightPanelStore";
@@ -23,6 +25,7 @@ import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
 import { useCwd } from "../../sidebar/useCwd";
+import { useInUnfocusedTile } from "../../tab-tiling/tileContext";
 import { useRenameTask } from "../../tasks/useTaskMutations";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
@@ -54,37 +57,38 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const taskId = initialTask.id;
   const { task } = useTaskData({ taskId, initialTask });
+  const { channels } = useChannels();
+  const filing = useFilingTasksStore((state) => state.filingTasks[taskId]);
+  const taskChannel = channels.find((channel) => channel.id === task.channel);
+  const resolvedChannelId = task.channel ?? channelId;
+  const resolvedChannelName = taskChannel?.name ?? channelName;
   useMarkTaskViewed(taskId);
 
   const effectiveRepoPath = useCwd(taskId);
 
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
 
+  const inBackgroundTile = useInUnfocusedTile();
+
   const { enableScope, disableScope } = useHotkeysContext();
   const { requestArchive, dialog: archiveDialog } = useTaskArchive(task, {
     navigateUnscoped: !channelId,
   });
 
-  useHotkeys(
-    SHORTCUTS.ARCHIVE_TASK,
-    (event) => {
-      event.preventDefault();
-      requestArchive();
-    },
-    {
-      scopes: ["taskDetail"],
-      enableOnContentEditable: true,
-      enableOnFormTags: true,
-    },
-    [requestArchive],
-  );
+  useArchiveShortcut({
+    onArchive: requestArchive,
+    enabled: !inBackgroundTile,
+    priority: "visible-task",
+    scopes: ["taskDetail"],
+  });
 
   useEffect(() => {
+    if (inBackgroundTile) return;
     enableScope("taskDetail");
     return () => {
       disableScope("taskDetail");
     };
-  }, [enableScope, disableScope]);
+  }, [enableScope, disableScope, inBackgroundTile]);
 
   // Mounting TaskDetail means the task was actually rendered in front of the
   // user — that, not any API fetch of the task, is what clears the unread
@@ -100,6 +104,7 @@ export function TaskDetail({
   }, [markTasksRead, taskId]);
 
   useHotkeys("mod+p", () => openFilePicker(), {
+    enabled: !inBackgroundTile,
     enableOnContentEditable: true,
     enableOnFormTags: true,
     preventDefault: true,
@@ -138,10 +143,10 @@ export function TaskDetail({
   // Memoized so the headerContent memo below isn't busted by unrelated renders.
   const trailing = useMemo(
     () =>
-      channelId ? (
-        <CopyThreadLinkButton channelId={channelId} taskId={taskId} />
+      resolvedChannelId ? (
+        <CopyThreadLinkButton channelId={resolvedChannelId} taskId={taskId} />
       ) : null,
-    [channelId, taskId],
+    [resolvedChannelId, taskId],
   );
   const workspace = useWorkspace(taskId);
   const workspaceMode = workspace?.mode;
@@ -150,10 +155,11 @@ export function TaskDetail({
       // Inside a channel, prefix the editable title with the channel
       // breadcrumb ("# channel / title"); the plain Code view keeps the bare
       // title. Both share the same inline-rename editor.
-      channelName ? (
+      resolvedChannelName ? (
         <ChannelBreadcrumb
-          channelName={channelName}
-          channelId={channelId}
+          channelName={resolvedChannelName}
+          channelId={resolvedChannelId}
+          isLoading={filing?.status === "pending"}
           leafIcon={
             <span className="flex items-center gap-1.5">
               <TaskHeaderMark
@@ -206,8 +212,9 @@ export function TaskDetail({
         </Flex>
       ),
     [
-      channelName,
-      channelId,
+      resolvedChannelName,
+      resolvedChannelId,
+      filing?.status,
       task,
       trailing,
       isEditingTitle,

@@ -8,7 +8,15 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.models.integration import InstagramIntegration, Integration, OauthIntegration
+from parameterized import parameterized
+
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    InstagramIntegration,
+    Integration,
+    MetaAdsIntegration,
+    OauthIntegration,
+)
 
 
 @override_settings(INSTAGRAM_APP_CLIENT_ID="instagram-client-id", INSTAGRAM_APP_CLIENT_SECRET="instagram-client-secret")
@@ -70,3 +78,42 @@ class TestInstagramIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.sensitive_config["access_token"] == "new-token"
         assert integration.errors == ""
+
+
+@override_settings(META_ADS_APP_CLIENT_ID="meta-client-id", META_ADS_APP_CLIENT_SECRET="meta-client-secret")
+class TestMetaAdsIntegrationModel(BaseTest):
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            integration_id="fb-user-1",
+            config={"expires_in": 100, "refreshed_at": int(time.time()) - 90},
+            sensitive_config={"access_token": "old-token"},
+        )
+
+    @parameterized.expand([("throttled", 429), ("unavailable", 503)])
+    @patch("posthog.models.integration.meta.requests.post")
+    def test_an_unavailable_meta_leaves_the_connection_usable(self, _name, status_code, mock_post):
+        # A 5xx or a throttle says nothing about the grant. Flagging the connection over one stops
+        # every warehouse sync on it and tells the customer to re-authorize a working account.
+        integration = self._integration()
+        mock_post.return_value.status_code = status_code
+        mock_post.return_value.json.return_value = {}
+
+        MetaAdsIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "old-token"
+        assert integration.config["refresh_failure_count"] == 1
+
+    @patch("posthog.models.integration.meta.requests.post")
+    def test_a_rejected_token_flags_the_connection(self, mock_post):
+        integration = self._integration()
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"error": {"type": "OAuthException", "code": 190}}
+
+        MetaAdsIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == ERROR_TOKEN_REFRESH_FAILED

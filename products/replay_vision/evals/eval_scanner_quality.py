@@ -1,7 +1,7 @@
 """Golden-dataset quality suite for Replay Vision scanner prompts.
 
 Each case re-runs the production scan pipeline (same Jinja templates, response schemas, events
-tool, and citation handling, via run_scan) against a collected session video plus its event
+round, and citation handling, via run_scan) against a collected session video plus its event
 snapshot, then scores the fresh output against the recorded output and its human thumbs label.
 Edit the templates under backend/temporal/scanners/prompts/ and re-run to compare experiments
 in the local logs (this suite is private; nothing is sent to Braintrust).
@@ -25,11 +25,11 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
-from products.replay_vision.backend.prompt_evaluation import primary_outcome
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags, run_scan
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
+from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 from products.replay_vision.evals.dataset import (
     DATASET_ENV_VAR,
     GoldenCase,
@@ -37,6 +37,7 @@ from products.replay_vision.evals.dataset import (
     ensure_dataset_fresh,
     load_dataset,
 )
+from products.replay_vision.evals.outcomes import primary_outcome
 from products.replay_vision.evals.scorers import (
     SUMMARY_FIELDS,
     LabeledOutcome,
@@ -155,6 +156,9 @@ async def _scan_task(
                 file_uri=uploaded.uri or "",
                 mime_type=uploaded.mime_type or "video/mp4",
                 team_id=golden.team_id,
+                # A case collected before the map was captured scores as if nothing was cut.
+                video_clock=video_clock_from_export_context({"inactivity_periods": golden.inactivity_periods})
+                or VideoClock(spans=()),
             )
         except ScannerFailureError as exc:
             # A scan the model cannot complete is a prompt-quality signal (broken schema compliance),
@@ -177,6 +181,7 @@ async def _scan_task(
         "error": None,
         "scanner_type": golden.scanner_type,
         "signals_count": len(result.signals),
+        "signals": [signal.model_dump(mode="json") for signal in result.signals],
         "primary": primary,
         "last_message": primary or "",
     }

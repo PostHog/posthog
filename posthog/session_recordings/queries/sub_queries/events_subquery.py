@@ -1,14 +1,16 @@
 from collections.abc import Iterable
-from datetime import datetime, timedelta
-from typing import Any, Optional, cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, Optional, cast
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
+    EventMatchScope,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
@@ -18,29 +20,32 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
-from posthog.models import Entity, EventProperty, Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.dataclasses import frozen
+from posthog.models import EventProperty, Team
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
-    NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
+    _node_from_entity,
     is_anonymous_cohort_fix_enabled,
     is_cohort_property,
     is_event_property,
     is_group_property,
+    is_negative_prop,
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
+from posthog.utils import get_instance_region
 
 ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY = frozenset(
     {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}
@@ -54,6 +59,11 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "replay_negative_blocklist_truncated",
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
 )
+
+# Allow for the delay between an event and the recorder's first or last snapshot.
+RECORDING_MATCH_MARGIN_MINUTES = 1
+COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
+EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
 # a person merge instead of reporting whoever the event was attributed to at ingest.
@@ -81,11 +91,11 @@ def _event_session_id_field() -> ast.Field:
 
 
 def get_negative_entity_properties(
-    entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
+    entities: list[EventsNode | ActionsNode | DataWarehouseNode],
 ) -> list[AnyPropertyFilter]:
     negative_props: list[AnyPropertyFilter] = []
     for entity in entities:
-        if isinstance(entity, DataWarehouseNode | str) or not entity.properties:
+        if isinstance(entity, DataWarehouseNode) or not entity.properties:
             continue
         for prop in entity.properties:
             if is_negative_prop(prop):
@@ -93,16 +103,15 @@ def get_negative_entity_properties(
     return negative_props
 
 
-def is_negative_prop(prop: AnyPropertyFilter) -> bool:
-    if not hasattr(prop, "operator"):
-        return False
-    if prop.operator in NEGATIVE_OPERATORS:
-        return True
-    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
-    # (it has different semantics there), but for cohort filters it IS the negative form.
-    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
-        return True
-    return False
+@frozen
+class SessionIdMatchPlan:
+    queries: list[ast.SelectQuery]
+    strategy: Literal["separate", "combined"]
+    filter_count: int
+    # Filters that carry an event property. When 0 < this < filter_count, the combined scan also
+    # reads properties for the plain event filters, which the separate scans never needed.
+    property_filter_count: int
+    combined_eligible: bool
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
@@ -127,22 +136,83 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
 
-    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+    def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
         # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
         if sample and self._sample_factor is not None:
             join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
             self.emitted_sampled_subquery = True
+        if self._query.event_match_scope == EventMatchScope.RECORDING:
+            join.next_join = ast.JoinExpr(
+                # GLOBAL: the initiator builds the per-recording bounds once and ships them to each
+                # shard. Without it every shard would fan the replay scan out across the cluster again.
+                join_type="GLOBAL INNER JOIN",
+                table=self._recording_bounds_query(scope_session_ids=scope_session_ids),
+                alias="recording_bounds",
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr("recording_bounds.session_id = events.properties.$session_id"),
+                    constraint_type="ON",
+                ),
+            )
         return join
+
+    def _recording_bounds_query(self, scope_session_ids: list[str] | None = None) -> ast.SelectQuery:
+        session_ids = scope_session_ids if scope_session_ids is not None else self._query.session_ids
+        if session_ids is not None:
+            scope = parse_expr(
+                "s.session_id IN {session_ids} AND s.min_first_timestamp >= {date_from}",
+                placeholders={
+                    "session_ids": ast.Constant(value=session_ids),
+                    "date_from": ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                },
+            )
+        else:
+            # Include adjacent segments because a recording can cross either date boundary. One day of
+            # slack covers the SDK's 24-hour session cap; a wider window would grow the GLOBAL-shipped
+            # bounds set for every query to cover only sessions no conforming SDK records.
+            scope = parse_expr(
+                "s.min_first_timestamp >= {date_from} AND s.min_first_timestamp <= {date_to}",
+                placeholders={
+                    "date_from": ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    "date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
+                },
+            )
+        query = parse_select(
+            """
+            SELECT s.session_id AS session_id,
+                   min(s.min_first_timestamp) AS window_start,
+                   max(s.max_last_timestamp) AS window_end
+            FROM raw_session_replay_events AS s
+            WHERE {scope}
+            GROUP BY s.session_id
+            """,
+            placeholders={"scope": scope},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recording_window_predicates(self) -> list[ast.Expr]:
+        if self._query.event_match_scope != EventMatchScope.RECORDING:
+            return []
+        return [
+            parse_expr(
+                "events.timestamp >= subtractMinutes(recording_bounds.window_start, {margin})",
+                placeholders={"margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
+            ),
+            parse_expr(
+                "events.timestamp <= addMinutes(recording_bounds.window_end, {margin})",
+                placeholders={"margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
+            ),
+        ]
 
     @staticmethod
     def _event_predicates(
-        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
+        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
     ) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
 
         for entity in entities:
-            if isinstance(entity, DataWarehouseNode | str):
+            if isinstance(entity, DataWarehouseNode):
                 continue
 
             # this is always _positive_ operations
@@ -162,29 +232,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         group_by: list[ast.Expr],
         limit_expr: ast.Expr,
     ) -> ast.SelectQuery:
-        # NOTE: ORDER BY can cause incorrect results in globalIn contexts on distributed ClickHouse tables.
-        # The ORDER BY was meant to prefer recent sessions when hitting LIMIT, but we saw a
-        # with a bad experience filtering out 60% of results incorrectly
-        # We use a feature flag to control this behavior for safe rollout.
-
-        remove_order_by = feature_enabled_or_false(
-            "remove-order-by-for-event-subquery",
-            str(self._team.organization.id),
-            send_feature_flag_events=False,
-        )
-
-        order_by = None
-        if not remove_order_by:
-            # Legacy behavior: include ORDER BY (may cause incorrect results)
-            order_by = [ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")]
-
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
             select_from=self._events_join(),
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
-            order_by=order_by,
             limit=limit_expr,
         )
 
@@ -340,6 +393,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # true and reach the GROUP BY. The caller matches this against the replay
                     # table's non-nullable session_id, which rejects a NULL in the set.
                     ast.Call(name="notEmpty", args=[_event_session_id_field()]),
+                    *self._recording_window_predicates(),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id
@@ -467,6 +521,65 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         )
 
+    def _can_combine_session_filters(self, filter_count: int) -> bool:
+        if (
+            filter_count < 2
+            or self._sample_factor is not None
+            or self._events_timestamp_floor is not None
+            or self._query.actions
+            or any(not isinstance(entity, EventsNode) for entity in self.entities)
+            or self.negated_entities
+            or self.person_properties
+            or self.group_properties
+            or self.cohort_properties
+        ):
+            return False
+
+        properties = self.event_properties + [p for entity in self.entities for p in entity.properties or []]
+        return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
+
+    def _emitted_event_properties(self) -> list[AnyPropertyFilter]:
+        # With operand AND, _negative_blocklist_query handles the negative event properties.
+        if self._query.operand == "AND":
+            return [p for p in self.event_properties if not is_negative_prop(p)]
+        return self.event_properties
+
+    def _property_filter_count(self) -> int:
+        return len(self._emitted_event_properties()) + sum(1 for entity in self.entities if entity.properties)
+
+    def _combined_filters_enabled(self) -> bool:
+        return (
+            get_feature_flag_or_none(
+                COMBINED_EVENT_FILTERS_FLAG,
+                str(self._team.pk),
+                person_properties={"region": get_instance_region()},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+
+    def _combined_session_query(self, predicates: list[ast.Expr]) -> ast.SelectQuery:
+        is_or = self.property_operand == "OR"
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
+            select_from=self._events_join(),
+            where=self._where_predicates(ast.Or(exprs=predicates)),
+            group_by=[_event_session_id_field()],
+            # For OR, the WHERE already requires one matching predicate per row.
+            having=None
+            if is_or
+            else ast.And(
+                exprs=[
+                    parse_expr("max(ifNull({predicate}, false))", placeholders={"predicate": predicate})
+                    for predicate in predicates
+                ]
+            ),
+            # The separate path caps each filter's set. An OR union of those sets can hold up to one cap
+            # per filter, so the combined OR gets the same total. Capped results can still differ.
+            limit=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT * (len(predicates) if is_or else 1)),
+        )
+
     def _get_queries_for_matching(
         self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
     ) -> list[ast.SelectQuery]:
@@ -476,11 +589,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         this might be slower than the previous approach of having one huge event query
         but that approach is horribly complex, and we keep getting bug reports
         that are avoidable with a simpler approach
+        `get_session_id_match_plan` can combine a narrow set of positive filters behind a release flag.
 
         `union_entities` merges the event/action filters into a single subquery, for callers that
         intersect the subqueries by event id rather than by session id (see
         `get_query_for_event_id_matching`).
         """
+        gathered_exprs, hybrid_query = self._gathered_exprs(union_entities)
+        return self._separate_queries(select_expr, group_by, gathered_exprs, hybrid_query)
+
+    def _gathered_exprs(self, union_entities: bool) -> tuple[list[ast.Expr], Optional[ast.SelectQuery]]:
         gathered_exprs: list[ast.Expr] = []
         event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
@@ -490,13 +608,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip event properties with negative operators since they're handled by _negative_guard_query
+        # With operand AND, _negative_blocklist_query handles negative group and person properties
         skip_negative_properties = self._query.operand == "AND"
 
-        for p in self.event_properties:
-            if skip_negative_properties and is_negative_prop(p):
-                continue
-
+        for p in self._emitted_event_properties():
             if self._allow_event_property_expansion:
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
                 gathered_exprs.append(
@@ -561,6 +676,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     continue
                 gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
+        return gathered_exprs, hybrid_query
+
+    def _separate_queries(
+        self,
+        select_expr: ast.Expr,
+        group_by: list[ast.Expr],
+        gathered_exprs: list[ast.Expr],
+        hybrid_query: Optional[ast.SelectQuery],
+    ) -> list[ast.SelectQuery]:
         queries: list[ast.SelectQuery] = []
 
         # Add hybrid query first if we used it for person properties
@@ -572,15 +696,42 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # 2. Replay was recently disabled (recent sessions have no recordings)
             # With the original 10000 limit, we might miss all sessions that actually have recordings.
             queries.append(
-                self._select_from_events(select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=1000000))
+                self._select_from_events(
+                    select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT)
+                )
             )
 
         return queries
 
     def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
-        return self._get_queries_for_matching(
-            select_expr=ast.Alias(alias="session_id", expr=_event_session_id_field()),
-            group_by=[_event_session_id_field()],
+        return self.get_session_id_match_plan().queries
+
+    def get_session_id_match_plan(self, allow_combined_filters: bool = False) -> SessionIdMatchPlan:
+        gathered_exprs, hybrid_query = self._gathered_exprs(union_entities=False)
+        eligible = allow_combined_filters and self._can_combine_session_filters(len(gathered_exprs))
+        # Recording scope adds a GLOBAL JOIN on the per-recording bounds to every events subquery, and
+        # ClickHouse ships and builds that bounds set once per subquery. Separate queries would ship it
+        # once per filter, so eligible filters always take the single combined scan under this scope.
+        # The combined flag still A/B-tests the strategies where almost all traffic is: session scope.
+        combined = eligible and (
+            self._query.event_match_scope == EventMatchScope.RECORDING or self._combined_filters_enabled()
+        )
+        queries = (
+            [self._combined_session_query(gathered_exprs)]
+            if combined
+            else self._separate_queries(
+                ast.Alias(alias="session_id", expr=_event_session_id_field()),
+                [_event_session_id_field()],
+                gathered_exprs,
+                hybrid_query,
+            )
+        )
+        return SessionIdMatchPlan(
+            queries=queries,
+            strategy="combined" if combined else "separate",
+            filter_count=len(gathered_exprs),
+            property_filter_count=self._property_filter_count(),
+            combined_eligible=eligible,
         )
 
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
@@ -615,7 +766,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=self._events_join(sample=False),
+            select_from=self._events_join(sample=False, scope_session_ids=session_ids),
             where=where,
             group_by=[_event_session_id_field()],
             # A session id can only be returned once, so the input bounds the output.
@@ -776,6 +927,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
             )
 
+        exprs += self._recording_window_predicates()
+
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
@@ -799,9 +952,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return bool(raw_entity.get("negation"))
 
     @staticmethod
-    def _entity_node(
-        raw_entity: dict[str, Any], default_type: str
-    ) -> EventsNode | ActionsNode | DataWarehouseNode | str:
+    def _entity_node(raw_entity: dict[str, Any], default_type: str) -> EventsNode | ActionsNode | DataWarehouseNode:
         # RecordingsQuery accepts untyped entity dicts, and Entity rejects any type it does not
         # know, so fall back to the type the source list implies.
         entity = (
@@ -810,7 +961,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             else {**raw_entity, "type": default_type}
         )
         try:
-            return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
+            return _node_from_entity(entity)
         except ValueError as e:
             # Entity and the node models raise plain ValueErrors for a dict they can't build from
             # (pydantic's ValidationError subclasses it), and those escape as a 500. The dict is
@@ -839,7 +990,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self.action_entities + self.event_entities
 
     @property
-    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | str]:
+    def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode]:
         # the legacy Entity class drops unknown keys, so negation is read off the raw dicts
         return [
             self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)

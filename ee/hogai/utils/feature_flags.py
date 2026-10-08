@@ -114,9 +114,10 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
+def has_conversation_task_mirror_feature_flag(team: Team, user: User) -> bool:
+    """Whether LangGraph conversations are mirrored into the task world after each turn."""
     return feature_enabled_or_false(
-        "user-interviews",
+        "phai-conversation-task-mirror",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

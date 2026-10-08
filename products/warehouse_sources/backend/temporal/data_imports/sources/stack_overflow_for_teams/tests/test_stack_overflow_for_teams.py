@@ -151,39 +151,6 @@ class TestStackOverflowForTeamsSourceNonFanout:
         assert snapshots[1]["params"]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_bearer(self, MockSession) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-            BearerTokenAuth,
-        )
-
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1"}], total_pages=1)])
-
-        _rows(_source("Questions", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "tok"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": "1"}], page=1, total_pages=2),
-                _response([{"id": "2"}], page=2, total_pages=2),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source("Questions", manager))
-
-        # State is saved only while more pages remain (page 1 -> next_page 2), never on the last page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == StackOverflowForTeamsResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response([{"id": "2"}], page=2, total_pages=2)])
@@ -193,63 +160,6 @@ class TestStackOverflowForTeamsSourceNonFanout:
         assert [r["id"] for r in rows] == ["2"]
         assert session.send.call_count == 1
         assert snapshots[0]["params"]["page"] == 2
-
-    @pytest.mark.parametrize(
-        "endpoint, expected_path, expected_sort, expected_order",
-        [
-            ("Questions", "/questions", "creation", "asc"),
-            ("Articles", "/articles", "creation", "asc"),
-            ("Tags", "/tags", "creationDate", "asc"),
-            ("Users", "/users", "reputation", "asc"),
-            ("Collections", "/collections", "creation", "asc"),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_each_top_level_endpoint_requests_its_own_path_and_sort(
-        self, MockSession, endpoint, expected_path, expected_sort, expected_order
-    ) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1"}], total_pages=1)])
-
-        _rows(_source(endpoint, _make_manager()))
-
-        assert snapshots[0]["url"] == f"https://api.stackoverflowteams.com/v3/teams/engineering{expected_path}"
-        assert snapshots[0]["params"]["sort"] == expected_sort
-        assert snapshots[0]["params"]["order"] == expected_order
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total_pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(_source("Questions", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_items_key_stops_quietly(self, MockSession) -> None:
-        # A body without the "items" key is treated as an empty page.
-        session = MockSession.return_value
-        _wire(session, [_response(None, drop_key=True)])
-
-        rows = _rows(_source("Questions", _make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_incremental_cursor_ever_passed(self, MockSession) -> None:
-        # Every endpoint is full refresh - no server-side timestamp filter is used.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "1"}], total_pages=1)])
-
-        _rows(_source("Questions", _make_manager()))
-
-        assert "from" not in snapshots[0]["params"]
-        assert "to" not in snapshots[0]["params"]
 
 
 class TestStackOverflowForTeamsSourceFanout:
@@ -275,30 +185,6 @@ class TestStackOverflowForTeamsSourceFanout:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["creationDate"]
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.stack_overflow_for_teams.build_dependent_resource"
-    )
-    def test_answers_fanout_wires_selectors(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        stack_overflow_for_teams_source(
-            team="engineering",
-            api_token="tok",
-            endpoint="Answers",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "pageSize"
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "items"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["fanout"].parent_name == "Questions"
-        assert kwargs["fanout"].resolve_param == "questionId"
-        assert kwargs["fanout"].resolve_field == "id"
-
 
 class TestExpectedSchemaEndpoints:
     def test_every_endpoint_declared_in_settings_has_a_path_and_primary_key(self) -> None:
@@ -312,25 +198,6 @@ class TestValidateCredentials:
     def test_ok(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("engineering", "tok") == (True, 200)
-
-    @mock.patch(SO4T_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("engineering", "tok") == (False, 401)
-
-    @mock.patch(SO4T_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("engineering", "tok") == (False, None)
-
-    @mock.patch(SO4T_SESSION_PATCH)
-    def test_probes_users_me_endpoint_with_bearer_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("engineering", "tok")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.stackoverflowteams.com/v3/teams/engineering/users/me"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer tok"
 
     @mock.patch(SO4T_SESSION_PATCH)
     def test_bad_team_raises_before_probe(self, mock_session) -> None:

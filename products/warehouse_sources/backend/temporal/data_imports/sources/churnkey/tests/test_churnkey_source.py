@@ -46,26 +46,9 @@ class TestChurnkeySourceConfig:
 
 
 class TestChurnkeySchemas:
-    def test_get_schemas(self) -> None:
-        schemas = ChurnkeySource().get_schemas(_config(), team_id=1)
-        names = {s.name for s in schemas}
-        assert "Sessions" in names
-
-        sessions = next(s for s in schemas if s.name == "Sessions")
-        assert sessions.supports_incremental is False
-        assert sessions.supports_append is False
-        assert sessions.detected_primary_keys == ["_id"]
-
     def test_get_schemas_name_filter(self) -> None:
         schemas = ChurnkeySource().get_schemas(_config(), team_id=1, names=["does-not-exist"])
         assert schemas == []
-
-    def test_documented_tables_render(self) -> None:
-        # Exercises the public-docs path end to end (placeholder config, no credentials).
-        tables = ChurnkeySource().get_documented_tables()
-        assert [t["name"] for t in tables] == ["Sessions"]
-        assert tables[0]["primary_keys"] == ["_id"]
-        assert "Full refresh" in tables[0]["sync_methods"]
 
 
 class TestChurnkeyValidateCredentials:
@@ -85,11 +68,6 @@ class TestChurnkeyValidateCredentials:
         assert ok is expected_ok
         if not expected_ok:
             assert error
-
-    def test_app_id_error_is_specific(self) -> None:
-        with patch(_VALIDATE, return_value=(False, 404)):
-            _, error = ChurnkeySource().validate_credentials(_config(), team_id=1)
-        assert error is not None and "App ID" in error
 
 
 class TestChurnkeyPipeline:

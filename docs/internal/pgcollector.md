@@ -17,6 +17,10 @@ live in the crate: [`DESIGN.md`](../../rust/pgcollector/DESIGN.md),
 - **Output**: partitioned `ts_*` time series, `cur_*` current state, `events`,
   `collector_runs` in the stats database, daily partitions, `retention_days`.
   A collector adds columns to its table when its SELECT gains a column.
+  Statement-bearing tables carry a `tags` jsonb column parsed from query
+  comments (`/* key=value */`); see
+  [`docs/query-tags.md`](../../rust/pgcollector/docs/query-tags.md) for the
+  accepted shapes and the key vocabulary.
 - **Load**: every session runs with `statement_timeout = 5s` /
   `lock_timeout = 1s`; per-collector cost is tabulated in `docs/deploy.md`
   "Load profile". Per-backend collectors ship off by default.

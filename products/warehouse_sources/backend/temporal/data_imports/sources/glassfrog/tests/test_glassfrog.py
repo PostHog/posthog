@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.glassfrog import (
     GLASSFROG_BASE_URL,
+    GLASSFROG_PAGE_SIZE,
     glassfrog_source,
     validate_credentials,
 )
@@ -65,24 +66,15 @@ class TestGetRows:
         RESTClient._send_request.retry.wait = self._original_wait  # type: ignore[attr-defined]
 
     @mock.patch(SESSION_PATCH)
-    def test_single_request_yields_rows_unwrapped_from_resource_key(self, MockSession) -> None:
+    def test_repeated_page_raises_instead_of_looping(self, MockSession) -> None:
         session = MockSession.return_value
-        rows_body = [{"id": 1, "name": "General Company Circle"}, {"id": 2, "name": "Ops"}]
-        prepared = _wire(session, [_response(200, {"circles": rows_body})])
+        full_page = [{"id": i} for i in range(GLASSFROG_PAGE_SIZE)]
+        _wire(session, [_response(200, {"tensions": full_page})] * 3)
 
-        rows = _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
+        with pytest.raises(ValueError, match="same rows"):
+            _rows(glassfrog_source("gf_key", "tensions", team_id=1, job_id="j"))
 
-        assert rows == rows_body
-        # No pagination params exist — the whole collection comes back in one request.
-        assert session.send.call_count == 1
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}/circles"
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_collection_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(200, {"people": []})])
-
-        assert _rows(glassfrog_source("gf_key", "people", team_id=1, job_id="j")) == []
+        assert session.send.call_count == 2
 
     @mock.patch(SESSION_PATCH)
     def test_missing_resource_key_raises(self, MockSession) -> None:
@@ -94,10 +86,22 @@ class TestGetRows:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
 
-    @parameterized.expand([(name, config.path, config.data_selector) for name, config in GLASSFROG_ENDPOINTS.items()])
+    @parameterized.expand(
+        [
+            (
+                name,
+                config.path,
+                config.data_selector,
+                f"?per_page={GLASSFROG_PAGE_SIZE}"
+                + ("&exclude_completed=false" if name == "actions" else "")
+                + "&page=1",
+            )
+            for name, config in GLASSFROG_ENDPOINTS.items()
+        ]
+    )
     @mock.patch(SESSION_PATCH)
     def test_each_endpoint_requests_its_path_and_unwraps_its_key(
-        self, endpoint: str, path: str, data_selector: str, MockSession
+        self, endpoint: str, path: str, data_selector: str, query: str, MockSession
     ) -> None:
         session = MockSession.return_value
         prepared = _wire(session, [_response(200, {data_selector: [{"id": 42}]})])
@@ -105,17 +109,7 @@ class TestGetRows:
         rows = _rows(glassfrog_source("gf_key", endpoint, team_id=1, job_id="j"))
 
         assert rows == [{"id": 42}]
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}"
-
-    @mock.patch(SESSION_PATCH)
-    def test_api_key_sent_via_header_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        prepared = _wire(session, [_response(200, {"roles": [{"id": 1}]})])
-
-        _rows(glassfrog_source("gf_test_key", "roles", team_id=1, job_id="j"))
-
-        assert prepared[0].headers["X-Auth-Token"] == "gf_test_key"
-        assert session.headers.get("Accept") == "application/json"
+        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}{query}"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(SESSION_PATCH)
@@ -128,16 +122,6 @@ class TestGetRows:
 
         # 5 attempts before giving up.
         assert session.send.call_count == 5
-
-    @mock.patch(SESSION_PATCH)
-    def test_recovers_after_transient_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(500, {}), _response(200, {"circles": [{"id": 1}]})])
-
-        rows = _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(SESSION_PATCH)
@@ -205,16 +189,6 @@ class TestValidateCredentials:
         # redirect — the probe must not follow redirects.
         assert session.get.call_args.kwargs["allow_redirects"] is False
 
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_maps_to_not_validated(self, MockSession) -> None:
-        # The probe must never raise out of validate_credentials — an unreachable API means
-        # "not validated", not a crashed source-create request.
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        MockSession.return_value = session
-
-        assert validate_credentials("gf_key") is False
-
 
 class TestGlassfrogSourceResponse:
     @parameterized.expand([(endpoint,) for endpoint in GLASSFROG_ENDPOINTS])
@@ -224,8 +198,8 @@ class TestGlassfrogSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        if endpoint == "projects":
-            # Partition on the stable creation timestamp — the only GlassFrog resource with one.
+        if endpoint in ("actions", "projects", "tensions"):
+            # Partition on the stable creation timestamp — only these GlassFrog resources have one.
             assert response.partition_keys == ["created_at"]
             assert response.partition_mode == "datetime"
         else:

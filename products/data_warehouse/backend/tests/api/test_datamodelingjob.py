@@ -111,6 +111,13 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], str(other_job.id))
 
+    def test_filters_by_status(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/?status={DataModelingJob.Status.FAILED}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
+
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
         for _ in range(12):

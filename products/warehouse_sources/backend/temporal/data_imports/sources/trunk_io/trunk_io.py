@@ -7,8 +7,14 @@ from dateutil import parser as date_parser
 from requests import Request, RequestException, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    APIKeyAuth,
+    BearerTokenAuth,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import (
@@ -18,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
     MERGE_QUEUE_PAGE_SIZE,
     PAGE_SIZE,
     UNHEALTHY_STATUSES,
+    V2_BASE_URL,
+    V2_PAGE_SIZE,
 )
 
 
@@ -154,6 +162,18 @@ def _client(api_token: str) -> RESTClient:
         auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"),
         allowed_hosts=[],
         allow_redirects=False,
+    )
+
+
+def _v2_client(api_token: str) -> RESTClient:
+    # v2 takes the same token as an `Authorization: Bearer` organization API key. Redirects stay
+    # off for the same reason as `_client`.
+    return RESTClient(
+        base_url=V2_BASE_URL,
+        auth=BearerTokenAuth(token=api_token),
+        allowed_hosts=[],
+        allow_redirects=False,
+        request_timeout=(10.0, 60.0),
     )
 
 
@@ -343,6 +363,48 @@ def merge_queue_pull_requests(
             yield page
 
     resumable_source_manager.clear_state()
+
+
+def _v2_list(
+    api_token: str,
+    path: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    client = _v2_client(api_token)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(TrunkIoResumeConfig(cursor=str(state["cursor"])))
+
+    for page in client.paginate(
+        path=path,
+        method="get",
+        params={"limit": V2_PAGE_SIZE},
+        paginator=JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="cursor"),
+        data_selector="data",
+        resume_hook=checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume and resume.cursor else None,
+    ):
+        if page:
+            yield page
+
+    resumable_source_manager.clear_state()
+
+
+def list_test_collections(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    return _v2_list(api_token, "/v2/test-collections", resumable_source_manager)
+
+
+def list_tests(
+    api_token: str,
+    resumable_source_manager: ResumableSourceManager[TrunkIoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    # No `testCollectionId` filter, so this lists tests across every collection in the org.
+    return _v2_list(api_token, "/v2/tests", resumable_source_manager)
 
 
 def validate_credentials(api_token: str, org_url_slug: str, repo: TrunkRepo) -> tuple[bool, str | None]:

@@ -17,11 +17,11 @@ from django.utils import timezone
 from posthog.models.user import User
 
 from products.canvas.backend import build_service
+from products.canvas.backend.facade.enums import TEACHING_CANVAS_NAME
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.source import synthetic_source_project
 
 TEACHING_CANVAS_TEMPLATE_ID = "desktop-onboarding-teaching"
-TEACHING_CANVAS_NAME = "Explore PostHog Desktop"
 
 # Template ids the create API refuses, so a user-created canvas can never be
 # mistaken for (or pre-claim and suppress) a PostHog-seeded one.
@@ -29,12 +29,6 @@ RESERVED_TEMPLATE_IDS = frozenset({TEACHING_CANVAS_TEMPLATE_ID})
 
 TEACHING_CANVAS_DESCRIPTION = (
     "A short tour of PostHog Desktop for new users: spaces, the agent, space context, Self-driving, and canvases."
-)
-
-TEACHING_CANVAS_CONTEXT = (
-    "This canvas is an onboarding tour for new PostHog Desktop users. It explains spaces, "
-    "the agent, space context, Self-driving, and canvases, and shows a live unique-users "
-    "chart. If you edit it, keep it short and plain."
 )
 
 TEACHING_CANVAS_CODE = """\
@@ -546,7 +540,6 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User, refresh:
             kind=Canvas.KIND_FREEFORM,
             template_id=TEACHING_CANVAS_TEMPLATE_ID,
             description=TEACHING_CANVAS_DESCRIPTION,
-            context=TEACHING_CANVAS_CONTEXT,
             pinned_at=timezone.now(),
             created_by=user,
         )

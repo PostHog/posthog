@@ -1,8 +1,19 @@
 import logging
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_design import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_DEFAULT,
+    REVIEW_DESIGN_REASON_FULL_MODE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
+    REVIEW_DESIGN_SINGLE_AGENT,
+)
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
@@ -11,11 +22,14 @@ from products.tasks.backend.facade.run_config import (
     get_reasoning_effort_error,
 )
 
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as OpenAIReasoningEffort
+
 logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-5.6-sol"
+REVIEW_MODEL = "gpt-6.1-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
@@ -56,6 +70,162 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     reasoning_effort=REVIEW_REASONING_EFFORT,
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
+
+
+# REVIEW MODE
+# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
+# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
+# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
+REVIEW_MODE_FULL = "full"
+REVIEW_MODE_FLASH = "flash"
+
+# REVIEW DESIGN
+# The design a Flash turn runs on by default. Full turns always run on the pipeline. The
+# `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
+# (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
+FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
+
+
+@frozen
+class ReviewDesignChoice:
+    design: str
+    reason: str
+
+
+def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn of any size, the pipeline otherwise.
+
+    The single agent reviews a large PR in larger lens parts with a trimmed main diff, so PR size never
+    sends a Flash turn to the pipeline.
+    """
+    if review_mode != REVIEW_MODE_FLASH:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
+    if kill_switch_on:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
+    if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
+    return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
+
+
+# RELEASE VERSION, one per review mode and design, because each evolves on its own.
+# Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# change the turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
+}
+
+
+def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-0`."""
+    major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
+    return f"reviewhog-{review_mode}-{major}-{minor}"
+
+
+# Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
+FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6-luna",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Flash comments posted before reviewhog-flash-1-1 open with this banner. Comments on old pull
+# requests keep it, so the matchers that read them back still remove it.
+LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
+
+
+# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+SINGLE_AGENT_FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6.1-sol",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Reserved so the single agent's persisted result never collides with a pipeline pass.
+SINGLE_AGENT_PASS_NUMBER = 2000
+SINGLE_AGENT_CHUNK_ID = 1
+SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
+# PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
+FLASH_MAX_FINDINGS_BASE = 4
+FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
+FLASH_MAX_FINDINGS_CEILING = 10
+# Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
+# marks everything P0 or P1 cannot flood the PR.
+FLASH_MUST_FIX_CAP_MULTIPLIER = 2
+
+
+def flash_max_findings(lens_part_count: int) -> int:
+    extra_parts = max(lens_part_count - 1, 0)
+    return min(FLASH_MAX_FINDINGS_BASE + FLASH_MAX_FINDINGS_PER_EXTRA_PART * extra_parts, FLASH_MAX_FINDINGS_CEILING)
+
+
+# Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
+FLASH_LENS_CHUNK_MAX_LINES = 600
+FLASH_LENS_MAX_CHUNKS = 4
+# Shorter than the sandbox timeout, so a slow lens session cannot hold the main findings back for long.
+FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
+
+# About 200K tokens at 4 characters per token.
+FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
+
+
+@frozen
+class FlashLens:
+    """One focused review that runs next to the main single-agent session, once per lens part."""
+
+    # Reserved like SINGLE_AGENT_PASS_NUMBER, so a lens result never collides with another session's.
+    pass_number: int
+    prompt_file: str
+    source: str
+
+
+FLASH_LENSES: dict[str, FlashLens] = {
+    "performance-reliability": FlashLens(
+        pass_number=2001,
+        prompt_file="lens_performance_reliability.md",
+        source="flash-lens-performance-reliability",
+    ),
+    "contracts-security": FlashLens(
+        pass_number=2002,
+        prompt_file="lens_contracts_security.md",
+        source="flash-lens-contracts-security",
+    ),
+}
+
+
+def is_single_agent_pass(pass_number: int) -> bool:
+    """Whether a persisted review result came from a single-agent session, the main one or a lens.
+
+    A Full turn can run on the same arm as the single-agent sessions, so the arm stamp alone cannot keep
+    the two designs' results apart at one head. The reserved passes can.
+    """
+    return pass_number >= SINGLE_AGENT_PASS_NUMBER
+
+
+def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
+    if reasoning_effort == ReasoningEffort.XHIGH.value:
+        return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+    if reasoning_effort != ReasoningEffort.MEDIUM.value:
+        logger.warning("Unknown Flash reasoning effort %s; using medium", reasoning_effort)
+    return FLASH_ARM
+
+
+def review_arm_for_mode(
+    review_mode: str,
+    persisted: ReviewArm,
+    *,
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> ReviewArm:
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return SINGLE_AGENT_FLASH_ARM
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
 class ReviewTier(StrEnum):
@@ -104,8 +274,8 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
 # CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Only the inbox trigger fires with nobody
-# asking, and a trigger from this set on an inbox-created report lifts its tier
+# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
+# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
@@ -183,18 +353,33 @@ def resolve_review_arm(
 
 
 # VALIDATION MODEL
-# Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
-# default effort (the behavior before this knob existed); set all three to pin, like the review pins.
-VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-5"
-VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+# Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
+# the whole seat at once.
+VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+VALIDATION_MODEL = "claude-opus-5-5"
+VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+DEFAULT_VALIDATION_ARM = ReviewArm(
+    runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
+    model=VALIDATION_MODEL,
+    reasoning_effort=VALIDATION_REASONING_EFFORT,
+    initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+)
+
+
+def validation_arm_for_mode(
+    review_mode: str, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
+    """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
 # The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-RESOLUTION_MODEL: str | None = "claude-opus-5"
+RESOLUTION_MODEL: str | None = "claude-opus-5-5"
 RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -224,6 +409,10 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+# Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
+# the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
+FLASH_DEDUP_MODEL = "gpt-6-luna"
+FLASH_DEDUP_REASONING_EFFORT: Final["OpenAIReasoningEffort"] = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
@@ -315,7 +504,7 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
 # exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
 # exhaustive xhigh pass.
-OUTCOME_JUDGE_MODEL = "claude-opus-5"
+OUTCOME_JUDGE_MODEL = "claude-opus-5-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.

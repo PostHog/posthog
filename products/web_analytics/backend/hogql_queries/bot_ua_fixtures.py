@@ -199,6 +199,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "AtlasSearchBot/1.0 (+https://github.com/atlassearch/bot)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -246,6 +247,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        "QlyzeBot/1.0 (+https://app.qlyze.io/bot)",
+        "AutozellaBot/1.0 (+https://autozella.com/bot)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -369,6 +372,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
+        "PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)",
     ],
     "headless_browser": [
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",
@@ -389,6 +393,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ",
         # Bare Mozilla token, no platform or engine.
         "Mozilla/5.0",
+        # Randomized 4-digit Chrome patch on stock device templates (synthetic, in the format of a cross-team scraper fleet).
+        "Mozilla/5.0 (Linux; Android 8.0; Pixel 2 Build/OPD3.170816.012) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.3184.1529 Mobile Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.4417.1283 Mobile Safari/537.36",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.7306.1647 Safari/537.36",
     ],
     "regular_browser": [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -401,6 +409,12 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
         # Genuine legacy EdgeHTML (Edge 18) shipped with Chrome 64, a pairing the rule must allow.
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/18.17763",
+        # Chromium forks that put their own 4-digit build in the Chrome patch slot, and 2010-era
+        # Chrome 4, which really shipped one. The Impossible Chrome patch version rule must skip them.
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.1994 YaBrowser/24.4.1.994 Yowser/2.5 Safari/537.36",
+        "Mozilla/5.0 (Linux; arm_64; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.2214 YaApp_Android/25.10.1 YaSearchBrowser/25.10.1 BroPP/1.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.8812 Mobile Safari/537.36 OPR/62.1.3134.58322",
+        "Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.1.249.1025 Safari/532.5",
     ],
 }
 

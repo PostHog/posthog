@@ -17,6 +17,7 @@ export function invalidateCanvasLifecycle(
 ): Promise<void> {
   const id = dashboardId;
   return Promise.all([
+    queryClient.invalidateQueries(trpc.dashboards.view.queryFilter({ id })),
     queryClient.invalidateQueries(trpc.dashboards.get.queryFilter({ id })),
     queryClient.invalidateQueries(trpc.dashboards.builds.queryFilter({ id })),
     queryClient.invalidateQueries(trpc.dashboards.versions.queryFilter({ id })),

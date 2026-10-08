@@ -20,7 +20,7 @@ export function StepViewMetrics({ action }: { action: HogFlowAction }): JSX.Elem
 
     if (actionMetricsByIdLoading) {
         return (
-            <div className="flex items-center gap-1 h-2 px-1">
+            <div className="flex h-2 items-center gap-1 px-1">
                 <LemonSkeleton className="w-full h-[6px]" />
                 <LemonSkeleton className="w-full h-[6px]" />
                 <LemonSkeleton className="w-full h-[6px]" />
@@ -29,12 +29,7 @@ export function StepViewMetrics({ action }: { action: HogFlowAction }): JSX.Elem
     }
 
     return (
-        <div
-            className="flex flex-row items-center font-mono"
-            style={{
-                fontSize: 6,
-            }}
-        >
+        <div className="flex flex-row items-center text-[6px] font-mono">
             <Tooltip title="Successful runs of this action">
                 <div className="flex-1 px-1 text-success">
                     <IconCheck /> {humanFriendlyLargeNumber(metrics.succeeded)}

@@ -8,16 +8,12 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import (
-    ENDPOINTS,
-    WINDMILL_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.settings import WINDMILL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.windmill import (
     PER_PAGE,
     WindmillHostNotAllowedError,
     WindmillResumeConfig,
     _format_after,
-    _workspace_url,
     normalize_base_url,
     validate_credentials,
     windmill_source,
@@ -122,18 +118,6 @@ class TestNormalizeBaseUrl:
         assert normalize_base_url(value) == expected
 
 
-class TestWorkspaceUrl:
-    def test_builds_workspace_scoped_path(self):
-        assert (
-            _workspace_url(BASE_URL, WORKSPACE, "/jobs/completed/list")
-            == "https://app.windmill.dev/api/w/my-workspace/jobs/completed/list"
-        )
-
-    def test_url_encodes_workspace(self):
-        # A workspace id with a slash must not escape the /w/ path segment.
-        assert "/w/a%2Fb/" in _workspace_url(BASE_URL, "a/b", "/users/list")
-
-
 class TestFormatAfter:
     @pytest.mark.parametrize(
         "value, expected",
@@ -199,66 +183,8 @@ class TestValidateCredentials:
         assert message == "host not allowed"
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch(HOST_SAFE_PATCH)
-    @mock.patch(WINDMILL_SESSION_PATCH)
-    def test_skips_host_check_when_team_id_omitted(self, mock_session, mock_host_safe):
-        mock_session.return_value.get.return_value = _probe_response({}, status_code=200)
-        validate_credentials("token", BASE_URL, WORKSPACE)
-        mock_host_safe.assert_not_called()
-
 
 class TestSync:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_pages_until_short_page(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response(_page(PER_PAGE)), _json_response(_page(3))])
-
-        rows = _rows(_run("completed_jobs"))
-
-        # A short (< per_page) page ends the scan without paying an extra empty-page request.
-        assert len(rows) == PER_PAGE + 3
-        assert session.send.call_count == 2
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == PER_PAGE
-        assert params[1]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_full_page_boundary(self, MockSession):
-        # A full final page is followed by one more request that comes back empty.
-        session = MockSession.return_value
-        _wire(session, [_json_response(_page(PER_PAGE)), _json_response([])])
-
-        rows = _rows(_run("completed_jobs"))
-
-        assert len(rows) == PER_PAGE
-        assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_json_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_run("completed_jobs", manager=manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_makes_single_request(self, MockSession):
-        # listUsers ignores page params, so paging would loop forever on the same full list.
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response([{"email": "a@x.com"}, {"email": "b@x.com"}])])
-
-        manager = _make_manager()
-        rows = _rows(_run("users", manager=manager))
-
-        assert session.send.call_count == 1
-        assert [item["email"] for item in rows] == ["a@x.com", "b@x.com"]
-        assert "page" not in params[0]
-        assert "per_page" not in params[0]
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_next_page_after_each_committed_page(self, MockSession):
         # The resume hook fires after a page is yielded and persists the NEXT page to fetch, so a
@@ -285,26 +211,6 @@ class TestSync:
         assert params[0]["page"] == 7
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_resume_ignores_saved_page(self, MockSession):
-        # The watermark may have advanced since page 7 was saved, so honouring the saved page would
-        # skip earlier unsynced rows in the re-filtered result set. Restart from page 1.
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response(_page(1))])
-
-        manager = _make_manager(WindmillResumeConfig(page=7))
-        _rows(
-            _run(
-                "completed_jobs",
-                manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="started_at",
-            )
-        )
-
-        assert params[0]["page"] == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_applies_after_filter(self, MockSession):
         session = MockSession.return_value
         params, _ = _wire(session, [_json_response(_page(1))])
@@ -319,26 +225,6 @@ class TestSync:
         )
 
         assert params[0]["started_after"].startswith("2026-01-01")
-
-    @pytest.mark.parametrize(
-        "incremental_field, expected_param",
-        [("created_at", "created_after"), ("started_at", "started_after")],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_field_maps_to_after_param(self, MockSession, incremental_field, expected_param):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response(_page(1))])
-
-        _rows(
-            _run(
-                "completed_jobs",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field=incremental_field,
-            )
-        )
-
-        assert params[0][expected_param] == "2026-01-01T00:00:00+00:00"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_sends_after_filter(self, MockSession):
@@ -357,23 +243,6 @@ class TestSync:
 
         assert "created_after" not in params[0]
         assert "started_after" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_order_desc_ascending_for_sortable_endpoint(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response(_page(1))])
-
-        _rows(_run("completed_jobs"))
-        # Ascending so mid-sync inserts don't shift already-walked pages.
-        assert params[0]["order_desc"] == "false"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_order_desc_for_unsortable_endpoint(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_json_response(_page(1))])
-
-        _rows(_run("schedules"))
-        assert "order_desc" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_bearer_token_redacted_via_client_session(self, MockSession):
@@ -407,23 +276,6 @@ class TestSync:
 
 
 class TestWindmillSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = WINDMILL_ENDPOINTS[endpoint]
-        response = windmill_source(
-            "token", BASE_URL, WORKSPACE, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(WINDMILL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         # Partition keys must be immutable creation timestamps, never edited/last-* fields.

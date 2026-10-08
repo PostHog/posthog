@@ -5,14 +5,14 @@ import { type ErrorInfo, useMemo } from 'react'
 import { type TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { type ChartParams, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarHorizontalTooltip } from './FunnelBarHorizontalTooltip'
 import {
     buildFunnelBarHorizontalCompareData,

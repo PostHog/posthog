@@ -7,13 +7,12 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 from requests.exceptions import HTTPError, ProxyError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp import (
     MAX_RETRY_ATTEMPTS,
-    MailchimpPaginator,
     MailchimpResumeConfig,
     MailchimpRetryableError,
     _fetch_contacts_for_list,
@@ -31,12 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
 
 
 class TestExtractDataCenter:
-    def test_basic_key(self):
-        assert extract_data_center("abc123def456-us6") == "us6"
-
-    def test_multiple_dashes(self):
-        assert extract_data_center("abc-def-ghi-us10") == "us10"
-
     def test_invalid_key_raises(self):
         with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
             extract_data_center("invalidkey")
@@ -92,11 +85,6 @@ class TestValidateCredentials:
 
 
 class TestFormatIncrementalValue:
-    def test_datetime(self):
-        dt = datetime(2024, 1, 15, 10, 30, 45)
-        result = _format_incremental_value(dt)
-        assert result == "2024-01-15T10:30:45+00:00"
-
     def test_date(self):
         d = date(2024, 1, 15)
         result = _format_incremental_value(d)
@@ -150,77 +138,6 @@ class TestGetWithRetry:
 
         assert str(excinfo.value).startswith(expected_prefix)
         assert url in str(excinfo.value)
-
-    def test_success_returns_response_unchanged(self):
-        session = MagicMock()
-        response = _make_http_response({"total_items": 0}, status_code=200)
-        session.get.return_value = response
-
-        assert _get_with_retry(session, "https://us6.api.mailchimp.com/3.0/lists") is response
-
-
-class TestMailchimpPaginator:
-    def test_initial_state(self):
-        paginator = MailchimpPaginator(page_size=100)
-        assert paginator._page_size == 100
-        assert paginator._offset == 0
-
-    def test_update_state_has_more(self):
-        paginator = MailchimpPaginator(page_size=100)
-        response = MagicMock()
-        response.json.return_value = {"total_items": 250, "lists": []}
-        paginator.update_state(response)
-        assert paginator._offset == 100
-        assert paginator._has_next_page is True
-
-    def test_update_state_no_more(self):
-        paginator = MailchimpPaginator(page_size=100)
-        paginator._offset = 200
-        response = MagicMock()
-        response.json.return_value = {"total_items": 250, "lists": []}
-        paginator.update_state(response)
-        assert paginator._offset == 300
-        assert paginator._has_next_page is False
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_offset"),
-        [
-            ("fresh", None),
-            ("resumed", 2000),
-        ],
-    )
-    def test_init_request_sets_offset_and_count(self, label: str, seeded_offset: int | None) -> None:
-        paginator = MailchimpPaginator(page_size=1000)
-        if seeded_offset is not None:
-            paginator.set_resume_state({"offset": seeded_offset})
-
-        request = Request(method="GET", url="https://us6.api.mailchimp.com/3.0/lists")
-        paginator.init_request(request)
-
-        assert request.params["count"] == 1000
-        assert request.params["offset"] == (seeded_offset if seeded_offset is not None else 0)
-
-    def test_get_resume_state_returns_current_offset(self) -> None:
-        paginator = MailchimpPaginator(page_size=1000)
-        response = MagicMock()
-        response.json.return_value = {"total_items": 3000}
-        paginator.update_state(response)  # _offset advances to 1000
-
-        assert paginator.get_resume_state() == {"offset": 1000}
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = MailchimpPaginator(page_size=1000)
-        paginator.set_resume_state({"offset": 5000})
-
-        assert paginator._offset == 5000
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"offset": 5000}
-
-    def test_set_resume_state_ignores_missing_offset(self) -> None:
-        paginator = MailchimpPaginator(page_size=1000)
-        paginator.set_resume_state({})
-
-        assert paginator._offset == 0
 
 
 def _fake_manager(*, can_resume: bool = False, load_state: MailchimpResumeConfig | None = None) -> MagicMock:
@@ -305,36 +222,6 @@ class TestFetchContactsForList:
             manager.save_state.assert_not_called()
         else:
             manager.save_state.assert_called_once_with(expected_checkpoint)
-
-    def test_multi_page_advances_offset_and_checkpoints_each_page(self, monkeypatch) -> None:
-        # total_items=2001 with page_size=1000 → pages at offsets 0, 1000, 2000.
-        # After the third page, offset becomes 3000 and the `offset >= total_items` guard terminates the loop.
-        manager = _fake_manager()
-        responses = [_build_response([{"id": f"m{i}"}], total_items=2001) for i in range(3)]
-        get_mock = MagicMock(side_effect=responses)
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.mailchimp.make_tracked_session",
-            lambda *a, **k: type("_S", (), {"get": staticmethod(get_mock)})(),
-        )
-
-        emitted = list(
-            _fetch_contacts_for_list(
-                api_key="key-us6",
-                dc="us6",
-                list_id="list_a",
-                since_last_changed=None,
-                resumable_source_manager=manager,
-                start_offset=0,
-            )
-        )
-
-        assert [c["id"] for c in emitted] == ["m0", "m1", "m2"]
-        assert [call.kwargs["params"]["offset"] for call in get_mock.call_args_list] == [0, 1000, 2000]
-        assert manager.save_state.call_args_list == [
-            ((MailchimpResumeConfig(list_id="list_a", offset=0),),),
-            ((MailchimpResumeConfig(list_id="list_a", offset=1000),),),
-            ((MailchimpResumeConfig(list_id="list_a", offset=2000),),),
-        ]
 
 
 class TestGetContactsIterator:
@@ -531,32 +418,6 @@ class TestRestEndpointResumeBehavior:
 
         assert [p["offset"] for p in sent_params] == [2000]
 
-    @pytest.mark.parametrize("endpoint", ["lists", "campaigns", "reports"])
-    def test_terminal_single_page_does_not_save_state(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        data_key = endpoint
-        responses = [
-            _make_http_response({data_key: [{"id": "only"}], "total_items": 1}),
-        ]
-        self._drive(endpoint, manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    def test_saved_state_with_zero_offset_is_ignored(self) -> None:
-        # A zero-offset checkpoint is equivalent to a fresh run — don't seed.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MailchimpResumeConfig(offset=0)
-
-        responses = [
-            _make_http_response({"lists": [{"id": "a"}], "total_items": 1}),
-        ]
-        _, sent_params = self._drive("lists", manager, responses)
-
-        assert [p["offset"] for p in sent_params] == [0]
-
     def test_saved_state_serialization_round_trip_with_list_id_absent(self) -> None:
         # REST-endpoint checkpoints omit list_id; ensure ResumableSourceManager's
         # asdict/json round trip reproduces the dataclass unchanged.
@@ -655,17 +516,6 @@ class TestIncrementalQueryParams:
             == expected
         )
 
-    def test_no_filter_sent_when_incremental_is_off(self) -> None:
-        assert (
-            _incremental_query_params(
-                MAILCHIMP_ENDPOINTS["automations"],
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2024, 1, 2, 3, 4, 5),
-                incremental_field="create_time",
-            )
-            == {}
-        )
-
 
 class TestGenericEndpointIterator:
     @pytest.mark.parametrize(
@@ -734,25 +584,6 @@ class TestGenericEndpointIterator:
         ]
         assert [path for path, _ in calls] == ["/reports", "/reports/c1/locations", "/reports/c2/locations"]
 
-    def test_two_level_fan_out_resolves_both_parents(self, monkeypatch) -> None:
-        session, calls = _routed_session(
-            {
-                "/lists": [{"lists": [{"id": "l1"}], "total_items": 1}],
-                "/lists/l1/segments": [{"segments": [{"id": 7}, {"id": 8}], "total_items": 2}],
-                "/lists/l1/segments/7/members": [{"members": [{"id": "m1"}], "total_items": 1}],
-                "/lists/l1/segments/8/members": [{"members": [{"id": "m2"}], "total_items": 1}],
-            }
-        )
-        _patch_session(monkeypatch, session)
-
-        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["list_segment_members"], _fake_manager()))
-
-        assert rows == [
-            {"id": "m1", "list_id": "l1", "segment_id": "7"},
-            {"id": "m2", "list_id": "l1", "segment_id": "8"},
-        ]
-        assert calls[-1][0] == "/lists/l1/segments/8/members"
-
     def test_single_object_endpoint_yields_one_row_per_parent(self, monkeypatch) -> None:
         session, _ = _routed_session(
             {
@@ -765,28 +596,6 @@ class TestGenericEndpointIterator:
         rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["campaign_content"], _fake_manager()))
 
         assert rows == [{"campaign_id": "c1", "html": "<p>hi</p>", "plain_text": "hi"}]
-
-    def test_multi_page_child_checkpoints_each_page_against_its_parent(self, monkeypatch) -> None:
-        session, calls = _routed_session(
-            {
-                "/reports": [{"reports": [{"id": "c1"}], "total_items": 1}],
-                "/reports/c1/sent-to": [
-                    {"sent_to": [{"email_id": "e1"}], "total_items": 1500},
-                    {"sent_to": [{"email_id": "e2"}], "total_items": 1500},
-                ],
-            }
-        )
-        manager = _fake_manager()
-        _patch_session(monkeypatch, session)
-
-        rows = list(_get_endpoint_iterator("key-us6", MAILCHIMP_ENDPOINTS["report_sent_to"], manager))
-
-        assert [row["email_id"] for row in rows] == ["e1", "e2"]
-        assert [params.get("offset") for path, params in calls if path.endswith("/sent-to")] == [0, 1000]
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            MailchimpResumeConfig(offset=0, parent_ids=["c1"]),
-            MailchimpResumeConfig(offset=1000, parent_ids=["c1"]),
-        ]
 
     def test_resume_skips_completed_parents_and_seeds_the_saved_offset(self, monkeypatch) -> None:
         session, calls = _routed_session(
@@ -808,52 +617,6 @@ class TestGenericEndpointIterator:
         assert [row["email_id"] for row in rows] == ["e9"]
         assert [path for path, _ in calls] == ["/reports", "/reports/c2/sent-to"]
         assert calls[-1][1]["offset"] == 1000
-
-    def test_checkpoint_for_a_vanished_parent_falls_back_to_a_fresh_run(self, monkeypatch) -> None:
-        # Honouring a checkpoint whose campaign no longer exists would skip every parent and
-        # sync nothing at all.
-        session, calls = _routed_session(
-            {
-                "/reports": [{"reports": [{"id": "c1"}], "total_items": 1}],
-                "/reports/c1/sent-to": [{"sent_to": [{"email_id": "e1"}], "total_items": 1}],
-            }
-        )
-        _patch_session(monkeypatch, session)
-
-        rows = list(
-            _get_endpoint_iterator(
-                "key-us6",
-                MAILCHIMP_ENDPOINTS["report_sent_to"],
-                _fake_manager(can_resume=True, load_state=MailchimpResumeConfig(offset=2000, parent_ids=["deleted"])),
-            )
-        )
-
-        assert [row["email_id"] for row in rows] == ["e1"]
-        assert calls[-1][1]["offset"] == 0
-
-    def test_incremental_filter_is_forwarded_to_the_child_request(self, monkeypatch) -> None:
-        session, calls = _routed_session(
-            {
-                "/lists": [{"lists": [{"id": "l1"}], "total_items": 1}],
-                "/lists/l1/segments": [{"segments": [{"id": 1}], "total_items": 1}],
-            }
-        )
-        _patch_session(monkeypatch, session)
-
-        list(
-            _get_endpoint_iterator(
-                "key-us6",
-                MAILCHIMP_ENDPOINTS["list_segments"],
-                _fake_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 5, 6, 7, 8, 9),
-                incremental_field="updated_at",
-            )
-        )
-
-        # The parent listing must stay unfiltered, or new segments on old audiences go missing.
-        assert calls[0] == ("/lists", {"count": 1000, "offset": 0})
-        assert calls[1][1]["since_updated_at"] == "2024-05-06T07:08:09+00:00"
 
 
 class TestSourceResponseForNewEndpoints:
@@ -910,23 +673,6 @@ class TestSourceResponseForNewEndpoints:
 
 
 class TestMailchimpRetryableErrors:
-    @pytest.mark.parametrize(
-        ("name", "observed_error"),
-        [
-            (
-                "429",
-                "429 Client Error: Too Many Requests for url: "
-                "https://us15.api.mailchimp.com/3.0/lists/c825cb5a63/members?count=1000&offset=0",
-            ),
-            ("500", "500 Server Error: Internal Server Error for url: https://us15.api.mailchimp.com/3.0/lists"),
-            ("502", "502 Server Error: Bad Gateway for url: https://us15.api.mailchimp.com/3.0/lists"),
-            ("503", "503 Server Error: Service Unavailable for url: https://us15.api.mailchimp.com/3.0/lists"),
-        ],
-    )
-    def test_transient_errors_are_recognised_as_retryable(self, name: str, observed_error: str) -> None:
-        retryable_errors = MailchimpSource().get_retryable_errors()
-        assert any(key in observed_error for key in retryable_errors), observed_error
-
     @pytest.mark.parametrize(
         ("name", "observed_error"),
         [

@@ -12,10 +12,11 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
-# actually carries: no elements_chain, no person_mode, no *_created_at companions
-# to the person and group properties. It keeps the full properties JSON as the
-# source of truth, so queries and integrations built on event properties survive
-# the routing switch. The 90-day TTL is what makes rows that wide affordable.
+# actually carries: no elements_chain, no person_mode, and no person or group
+# property blobs, since no Insight or Hog function breaks down or filters on them.
+# It keeps the full properties JSON as the source of truth, so queries and
+# integrations built on event properties survive the routing switch. The 90-day
+# TTL is what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -31,6 +32,7 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
+# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
 FLAG_EVALUATIONS_TTL_DAYS = 90
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
@@ -60,13 +62,15 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # variant. Column order follows the events table so converging the two schemas
 # later reads as a diff rather than a rewrite.
 #
-# The Kafka engine table must NOT carry the inserted_at DEFAULT: JSONEachRow fills
-# omitted fields with the column default, and the MV's fallback detects exactly
-# that zero-value sentinel — a DEFAULT there would mask it. Both Distributed
-# tables MUST carry it: an INSERT through a Distributed table fills omitted
-# columns from the Distributed table's own schema before forwarding to the shard,
-# so without it a direct insert via writable_flag_evaluations would store epoch
-# instead of the sharded table's fallback.
+# The MV ignores the Kafka table's inserted_at and stamps the time it processes
+# the row, so a producer cannot set the value that deletion sweeps compare
+# against. The Kafka table still declares inserted_at with no DEFAULT, because
+# changing a Kafka engine table's columns means recreating the table and its MV.
+# Both Distributed tables MUST carry the DEFAULT: an INSERT through a Distributed
+# table fills omitted columns from the Distributed table's own schema before
+# forwarding to the shard, so without it a direct insert via
+# writable_flag_evaluations would store epoch instead of the sharded table's
+# DEFAULT.
 #
 # No column carries a CODEC, including the JSON blobs the events table wraps in
 # ZSTD(3); the general rule is in posthog/clickhouse/migrations/AGENTS.md. Nothing
@@ -83,12 +87,6 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     distinct_id String,
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
-    person_properties String,
-    group0_properties String,
-    group1_properties String,
-    group2_properties String,
-    group3_properties String,
-    group4_properties String,
     inserted_at DateTime64(6, 'UTC'){ts_default}
 """.strip()
 
@@ -115,14 +113,13 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default
 #
 # DEFAULT rather than MATERIALIZED, the kind materialize() mints on sharded_events:
 # both compute the expression when an insert omits the column, but only a DEFAULT
-# column accepts ALTER UPDATE, which the events property-removal path relies on to
-# reset extracted values whose source property was erased (see
-# docs/internal/clickhouse-deletion-coverage.md). An UPDATE of properties does not
-# recompute these columns, so a rewrite must reset each affected column in the
-# same mutation. The cost is a footgun MATERIALIZED did not have: an insert that
-# names one of these columns stores the given value even when it contradicts
-# properties. Producers must omit them, which the Kafka path enforces by
-# writable_flag_evaluations not declaring them.
+# column accepts ALTER UPDATE or an explicit value on insert. An UPDATE of
+# properties does not recompute these columns, so any rewrite of properties must
+# reset each affected column itself. Property removal does that as it copies a row
+# out (see docs/internal/clickhouse-deletion-coverage.md). The cost is a footgun
+# MATERIALIZED did not have: an insert that names one of these columns stores the
+# given value even when it contradicts properties. Producers must omit them, which
+# the Kafka path enforces by writable_flag_evaluations not declaring them.
 _FLAG_EVALUATIONS_TYPED_COLUMNS = f"""
     , $group_0 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
@@ -177,13 +174,13 @@ def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
 
 # The actual data lives on the sharded main cluster.
 #
-# The inserted_at DEFAULT means a direct insert that omits it (tests, the planned
+# The inserted_at DEFAULT means a direct insert that omits it (tests, the
 # events-table backfill) falls back to the row's own timestamp rather than the
-# wall-clock insert time, so a bulk historical backfill doesn't stamp every row as
-# freshly inserted right now: that would break anything windowing or checkpointing
-# on inserted_at. It doesn't reproduce the MV's Kafka-path fallback exactly
-# (_timestamp, the Kafka broker time, isn't available to a column default), but
-# timestamp is the closest available proxy.
+# wall-clock insert time that the MV stamps on rows from Kafka. A bulk historical
+# backfill therefore does not stamp every row as freshly inserted, which would
+# break anything windowing or checkpointing on inserted_at.
+# posthog/dags/flag_evaluations_backfill.py also relies on it to tell copied rows
+# from Kafka rows.
 FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
@@ -260,20 +257,25 @@ ENGINE = {
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
-SETTINGS kafka_skip_broken_messages = 100
+-- The block and batch sizes are an order of magnitude below the precalculated
+-- Kafka tables on this role: each row carries the full event-properties JSON, so
+-- large blocks cost far more memory. The 10s poll timeout is deliberate: it is
+-- in the range the other WarpStream consumers use, not the 1s the precalculated
+-- tables set.
+SETTINGS
+    kafka_max_block_size = 10000,
+    kafka_poll_max_batch_size = 10000,
+    kafka_poll_timeout_ms = 10000,
+    kafka_flush_interval_ms = 7500,
+    kafka_num_consumers = 1,
+    kafka_skip_broken_messages = 100
 """
 )
 
-
-# The Kafka JSONEachRow parser fills missing fields with the type's zero value, so
-# a DateTime64 column reads as epoch when a producer omits it.
-_EPOCH_DT64 = "toDateTime64('1970-01-01 00:00:00', 6, 'UTC')"
-
-FLAG_EVALUATIONS_MV_SQL = lambda: (
-    f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_MV_TABLE}
-TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_WRITABLE_TABLE}
-AS SELECT
+# The CREATE below and migrations that ALTER ... MODIFY QUERY both use this
+# SELECT, so a fresh install and a migrated node run the same query.
+FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
+    f"""SELECT
     uuid,
     event,
     properties,
@@ -282,19 +284,23 @@ AS SELECT
     distinct_id,
     created_at,
     person_id,
-    person_properties,
-    group0_properties,
-    group1_properties,
-    group2_properties,
-    group3_properties,
-    group4_properties,
-    -- Fall back to the Kafka message timestamp, which is stable across replays
-    -- (inserted_at checkpoints the sync_feature_flag_last_called task, and an
-    -- epoch-stamped row would stay invisible to it forever).
-    if(inserted_at = {_EPOCH_DT64}, _timestamp, inserted_at) AS inserted_at,
+    -- inserted_at is the time this view processes the row, as in the native-JSON
+    -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
+    -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
+    -- it. The Kafka message time is earlier by the consumer lag. The Distributed
+    -- forward and the replication happen after this stamp, so those readers still
+    -- need a buffer.
+    now64() AS inserted_at,
     _timestamp,
     _offset,
     _partition
 FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}
 """
+)
+
+FLAG_EVALUATIONS_MV_SQL = lambda: (
+    f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_MV_TABLE}
+TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_WRITABLE_TABLE}
+AS {FLAG_EVALUATIONS_MV_SELECT_SQL()}"""
 )

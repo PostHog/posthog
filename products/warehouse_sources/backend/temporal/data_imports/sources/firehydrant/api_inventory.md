@@ -37,6 +37,45 @@ Source: <https://docs.firehydrant.com/reference/firehydrant-api> and the officia
 | scheduled_maintenances   | `/v1/scheduled_maintenances`    | id          | created_at                      |
 | task_lists               | `/v1/task_lists`                | id          | created_at                      |
 | checklist_templates      | `/v1/checklist_templates`       | id          | created_at                      |
+| schedules                | `/v1/schedules`                 | id          | — (no created_at)               |
+
+## Fan-out endpoints implemented
+
+Walked once per parent row, through the shared dependent-resource helper. The parent id is injected
+into each child row and forms part of the primary key, because FireHydrant only documents the child
+ids as unique within their parent.
+
+| Schema name               | Path                                           | Parent    | Primary key     | Partition key |
+| ------------------------- | ---------------------------------------------- | --------- | --------------- | ------------- |
+| incident_milestones       | `/v1/incidents/{incident_id}/milestones`       | incidents | incident_id, id | created_at    |
+| incident_tasks            | `/v1/incidents/{incident_id}/tasks`            | incidents | incident_id, id | created_at    |
+| incident_events           | `/v1/incidents/{incident_id}/events`           | incidents | incident_id, id | occurred_at   |
+| incident_role_assignments | `/v1/incidents/{incident_id}/role_assignments` | incidents | incident_id, id | created_at    |
+| team_escalation_policies  | `/v1/teams/{team_id}/escalation_policies`      | teams     | team_id, id     | —             |
+| service_dependencies      | `/v1/services/{service_id}/dependencies`       | services  | service_id, id  | created_at    |
+
+`/v1/incidents/{incident_id}/milestones` is the one paginated endpoint whose spec entry lists no
+`page` / `per_page` params, though it returns the same paginated envelope as its siblings. The spec
+also leaves the escalation policies response body empty, as it does for 100+ other FireHydrant
+endpoints; transport reads the standard `data` envelope either way and degrades to zero rows if the
+endpoint answers differently.
+
+`/v1/services/{service_id}/dependencies` is the one endpoint that answers outside the `data` envelope.
+It is unpaginated and returns `child_service_dependencies` / `parent_service_dependencies` /
+`service_dependencies`; we request `flatten=true` and read `service_dependencies`, so each row keeps
+the `type` saying which direction the edge runs. A dependency edge is shared by the two services it
+joins, so the same edge id is returned under both — the parent service id is what makes each row
+unique table-wide.
+
+## Endpoints considered and not implemented
+
+- `/v1/metrics/mttx` (and the sibling `/v1/metrics/*` reports). These are report queries, not
+  collections: `start_date` and `end_date` are required, `group_by` is only accepted in a
+  `multipart/form-data` body on a GET, and the returned rows are recomputed aggregates keyed by an
+  opaque `group_attributes` string with no stable identifier to merge on. Any table we built would
+  hold whatever date range we invented. MTTA/MTTR/MTTM can be derived in HogQL from the synced
+  `incidents` and `incident_milestones` tables instead, which is the data FireHydrant computes them
+  from.
 
 ## Future enhancements
 

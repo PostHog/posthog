@@ -3,8 +3,9 @@
 A v1 flag hosting an experiment is a single implicit experiment rule: the flag-wide
 ``multivariate`` variants, the first release group's rollout percentage, and the
 flag-level holdout/aggregation settings. This module derives that normalized rule
-config from today's ``filters`` format; when the rule-level flag model lands, the
-derivation becomes a read off the rule itself and consumers are untouched.
+config from the v1 ``filters`` format behind a format check, so a document in another
+config format is never read as v1. When the rule-level flag model lands, the
+derivation gains a v2 branch and consumers are untouched.
 
 The DTO stays deliberately minimal while the rule-level model is being designed:
 no seed handling, no reason mapping. It is the seam for the format swap — do not
@@ -16,6 +17,8 @@ consumer model modules import this at module level.
 """
 
 from dataclasses import dataclass
+
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 
 
 @dataclass(frozen=True)
@@ -33,7 +36,20 @@ class ExperimentRuleConfig:
 
 
 def experiment_rule_from_filters(current_filters: dict) -> ExperimentRuleConfig:
-    """Derive the implicit experiment rule from a v1 flag's ``filters`` dict.
+    """Derive the implicit experiment rule from a flag's ``filters`` dict.
+
+    Only config version 1 carries an implicit rule. Any other format raises
+    ``ConfigFormatError`` before any v1 key is read. Legacy filters can carry stray
+    ``version`` keys, so an unsupported discriminator does not imply a v2 shape.
+    """
+    config_format = detect_config_format(current_filters)
+    if config_format.kind != "v1":
+        raise ConfigFormatError(config_format)
+    return _v1_experiment_rule(current_filters)
+
+
+def _v1_experiment_rule(current_filters: dict) -> ExperimentRuleConfig:
+    """Derive the implicit experiment rule from a v1 ``filters`` dict.
 
     Tolerant of legacy null/partial shapes: an explicit null ``multivariate`` reads as no
     variants, and a holdout without an ``id`` reads as no holdout.

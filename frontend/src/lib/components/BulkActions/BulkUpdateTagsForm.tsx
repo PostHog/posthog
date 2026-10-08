@@ -23,6 +23,7 @@ export type BulkTaggableResource =
     | 'insights'
     | 'event_definitions'
     | 'conversations/tickets'
+    | 'experiments'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource
@@ -59,6 +60,7 @@ export function BulkUpdateTagsForm({
     const submit = async (): Promise<void> => {
         setLoading(true)
         try {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             const response = (await api.create(`api/projects/${currentProjectId}/${resource}/bulk_update_tags/`, {
                 ids: Array.from(selectedIds),
                 action: tagAction,

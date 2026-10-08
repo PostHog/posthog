@@ -1,9 +1,42 @@
 import { describe, expect, it } from "vitest";
 import {
+  canvasNavIntentSchema,
   canvasToHostMessageSchema,
   hostToCanvasMessageSchema,
   limitCanvasCommentHighlights,
 } from "./freeformSchemas";
+
+describe("task composer navigation", () => {
+  it("preserves bounded task input without accepting a channel override", () => {
+    expect(
+      canvasNavIntentSchema.parse({
+        target: "compose-task",
+        prompt: "Inspect this PR",
+        repository: "example/app",
+        channelId: "another-channel",
+      }),
+    ).toEqual({
+      target: "compose-task",
+      prompt: "Inspect this PR",
+      repository: "example/app",
+    });
+    expect(canvasNavIntentSchema.parse({ target: "new-task" })).toEqual({
+      target: "new-task",
+    });
+  });
+
+  it.each([
+    { repository: "https://github.com/example/app" },
+    { repository: "../app" },
+    { repository: "example/app/extra" },
+    { prompt: "x".repeat(16_001) },
+  ])("rejects invalid composer input %j", (input) => {
+    expect(
+      canvasNavIntentSchema.safeParse({ target: "compose-task", ...input })
+        .success,
+    ).toBe(false);
+  });
+});
 
 describe("canvasToHostMessageSchema", () => {
   const message = (url: string) => ({
@@ -16,6 +49,8 @@ describe("canvasToHostMessageSchema", () => {
     "https://posthog.com/docs",
     "https://us.posthog.com/project/2",
     "https://app.posthog.com",
+    "https://github.com/example/app/pull/42",
+    "https://github.com/example/app/pull/42/files#diff-example",
   ])("accepts %s", (url) => {
     expect(canvasToHostMessageSchema.safeParse(message(url)).success).toBe(
       true,
@@ -24,6 +59,11 @@ describe("canvasToHostMessageSchema", () => {
 
   it.each([
     "https://example.com",
+    "https://github.com/login",
+    "https://github.com.evil.com/example/app/pull/42",
+    "https://user:password@github.com/example/app/pull/42",
+    "https://github.com:8443/example/app/pull/42",
+    "https://github.com/example/app/pull/42?redirect=https://example.com",
     "http://posthog.com",
     "https://posthog.com.evil.com",
     "mailto:hi@posthog.com",
@@ -39,20 +79,23 @@ describe("canvasToHostMessageSchema", () => {
 
   // The bridge dispatches on `method` after this schema parse, so a method
   // missing from the enum is a bridge verb the host silently drops.
-  it.each(["stateGet", "stateSet", "stateList", "actionInvoke"])(
-    "accepts %s data requests",
-    (method) => {
-      expect(
-        canvasToHostMessageSchema.safeParse({
-          channel: "posthog-canvas",
-          type: "data-request",
-          id: "request-1",
-          method,
-          payload: {},
-        }).success,
-      ).toBe(true);
-    },
-  );
+  it.each([
+    "stateGet",
+    "stateSet",
+    "stateList",
+    "actionInvoke",
+    "connectorCall",
+  ])("accepts %s data requests", (method) => {
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: "request-1",
+        method,
+        payload: {},
+      }).success,
+    ).toBe(true);
+  });
 
   it("accepts a bounded text selection and rejects oversized selected text", () => {
     const selection = {
@@ -157,5 +200,20 @@ describe("canvasToHostMessageSchema", () => {
       channel: "posthog-canvas",
       type: "clear-text-selection",
     });
+  });
+});
+
+describe("connector navigation", () => {
+  it.each([
+    ["github", true],
+    ["mcp:mcp.example.com", true],
+    ["slack", false],
+    ["githbu", false],
+    ["mcp:", false],
+    ["mcp:https://example.com", false],
+  ])("validates provider %s", (provider, allowed) => {
+    expect(
+      canvasNavIntentSchema.safeParse({ target: "connect", provider }).success,
+    ).toBe(allowed);
   });
 });

@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -50,7 +50,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             session_id = session_id_map[session_key]
 
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 if distinct_id not in distinct_ids_seen:
                     persons.append(
                         _create_person(
@@ -87,7 +87,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -113,7 +113,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T15:00:00Z"):
+        with time_machine.travel("2024-01-01T15:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -144,7 +144,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-05T00:00:00Z"):
+        with time_machine.travel("2024-01-05T00:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-02",
                 before="2024-01-03T23:59:59Z",
@@ -170,7 +170,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T15:00:00Z"):
+        with time_machine.travel("2024-01-01T15:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -200,7 +200,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -229,7 +229,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -257,7 +257,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -322,7 +322,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -357,7 +357,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self.team.refresh_from_db()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -389,7 +389,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self.team.refresh_from_db()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -429,7 +429,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """An empty-string property should fall through to the next configured property."""
         timestamp = "2024-01-01T12:00:00Z"
         session_id = str(uuid7(timestamp))
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["user1"],
@@ -448,7 +448,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self.team.refresh_from_db()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -488,7 +488,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self.team.refresh_from_db()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -515,7 +515,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -546,7 +546,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -576,7 +576,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -607,7 +607,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -635,7 +635,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -659,7 +659,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -684,7 +684,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -710,7 +710,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -736,7 +736,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -763,7 +763,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -792,7 +792,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -818,7 +818,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -855,7 +855,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -888,7 +888,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -935,7 +935,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -968,7 +968,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -994,7 +994,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1044,7 +1044,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1086,7 +1086,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"age": 25},
         )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1096,7 +1096,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1150,7 +1150,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1179,7 +1179,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             # Get session IDs first
             all_query = SessionsQuery(after="2024-01-01", kind="SessionsQuery", select=["session_id"])
             all_response = SessionsQueryRunner(query=all_query, team=self.team).run()
@@ -1216,7 +1216,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             all_query = SessionsQuery(after="2024-01-01", kind="SessionsQuery", select=["session_id"])
             all_response = SessionsQueryRunner(query=all_query, team=self.team).run()
             assert isinstance(all_response, CachedSessionsQueryResponse)
@@ -1246,7 +1246,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1260,7 +1260,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_event_property_with_other_event_filters_keeps_subquery(self):
         """When $session_id is combined with an event name filter, we still need the events subquery
         for the event filter, but $session_id is applied directly to sessions."""
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1293,7 +1293,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1308,7 +1308,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 3
 
     def test_default_after_is_one_hour(self):
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(kind="SessionsQuery", select=["session_id"])
             runner = SessionsQueryRunner(query=query, team=self.team)
             printed = to_printed_hogql(runner.to_query(), team=self.team)
@@ -1330,7 +1330,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1379,7 +1379,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1438,7 +1438,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -1458,7 +1458,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         self.team.save()
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",

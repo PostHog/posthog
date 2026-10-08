@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("ee", "0044_conversation_deleted_conversation_deleted_at"),
-        ("feature_flags", "0002_migrate_feature_flags_models"),
     ]
 
     operations = [

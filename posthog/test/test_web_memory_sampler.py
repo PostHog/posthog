@@ -49,9 +49,8 @@ def test_sampler_disabled_starts_no_thread(monkeypatch):
 
 
 def test_sampler_rearms_when_guard_inherited_from_another_process(monkeypatch):
-    # Unit forks workers from a prototype, so the once-flag is copy-on-write-inherited with
-    # the prototype's pid. A worker must re-arm on its own pid and start the thread, not see
-    # the inherited value and skip — a plain bool guard here would silently sample nothing.
+    # A worker that inherits the once-flag must re-arm on its own pid and start the thread,
+    # not see the inherited value and skip. A plain bool guard would silently sample nothing.
     started_threads = []
 
     class _RecordingThread:
@@ -87,7 +86,7 @@ def test_sample_once_records_gauge_and_log_only_when_rss_available(
         mock.patch.object(sampler.WORKER_RSS_MB, "set", lambda value: gauge_sets.append(value)),
         capture_logs() as log_events,
     ):
-        sampler._sample_once(structlog.get_logger("test"), "pod-1", "7500")
+        sampler._sample_once(structlog.get_logger("test"), "pod-1", "2560")
 
     assert gauge_sets == expected_gauge_sets
     assert len(log_events) == expected_log_count

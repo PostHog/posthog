@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -25,7 +26,11 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
-from posthog.models.proxy_record import is_reserved_proxy_domain, is_valid_proxy_domain
+from posthog.models.proxy_record import (
+    is_reserved_proxy_domain,
+    is_valid_proxy_domain,
+    org_may_register_reserved_domain,
+)
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.tasks.proxy import reconcile_proxy_root_redirect
 from posthog.temporal.common.client import sync_connect
@@ -130,7 +135,10 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
                 "Enter a domain name on its own, like e.example.com, with no protocol, port, or path."
             )
         if is_reserved_proxy_domain(value):
-            raise serializers.ValidationError("This domain belongs to PostHog. Enter a domain you own instead.")
+            view = self.context.get("view")
+            organization_id = getattr(getattr(view, "organization", None), "id", None)
+            if organization_id is None or not org_may_register_reserved_domain(organization_id, value):
+                raise serializers.ValidationError("This domain belongs to PostHog. Enter a domain you own instead.")
         return value
 
 
@@ -482,7 +490,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         # The row can predate this check (created before it shipped, or written directly
         # by the ORM), so retry has to refuse re-dispatching provisioning for a reserved
         # domain rather than trusting a value validate_domain would reject on write today.
-        if is_reserved_proxy_domain(record.domain):
+        if is_reserved_proxy_domain(record.domain) and not org_may_register_reserved_domain(
+            record.organization_id, record.domain
+        ):
             return Response(
                 {"detail": "This domain belongs to PostHog and cannot be provisioned as a proxy domain."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -542,6 +552,15 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.delete()
         else:
             previous_status = record.status
+            # The workflow id is fixed per record, so a repeat delete collides with the
+            # deletion already running. Join that run only when the record was already
+            # deleting. Any other status means the last run is failing, and joining it
+            # would leave the record deleting forever once it closes.
+            delete_conflict_policy = (
+                WorkflowIDConflictPolicy.USE_EXISTING
+                if previous_status == ProxyRecord.Status.DELETING
+                else WorkflowIDConflictPolicy.FAIL
+            )
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
@@ -561,6 +580,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                         inputs,
                         id=workflow_id,
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        id_conflict_policy=delete_conflict_policy,
                     )
                 )
             except Exception as e:

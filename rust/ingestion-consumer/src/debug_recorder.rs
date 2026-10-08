@@ -93,6 +93,9 @@ pub enum DebugEventKind {
         batch_id: Option<String>,
         error: String,
     },
+    /// An offset commit was refused by the Kafka client; the process will
+    /// exit and restart.
+    CommitFailed { error: String },
     /// A worker moved between health states.
     WorkerStateChanged {
         worker: String,

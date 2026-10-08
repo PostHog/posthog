@@ -67,7 +67,9 @@ export interface definitionEditLogicActions {
     setLocalPropertyDefinition: (definition: PropertyDefinition) => {
         definition: PropertyDefinition
     } // propertyDefinitionsTableLogic
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
     resetEditDefinition: (values?: Definition) => {
         values?: Definition
     }

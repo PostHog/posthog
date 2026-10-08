@@ -1,10 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import api from 'lib/api'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -23,6 +23,7 @@ import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 
 import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { EditorFilters } from './EditorFilters'
 
@@ -173,6 +174,24 @@ describe('EditorFilters', () => {
         }
         for (const text of expectedAbsent) {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
+        }
+    })
+
+    it.each([false, true])('loads actions only when needed (action series: %s)', async (hasActionSeries) => {
+        const loadActions = jest.spyOn(api.actions, 'list').mockResolvedValue({ results: [], count: 0 })
+        try {
+            const query = makeTrendsQuery()
+            if (hasActionSeries) {
+                query.series = [{ kind: NodeKind.ActionsNode, id: 1, name: 'Example action' }]
+            }
+            setupAndRender(query)
+
+            expect(loadActions).toHaveBeenCalledTimes(hasActionSeries ? 1 : 0)
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            await waitFor(() => expect(loadActions).toHaveBeenCalledTimes(1))
+        } finally {
+            loadActions.mockRestore()
         }
     })
 

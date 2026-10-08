@@ -121,6 +121,33 @@ class TestFindLinkedPosthogUser:
         assert found is not None
         assert found.id == first_user.id
 
+    def test_most_recent_link_skipped_when_that_user_is_deactivated(self, org_team_user, link_user):
+        org, _, first_user = org_team_user
+        # Both accounts are in `org`, so only `is_active` separates them.
+        second_user = User.objects.create(email="dev2@example.com", distinct_id="user-2", is_active=False)
+        OrganizationMembership.objects.create(user=second_user, organization=org)
+        link_user(first_user)
+        link_user(second_user)
+
+        found = find_linked_posthog_user(
+            slack_user_id=SLACK_USER_ID, slack_team_id=SLACK_TEAM_ID, candidate_org_ids={org.id}
+        )
+        assert found is not None
+        assert found.id == first_user.id
+
+    def test_returns_none_when_the_only_linked_user_is_deactivated(self, org_team_user, link_user):
+        org, _, user = org_team_user
+        link_user(user)
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+
+        assert (
+            find_linked_posthog_user(
+                slack_user_id=SLACK_USER_ID, slack_team_id=SLACK_TEAM_ID, candidate_org_ids={org.id}
+            )
+            is None
+        )
+
 
 class TestUserSlackIntegrationFromIdentity:
     """Tests for the model factory that the OAuth callback hands off to.

@@ -14,16 +14,17 @@ import type {
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsErrorSpikesRetrieveParams,
+    MetricsNamesRetrieveParams,
     MetricsValuesRetrieveParams,
     _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
     _MetricAttributeValuesResponseApi,
+    _MetricCatalogValuesParamsApi,
     _MetricErrorSpikesResponseApi,
-    _MetricExplainRequestApi,
-    _MetricExplainResponseApi,
     _MetricNamesResponseApi,
+    _MetricPickerNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
@@ -124,9 +125,8 @@ export const getMetricsAttributesRetrieveUrl = (projectId: string, params?: Metr
 }
 
 /**
- * Distinct attribute keys seen on the team's metrics (datapoint and
- * resource attributes merged), most frequent first. Backs the filter
- * bar's key autocomplete.
+ * Attribute keys ordered by distinct series count, from highest to
+ * lowest. `metricName` limits choices to one metric.
  */
 export const metricsAttributesRetrieve = async (
     projectId: string,
@@ -192,28 +192,6 @@ export const metricsErrorSpikesRetrieve = async (
     })
 }
 
-export const getMetricsExplainCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/metrics/explain/`
-}
-
-/**
- * Take one chart point apart into the series and samples behind it,
- * and recompute it independently so the plotted number can be checked
- * rather than trusted.
- */
-export const metricsExplainCreate = async (
-    projectId: string,
-    _metricExplainRequestApi: _MetricExplainRequestApi,
-    options?: RequestInit
-): Promise<_MetricExplainResponseApi> => {
-    return apiMutator<_MetricExplainResponseApi>(getMetricsExplainCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_metricExplainRequestApi),
-    })
-}
-
 export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/metrics/has_metrics/`
 }
@@ -223,6 +201,36 @@ export const metricsHasMetricsRetrieve = async (
     options?: RequestInit
 ): Promise<_HasMetricsResponseApi> => {
     return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsNamesRetrieveUrl = (projectId: string, params?: MetricsNamesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/names/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/names/`
+}
+
+/**
+ * Distinct metric names for the viewer picker, without sparklines or caching.
+ */
+export const metricsNamesRetrieve = async (
+    projectId: string,
+    params?: MetricsNamesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricPickerNamesResponseApi> => {
+    return apiMutator<_MetricPickerNamesResponseApi>(getMetricsNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -301,7 +309,7 @@ export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsV
 }
 
 /**
- * Distinct metric names for the team. Backs the picker UI.
+ * Distinct metric names for the team. Backs the catalog UI.
  */
 export const metricsValuesRetrieve = async (
     projectId: string,
@@ -311,5 +319,25 @@ export const metricsValuesRetrieve = async (
     return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the catalog UI.
+ */
+export const metricsValuesCreate = async (
+    projectId: string,
+    _metricCatalogValuesParamsApi: _MetricCatalogValuesParamsApi,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricCatalogValuesParamsApi),
     })
 }

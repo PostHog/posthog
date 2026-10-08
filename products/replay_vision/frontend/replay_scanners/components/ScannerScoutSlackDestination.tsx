@@ -8,8 +8,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { SignalScoutOutputDestinationsApi } from 'products/signals/frontend/generated/api.schemas'
 
-// Styled like the legacy action editor's Slack delivery section (workspace choice + labeled channel
-// picker), writing the scout config's destination shape instead of a vision action's delivery_config.
 export function ScannerScoutSlackDestination({
     destinations,
     onChange,

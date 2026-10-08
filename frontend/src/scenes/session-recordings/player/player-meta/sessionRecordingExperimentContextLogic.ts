@@ -40,6 +40,7 @@ export interface sessionRecordingExperimentContextLogicValues {
     expandedExperimentIds: number[]
     experimentContext: ExperimentSessionContextResponseApi | null
     experimentContextLoading: boolean
+    experimentContextSettled: boolean
     experimentItems: ExperimentSessionContextItemApi[]
     hasExperimentContext: boolean
     hasMultipleVariantWarning: boolean
@@ -116,6 +117,18 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
         setExperimentExpanded: (experimentId: number, expanded: boolean) => ({ experimentId, expanded }),
     }),
     reducers({
+        // The loader answers a 404 with null, so `experimentContext === null` cannot tell "still
+        // loading" from "loaded, nothing here". A consumer that must wait for the answer reads this
+        // flag. It is a reducer rather than the success action, because the logic is keyed by
+        // session id and other mounts (the sidebar, the meta tags) can settle it before a consumer
+        // mounts, and then no success action arrives for that consumer to hear.
+        experimentContextSettled: [
+            false,
+            {
+                loadExperimentContextSuccess: () => true,
+                loadExperimentContextFailure: () => true,
+            },
+        ],
         expandedExperimentIds: [
             [] as number[],
             {

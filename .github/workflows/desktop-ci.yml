@@ -11,7 +11,11 @@ name: Desktop CI
 # any PR that requires them stuck waiting for status.
 
 on:
+    # ready_for_review is included because the children skip their expensive jobs on a
+    # draft. Without it, marking a desktop pull request ready would dispatch nothing and
+    # the author would wait for an unrelated push to get that coverage back.
     pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
     # Required so the `Desktop * Pass` checks report on merge queue entries —
     # without it the queue would wait for them until timeout. The children skip
     # all real jobs on merge_group (the suite already ran in full on the PR) and

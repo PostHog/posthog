@@ -1,20 +1,27 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.dataclasses import frozen
+
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
-CanaryOutcome = Literal["pass", "divergence", "path_flip", "error", "skipped"]
+CanaryOutcome = Literal["pass", "divergence", "path_flip", "uncheckable", "error", "skipped"]
 
 OUTCOME_PASS: Final = "pass"
 OUTCOME_DIVERGENCE: Final = "divergence"
 OUTCOME_PATH_FLIP: Final = "path_flip"
+# The direct-scan ground truth cannot execute under the per-query byte cap, so correctness is
+# unverifiable for this metric. Stability was still checked. Kept separate from "error" so the
+# error gauge only counts unexpected failures.
+OUTCOME_UNCHECKABLE: Final = "uncheckable"
 OUTCOME_ERROR: Final = "error"
 OUTCOME_SKIPPED: Final = "skipped"
 ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
     OUTCOME_PASS,
     OUTCOME_DIVERGENCE,
     OUTCOME_PATH_FLIP,
+    OUTCOME_UNCHECKABLE,
     OUTCOME_ERROR,
     OUTCOME_SKIPPED,
 )
@@ -22,13 +29,18 @@ ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
+# Open executions and the workflow_type metric label carry this name, so a rename strands running workflows.
+METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow"
+
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
-# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
-# exponential schedule.
-CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
+# Retry delay window for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the
+# cluster's at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's
+# 5s exponential schedule. Each bounce picks a random delay in the window, so metrics that bounced in the same
+# burst do not retry at the same moment and hit the same full limit again.
+CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 30
+CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 90
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -138,14 +150,17 @@ class CanaryVariantStats:
     number_of_samples: int
 
 
-@dataclasses.dataclass
+@frozen
 class CanaryRunSnapshot:
     """Per-variant aggregates from one execution of the metric query."""
 
     label: str  # "a" | "b" (forced precomputed) | "c" (forced direct scan)
     query_id: str  # client_query_id, for system.query_log forensics
-    is_precomputed: bool
+    is_precomputed: bool  # exposures side
     variants: dict[str, CanaryVariantStats]
+    # "precomputed" | "direct_scan" | "not_applicable". Defaulted so snapshots
+    # recorded before this field existed still decode during Temporal replay.
+    metric_events_path: str = "not_applicable"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -201,3 +216,16 @@ class ExperimentPrecomputeEnrollmentCensusInputs:
     would qualify for precomputation enrollment; it never enrolls anyone."""
 
     window_days: int = 14
+
+
+SCHEDULED_RECALCULATION_WORKFLOW_NAME = "experiment-scheduled-recalculation-workflow"
+
+
+@frozen
+class ScheduledRecalculationStartResult:
+    """Outcome of one experiment's start attempt, for the coordinator's summary counts."""
+
+    experiment_id: int
+    started: bool
+    recalculation_id: str | None = None
+    skip_reason: str | None = None

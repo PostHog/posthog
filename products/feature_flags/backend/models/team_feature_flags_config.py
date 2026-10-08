@@ -5,6 +5,8 @@ from django.db import models
 
 from posthog.models.team.extensions import register_team_extension_signal
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+
 logger = logging.getLogger(__name__)
 
 # Ceiling on a staff-granted max_feature_flags_override. The global default exists to bound the
@@ -67,6 +69,15 @@ class TeamFeatureFlagsConfig(models.Model):
         blank=True,
         default=None,
         validators=[MinValueValidator(1), MaxValueValidator(MAX_FEATURE_FLAGS_OVERRIDE_CEILING)],
+    )
+
+    # Nothing reads or writes this column. OrganizationFeatureFlagsConfig.flag_evaluations_mode holds
+    # the mode. The database default keeps older writers, and raw INSERTs that omit this column, valid
+    # during rolling deploys.
+    flag_evaluations_mode = models.SmallIntegerField(
+        choices=FlagEvaluationsMode.choices,
+        default=FlagEvaluationsMode.EVENTS.value,
+        db_default=FlagEvaluationsMode.EVENTS.value,
     )
 
     class Meta:

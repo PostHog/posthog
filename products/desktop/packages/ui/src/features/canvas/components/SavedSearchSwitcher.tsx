@@ -31,6 +31,7 @@ export function SavedSearchSwitcher({
             type="button"
             variant="default"
             size="sm"
+            left
             aria-label="Switch saved search"
             className={cn("-ml-1.5 min-w-0 shrink gap-1 px-1.5", className)}
           >

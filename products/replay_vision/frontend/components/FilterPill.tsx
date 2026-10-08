@@ -9,6 +9,7 @@ export function FilterPill<T extends string>({
     onChange,
     searchable = false,
     searchPlaceholder,
+    dataAttr,
 }: {
     label: string
     options: { value: T; label: string }[]
@@ -16,6 +17,7 @@ export function FilterPill<T extends string>({
     onChange: (next: T[]) => void
     searchable?: boolean
     searchPlaceholder?: string
+    dataAttr: string
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const filteredOptions = searchTerm
@@ -28,6 +30,7 @@ export function FilterPill<T extends string>({
         <LemonButtonWithDropdown
             type="secondary"
             size="small"
+            data-attr={dataAttr}
             dropdown={{
                 closeOnClickInside: false,
                 onVisibilityChange: (visible) => {
@@ -50,7 +53,12 @@ export function FilterPill<T extends string>({
                             />
                         )}
                         {filteredOptions.map((opt) => (
-                            <LemonButton key={opt.value} fullWidth onClick={() => toggle(opt.value)}>
+                            <LemonButton
+                                data-attr={`${dataAttr}-option`}
+                                key={opt.value}
+                                fullWidth
+                                onClick={() => toggle(opt.value)}
+                            >
                                 <LemonCheckbox
                                     checked={value.includes(opt.value)}
                                     className="pointer-events-none mr-2"

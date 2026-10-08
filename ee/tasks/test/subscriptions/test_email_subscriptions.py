@@ -1,7 +1,7 @@
 import uuid
 import smtplib
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +16,7 @@ from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -24,7 +25,7 @@ def mock_ee_email_messages(MockEmailMessage: MagicMock):
 
 
 @patch("ee.tasks.subscriptions.email_subscriptions.EmailMessage")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 class TestEmailSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard
@@ -119,6 +120,17 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed" in mocked_email_messages[0].html_body
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
+
+    def test_dashboard_delivery_states_current_insight_limit(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+
+        subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
+
+        send_email_subscription_report(self.user.email, subscription, [self.asset], total_asset_count=1)
+
+        assert (
+            f"Email subscriptions are limited to at most {MAX_INSIGHTS} insights." in mocked_email_messages[0].html_body
+        )
 
     def test_shows_summary_skipped_notice_when_over_budget(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
@@ -219,7 +231,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert str(delivery_id) in mocked_email_messages[0].campaign_key
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

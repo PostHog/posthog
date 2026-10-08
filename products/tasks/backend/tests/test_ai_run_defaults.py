@@ -18,13 +18,32 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     update_team_ai_run_preferences,
     update_user_ai_run_preferences,
 )
-from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
-from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
+from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
 
 FACADE = "products.tasks.backend.facade.api"
 
 TEAM_TRIPLE = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
 USER_TRIPLE = {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"}
+PI_PREFS_WITH_PI_ONLY_EFFORT = {
+    "runtime": "pi",
+    "runtime_adapter": None,
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "off",
+}
+
+RESOLVER = "products.tasks.backend.logic.services.ai_run_defaults"
+
+
+EMPTY_PREFERENCES: dict[str, Any] = {
+    "runtime": None,
+    "runtime_adapter": None,
+    "model": None,
+    "reasoning_effort": None,
+}
+
+
+def pi_harness_enabled(enabled: bool = True):
+    return patch(f"{RESOLVER}.pi_cloud_runtime_enabled", return_value=enabled)
 
 
 class TestResolveAIRunDefaults(APIBaseTest):
@@ -50,6 +69,45 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "claude-opus-4-8",
             "high",
         )
+
+    def test_row_stored_before_pi_reads_as_the_acp_harness(self):
+        self._set_team(TEAM_TRIPLE)
+        assert resolve_ai_run_defaults(self.team.id, self.user.id).runtime == "acp"
+
+    def test_pi_preference_resolves_with_its_thinking_level_and_no_adapter(self):
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
+        with pi_harness_enabled():
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "user"
+        assert (resolved.runtime, resolved.runtime_adapter, resolved.model, resolved.reasoning_effort) == (
+            "pi",
+            None,
+            "gpt-5.6-terra",
+            "off",
+        )
+
+    @parameterized.expand([("a_depth_pi_cannot_run", "ultracode"), ("not_a_depth_at_all", "deep")])
+    def test_a_stored_effort_pi_cannot_use_is_dropped(self, _name: str, reasoning_effort: str):
+        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": reasoning_effort})
+        with pi_harness_enabled():
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
+
+    def test_a_pi_row_with_no_model_falls_through_to_the_team(self):
+        self._set_team(TEAM_TRIPLE)
+        self._set_user({"runtime": "pi", "runtime_adapter": None, "model": None, "reasoning_effort": "high"})
+        with pi_harness_enabled():
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert (resolved.source, resolved.runtime, resolved.model) == ("team", "acp", "claude-opus-4-8")
+
+    def test_a_pi_preference_leaves_an_acp_run_with_no_default(self):
+        self._set_team(TEAM_TRIPLE)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
+        with pi_harness_enabled():
+            for_acp = resolve_ai_run_selection(self.team.id, self.user.id)
+            for_pi = resolve_ai_run_selection(self.team.id, self.user.id, runtime="pi")
+        assert (for_acp.source, for_acp.model) == ("none", None)
+        assert (for_pi.source, for_pi.model) == ("user", "gpt-5.6-terra")
 
     def test_user_triple_replaces_team_triple_wholesale(self):
         self._set_team(TEAM_TRIPLE)
@@ -141,21 +199,6 @@ class TestResolveAIRunDefaults(APIBaseTest):
         )
 
 
-class TestRunCreateSerializerModeWithoutAdapter(APIBaseTest):
-    # A composer that pins nothing must still be able to state the launch mode — the
-    # server resolves the runtime from the stored default and clamps the mode to it.
-    def test_mode_without_adapter_is_accepted(self):
-        serializer = TaskRunCreateRequestSerializer(data={"initial_permission_mode": "plan"})
-        assert serializer.is_valid(), serializer.errors
-
-    def test_mode_outside_the_pinned_adapters_vocabulary_is_still_rejected(self):
-        serializer = TaskRunCreateRequestSerializer(
-            data={"runtime_adapter": "codex", "model": "gpt-5.5", "initial_permission_mode": "acceptEdits"}
-        )
-        assert not serializer.is_valid()
-        assert "initial_permission_mode" in serializer.errors
-
-
 class TestModelAccessGating(APIBaseTest):
     GATED = "claude-opus-4-8"
 
@@ -182,12 +225,32 @@ class TestModelAccessGating(APIBaseTest):
             ),
         )
 
-    RESOLVER = "products.tasks.backend.logic.services.ai_run_defaults"
+    def test_pi_default_without_the_harness_flag_falls_through_to_team(self):
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
+        self._set_team(USER_TRIPLE)
+        with pi_harness_enabled(enabled=False):
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "team"
+        assert (resolved.runtime, resolved.model) == ("acp", "gpt-5.5")
+
+    def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
+        User.objects.filter(id=self.user.id).update(distinct_id=None)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
+        with pi_harness_enabled():
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "user"
+
+    def test_pi_team_default_without_the_harness_flag_resolves_to_none(self):
+        self._set_team(PI_PREFS_WITH_PI_ONLY_EFFORT)
+        with pi_harness_enabled(enabled=False):
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "none"
+        assert resolved.model is None
 
     def test_gated_user_default_falls_through_to_team(self):
         self._set_user(TEAM_TRIPLE)  # names the gated model
         self._set_team(USER_TRIPLE)
-        flag_patch, access_patch = self._gate(self.RESOLVER)
+        flag_patch, access_patch = self._gate(RESOLVER)
         with flag_patch, access_patch as access_mock:
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "team"
@@ -196,7 +259,7 @@ class TestModelAccessGating(APIBaseTest):
 
     def test_gated_team_default_resolves_to_none(self):
         self._set_team(TEAM_TRIPLE)
-        flag_patch, access_patch = self._gate(self.RESOLVER)
+        flag_patch, access_patch = self._gate(RESOLVER)
         with flag_patch, access_patch:
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "none"
@@ -250,6 +313,13 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
         run = self._task(internal=True).create_run()
         assert "model" not in run.state
+
+    def test_acp_task_never_inherits_a_pi_default(self):
+        update_team_ai_run_preferences(self.team.id, **PI_PREFS_WITH_PI_ONLY_EFFORT)
+        with pi_harness_enabled():
+            run = self._task().create_run()
+        assert "model" not in run.state
+        assert "ai_defaults_source" not in run.state
 
     def test_pi_runtime_task_never_inherits_defaults(self):
         update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
@@ -317,6 +387,45 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 
+    def test_default_carrying_warm_run_is_activated_by_a_continue_from_an_import_run(self):
+        update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        import_run = task.create_run(mode="interactive", extra_state={"imported_from": "conversation"})
+        import_run.status = TaskRun.Status.COMPLETED
+        import_run.save(update_fields=["status"])
+        warm_run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "resume_from_run_id": str(import_run.id),
+                "initial_permission_mode": "default",
+            },
+        )
+        assert warm_run.state["model"] == "claude-opus-4-8"
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(import_run.id),
+                    "pending_user_message": "go",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
+
 
 class TestTasksConfigAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -327,16 +436,14 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
-        assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
-        }
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
+        assert response.json()["ai_run_preferences"] == {**TEAM_TRIPLE, "runtime": None}
 
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
+        assert response.json()["ai_run_preferences"] == {**TEAM_TRIPLE, "runtime": None}
 
     @parameterized.expand(
         [
@@ -347,35 +454,48 @@ class TestTasksConfigAPI(APIBaseTest):
                 "unsupported_effort",
                 {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "max"},
             ),
+            ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "codex", "model": "gpt-5.6-terra"}),
+            ("pi_without_a_model", {"runtime": "pi", "reasoning_effort": "high"}),
+            (
+                "a_depth_the_paired_model_does_not_offer",
+                {"runtime_adapter": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
+            ),
         ]
     )
-    def test_invalid_triples_are_rejected(self, _name: str, payload: dict[str, Any]):
+    def test_invalid_preferences_are_rejected(self, _name: str, payload: dict[str, Any]):
         # Both endpoints share the validation path; asserting both keeps either from losing it.
         for path in ("config", "@me/config"):
             response = self.client.post(f"/api/projects/{self.team.id}/tasks/{path}/", payload)
             assert response.status_code == 400, (path, response.content)
 
+    def test_pi_preference_round_trip(self):
+        stored = {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "off"}
+        with pi_harness_enabled():
+            response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", PI_PREFS_WITH_PI_ONLY_EFFORT)
+            assert response.status_code == 200, response.content
+            body = response.json()
+            assert body["ai_run_preferences"] == stored
+            assert body["resolved_ai_run_defaults"]["runtime"] == "pi"
+            assert body["resolved_ai_run_defaults"]["runtime_adapter"] is None
+            assert body["resolved_ai_run_defaults"]["source"] == "user"
+
     def test_clearing_the_team_default(self):
         self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/tasks/config/",
-            {"runtime_adapter": None, "model": None, "reasoning_effort": None},
-        )
+        response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", EMPTY_PREFERENCES)
         assert response.status_code == 200
-        assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
-        }
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": EMPTY_PREFERENCES,
+            "agent_instructions": "",
         }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
         for path in ("config", "@me/config"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
-            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
-            assert self.client.get(url).status_code == 403
-            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+            # 401, not 403: PostHog's SessionAuthentication sets a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 401
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 401
 
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)
@@ -391,24 +511,24 @@ class TestTasksConfigAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        assert body["ai_run_preferences"] == EMPTY_PREFERENCES
         assert body["resolved_ai_run_defaults"]["source"] == "team"
         assert body["resolved_ai_run_defaults"]["model"] == "claude-opus-4-8"
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE)
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == USER_TRIPLE
+        assert body["ai_run_preferences"] == {**USER_TRIPLE, "runtime": None}
         assert body["resolved_ai_run_defaults"]["source"] == "user"
         assert body["resolved_ai_run_defaults"]["model"] == "gpt-5.5"
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/tasks/@me/config/",
-            {"runtime_adapter": None, "model": None, "reasoning_effort": None},
+            EMPTY_PREFERENCES,
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        assert body["ai_run_preferences"] == EMPTY_PREFERENCES
         assert body["resolved_ai_run_defaults"]["source"] == "team"
 
     # The project default decides what every unpinned run on the project launches with, so a member
@@ -427,11 +547,7 @@ class TestTasksConfigAPI(APIBaseTest):
             team_id=self.team.id, user_id=other.id, defaults={"ai_run_preferences": USER_TRIPLE}
         )
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
-        assert response.json()["ai_run_preferences"] == {
-            "runtime_adapter": None,
-            "model": None,
-            "reasoning_effort": None,
-        }
+        assert response.json()["ai_run_preferences"] == EMPTY_PREFERENCES
 
 
 class TestConfigEndpointScopes(APIBaseTest):

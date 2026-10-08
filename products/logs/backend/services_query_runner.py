@@ -185,10 +185,11 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def __init__(self, *args: Any, service_name_search: str | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Not part of the query object, so it never reaches the cache key. Safe
-        # only while the services endpoint runs CALCULATE_BLOCKING_ALWAYS; a move
-        # to any cached execution mode requires this on LogsQuery instead.
         self.service_name_search = service_name_search.strip() if service_name_search else None
+
+    def get_cache_payload(self) -> dict[str, Any]:
+        # A runner argument, not a query field, so the base payload cannot see it.
+        return {**super().get_cache_payload(), "service_name_search": self.service_name_search}
 
     def _calculate(self) -> LogsQueryResponse:
         aggregates_response = execute_hogql_query(

@@ -26,6 +26,8 @@ describe('mcpProperties', () => {
         // Non-priority schema properties come from the taxonomy-derived group, so new
         // $mcp_* taxonomy entries surface without touching this module.
         expect(options).toContain('$mcp_transport')
+        expect(options).toContain('$mcp_llm_model')
+        expect(options).toContain('$mcp_llm_model_source')
         expect(options.every((key) => key.startsWith('$mcp_'))).toBe(true)
         expect(new Set(options).size).toBe(options.length)
     })
@@ -64,6 +66,7 @@ describe('mcpProperties', () => {
             personMetadataPropertyDefinitions: [],
             maxContextOptions: [],
             hideBehavioralCohorts: false,
+            showCohortFlagTargeting: false,
             endpointFilters: undefined,
             hogQLExpressionComponentProps: { showBreakdownLabelHint: false },
             featureFlags: {},

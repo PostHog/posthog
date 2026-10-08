@@ -2,21 +2,27 @@
 
 The trigger's stored ``filters`` dict is the single source of truth. ``audience_type:
 'accounts'`` switches the batch resolver from persons to accounts; the remaining keys
-(``properties`` of account custom property filters, ``tag_names``, ``assigned_to_user_ids``,
-``all_roles_unassigned``) narrow which accounts a firing fans out to.
+(``properties`` of account custom property filters, ``tag_names``, ``assignment_status``, and
+``assigned_to_user_ids``) narrow which accounts a firing fans out to. ``all_roles_unassigned``
+remains accepted for workflows saved before assignment statuses were explicit.
 
 customer_analytics owns the account data but already depends on workflows, so the query
 implementation arrives through a provider registered during ``django.setup()``
 (``CustomerAnalyticsConfig.ready``) — the same hook inversion warehouse_sources uses.
 """
 
-from dataclasses import dataclass
-from typing import Any, Protocol
 from uuid import UUID
 
 from rest_framework import exceptions
 
 from posthog.models.team.team import Team
+
+from products.workflows.backend.facade.contracts import (
+    AccountAssignmentStatus,
+    AccountAudienceCustomPropertyFilter,
+    AccountAudienceFilters,
+    AccountAudienceProvider,
+)
 
 ACCOUNT_BATCH_SIZE = 500
 
@@ -43,35 +49,6 @@ SUPPORTED_CUSTOM_PROPERTY_OPERATORS = frozenset(
 )
 
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
-
-
-@dataclass(frozen=True, kw_only=True)
-class AccountAudienceCustomPropertyFilter:
-    """One custom-property predicate of a batch audience (key = definition id)."""
-
-    definition_id: UUID
-    operator: str
-    value: Any = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class AccountAudienceFilters:
-    """Account selection for a batch run; empty filters mean every account with an external_id."""
-
-    tag_names: tuple[str, ...] = ()
-    assigned_to_user_ids: tuple[int, ...] = ()
-    all_roles_unassigned: bool = False
-    custom_properties: tuple[AccountAudienceCustomPropertyFilter, ...] = ()
-
-
-class AccountAudienceProvider(Protocol):
-    def count_accounts(self, team: Team, filters: AccountAudienceFilters) -> int: ...
-
-    def list_account_external_ids(
-        self, team: Team, filters: AccountAudienceFilters, *, cursor: str | None, limit: int
-    ) -> list[str]: ...
-
-    def get_account_group_type_name(self, team: Team) -> str | None: ...
 
 
 _provider: AccountAudienceProvider | None = None
@@ -143,10 +120,33 @@ def parse_account_audience_filters(filters: dict) -> AccountAudienceFilters:
     ):
         raise exceptions.ValidationError({"filters": {"assigned_to_user_ids": "Must be a list of user ids."}})
 
+    raw_assignment_status = filters.get("assignment_status")
+    assignment_status: AccountAssignmentStatus | None
+    if raw_assignment_status is None:
+        assignment_status = None
+    elif raw_assignment_status in ("all", "assigned", "unassigned"):
+        assignment_status = raw_assignment_status
+    else:
+        raise exceptions.ValidationError(
+            {"filters": {"assignment_status": "Must be 'all', 'assigned', or 'unassigned'."}}
+        )
+
+    all_roles_unassigned = bool(filters.get("all_roles_unassigned"))
+    if assignment_status is not None:
+        if all_roles_unassigned:
+            raise exceptions.ValidationError(
+                {"filters": {"all_roles_unassigned": "Cannot be combined with assignment_status."}}
+            )
+        if assignment_status != "assigned" and assigned_to_user_ids:
+            raise exceptions.ValidationError(
+                {"filters": {"assigned_to_user_ids": "Can only be used with assignment_status 'assigned'."}}
+            )
+
     return AccountAudienceFilters(
         tag_names=tuple(tag_names),
+        assignment_status=assignment_status,
         assigned_to_user_ids=tuple(assigned_to_user_ids),
-        all_roles_unassigned=bool(filters.get("all_roles_unassigned")),
+        all_roles_unassigned=all_roles_unassigned,
         custom_properties=tuple(custom_properties),
     )
 

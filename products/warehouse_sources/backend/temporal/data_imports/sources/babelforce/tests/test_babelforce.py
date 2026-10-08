@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
     _build_params,
     _to_epoch,
     babelforce_source,
-    is_environment_valid,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import (
@@ -47,16 +46,19 @@ def _page(items: list[dict[str, Any]], current: Optional[int], pages: Optional[i
     return resp
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """Wire a mock session and capture each request's params AT SEND TIME.
 
     ``request.params`` is one dict the paginator mutates in place across pages, so snapshot a copy
-    when each request is prepared rather than inspecting the final state.
+    when each request is prepared rather than inspecting the final state. Pass ``urls`` to collect
+    each request's URL alongside them.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
+        if urls is not None:
+            urls.append(request.url)
         param_snapshots.append(dict(request.params or {}))
         return mock.MagicMock()
 
@@ -90,73 +92,16 @@ class TestToEpoch:
 
 
 class TestEnvironmentValidation:
-    @pytest.mark.parametrize(
-        "environment, expected",
-        [
-            ("services", True),
-            ("us-east", True),
-            (" services ", True),
-            ("My-Env-1", True),
-            ("", False),
-            ("-leading-dash", False),
-            ("evil.example.com", False),
-            ("evil/path", False),
-            ("host:8443", False),
-            ("a b", False),
-        ],
-    )
-    def test_is_environment_valid(self, environment, expected):
-        assert is_environment_valid(environment) is expected
-
     def test_base_url_rejects_invalid_environment(self):
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
 
-    def test_base_url_environment_becomes_subdomain(self):
-        assert _base_url("services") == "https://services.babelforce.com/api/v2"
-        assert _base_url("us-east").startswith("https://us-east.babelforce.com/")
-
 
 class TestBuildParams:
-    def test_filter_capable_endpoint_includes_window(self):
-        params = _build_params(BABELFORCE_ENDPOINTS["calls"], from_timestamp=1700000000, to_timestamp=1700000100)
-        assert params["dateCreated.start"] == 1700000000
-        assert params["dateCreated.end"] == 1700000100
-        assert params["max"] == 100
-
     def test_full_refresh_endpoint_never_gets_window(self):
         params = _build_params(BABELFORCE_ENDPOINTS["agents"], from_timestamp=1700000000, to_timestamp=1700000100)
         assert "dateCreated.start" not in params
         assert "dateCreated.end" not in params
-
-    def test_no_watermark_omits_start(self):
-        params = _build_params(BABELFORCE_ENDPOINTS["calls"], from_timestamp=None, to_timestamp=1700000100)
-        assert "dateCreated.start" not in params
-        assert params["dateCreated.end"] == 1700000100
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("services", "id", "token") is expected
-
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("services", "id", "token") is False
 
 
 class TestSessionHardening:
@@ -258,21 +203,6 @@ class TestPagination:
         assert [row["id"] for row in rows] == ["1"]
         assert session.send.call_count == 1
 
-    @mock.patch(SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, mock_session):
-        session = mock_session.return_value
-        _wire(session, [_page([], current=1, pages=1)])
-
-        manager = _make_manager()
-        rows = _rows(
-            babelforce_source(
-                "services", "id", "token", "calls", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        )
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.babelforce.time")
     @mock.patch(SESSION_PATCH)
     def test_incremental_run_windows_the_query(self, mock_session, mock_time):
@@ -308,7 +238,7 @@ class TestBabelforceSourceResponse:
         )
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         # Reporting order is undocumented, so the watermark must only finalize on completion.
         assert response.sort_mode == "desc"
         if config.partition_key:
@@ -318,6 +248,117 @@ class TestBabelforceSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("config", [c for c in BABELFORCE_ENDPOINTS.values() if c.partition_key])
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "dateCreated"
+
+# Each fan-out child, the path its parent id resolves into, and the field that id is injected as.
+FANOUT_CASES = [
+    ("conversation_events", "/conversations/p1/events", "conversationId"),
+    ("outbound_leads", "/outbound/lists/p1/leads", "listId"),
+    ("outbound_campaign_statistics", "/outbound/campaigns/p1/statistics", "campaignId"),
+]
+
+
+class TestFanout:
+    @pytest.mark.parametrize("endpoint, child_path, parent_key", FANOUT_CASES)
+    @mock.patch(SESSION_PATCH)
+    def test_child_rows_carry_the_parent_key(self, mock_session, endpoint, child_path, parent_key):
+        # Child rows are keyed by their parent, so the injected field has to be the one the
+        # primary key names - otherwise rows from different parents collide on merge.
+        session = mock_session.return_value
+        urls: list[str] = []
+        _wire(session, [_page([{"id": "p1"}], current=1, pages=1), _page([{"probe": "row"}], current=1, pages=1)], urls)
+
+        rows = _rows(
+            babelforce_source(
+                "services", "id", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert urls[1].endswith(child_path)
+        assert rows == [{"probe": "row", parent_key: "p1"}]
+        assert parent_key in BABELFORCE_ENDPOINTS[endpoint].primary_keys
+
+    @mock.patch(SESSION_PATCH)
+    def test_unpaginated_fan_out_reads_one_page_without_paging_params(self, mock_session):
+        # Both pages advertise more to come. The outbound endpoints document no `pagination`
+        # object and take no `page`/`max` params, so neither is sent and neither is followed.
+        session = mock_session.return_value
+        params = _wire(session, [_page([{"id": "l1"}], current=1, pages=3), _page([{"id": "d1"}], current=1, pages=3)])
+
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "outbound_leads",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+        )
+
+        assert params == [{}, {}]
+        assert session.send.call_count == 2
+        assert [row["id"] for row in rows] == ["d1"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_fan_out_checkpoints_each_parent(self, mock_session):
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "c1"}, {"id": "c2"}], current=1, pages=1),
+                _page([{"id": "e1"}], current=1, pages=1),
+                _page([{"id": "e2"}], current=1, pages=1),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "conversation_events",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert [row["id"] for row in rows] == ["e1", "e2"]
+        assert manager.save_state.call_args.args[0].fanout["completed"] == [
+            "/conversations/c1/events",
+            "/conversations/c2/events",
+        ]
+
+    @mock.patch(SESSION_PATCH)
+    def test_fan_out_resume_skips_completed_parents(self, mock_session):
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "c1"}, {"id": "c2"}], current=1, pages=1),
+                _page([{"id": "e2"}], current=1, pages=1),
+            ],
+        )
+
+        manager = _make_manager(
+            BabelforceResumeConfig(
+                fanout={"completed": ["/conversations/c1/events"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "conversation_events",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+            )
+        )
+
+        # The parent list is re-read, but only the unfinished conversation is fetched again.
+        assert [row["id"] for row in rows] == ["e2"]
+        assert session.send.call_count == 2

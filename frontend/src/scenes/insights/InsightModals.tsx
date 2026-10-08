@@ -13,6 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
@@ -20,7 +21,9 @@ import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/ins
 import { EditAlertModal } from 'products/alerts/frontend/views/EditAlertModal'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 import { MetricFromInsightModal } from 'products/data_catalog/frontend/components/MetricFromInsightModal'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { insightModalsLogic } from './insightModalsLogic'
@@ -64,8 +67,7 @@ function InsightSubscriptionsModalWrapper({
             closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
             insightShortId={insight.short_id}
             insightName={insight.name || insight.derived_name || 'Untitled insight'}
-            isCreating={isNewSubscription}
-            subscriptionId={itemId}
+            subscriptionId={isNewSubscription ? undefined : itemId}
         />
     )
 }
@@ -170,10 +172,20 @@ function InsightTerraformModalWrapper({ insightLogicProps }: { insightLogicProps
     )
 }
 
-function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+function InsightEndpointModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
     const theInsightLogic = insightLogic(insightLogicProps)
     const { insightProps, insight } = useValues(theInsightLogic)
     const { insightQuery } = useValues(insightDataLogic(insightProps))
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { createFromInsightModalOpen } = useValues(endpointLogic)
+
+    if (!scenePanelOpen && !createFromInsightModalOpen) {
+        return null
+    }
 
     return (
         <EndpointFromInsightModal
@@ -189,6 +201,12 @@ function InsightMetricModalWrapper({
     insightLogicProps: InsightLogicProps
 }): JSX.Element | null {
     const { insight } = useValues(insightLogic(insightLogicProps))
+    const { scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { metricFromInsightModalOpen } = useValues(metricsLogic)
+
+    if (!scenePanelOpen && !metricFromInsightModalOpen) {
+        return null
+    }
 
     return (
         <MetricFromInsightModal

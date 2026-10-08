@@ -34,6 +34,21 @@ These three look similar but solve different jobs. Pick the right one:
 If there is a condition to evaluate, it is an alert. If there is an export to deliver, it is a
 subscription. If it is just a timed nudge to a person, it is a reminder.
 
+## Required fields
+
+Every `reminder-create` call **must** include both of these fields. A call without them is rejected.
+
+- `organization` — the organization ID (a UUID string). Call `organization-get` with no arguments
+  to get the active organization, and use its `id`. Do not guess this value.
+  If `organization-get` fails because no organization is selected, call `organizations-list`.
+  If the user belongs to one organization, use its `id`. Otherwise, ask the user which one to use,
+  then call `switch-organization` with it.
+- `title` — the short text shown as the notification title. Write it from the user's request
+  (for "remind me to review the launch dashboard", use `"Review the launch dashboard"`).
+
+Also set `team` (the numeric project ID) whenever you know the project. It is required when you
+attach a resource, and it makes the project timezone the default.
+
 ## Scheduling shapes
 
 A reminder uses **exactly one** of `scheduled_at`, `recurrence_interval`, or `cron_expression`.
@@ -76,13 +91,14 @@ A reminder may fire **at most 4 times per day** — a more frequent cron (e.g. h
 
 Always pass `timezone` as the user's IANA zone (e.g. `"America/New_York"`) when you know it, so
 wall-clock times like "9am" resolve to the right moment. If omitted, it defaults to the **project
-timezone**. Cron and preset schedules resolve in this zone; `scheduled_at` is an absolute instant,
+timezone** when `team` is set, otherwise to UTC. Cron and preset schedules resolve in this zone; `scheduled_at` is an absolute instant,
 so include its offset or rely on the same zone.
 
 ## Attaching a resource
 
-To link the reminder to a PostHog object, set `resource_type` and `resource_id` **together**.
-The fired notification deep-links to that object. The resource must already exist in the project.
+To link the reminder to a PostHog object, set `resource_type`, `resource_id`, and `team`
+**together**. The fired notification deep-links to that object. The resource must already exist
+in that project. Always send `resource_id` as a **string**, even when the ID is numeric (`"67"`, not `67`).
 
 | `resource_type`  | `resource_id` is the… |
 | ---------------- | --------------------- |
@@ -100,8 +116,8 @@ Resolve the id first if the user gives you a name or URL (e.g. fetch the insight
 
 ## Privacy and lifecycle
 
-- Reminders are **private to the creating user** and scoped to the **current project**. Other
-  users never see them.
+- Reminders are **private to the creating user** and belong to an organization, optionally
+  scoped to one project. Other users never see them.
 - They fire as **in-app notifications** — not email, Slack, or webhook.
 - A **one-off** becomes `completed` after it fires.
 - A **recurring** reminder stays `active` until deleted, or until its optional `end_date` passes
@@ -122,13 +138,16 @@ Resolve the id first if the user gives you a name or URL (e.g. fetch the insight
 
 User: "Remind me to review the launch dashboard every Monday at 9am."
 
-1. Resolve the dashboard id (e.g. dashboard `67`).
-2. Pick the schedule shape: a specific weekday + time → cron.
-3. Pass the user's timezone if known.
-4. Call `reminder-create`:
+1. Get the organization ID with `organization-get` and the project ID from the active project.
+2. Resolve the dashboard id (e.g. dashboard `67`).
+3. Pick the schedule shape: a specific weekday + time → cron.
+4. Pass the user's timezone if known.
+5. Call `reminder-create` with the required `organization` and `title`:
 
 ```json
 {
+  "organization": "0188a0b2-1c3d-4e5f-8a9b-0c1d2e3f4a5b",
+  "team": 12345,
   "title": "Review the launch dashboard",
   "resource_type": "dashboard",
   "resource_id": "67",

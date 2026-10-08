@@ -87,6 +87,8 @@ const MCP_PROPERTY_ORDER: readonly string[] = [
     '$mcp_client_name',
     '$mcp_client_version',
     '$mcp_client_user_agent',
+    '$mcp_llm_model',
+    '$mcp_llm_model_source',
     // Server
     '$mcp_server_name',
     '$mcp_server_version',
@@ -226,6 +228,8 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
     const isError = rawIsError === true || rawIsError === 'true'
     const durationMs = mcpProps['$mcp_duration_ms']
     const clientName = mcpProps['$mcp_client_name']
+    const llmModel = mcpProps['$mcp_llm_model']
+    const llmModelSource = mcpProps['$mcp_llm_model_source']
     const serverName = mcpProps['$mcp_server_name']
     const intent = mcpProps['$mcp_intent']
     const intentSource = mcpProps['$mcp_intent_source']
@@ -234,6 +238,7 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
         Boolean(displayName && displayKind) ||
         (durationMs !== undefined && durationMs !== null) ||
         Boolean(clientName) ||
+        Boolean(llmModel) ||
         Boolean(serverName) ||
         Boolean(intent)
 
@@ -297,6 +302,11 @@ export function MCPEventView({ properties }: MCPEventViewProps): JSX.Element {
                         <Stat label="Duration">{String(durationMs)} ms</Stat>
                     ) : null}
                     {clientName ? <Stat label="Client">{String(clientName)}</Stat> : null}
+                    {llmModel ? (
+                        <Stat label={llmModelSource ? `Model (${String(llmModelSource).replace(/_/g, ' ')})` : 'Model'}>
+                            {String(llmModel)}
+                        </Stat>
+                    ) : null}
                     {serverName ? <Stat label="Server">{String(serverName)}</Stat> : null}
                     {intent ? (
                         <div className="basis-full">

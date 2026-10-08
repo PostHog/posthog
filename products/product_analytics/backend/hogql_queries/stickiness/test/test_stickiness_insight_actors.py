@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -51,7 +51,7 @@ class TestStickinessInsightActors(ClickhouseTestMixin, APIBaseTest):
             ("p4", ["2020-01-15T12:00:00Z"]),
         ]
         for distinct_id, timestamps in data:
-            with freeze_time(timestamps[0]):
+            with time_machine.travel(timestamps[0], tick=False):
                 _create_person(
                     team_id=self.team.pk,
                     distinct_ids=[distinct_id],

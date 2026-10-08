@@ -231,6 +231,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
@@ -249,6 +250,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `site_app` - Site App
  * * `transformation` - Transformation
  * * `transformation_log` - Transformation Log
+ * * `legacy_destination` - Legacy Destination
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -261,6 +263,7 @@ export const HogFunctionTypeEnumApi = {
     SiteApp: 'site_app',
     Transformation: 'transformation',
     TransformationLog: 'transformation_log',
+    LegacyDestination: 'legacy_destination',
 } as const
 
 /**
@@ -371,6 +374,7 @@ export interface HogFunctionFiltersApi {
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
+    bytecode_contract?: string
 }
 
 export interface HogFunctionMaskingApi {
@@ -411,7 +415,8 @@ export interface HogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -500,7 +505,8 @@ export interface PatchedHogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.

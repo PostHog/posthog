@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AxiomSourceConfig(config.Config):
-    pass
+    api_token: str
+    org_id: str | None = None

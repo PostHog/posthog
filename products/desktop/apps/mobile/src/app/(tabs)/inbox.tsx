@@ -26,7 +26,6 @@ import {
 } from "@/features/inbox/stores/dismissedReportsStore";
 import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
-import { useIntegrations } from "@/features/tasks/hooks/useIntegrations";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
 export default function InboxScreen() {
@@ -99,7 +98,6 @@ export default function InboxScreen() {
   const setLastVisibleReportIds = useInboxStore(
     (s) => s.setLastVisibleReportIds,
   );
-  const { repositoryOptions } = useIntegrations();
 
   // Snapshot the visible-list IDs into the store so the detail screen can
   // record rank/list_size on OPENED. Only the list view exposes a rank — the
@@ -202,11 +200,7 @@ export default function InboxScreen() {
         />
       ) : (
         <View style={{ paddingTop: headerHeight }} className="flex-1">
-          <TinderView
-            reports={tinderReports}
-            repositoryOptions={repositoryOptions}
-            isLoading={isLoading}
-          />
+          <TinderView reports={tinderReports} isLoading={isLoading} />
         </View>
       )}
 

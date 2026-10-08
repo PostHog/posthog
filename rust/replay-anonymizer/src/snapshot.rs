@@ -36,8 +36,8 @@ use crate::event::{
 };
 use crate::images::ImagePolicy;
 use crate::json::{
-    as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
-    reject_if_too_deep,
+    as_array, as_f64, as_object, as_small_uint, as_str, parse_untrusted,
+    parse_untrusted_with_buffers, reject_if_too_deep,
 };
 use crate::scan::{self, Span};
 use crate::timings::PhaseTimings;
@@ -111,20 +111,32 @@ pub const FLAG_ACTIVE: u8 = 1;
 pub const FLAG_CLICK: u8 = 2;
 pub const FLAG_KEYPRESS: u8 = 4;
 pub const FLAG_MOUSE_ACTIVITY: u8 = 8;
+pub const FLAG_FULL_SNAPSHOT: u8 = 16;
 
 // `DateTime.fromMillis` validity bound (JS Date range: ±8.64e15 ms).
 const MAX_JS_DATE_MS: f64 = 8.64e15;
 
 /// Per-emitted-line metadata, in line order.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct EventMeta {
     /// The event's `timestamp` (epoch ms; can be fractional).
     pub ts: f64,
-    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY.
+    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY / FLAG_FULL_SNAPSHOT.
     pub flags: u8,
     /// Post-scrub `hrefFrom(event)` (`data.href` or `data.payload.href`, trimmed, non-empty).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_ld: Option<JsonLdMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonLdMeta {
+    pub root_types: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_snapshot_timestamp: Option<f64>,
 }
 
 /// One collected original image: `offset..offset+len` in [`AnonymizedMessage::image_bytes`].
@@ -1255,6 +1267,7 @@ fn process_event_at(
                     ts,
                     flags: flags_of(ty, source, interaction),
                     href: scanned_href(inner, &es),
+                    json_ld: None,
                 });
                 return Ok(end);
             }
@@ -1343,6 +1356,7 @@ fn pass_through(
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: None,
     });
 }
 
@@ -1375,6 +1389,9 @@ fn scanned_href(inner: &[u8], d: &EventScan) -> Option<String> {
 }
 
 fn flags_of(ty: Option<u8>, source: Option<u8>, interaction: Option<u8>) -> u8 {
+    if ty == Some(TYPE_FULL_SNAPSHOT) {
+        return FLAG_FULL_SNAPSHOT;
+    }
     if ty != Some(TYPE_INCREMENTAL) {
         return 0;
     }
@@ -1422,6 +1439,23 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: if ty == Some(TYPE_CUSTOM)
+            && dobj.and_then(|d| d.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+        {
+            let mut root_types = Vec::new();
+            if let Some(payload) = dobj.and_then(|d| d.get("payload")) {
+                collect_root_types(payload, &mut root_types);
+            }
+            Some(JsonLdMeta {
+                root_types,
+                full_snapshot_timestamp: dobj
+                    .and_then(|d| d.get("fullSnapshotTimestamp"))
+                    .and_then(as_f64)
+                    .filter(|ts| ts.is_finite() && *ts > 0.0 && *ts <= MAX_JS_DATE_MS),
+            })
+        } else {
+            None
+        },
     });
 
     if ty == Some(TYPE_CUSTOM)
@@ -1445,6 +1479,37 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
                     _ => sink.console[0] += 1,
                 }
             }
+        }
+    }
+}
+
+fn collect_root_types(value: &Value<'_>, types: &mut Vec<String>) {
+    if types.len() >= 64 {
+        return;
+    }
+    if let Some(items) = as_array(value) {
+        for item in items {
+            collect_root_types(item, types);
+        }
+    } else if let Some(object) = as_object(value) {
+        if let Some(type_value) = object.get("@type") {
+            let mut add_type = |value: &Value<'_>| {
+                if let Some(name) = as_str(value) {
+                    if types.len() < 64 && !types.iter().any(|t| t == name) {
+                        types.push(name.to_owned());
+                    }
+                }
+            };
+            if let Some(items) = as_array(type_value) {
+                for item in items {
+                    add_type(item);
+                }
+            } else {
+                add_type(type_value);
+            }
+        }
+        if let Some(graph) = object.get("@graph") {
+            collect_root_types(graph, types);
         }
     }
 }

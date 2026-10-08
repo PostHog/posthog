@@ -8,13 +8,51 @@ from django.db.models import Max, Min
 
 from posthog.models.team.team import Team
 
-from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
+from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
 
-# Naming contract for skills that steer a Signals-agent run.
+# Prefix the canonical fleet ships under. A scout is a skill that has a `SignalScoutConfig`
+# row, so this is no longer a naming requirement: it still drives auto-registration of
+# `signals-scout-*` skills, the canonical on-disk paths, and the cosmetic name strippers.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
+
+# Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never
+# be opened. They stay valid as ordinary skill names — only the scout paths refuse them.
+RESERVED_SCOUT_NAMES: frozenset[str] = frozenset({"scratchpad", "findings", "runs"})
+
+
+def reserved_scout_name_error(name: str) -> str | None:
+    """Why `name` cannot be a scout name, or None when it can.
+
+    Applied by the scout create serializer and by explicit config registration — the two paths
+    that mint a scout — so both refuse the same set.
+    """
+    if name.lower() in RESERVED_SCOUT_NAMES:
+        return (
+            f"'{name}' is reserved by the inbox and cannot be a scout name. "
+            f"The reserved names are {', '.join(sorted(RESERVED_SCOUT_NAMES))}."
+        )
+    # `LLMSkill.category` is server-owned and derived from these prefixes, and each owning product
+    # re-stamps the column on its own sync. A scout taking another product's prefix would land on
+    # that product's Skills tab and then flip between tabs on every sync, so refuse the name
+    # instead. Ours is fine: it resolves to the scout category already.
+    foreign_prefix = next(
+        (
+            prefix
+            for prefix, _ in CATEGORY_BY_NAME_PREFIX
+            if prefix != SIGNALS_SCOUT_SKILL_PREFIX and name.startswith(prefix)
+        ),
+        None,
+    )
+    if foreign_prefix is not None:
+        return (
+            f"'{name}' starts with '{foreign_prefix}', a name prefix another product owns, so it "
+            "cannot be a scout name. Pick a name without that prefix."
+        )
+    return None
+
 
 # Tools whose presence in a skill's `allowed_tools` opts the scout into the report-authoring channel
 # (it writes full `SignalReport`s via `emit_report` / `edit_report` instead of firing weak signals).
@@ -78,6 +116,9 @@ class SkillAuthor:
     email: str
     role: Literal["owner", "creator", "editor"]
     last_authored_at: datetime
+    # The routing identity itself: a scout passes this straight to `suggested_reviewers`, so an
+    # author with no GitHub account still gets the reports their scout files.
+    user_uuid: str
 
 
 @dataclass(frozen=True)
@@ -197,7 +238,7 @@ def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
         # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
         LLMSkillOwner.objects.for_team(team.id, canonical=True)
         .filter(skill_name=skill_name, user__in=team.all_users_with_access())
-        .values("user__first_name", "user__last_name", "user__email", "created_at")
+        .values("user__uuid", "user__first_name", "user__last_name", "user__email", "created_at")
         .order_by("created_at", "id")
     )
     authors: list[SkillAuthor] = []
@@ -210,6 +251,7 @@ def _resolve_owner_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
                 email=row["user__email"],
                 role="owner",
                 last_authored_at=row["created_at"],
+                user_uuid=str(row["user__uuid"]),
             )
         )
     return authors
@@ -268,6 +310,7 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
             email=person["created_by__email"],
             role=role,
             last_authored_at=person["last_authored_at"],
+            user_uuid=str(person["created_by__uuid"]),
         )
 
     creator, *editors = people

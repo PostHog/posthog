@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,7 +21,7 @@ class EndpointScope(Enum):
     EVENT = "event"
 
 
-@dataclass
+@frozen
 class EventbriteEndpointConfig:
     name: str
     path: str
@@ -31,6 +33,10 @@ class EventbriteEndpointConfig:
     # Resource change-timestamp field targeted by Eventbrite's server-side `changed_since` filter
     # (e.g. `changed`). When set, the endpoint supports true incremental sync; otherwise full refresh.
     changed_since_field: Optional[str] = None
+    params: dict[str, str] = field(default_factory=dict)  # Static query params the endpoint requires
+    # Parent fields copied onto each child row as `_<parent>_<field>`, for fan-out endpoints whose
+    # rows carry no reference back to the event they belong to.
+    include_from_parent: list[str] = field(default_factory=list)
 
 
 def _changed_incremental_field() -> list[IncrementalField]:
@@ -64,6 +70,12 @@ EVENTBRITE_ENDPOINTS: dict[str, EventbriteEndpointConfig] = {
         name="categories",
         path="/categories/",
         data_key="categories",
+        scope=EndpointScope.TOP_LEVEL,
+    ),
+    "subcategories": EventbriteEndpointConfig(
+        name="subcategories",
+        path="/subcategories/",
+        data_key="subcategories",
         scope=EndpointScope.TOP_LEVEL,
     ),
     "formats": EventbriteEndpointConfig(
@@ -108,6 +120,46 @@ EVENTBRITE_ENDPOINTS: dict[str, EventbriteEndpointConfig] = {
         path="/events/{event_id}/ticket_classes/",
         data_key="ticket_classes",
         scope=EndpointScope.EVENT,
+    ),
+    "questions": EventbriteEndpointConfig(
+        name="questions",
+        path="/events/{event_id}/questions/",
+        data_key="questions",
+        scope=EndpointScope.EVENT,
+        # Question ids are only unique within their event, so the event id joins the key.
+        primary_keys=["_events_id", "id"],
+        include_from_parent=["id"],
+    ),
+    "canned_questions": EventbriteEndpointConfig(
+        name="canned_questions",
+        path="/events/{event_id}/canned_questions/",
+        data_key="questions",
+        scope=EndpointScope.EVENT,
+        # Default questions are identified by slug (e.g. `job_title`), repeated across every event.
+        primary_keys=["_events_id", "id"],
+        include_from_parent=["id"],
+        params={"include_all": "true"},
+    ),
+    # The report endpoints take their event as a query param rather than a path segment, and the
+    # fan-out framework only binds a resolved parent field into the path — so the query string is
+    # written into the path template.
+    "sales_report": EventbriteEndpointConfig(
+        name="sales_report",
+        path="/reports/sales/?event_ids={event_id}",
+        data_key="data",
+        scope=EndpointScope.EVENT,
+        primary_keys=["_events_id", "date"],
+        partition_key="date",
+        include_from_parent=["id"],
+    ),
+    "attendee_report": EventbriteEndpointConfig(
+        name="attendee_report",
+        path="/reports/attendees/?event_ids={event_id}",
+        data_key="data",
+        scope=EndpointScope.EVENT,
+        primary_keys=["_events_id", "date"],
+        partition_key="date",
+        include_from_parent=["id"],
     ),
 }
 

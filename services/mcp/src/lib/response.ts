@@ -28,13 +28,29 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
     return obj
 }
 
+function unwrapPaginatedResponse(data: unknown): unknown {
+    if (
+        data !== null &&
+        typeof data === 'object' &&
+        'results' in data &&
+        Array.isArray(data.results) &&
+        'next' in data &&
+        'previous' in data &&
+        Object.keys(data).every((key) => ['results', 'next', 'count', 'previous'].includes(key))
+    ) {
+        return data.results
+    }
+
+    return data
+}
+
 export function formatResponse(data: any): string {
     if (typeof data === 'string') {
         return data
     }
 
     const placeholderMap = new Map<string, string>()
-    const processed = preprocessKeys(data, placeholderMap)
+    const processed = preprocessKeys(unwrapPaginatedResponse(data), placeholderMap)
     let result = encode(processed)
 
     for (const [placeholder, jsonValue] of placeholderMap.entries()) {

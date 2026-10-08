@@ -42,3 +42,12 @@ class NameConflictError(CheckEditConflict):
 
     def __init__(self, message: str = "A check with this name already exists.") -> None:
         super().__init__(message)
+
+
+class ConcurrentEditError(CheckEditConflict):
+    """The check kept changing while the edit was being prepared, so nothing was written."""
+
+    code = "concurrent_edit"
+
+    def __init__(self, message: str = "This check changed while you were editing it. Reload it and try again.") -> None:
+        super().__init__(message)

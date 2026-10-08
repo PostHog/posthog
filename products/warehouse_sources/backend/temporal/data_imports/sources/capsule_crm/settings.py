@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapsuleCRMEndpointConfig:
     name: str
     path: str
@@ -19,6 +20,11 @@ class CapsuleCRMEndpointConfig:
     partition_key: Optional[str] = None
     # Comma-separated `embed` values folded into each request to pull related data in one round-trip.
     embed: Optional[str] = None
+    # Extra query params folded into every request for this endpoint.
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    # Order rows arrive in. Capsule documents no ordering for most list endpoints; `entries` is the
+    # one that explicitly returns newest first.
+    sort_mode: SortMode = "asc"
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
 
@@ -98,6 +104,53 @@ CAPSULE_CRM_ENDPOINTS: dict[str, CapsuleCRMEndpointConfig] = {
         name="lost_reasons",
         path="/lostreasons",
         data_key="lostReasons",
+        incremental_fields=[],
+    ),
+    "entries": CapsuleCRMEndpointConfig(
+        name="entries",
+        path="/entries",
+        data_key="entries",
+        partition_key="createdAt",
+        # `listEntriesByDate` omits the associations and the creator/type lookups unless they are
+        # embedded, and without them a row cannot be joined back to the record it belongs to.
+        embed="party,kase,opportunity,creator,activityType",
+        # Documented as "descending order starting with the most recent entry date first".
+        sort_mode="desc",
+        incremental_fields=[],
+    ),
+    "boards": CapsuleCRMEndpointConfig(
+        name="boards",
+        path="/boards",
+        data_key="boards",
+        # `status` defaults to `active`, which would drop archived boards that historic projects
+        # still point at.
+        extra_params={"status": "all"},
+        incremental_fields=[],
+    ),
+    "stages": CapsuleCRMEndpointConfig(
+        name="stages",
+        path="/stages",
+        data_key="stages",
+        # Same reasoning as boards: a stage on an archived board still needs to resolve.
+        extra_params={"status": "all", "includeOnDeletedBoard": "true"},
+        incremental_fields=[],
+    ),
+    "party_tags": CapsuleCRMEndpointConfig(
+        name="party_tags",
+        path="/parties/tags",
+        data_key="tags",
+        incremental_fields=[],
+    ),
+    "opportunity_tags": CapsuleCRMEndpointConfig(
+        name="opportunity_tags",
+        path="/opportunities/tags",
+        data_key="tags",
+        incremental_fields=[],
+    ),
+    "kase_tags": CapsuleCRMEndpointConfig(
+        name="kase_tags",
+        path="/kases/tags",
+        data_key="tags",
         incremental_fields=[],
     ),
 }

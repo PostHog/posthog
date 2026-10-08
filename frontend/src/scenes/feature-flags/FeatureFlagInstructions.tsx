@@ -13,6 +13,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FeatureFlagEvaluationRuntime, FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
@@ -97,6 +99,19 @@ export function CodeInstructions({
         })
     )
     const hasUnsupportedFeatures = !!localEvalWarning
+    // Local evaluation definitions leave out flags in any other config version, so SDKs evaluate them remotely.
+    const unsupportedConfigForLocalEval = !!featureFlag && !isV1FeatureFlagConfig(featureFlag.filters)
+    const localEvalDisabledReason = remoteConfiguration
+        ? "Local evaluation isn't available for remote config flags"
+        : !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key)
+          ? 'Local evaluation is only available in server-side libraries'
+          : featureFlag?.ensure_experience_continuity
+            ? "Local evaluation doesn't work for flags that persist across authentication steps"
+            : unsupportedConfigForLocalEval
+              ? "Local evaluation doesn't support this flag's config format yet, so SDKs evaluate it remotely"
+              : hasUnsupportedFeatures
+                ? `Local evaluation is unavailable for this flag due to unsupported features: ${localEvalWarning}`
+                : null
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
     const getDocumentationLink = (): string => {
@@ -164,7 +179,7 @@ export function CodeInstructions({
             setShowPayloadCode(false)
         }
 
-        if (featureFlag?.ensure_experience_continuity) {
+        if (featureFlag?.ensure_experience_continuity || unsupportedConfigForLocalEval) {
             setShowLocalEvalCode(false)
         }
     }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
@@ -305,17 +320,7 @@ export function CodeInstructions({
                                 <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>
                         </Tooltip>
-                        <Tooltip
-                            title={
-                                !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key)
-                                    ? 'Local evaluation is only available in server-side libraries'
-                                    : featureFlag?.ensure_experience_continuity
-                                      ? "Local evaluation doesn't work for flags that persist across authentication steps"
-                                      : hasUnsupportedFeatures
-                                        ? `Local evaluation is unavailable for this flag due to unsupported features: ${localEvalWarning}`
-                                        : 'Show code for local evaluation'
-                            }
-                        >
+                        <Tooltip title={localEvalDisabledReason ?? 'Show code for local evaluation'}>
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
@@ -325,12 +330,7 @@ export function CodeInstructions({
                                         setShowLocalEvalCode(!showLocalEvalCode)
                                         reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
-                                    disabled={
-                                        remoteConfiguration ||
-                                        !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
-                                        !!featureFlag?.ensure_experience_continuity ||
-                                        hasUnsupportedFeatures
-                                    }
+                                    disabled={!!localEvalDisabledReason}
                                 />
                                 <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>

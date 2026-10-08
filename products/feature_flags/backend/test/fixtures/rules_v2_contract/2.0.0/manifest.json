@@ -1,0 +1,921 @@
+{
+  "manifest_version": 1,
+  "contract": {
+    "name": "feature_flag_rules_v2",
+    "version": "2.0.0",
+    "config_version": 2
+  },
+  "corpus": {
+    "version": "1.1.0",
+    "config_version_locked": 1,
+    "case_id_pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+    "published_versions_are_immutable": true,
+    "expectation_change": "Any changed expected value requires a new corpus version and a review explanation."
+  },
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "compatibility": {
+    "published_versions_are_immutable": true,
+    "patch": "Documentation or integrity-tool changes that do not change accepted configs, wire payloads, frozen literals, or fixture expectations.",
+    "minor": "Additive fixtures or artifacts that do not change accepted configs, accepted or rejected wire payloads, frozen literals, or published fixture expectations.",
+    "major": "Any change to accepted or rejected configs, accepted or rejected wire payloads (responses, definitions, events, diagnostics), frozen literals, or published fixture expectations."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "index": "SHA256SUMS",
+    "content": "raw_file_bytes",
+    "entry_format": "<lowercase_hex_digest><two_spaces><relative_posix_path><line_feed>",
+    "entry_order": "bytewise_path",
+    "excluded_from_index": [
+      "SHA256SUMS"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "README.md",
+      "kind": "documentation"
+    },
+    {
+      "path": "registries/literals.json",
+      "kind": "registry",
+      "version": "2.0.0"
+    },
+    {
+      "path": "schemas/config.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "fixtures/config/valid/boolean_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.boolean_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/string_group_assignment.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.string_group_assignment",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_number_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_number_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_object_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_object_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/version_float_literal.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.version_float_literal",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_version.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_version",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version",
+        "message_contains": "2 was expected"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_string.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_string",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_boolean.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_boolean",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "",
+        "message_contains": "groups"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_rule_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_rule_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "implicit_default"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_on_rollout_miss.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_on_rollout_miss",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_experiment_paused.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_experiment_paused",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "paused"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/non_uuid_rule_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.non_uuid_rule_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/id"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_seed.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_seed",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_string_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_string_value",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/return_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.return_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/variants/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/null_experiment_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.null_experiment_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/experiment_id",
+        "message_contains": "integer"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/object_value_max_depth.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.object_value_max_depth",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/object_value_too_deep.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.object_value_too_deep",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "oneOf",
+        "instance_path": "/rules/0/value/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_above_maximum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_above_maximum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maximum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_key_invalid_characters.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_key_invalid_characters",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/variants/0/key"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_few_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_few_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_many_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_many_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/seed_too_long.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.seed_too_long",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_percentage_rollout_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_percentage_rollout_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_experiment_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_experiment_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/group_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.group_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "schemas/hash_sha1_60_v1.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "schemas/v1_evaluation.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "schemas/legacy_projection.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "corpus/hash_sha1_60_v1.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/hash_sha1_60_v1.schema.json",
+      "case_ids": [
+        "hash.rollout.ascii_division_edge",
+        "hash.rollout.ascii_excluded",
+        "hash.variant.ascii",
+        "hash.holdout.literal_prefix",
+        "hash.concatenation.no_separator_escaping",
+        "hash.identifier.empty",
+        "hash.identifier.unicode_utf8",
+        "hash.identifier.truncated_ascii",
+        "hash.identifier.truncated_scalar_values",
+        "hash.identifier.exactly_200_multibyte",
+        "hash.identifier.integer_group_key",
+        "threshold.equal_is_included",
+        "threshold.next_binary64_above_is_excluded",
+        "threshold.zero_percent_zero_hash",
+        "threshold.zero_percent_smallest_hash",
+        "threshold.hundred_percent_short_circuit",
+        "threshold.two_decimal_division_equal",
+        "threshold.two_decimal_division_excluded",
+        "threshold.two_decimal_division_included_below_quotient",
+        "variant.zero_hash_first_variant",
+        "variant.boundary_is_exclusive",
+        "variant.just_below_boundary",
+        "variant.accumulated_boundary_left_to_right",
+        "variant.accumulated_boundary_third",
+        "variant.two_decimal_weights_boundary",
+        "variant.hash_one_off_the_end",
+        "variant.sum_below_one_off_the_end",
+        "parity.rollout_identical_bytes",
+        "parity.variant_identical_bytes",
+        "parity.holdout_identical_bytes",
+        "parity.empty_identifier_divergent",
+        "parity.final_variant_fallback_divergent"
+      ]
+    },
+    {
+      "path": "corpus/v1_evaluation.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/v1_evaluation.schema.json",
+      "case_ids": [
+        "v1.boolean.targeted_match_with_payload",
+        "v1.boolean.targeting_miss",
+        "v1.boolean.rollout_included",
+        "v1.boolean.rollout_excluded",
+        "v1.boolean.rollout_miss_continues_to_lower_condition",
+        "v1.boolean.rollout_miss_early_exit",
+        "v1.boolean.reason_priority_keeps_earlier_rollout_miss",
+        "v1.boolean.reason_priority_prefers_later_rollout_miss",
+        "v1.boolean.null_rollout_is_100",
+        "v1.boolean.empty_distinct_id_included_at_zero_percent",
+        "v1.boolean.empty_distinct_id_included_below_prefix_hash",
+        "v1.multivariate.variant_from_hash_with_payload",
+        "v1.multivariate.variant_from_hash_control",
+        "v1.multivariate.variant_override",
+        "v1.multivariate.invalid_variant_override_uses_hash",
+        "v1.multivariate.partial_rollout_included",
+        "v1.multivariate.partial_rollout_excluded",
+        "v1.multivariate.empty_distinct_id_first_variant",
+        "v1.group.included_by_group_key",
+        "v1.group.excluded_by_group_key",
+        "v1.group.integer_group_key_normalized",
+        "v1.group.missing_group_key",
+        "v1.dependency.satisfied",
+        "v1.dependency.unsatisfied",
+        "v1.dependency.variant_match",
+        "v1.dependency.variant_mismatch",
+        "v1.dependency.missing_target",
+        "v1.holdout.member",
+        "v1.holdout.not_member",
+        "v1.holdout.empty_distinct_id_hashes_prefix",
+        "v1.omission.inactive_flag"
+      ]
+    },
+    {
+      "path": "corpus/legacy_projection.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/legacy_projection.schema.json",
+      "case_ids": [
+        "projection.boolean_true",
+        "projection.boolean_true_with_payload",
+        "projection.boolean_false_targeting_miss",
+        "projection.boolean_false_out_of_rollout",
+        "projection.variant",
+        "projection.variant_with_payload",
+        "projection.holdout_variant",
+        "projection.no_group_type",
+        "projection.missing_dependency",
+        "projection.failed_evaluation",
+        "projection.inactive_omitted"
+      ]
+    },
+    {
+      "path": "schemas/definitions_entry.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/definitions_v2.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/flags_response_v3.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/flags_response_v3_presence.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/management_warning.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/management_error.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/feature_flag_called_context.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/experiment_exposure_properties.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "rules/response_presence.json",
+      "kind": "presence_matrix",
+      "version": "1.0.0"
+    },
+    {
+      "path": "fixtures/wire/definitions.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/definitions_entry.schema.json",
+      "case_ids": [
+        "definitions.v2_canonical",
+        "definitions.v1_implicit",
+        "definitions.v1_explicit",
+        "definitions.v2_numeric_version",
+        "definitions.inactive",
+        "definitions.unsupported_version_future",
+        "definitions.unsupported_version_string",
+        "definitions.unsupported_version_boolean",
+        "definitions.unsupported_version_null",
+        "definitions.unknown_semantic_field",
+        "definitions.unknown_rule_field",
+        "definitions.unsupported_rule_type",
+        "definitions.missing_assignment_seed",
+        "definitions.v1_null_version",
+        "definitions.v1_wrong_type_version",
+        "definitions.v1_null_ensure_experience_continuity",
+        "definitions.v1_wrong_type_ensure_experience_continuity",
+        "definitions.v1_explicit_null_row_fields",
+        "definitions.missing_id",
+        "definitions.missing_key",
+        "definitions.missing_active",
+        "definitions.missing_filters",
+        "definitions.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/definitions_feed.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/definitions_v2.schema.json",
+      "case_ids": [
+        "definitions_feed.mixed_versions",
+        "definitions_feed.missing_cohorts",
+        "definitions_feed.minimal_events_false",
+        "definitions_feed.minimal_events_true",
+        "definitions_feed.minimal_events_wrong_type",
+        "definitions_feed.null_legacy_row_fields",
+        "definitions_feed.missing_flags",
+        "definitions_feed.missing_group_type_mapping",
+        "definitions_feed.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/responses.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/flags_response_v3.schema.json",
+      "case_ids": [
+        "responses.targeting_match_targeted_release",
+        "responses.missing_id",
+        "responses.missing_version",
+        "responses.missing_config_version",
+        "responses.targeting_match_targeted_release_missing_has_experiment",
+        "responses.targeting_match_targeted_release_missing_rule_type",
+        "responses.targeting_match_targeted_release_missing_rule_id",
+        "responses.targeting_match_targeted_release_forbidden_experiment_id",
+        "responses.targeting_match_targeted_release_forbidden_variant_key",
+        "responses.targeting_match_targeted_release_forbidden_holdout_id",
+        "responses.targeting_match_targeted_release_wrong_condition_index",
+        "responses.targeting_match_targeted_release_forbidden_failed",
+        "responses.targeting_match_targeted_release_flag_with_experiment",
+        "responses.targeting_match_percentage_rollout",
+        "responses.targeting_match_percentage_rollout_missing_has_experiment",
+        "responses.targeting_match_percentage_rollout_missing_rule_type",
+        "responses.targeting_match_percentage_rollout_missing_rule_id",
+        "responses.targeting_match_percentage_rollout_forbidden_experiment_id",
+        "responses.targeting_match_percentage_rollout_forbidden_variant_key",
+        "responses.targeting_match_percentage_rollout_forbidden_holdout_id",
+        "responses.targeting_match_percentage_rollout_wrong_condition_index",
+        "responses.targeting_match_percentage_rollout_forbidden_failed",
+        "responses.experiment_split",
+        "responses.experiment_split_missing_has_experiment",
+        "responses.experiment_split_missing_rule_type",
+        "responses.experiment_split_missing_rule_id",
+        "responses.experiment_split_missing_experiment_id",
+        "responses.experiment_split_missing_variant_key",
+        "responses.experiment_split_forbidden_holdout_id",
+        "responses.experiment_split_wrong_condition_index",
+        "responses.experiment_split_forbidden_failed",
+        "responses.experiment_split_contradicted_has_experiment",
+        "responses.rollout_miss_percentage_rollout",
+        "responses.rollout_miss_percentage_rollout_missing_has_experiment",
+        "responses.rollout_miss_percentage_rollout_missing_rule_type",
+        "responses.rollout_miss_percentage_rollout_missing_rule_id",
+        "responses.rollout_miss_percentage_rollout_forbidden_experiment_id",
+        "responses.rollout_miss_percentage_rollout_forbidden_variant_key",
+        "responses.rollout_miss_percentage_rollout_forbidden_holdout_id",
+        "responses.rollout_miss_percentage_rollout_wrong_condition_index",
+        "responses.rollout_miss_percentage_rollout_forbidden_failed",
+        "responses.rollout_miss_experiment",
+        "responses.rollout_miss_experiment_missing_has_experiment",
+        "responses.rollout_miss_experiment_missing_rule_type",
+        "responses.rollout_miss_experiment_missing_rule_id",
+        "responses.rollout_miss_experiment_missing_experiment_id",
+        "responses.rollout_miss_experiment_forbidden_variant_key",
+        "responses.rollout_miss_experiment_forbidden_holdout_id",
+        "responses.rollout_miss_experiment_wrong_condition_index",
+        "responses.rollout_miss_experiment_forbidden_failed",
+        "responses.experiment_paused",
+        "responses.experiment_paused_missing_has_experiment",
+        "responses.experiment_paused_missing_rule_type",
+        "responses.experiment_paused_missing_rule_id",
+        "responses.experiment_paused_missing_experiment_id",
+        "responses.experiment_paused_forbidden_variant_key",
+        "responses.experiment_paused_forbidden_holdout_id",
+        "responses.experiment_paused_wrong_condition_index",
+        "responses.experiment_paused_forbidden_failed",
+        "responses.holdout",
+        "responses.holdout_missing_has_experiment",
+        "responses.holdout_missing_rule_type",
+        "responses.holdout_missing_rule_id",
+        "responses.holdout_missing_experiment_id",
+        "responses.holdout_missing_holdout_id",
+        "responses.holdout_forbidden_variant_key",
+        "responses.holdout_wrong_condition_index",
+        "responses.holdout_forbidden_failed",
+        "responses.no_rule_match",
+        "responses.no_rule_match_missing_has_experiment",
+        "responses.no_rule_match_forbidden_rule_type",
+        "responses.no_rule_match_forbidden_rule_id",
+        "responses.no_rule_match_forbidden_experiment_id",
+        "responses.no_rule_match_forbidden_variant_key",
+        "responses.no_rule_match_forbidden_holdout_id",
+        "responses.no_rule_match_wrong_condition_index",
+        "responses.no_rule_match_forbidden_failed",
+        "responses.missing_group_key",
+        "responses.missing_group_key_missing_has_experiment",
+        "responses.missing_group_key_forbidden_rule_type",
+        "responses.missing_group_key_forbidden_rule_id",
+        "responses.missing_group_key_forbidden_experiment_id",
+        "responses.missing_group_key_forbidden_variant_key",
+        "responses.missing_group_key_forbidden_holdout_id",
+        "responses.missing_group_key_wrong_condition_index",
+        "responses.missing_group_key_forbidden_failed",
+        "responses.dependency_error",
+        "responses.dependency_error_missing_has_experiment",
+        "responses.dependency_error_forbidden_rule_type",
+        "responses.dependency_error_forbidden_rule_id",
+        "responses.dependency_error_forbidden_experiment_id",
+        "responses.dependency_error_forbidden_variant_key",
+        "responses.dependency_error_forbidden_holdout_id",
+        "responses.dependency_error_wrong_condition_index",
+        "responses.dependency_error_missing_failed",
+        "responses.dependency_error_nonnull_value",
+        "responses.error",
+        "responses.error_missing_has_experiment",
+        "responses.error_forbidden_rule_type",
+        "responses.error_forbidden_rule_id",
+        "responses.error_forbidden_experiment_id",
+        "responses.error_forbidden_variant_key",
+        "responses.error_forbidden_holdout_id",
+        "responses.error_wrong_condition_index",
+        "responses.error_missing_failed",
+        "responses.error_nonnull_value",
+        "responses.v1",
+        "responses.omitted",
+        "responses.split_wrong_type_config_version",
+        "responses.split_wrong_type_rule_type",
+        "responses.split_wrong_type_rule_id",
+        "responses.split_wrong_type_experiment_id",
+        "responses.split_wrong_type_variant_key",
+        "responses.forbidden_legacy_enabled",
+        "responses.forbidden_legacy_variant",
+        "responses.split_arm_b_equal_value",
+        "responses.split_string_value",
+        "responses.null_default",
+        "responses.request_failure_omission",
+        "responses.missing_group_nonnull_value",
+        "responses.v1_failed",
+        "responses.v1_quick_win",
+        "responses.v2_forced_variant",
+        "responses.key_mismatch",
+        "responses.failure_envelope",
+        "responses.local_only_reason",
+        "responses.nested_seed",
+        "responses.passthrough_seed",
+        "responses.reserved_number_wire_value",
+        "responses.reserved_object_wire_value",
+        "responses.targeting_match_targeted_release_wrong_rule_type",
+        "responses.experiment_split_wrong_rule_type",
+        "responses.rollout_miss_percentage_rollout_wrong_rule_type",
+        "responses.rollout_miss_experiment_wrong_rule_type",
+        "responses.experiment_paused_wrong_rule_type",
+        "responses.holdout_wrong_rule_type",
+        "responses.targeting_match_targeted_release_null_value",
+        "responses.targeting_match_percentage_rollout_null_value",
+        "responses.experiment_split_null_value",
+        "responses.empty_v2_string",
+        "responses.v1_experiment_without_linkage",
+        "responses.v1_ambiguous_experiment",
+        "responses.flag_key_seed",
+        "responses.seed_named_flag_nested_seed",
+        "responses.flag_key_assignment_seed",
+        "responses.v1_forbidden_rule_id",
+        "responses.v1_forbidden_rule_type",
+        "responses.v1_forbidden_holdout_id",
+        "responses.v1_object_payload",
+        "responses.v1_null_value_not_failed"
+      ]
+    },
+    {
+      "path": "fixtures/wire/warnings.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/management_warning.schema.json",
+      "case_ids": [
+        "warnings.rule_order_changes_traffic",
+        "warnings.unreachable_lower_rule",
+        "warnings.rollout_miss_can_enter_lower_rule",
+        "warnings.assignment_reset_changes_traffic",
+        "warnings.conclusion_expands_population",
+        "warnings.detail_and_attr",
+        "warnings.unknown_code",
+        "warnings.missing_code",
+        "warnings.wrong_detail_type",
+        "warnings.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/errors.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/management_error.schema.json",
+      "case_ids": [
+        "errors.validation",
+        "errors.nonfield",
+        "errors.missing_type",
+        "errors.missing_code",
+        "errors.missing_detail",
+        "errors.missing_attr",
+        "errors.wrong_detail_type",
+        "errors.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/calls.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/feature_flag_called_context.schema.json",
+      "case_ids": [
+        "calls.targeting_match_targeted_release",
+        "calls.targeting_match_targeted_release_missing_rule_type",
+        "calls.targeting_match_targeted_release_missing_rule_id",
+        "calls.targeting_match_targeted_release_forbidden_experiment_id",
+        "calls.targeting_match_targeted_release_forbidden_variant_key",
+        "calls.targeting_match_targeted_release_forbidden_holdout_id",
+        "calls.targeting_match_percentage_rollout",
+        "calls.targeting_match_percentage_rollout_missing_rule_type",
+        "calls.targeting_match_percentage_rollout_missing_rule_id",
+        "calls.targeting_match_percentage_rollout_forbidden_experiment_id",
+        "calls.targeting_match_percentage_rollout_forbidden_variant_key",
+        "calls.targeting_match_percentage_rollout_forbidden_holdout_id",
+        "calls.experiment_split",
+        "calls.experiment_split_missing_rule_type",
+        "calls.experiment_split_missing_rule_id",
+        "calls.experiment_split_missing_experiment_id",
+        "calls.experiment_split_missing_variant_key",
+        "calls.experiment_split_forbidden_holdout_id",
+        "calls.rollout_miss_percentage_rollout",
+        "calls.rollout_miss_percentage_rollout_missing_rule_type",
+        "calls.rollout_miss_percentage_rollout_missing_rule_id",
+        "calls.rollout_miss_percentage_rollout_forbidden_experiment_id",
+        "calls.rollout_miss_percentage_rollout_forbidden_variant_key",
+        "calls.rollout_miss_percentage_rollout_forbidden_holdout_id",
+        "calls.rollout_miss_experiment",
+        "calls.rollout_miss_experiment_missing_rule_type",
+        "calls.rollout_miss_experiment_missing_rule_id",
+        "calls.rollout_miss_experiment_missing_experiment_id",
+        "calls.rollout_miss_experiment_forbidden_variant_key",
+        "calls.rollout_miss_experiment_forbidden_holdout_id",
+        "calls.experiment_paused",
+        "calls.experiment_paused_missing_rule_type",
+        "calls.experiment_paused_missing_rule_id",
+        "calls.experiment_paused_missing_experiment_id",
+        "calls.experiment_paused_forbidden_variant_key",
+        "calls.experiment_paused_forbidden_holdout_id",
+        "calls.holdout",
+        "calls.holdout_missing_rule_type",
+        "calls.holdout_missing_rule_id",
+        "calls.holdout_missing_experiment_id",
+        "calls.holdout_missing_holdout_id",
+        "calls.holdout_forbidden_variant_key",
+        "calls.no_rule_match",
+        "calls.no_rule_match_forbidden_rule_type",
+        "calls.no_rule_match_forbidden_rule_id",
+        "calls.no_rule_match_forbidden_experiment_id",
+        "calls.no_rule_match_forbidden_variant_key",
+        "calls.no_rule_match_forbidden_holdout_id",
+        "calls.missing_group_key",
+        "calls.missing_group_key_forbidden_rule_type",
+        "calls.missing_group_key_forbidden_rule_id",
+        "calls.missing_group_key_forbidden_experiment_id",
+        "calls.missing_group_key_forbidden_variant_key",
+        "calls.missing_group_key_forbidden_holdout_id",
+        "calls.dependency_error",
+        "calls.dependency_error_forbidden_rule_type",
+        "calls.dependency_error_forbidden_rule_id",
+        "calls.dependency_error_forbidden_experiment_id",
+        "calls.dependency_error_forbidden_variant_key",
+        "calls.dependency_error_forbidden_holdout_id",
+        "calls.error",
+        "calls.error_forbidden_rule_type",
+        "calls.error_forbidden_rule_id",
+        "calls.error_forbidden_experiment_id",
+        "calls.error_forbidden_variant_key",
+        "calls.error_forbidden_holdout_id",
+        "calls.v1",
+        "calls.missing",
+        "calls.inactive",
+        "calls.v1_quick_win",
+        "calls.arm_b_equal_value",
+        "calls.string",
+        "calls.v2_forced_variant",
+        "calls.forbidden_value_number",
+        "calls.forbidden_value_object",
+        "calls.forbidden_value_array",
+        "calls.forbidden_value_null",
+        "calls.forbidden_value_empty_string",
+        "calls.partial_split_diagnostic",
+        "calls.inactive_forbidden_experiment_id",
+        "calls.missing_feature_flag",
+        "calls.missing_feature_flag_response",
+        "calls.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/exposures.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/experiment_exposure_properties.schema.json",
+      "case_ids": [
+        "exposures.remote_split",
+        "exposures.local_split",
+        "exposures.arm_b_equal_value",
+        "exposures.successor_experiment",
+        "exposures.string",
+        "exposures.missing_feature_flag",
+        "exposures.wrong_type_feature_flag",
+        "exposures.missing_feature_flag_response",
+        "exposures.wrong_type_feature_flag_response",
+        "exposures.missing_feature_flag_config_version",
+        "exposures.wrong_type_feature_flag_config_version",
+        "exposures.missing_feature_flag_reason_code",
+        "exposures.wrong_type_feature_flag_reason_code",
+        "exposures.missing_feature_flag_variant",
+        "exposures.wrong_type_feature_flag_variant",
+        "exposures.missing_feature_flag_rule_id",
+        "exposures.wrong_type_feature_flag_rule_id",
+        "exposures.missing_feature_flag_rule_type",
+        "exposures.wrong_type_feature_flag_rule_type",
+        "exposures.missing_feature_flag_experiment_id",
+        "exposures.wrong_type_feature_flag_experiment_id",
+        "exposures.missing_experiment_exposure_source",
+        "exposures.wrong_type_experiment_exposure_source",
+        "exposures.missing_locally_evaluated",
+        "exposures.wrong_type_locally_evaluated",
+        "exposures.forbidden_outcome_holdout",
+        "exposures.forbidden_outcome_pause",
+        "exposures.forbidden_outcome_rollout_miss",
+        "exposures.forbidden_outcome_no_rule",
+        "exposures.forbidden_outcome_failed",
+        "exposures.forbidden_value_object",
+        "exposures.forbidden_value_array",
+        "exposures.forbidden_value_null",
+        "exposures.forbidden_value_empty_string",
+        "exposures.holdout_context",
+        "exposures.ingestion_source",
+        "exposures.v1_config",
+        "exposures.forced_variant_context",
+        "exposures.unknown_field"
+      ]
+    },
+    {
+      "path": "fixtures/wire/readers.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/flags_response_v3.schema.json",
+      "case_ids": [
+        "readers.complete_split",
+        "readers.partial_split_missing_config_version",
+        "readers.partial_split_missing_rule_type",
+        "readers.partial_split_missing_rule_id",
+        "readers.partial_split_missing_experiment_id",
+        "readers.partial_split_missing_variant_key",
+        "readers.split_wrong_type_config_version",
+        "readers.split_wrong_type_rule_type",
+        "readers.split_wrong_type_rule_id",
+        "readers.split_wrong_type_experiment_id",
+        "readers.split_wrong_type_variant_key",
+        "readers.wrong_rule_type_literal",
+        "readers.unknown_fields",
+        "readers.old_server_variant",
+        "readers.old_server_boolean",
+        "readers.old_server_null_variant",
+        "readers.old_server_false",
+        "readers.v3_value_takes_precedence",
+        "readers.missing_flag",
+        "readers.targeting_match_targeted_release",
+        "readers.targeting_match_percentage_rollout",
+        "readers.rollout_miss_percentage_rollout",
+        "readers.rollout_miss_experiment",
+        "readers.experiment_paused",
+        "readers.holdout",
+        "readers.holdout_variant_key",
+        "readers.no_rule_match",
+        "readers.missing_group_key",
+        "readers.dependency_error",
+        "readers.error",
+        "readers.error_with_value",
+        "readers.malformed_sibling_isolation",
+        "readers.partial_split_string_value",
+        "readers.v1_at_v3",
+        "readers.v1_failed",
+        "readers.integral_json_number_context",
+        "readers.flag_key_seed"
+      ]
+    },
+    {
+      "path": "fixtures/wire/exposure_transport.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/experiment_exposure_properties.schema.json",
+      "case_ids": [
+        "exposure_transport.exposure_with_transport",
+        "exposure_transport.nested_seed",
+        "exposure_transport.nested_holdout_seed",
+        "exposure_transport.holdout_context",
+        "exposure_transport.forced_variant_context",
+        "exposure_transport.group_type_named_seed"
+      ]
+    },
+    {
+      "path": "fixtures/wire/call_transport.json",
+      "kind": "fixture_set",
+      "version": "1.0.0",
+      "schema": "schemas/feature_flag_called_context.schema.json",
+      "case_ids": [
+        "call_transport.call_with_transport",
+        "call_transport.nested_assignment_seed",
+        "call_transport.prefixed_seed",
+        "call_transport.person_property_named_seed"
+      ]
+    }
+  ],
+  "wire_contract": {
+    "version": "1.0.0",
+    "fixture_version": "1.0.0",
+    "published_versions_are_immutable": true,
+    "producer_schema_sha256": "1dd97730c746bc4534c4f47eebd82dac0cc67ceb1e4c53e7540960e7f74b00d9",
+    "fixture_encoding": "Each case deep-copies its named template, removes the listed existing JSON Pointer members, then sets members by JSON Pointer. Set requires an existing parent. Templates and expectations are JSON, not executable SDK suites.",
+    "compatibility": "New artifacts are additive to contract 1.2.0. Published schema bytes and fixture expectations are immutable. Accepted/rejected wire-contract changes require a new major wire component version; additive cases require a new minor fixture version. Reader expectations never relax producer validation."
+  }
+}

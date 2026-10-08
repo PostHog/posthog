@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
@@ -15,7 +15,6 @@ import { dayjs } from 'lib/dayjs'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { workflowLogic } from '../../../workflowLogic'
 import { OccurrencesList } from './OccurrencesList'
 import {
     buildSummary,
@@ -320,11 +319,34 @@ function NaturalLanguageScheduleInput({
     )
 }
 
-export function RecurringSchedulePicker(): JSX.Element {
-    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
-    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
-        useActions(workflowLogic)
+export interface RecurringSchedulePickerProps {
+    state: ScheduleState
+    startsAt: string | null
+    timezone: string
+    repeating: boolean
+    onStateChange: (state: ScheduleState, source?: 'picker' | 'natural_language') => void
+    /** Receives the picker's browser-local ISO datetime (or null when cleared). */
+    onStartsAtChange: (pickerDate: string | null) => void
+    onTimezoneChange: (timezone: string, previousTimezone: string) => void
+    onRepeatingChange: (repeating: boolean) => void
+    /** Off where the caller already means repeating, such as a broadcast's Recurring option. */
+    showRepeatToggle?: boolean
+    /** Shows the timezone before a start date is picked. */
+    alwaysShowTimezone?: boolean
+}
 
+export function RecurringSchedulePicker({
+    state: scheduleState,
+    startsAt: scheduleStartsAt,
+    timezone: scheduleTimezone,
+    repeating: isScheduleRepeating,
+    onStateChange: setScheduleState,
+    onStartsAtChange: setScheduleStartsAtFromPicker,
+    onTimezoneChange: setScheduleTimezone,
+    onRepeatingChange: setScheduleRepeating,
+    showRepeatToggle = true,
+    alwaysShowTimezone = false,
+}: RecurringSchedulePickerProps): JSX.Element {
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
             return []
@@ -344,7 +366,7 @@ export function RecurringSchedulePicker(): JSX.Element {
         scheduleState.endCount,
     ])
 
-    const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt) : null
+    const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt, scheduleTimezone) : null
 
     const monthlyDayLabel = scheduleStartsAt ? `Day ${dayjs(scheduleStartsAt).date()}` : 'Day N'
     const monthlyNthLabel = scheduleStartsAt
@@ -377,7 +399,7 @@ export function RecurringSchedulePicker(): JSX.Element {
                         showTimeToggle={false}
                     />
                 </div>
-                {scheduleStartsAt && (
+                {scheduleStartsAt && showRepeatToggle && (
                     <div className="w-22 shrink-0">
                         <LemonSwitch
                             label="Repeat"
@@ -387,7 +409,7 @@ export function RecurringSchedulePicker(): JSX.Element {
                     </div>
                 )}
             </div>
-            {scheduleStartsAt && (
+            {(scheduleStartsAt || alwaysShowTimezone) && (
                 <div className="flex flex-col gap-1 -mt-1">
                     <div className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
@@ -398,9 +420,9 @@ export function RecurringSchedulePicker(): JSX.Element {
                                 }}
                             />
                         </div>
-                        <div className="w-22 shrink-0" />
+                        {showRepeatToggle && <div className="w-22 shrink-0" />}
                     </div>
-                    {scheduleTimezone !== dayjs.tz.guess() && (
+                    {scheduleStartsAt && scheduleTimezone !== dayjs.tz.guess() && (
                         <span className="text-xs text-muted">
                             Schedule: {dayjs(scheduleStartsAt).tz(scheduleTimezone).format('h:mm A')} {scheduleTimezone}{' '}
                             · Your time: {dayjs(scheduleStartsAt).format('h:mm A')} {dayjs.tz.guess()}

@@ -21,12 +21,29 @@ import { ScoutsRoster } from './ScoutsRoster'
 const SUGGESTIONS_URL = '/api/projects/:id/signals/scout/suggestions/'
 
 /** The strip opens collapsed, so the stories open it unless one asks for the collapsed line. */
-function StripState({ collapsed, children }: { collapsed: boolean; children: React.ReactNode }): JSX.Element {
+function StripState({
+    collapsed,
+    refreshing,
+    children,
+}: {
+    collapsed: boolean
+    refreshing: boolean
+    children: React.ReactNode
+}): JSX.Element {
     const logic = useMountedLogic(scoutSuggestionsLogic)
     useEffect(() => {
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
-    }, [logic, collapsed])
+        if (refreshing) {
+            const baseline = mockScoutSuggestionSet()
+            logic.actions.startRefreshPolling({
+                startedAt: Date.now(),
+                baselineGeneratedAt: baseline.generated_at,
+                baselineStatus: baseline.status,
+            })
+        }
+        return () => logic.actions.refreshFinished()
+    }, [logic, collapsed, refreshing])
     return <>{children}</>
 }
 
@@ -46,7 +63,7 @@ const meta: Meta<typeof ScoutsRoster> = {
     },
     decorators: [
         (Story, { parameters }) => (
-            <StripState collapsed={parameters.stripCollapsed === true}>
+            <StripState collapsed={parameters.stripCollapsed === true} refreshing={parameters.stripRefreshing === true}>
                 <Story />
             </StripState>
         ),
@@ -57,6 +74,9 @@ const meta: Meta<typeof ScoutsRoster> = {
                 '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
                 '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
                 '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
+            },
+            post: {
+                '/api/projects/:id/signals/scout/suggestions/refresh/': () => [200, { workflow_id: 'workflow-1' }],
             },
         }),
     ],
@@ -85,8 +105,32 @@ export const Stale: Story = {
     ],
 }
 
-// A batch shrinks on its own as its picks get created, so one card has to look deliberate.
-export const SingleCard: Story = {
+// One long motivation above two short ones: the check that the motivation clamps to two lines and
+// the actions stay in line on every row.
+export const UnevenMotivations: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [SUGGESTIONS_URL]: () => [
+                    200,
+                    mockScoutSuggestionSet({
+                        items: [
+                            {
+                                ...mockScoutSuggestions[0],
+                                why_here:
+                                    'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens web analytics and looks.',
+                            },
+                            ...mockScoutSuggestions.slice(1),
+                        ],
+                    }),
+                ],
+            },
+        }),
+    ],
+}
+
+// A batch shrinks on its own as its picks get created, so one row has to look deliberate.
+export const SingleRow: Story = {
     decorators: [
         mswDecorator({
             get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [mockScoutSuggestions[1]] })] },
@@ -103,8 +147,42 @@ export const LastScanFailed: Story = {
     ],
 }
 
-// Every pick acted on or dismissed. The header line stays so Refresh is still reachable.
+// A project too quiet for a scheduled scan keeps its prior picks, so the footer is what says the
+// scan was skipped rather than run.
+export const LowActivity: Story = {
+    decorators: [
+        mswDecorator({
+            get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ status: 'low_activity' })] },
+        }),
+    ],
+}
+
+// Every pick acted on or dismissed. No strip at all: an empty box helps nobody, and the scene
+// header's "Suggest a scout" button is what asks for a new batch.
 export const NothingLeft: Story = {
+    decorators: [
+        mswDecorator({
+            get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [] })] },
+        }),
+    ],
+}
+
+// A scan over a batch that already has picks: they stay readable until it replaces them.
+export const Scanning: Story = {
+    parameters: { stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The strip opens collapsed, so this is where most Refresh presses land: the picks stay named and
+// the scan says how long it has been going.
+export const ScanningCollapsed: Story = {
+    parameters: { stripCollapsed: true, stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The one case skeletons are left for: every pick was acted on while the scan ran.
+export const ScanningWithNothingToShow: Story = {
+    parameters: { stripRefreshing: true },
     decorators: [
         mswDecorator({
             get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet({ items: [] })] },
@@ -126,7 +204,7 @@ export const NeverGenerated: Story = {
     ],
 }
 
-// An empty fleet gets the same cards as the body of the empty state.
+// An empty fleet gets the same rows as the body of the empty state.
 export const EmptyFleet: Story = {
     decorators: [
         mswDecorator({
@@ -139,10 +217,10 @@ export const EmptyFleet: Story = {
     ],
 }
 
-// The narrow scene a sidebar plus an open side panel leaves: the card grid drops to one column.
+// The narrow scene a sidebar plus an open side panel leaves: the actions wrap under the text.
 export const Narrow: Story = {
     parameters: {
-        testOptions: { viewport: { width: 600, height: 900 }, waitForLoadersToDisappear: false },
+        testOptions: { viewport: { width: 520, height: 900 }, waitForLoadersToDisappear: false },
     },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }

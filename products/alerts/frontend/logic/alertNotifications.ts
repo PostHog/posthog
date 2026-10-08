@@ -93,6 +93,17 @@ export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType
     ],
 })
 
+// A webhook URL's path and query are the channel credential for every webhook-style provider, and a
+// destination name reaches surfaces its configuration does not, such as the subject line of the email
+// sent when the destination is disabled. The host is all a name needs to tell two destinations apart.
+const webhookUrlHost = (url: string): string => {
+    try {
+        return new URL(url).hostname || 'destination'
+    } catch {
+        return 'destination'
+    }
+}
+
 // Default inputs the alert wizard pre-fills for a destination, sourced from the shared sub-template
 // (single source of truth with the full destination picker).
 const subTemplateInputs = (templateId: string): NonNullable<HogFunctionType['inputs']> =>
@@ -171,7 +182,7 @@ function buildAlertDestination(
             }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return {
-                name: `${alertName}: Webhook ${notification.webhookUrl}`,
+                name: `${alertName}: Webhook ${webhookUrlHost(notification.webhookUrl)}`,
                 template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_WEBHOOK],
                 inputs: {
                     url: { value: notification.webhookUrl },

@@ -1,3 +1,5 @@
+import './Onboarding.scss'
+
 import { useValues } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

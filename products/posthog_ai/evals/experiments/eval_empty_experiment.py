@@ -1,24 +1,25 @@
 """Eval: agent diagnoses empty / 0-exposure experiments across three carrier shapes.
 
 Carrier scenarios for diagnostic group B from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Three cases:
 
-1. ``empty_experiment_inactive_flag`` (B0 variant — flag inactive) — the
+1. ``empty_experiment_inactive_flag`` (B10 / A5 — flag inactive) — the
    seeded experiment has ``start_date`` set so it *appears* running, but
    ``feature_flag.active=False`` — ``$feature_flag_called`` therefore cannot
    fire. Outcome-only pass: agent must name flag inactivity as the cause.
 
-2. ``edited_exposure_criteria_still_zero`` (B1 verbatim) — a high-frequency
+2. ``edited_exposure_criteria_still_zero`` (B4) — a high-frequency
    "edited exposure criteria, exposures still 0" shape. The user reports
-   editing exposure criteria, then states inline that the events ARE firing
-   AND that they carry only ``$feature_flag`` (not
-   ``$feature_flag_response``). The inline-evidence pattern (mirroring
-   ``srm_with_identity_fragmentation`` in eval_bias_uneven_split) means the
-   agent doesn't have to verify against the seeded state to identify the
-   B4 / B5 diagnostic — the property gap *is* the evidence. The agent must
-   name the missing variant-value property as the root cause.
+   editing exposure criteria to a custom event, then states inline that the
+   events ARE firing AND that they carry ``$feature_flag`` and
+   ``$feature_flag_response`` but no ``$feature/<flag-key>``. The
+   inline-evidence pattern (mirroring ``srm_with_identity_fragmentation`` in
+   eval_bias_uneven_split) means the agent doesn't have to verify against the
+   seeded state to identify the B4 diagnostic — the property gap *is* the
+   evidence. The agent must name the missing ``$feature/<flag-key>`` property
+   as the root cause.
 
 3. ``test_account_filter_hides_internal_traffic`` (B7) — the user describes
    inline that ~50 internal teammates (all on a shared email domain) hit
@@ -31,8 +32,8 @@ Three cases:
    property-gap cases don't exercise.
 
 Tool-call path is not enforced — multiple valid investigation paths exist
-(reading ``experiment-get``, running ``execute-sql`` for the exposure-shape
-snapshot, or checking ``experiment-stats``).
+(reading ``experiment-get``, reading the experiment's exposure data, or
+running ``execute-sql`` on the raw exposure events).
 
 To run:
 
@@ -73,8 +74,8 @@ async def eval_empty_experiment(ctx: EvalContext) -> None:
         SandboxedEvalCase(
             # Inline-evidence pattern (mirrors srm_with_identity_fragmentation): the user
             # describes their custom event AND states inline which properties it carries.
-            # The property gap ($feature_flag set, $feature_flag_response missing) IS the
-            # diagnostic evidence — the agent doesn't need project state to identify the
+            # The property gap ($feature_flag and $feature_flag_response set,
+            # $feature/<flag-key> missing) IS the diagnostic evidence — the agent doesn't need project state to identify the
             # cause. The previous version of this case used surfaces_all_findings with
             # speculative auxiliary mechanisms; that bundling diluted the signal and the
             # agent's state-aware investigation routed around it. Single-mechanism
@@ -83,21 +84,22 @@ async def eval_empty_experiment(ctx: EvalContext) -> None:
             prompt=(
                 f"On my experiment '{ROLLOUT_EXPERIMENT_NAME}' I edited the exposure criteria after "
                 "launch to use a custom event. The custom event IS firing regularly (~3000/day in "
-                "raw event data) and each event carries `$feature_flag` set to my flag key — but "
-                "the events do NOT carry a `$feature_flag_response` property. The exposure tab "
-                "still shows 0 exposures after 7 days. What's the most likely cause?"
+                "raw event data) and each event carries `$feature_flag` set to my flag key and "
+                "`$feature_flag_response` set to the variant — but no `$feature/<flag-key>` "
+                "property. The experiment still shows 0 exposures after 7 days. What's the most "
+                "likely cause?"
             ),
             setup=seed_running_experiment,
             expected={
                 "diagnosis_group": (
-                    "The custom exposure event is missing the variant-value property. PostHog needs "
-                    "`$feature_flag_response` (or equivalently `$feature/<flag-key>`) carrying the "
-                    "variant value (e.g. 'control', 'test') on every captured event in order to "
-                    "attribute the event to a variant. Setting `$feature_flag` alone is not "
-                    "sufficient — without the variant value, no event can be counted as an "
-                    "exposure for any specific variant, so the count stays at 0. This is the B4 / "
-                    "B5 mechanism from group B (required properties on the exposure event). The "
-                    "agent's answer must center on the missing variant-value property."
+                    "The custom exposure event is missing the property the experiment reads the "
+                    "variant from. On a custom exposure event PostHog reads `$feature/<flag-key>`, "
+                    "and it must hold one of the flag's variant keys (e.g. 'control', 'test'). "
+                    "`$feature_flag` and `$feature_flag_response` are only read on the default "
+                    "exposure event, so they do not help here. Without `$feature/<flag-key>` the "
+                    "event is not an exposure at all, so the count stays at 0. This is the B4 "
+                    "mechanism from group B. The agent's answer must center on the missing "
+                    "`$feature/<flag-key>` property."
                 ),
             },
         ),

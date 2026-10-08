@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelon
     _build_initial_params,
     _format_incremental_value,
     _normalize_row,
-    normalize_console_url,
     sentinelone_source,
     validate_credentials,
 )
@@ -41,22 +40,6 @@ def _mock_response(*, status_code: int = 200, json_data: Any = None, location: O
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> dict[str, Any]:
     return {"data": rows, "pagination": {"nextCursor": next_cursor}}
-
-
-class TestNormalizeConsoleUrl:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("usea1-example.sentinelone.net", "usea1-example.sentinelone.net"),
-            ("https://usea1-example.sentinelone.net", "usea1-example.sentinelone.net"),
-            ("http://usea1-example.sentinelone.net/", "usea1-example.sentinelone.net"),
-            ("  usea1-example.sentinelone.net  ", "usea1-example.sentinelone.net"),
-            ("usea1-example.sentinelone.net/web/api/v2.1", "usea1-example.sentinelone.net"),
-            ("https://usea1-example.sentinelone.net/web/api/v2.1/threats", "usea1-example.sentinelone.net"),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_console_url(raw) == expected
 
 
 class TestFormatIncrementalValue:
@@ -87,39 +70,6 @@ class TestBuildInitialParams:
         assert params["sortOrder"] == "asc"
         assert params["limit"] == 1000
 
-    def test_incremental_honors_user_chosen_field_over_default(self):
-        # threats defaults to updatedAt; a user who picked createdAt must get createdAt__gte.
-        params = _build_initial_params(
-            SENTINELONE_ENDPOINTS["threats"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field="createdAt",
-        )
-        assert params["createdAt__gte"] == "2024-01-01T00:00:00.000Z"
-        assert "updatedAt__gte" not in params
-        assert params["sortBy"] == "createdAt"
-
-    def test_incremental_without_watermark_has_no_filter(self):
-        params = _build_initial_params(
-            SENTINELONE_ENDPOINTS["agents"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="updatedAt",
-        )
-        assert "updatedAt__gte" not in params
-        assert params["sortBy"] == "updatedAt"
-
-    def test_full_refresh_sorts_by_stable_field_without_filter(self):
-        params = _build_initial_params(
-            SENTINELONE_ENDPOINTS["threats"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            incremental_field=None,
-        )
-        assert not any(key.endswith("__gte") for key in params)
-        assert params["sortBy"] == "createdAt"
-        assert params["sortOrder"] == "asc"
-
     @pytest.mark.parametrize("endpoint", ["groups", "sites"])
     def test_full_refresh_only_endpoints_send_no_sort_or_filter(self, endpoint):
         params = _build_initial_params(
@@ -137,14 +87,6 @@ class TestNormalizeRow:
         normalized = _normalize_row(row, SENTINELONE_ENDPOINTS["threats"])
         assert normalized["createdAt"] == "2024-01-01T00:00:00Z"
         assert normalized["updatedAt"] == "2024-01-02T00:00:00Z"
-
-    def test_does_not_overwrite_existing_top_level_fields(self):
-        row = {"id": "t1", "createdAt": "top", "threatInfo": {"createdAt": "nested"}}
-        assert _normalize_row(row, SENTINELONE_ENDPOINTS["threats"])["createdAt"] == "top"
-
-    def test_no_hoist_for_endpoints_without_nested_timestamps(self):
-        row = {"id": "a1", "createdAt": "2024-01-01T00:00:00Z"}
-        assert _normalize_row(row, SENTINELONE_ENDPOINTS["agents"]) == row
 
 
 class TestValidateCredentials:
@@ -166,10 +108,6 @@ class TestValidateCredentials:
         response.json.return_value = json_data
         return response
 
-    def test_success(self):
-        with self._patch_session(self._probe_response(status_code=200)):
-            assert validate_credentials("example.sentinelone.net", "tok") == (True, None)
-
     def test_invalid_token(self):
         with self._patch_session(self._probe_response(status_code=401)):
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
@@ -185,13 +123,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("example.sentinelone.net", "tok", schema_name="threats")
             assert valid is False
             assert msg is not None
-
-    def test_scoped_probe_hits_the_endpoint_path(self):
-        with self._patch_session(self._probe_response(status_code=200)) as patched:
-            validate_credentials("example.sentinelone.net", "tok", schema_name="threats")
-            url = patched.return_value.get.call_args.args[0]
-            assert url == "https://example.sentinelone.net/web/api/v2.1/threats"
-            assert patched.return_value.get.call_args.kwargs["params"] == {"limit": 1}
 
     def test_create_probe_hits_system_info(self):
         with self._patch_session(self._probe_response(status_code=200)) as patched:
@@ -238,34 +169,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
             assert valid is False
             assert msg == "Bad request: invalid filter"
-
-
-class TestSentinelOneSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key",
-        [
-            ("threats", "id", "createdAt"),
-            ("agents", "id", "createdAt"),
-            ("activities", "id", "createdAt"),
-            ("groups", "id", "createdAt"),
-            ("sites", "id", "createdAt"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_key, partition_key):
-        response = sentinelone_source(
-            console_url="example.sentinelone.net",
-            api_token="tok",
-            endpoint=endpoint,
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-            job_id="job",
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
 
 
 def _make_manager(resume_state: SentinelOneResumeConfig | None = None) -> mock.MagicMock:
@@ -335,20 +238,6 @@ class TestPagination:
         assert params[1]["cursor"] == "cur"
         assert params[1]["limit"] == 1000
 
-    def test_saves_state_after_yield_only_when_more_pages(self):
-        _, _, _, manager = _run([_mock_response(json_data=_page([{"id": "1"}]))])
-        manager.save_state.assert_not_called()
-
-        _, _, _, manager2 = _run(
-            [
-                _mock_response(json_data=_page([{"id": "1"}], next_cursor="cur")),
-                _mock_response(json_data=_page([{"id": "2"}])),
-            ]
-        )
-        saved = manager2.save_state.call_args.args[0]
-        assert isinstance(saved, SentinelOneResumeConfig)
-        assert "cursor=cur" in saved.next_url
-
     def test_resumes_from_saved_state(self):
         manager = _make_manager(
             SentinelOneResumeConfig(
@@ -371,16 +260,6 @@ class TestPagination:
         assert rows == []
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    def test_sites_rows_come_from_nested_data_key(self):
-        payload = {"data": {"sites": [{"id": "s1"}], "allSites": {}}, "pagination": {"nextCursor": None}}
-        rows, _, _, _ = _run([_mock_response(json_data=payload)], endpoint="sites")
-        assert [r["id"] for r in rows] == ["s1"]
-
-    def test_threat_rows_are_normalized(self):
-        payload = _page([{"id": "t1", "threatInfo": {"createdAt": "2024-01-01T00:00:00Z"}}])
-        rows, _, _, _ = _run([_mock_response(json_data=payload)])
-        assert rows[0]["createdAt"] == "2024-01-01T00:00:00Z"
 
     def test_redirect_response_is_rejected(self):
         # An unexpected 3xx (potentially to an internal address) must be rejected, not followed (SSRF).

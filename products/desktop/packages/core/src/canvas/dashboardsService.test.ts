@@ -9,12 +9,16 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     name: "Revenue board",
     channel: "chan-1",
     template_id: "freeform",
-    context: "",
     generation_task_id: null,
     pinned_at: null,
     current_version_id: "v1",
     published_build_id: null,
-    created_by: { first_name: "Ada", last_name: "L", email: "ada@x.com" },
+    created_by: {
+      uuid: "ada-uuid",
+      first_name: "Ada",
+      last_name: "L",
+      email: "ada@example.com",
+    },
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-02T00:00:00Z",
     ...overrides,
@@ -39,6 +43,7 @@ function fakeApi(
     json: vi.fn(async (path: string, _label: string, init?: RequestInit) =>
       resolve(path, init),
     ),
+    revalidatedJson: vi.fn(async (path: string) => resolve(path)),
     listPaginated: vi.fn(async (path: string) => resolve(path) as unknown[]),
     fetch: vi.fn(async (path: string, init?: RequestInit) => {
       const body = resolve(path, init);
@@ -68,6 +73,7 @@ describe("DashboardsService.list", () => {
       channelId: "chan-1",
       name: "Revenue board",
       createdBy: "Ada L",
+      createdByUser: apiCanvas().created_by,
       currentVersionId: "v1",
     });
     expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
@@ -77,7 +83,7 @@ describe("DashboardsService.list", () => {
 describe("DashboardsService.getBuilds", () => {
   it("normalizes the lifecycle payload", async () => {
     const { api } = fakeApi({
-      "canvases/c1/builds/?version_id=v1": {
+      "canvases/c1/builds/?version_id=v1&scope=slim": {
         published_build_id: "b1",
         current_version_id: "v1",
         builds: [

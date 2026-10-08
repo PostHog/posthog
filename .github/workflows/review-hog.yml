@@ -31,7 +31,7 @@ concurrency:
 jobs:
     trigger:
         name: Trigger ReviewHog review
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Run when the `reviewhog` label lands on a non-fork PR from an allowed labeler: a human, or
         # stamphog[bot] handing off a refused/escalated PR. Other bots are skipped below. Any author
@@ -66,7 +66,7 @@ jobs:
     # refused PRs and is routed above); explain why and strip the label so a human can re-add it.
     bot-labeler-skip:
         name: Explain skipped bot label
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             issues: write

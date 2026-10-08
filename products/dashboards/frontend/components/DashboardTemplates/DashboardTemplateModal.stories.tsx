@@ -193,6 +193,13 @@ export const FullJsonEditor: StoryObj<ViewerModeStoryArgs> = {
     args: {
         viewerMode: 'staff',
     },
+    // Default args render the Monaco JSON editor, which loads through a lazy Suspense facade -
+    // wait for it to mount rather than racing its load, the same as SQLEditorScene.stories.tsx.
+    parameters: {
+        testOptions: {
+            waitForSelector: '.monaco-editor',
+        },
+    },
     argTypes: {
         viewerMode: {
             control: 'inline-radio',

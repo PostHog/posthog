@@ -6,6 +6,7 @@ import type {
 import type { PiControllerSessionState } from "@posthog/core/pi-runtime/piSessionStore";
 import { Skeleton } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { isOfferedModel } from "@posthog/shared/model-catalog";
 import { useCallback } from "react";
 import { PiModelSelector } from "./PiSessionControls";
 import {
@@ -47,7 +48,14 @@ export function PiSessionModelControls({
     session.connectionState !== "connected";
   const currentModel = pendingConfig?.model ?? session.status?.model;
   const hasCatalog = catalog.length > 0;
-  const models = hasCatalog ? catalog : session.models;
+  // Without a catalog the picker falls back to the runtime list, which is the
+  // provider's runnable set and still carries retired models. Filter it the
+  // way the catalog does, but keep the model this session runs on.
+  const models = hasCatalog
+    ? catalog
+    : session.models.filter(
+        (model) => isOfferedModel(model.id) || model.id === currentModel?.id,
+      );
   const modelsLoaded = !catalogLoading && (hasCatalog || session.modelsLoaded);
   const catalogModel = catalog.find(
     (model) =>

@@ -84,8 +84,8 @@ class TestTurnFeedback(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
-    def _thumb_value(self, sentiment: str, run_id: str | None = None) -> str:
-        element = turn_feedback_block(self.integration.id, run_id or str(self.task_run.id))["elements"][0]
+    def _thumb_value(self, sentiment: str, run_id: str | None = None, trace_id: str | None = None) -> str:
+        element = turn_feedback_block(self.integration.id, run_id or str(self.task_run.id), trace_id)["elements"][0]
         button = "positive_button" if sentiment == "positive" else "negative_button"
         return element[button]["value"]
 
@@ -129,7 +129,50 @@ class TestTurnFeedback(TestCase):
         # The rated answer's own message, so a thread of answers stays separable.
         assert properties["turn_id"] == "222.1"
         assert properties["feedback_source"] == "button"
+        # A turn that reported no trace id sends the null the other clients send, never a
+        # stand-in like the session id.
+        assert properties["$ai_trace_id"] is None
         assert self.mock_slack.return_value.client.views_open.called is asks_for_a_reason
+
+    def test_a_rating_names_the_turn_the_reply_answered(self):
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+
+        response = self._pick(self._thumb_value("positive", trace_id=trace_id))
+
+        assert response.status_code == 200
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] == trace_id
+
+    def test_a_trace_id_that_is_not_one_of_ours_is_dropped(self):
+        # A trace id that is not the UUID the gateway mints would join nothing.
+        response = self._pick(self._thumb_value("positive", trace_id="not-a-trace-id"))
+
+        assert response.status_code == 200
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] is None
+
+    def test_the_reason_inherits_the_trace_id_of_the_thumb_that_asked_for_it(self):
+        # The reason arrives in a second request carrying only what the modal was opened with.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+        self._pick(self._thumb_value("negative", trace_id=trace_id))
+        view = self.mock_slack.return_value.client.views_open.call_args.kwargs["view"]
+        self.mock_analytics.capture.reset_mock()
+
+        response = self._post(
+            {
+                "type": "view_submission",
+                "team": {"id": self.slack_team_id},
+                "user": {"id": "U_ALICE"},
+                "view": {
+                    "callback_id": view["callback_id"],
+                    "private_metadata": view["private_metadata"],
+                    "state": {"values": {_MODAL_TEXT_BLOCK_ID: {_MODAL_TEXT_ACTION_ID: {"value": "wrong dashboard"}}}},
+                },
+            }
+        )
+
+        assert response.status_code == 200
+        kwargs = self.mock_analytics.capture.call_args.kwargs
+        assert kwargs["event"] == "$ai_feedback"
+        assert kwargs["properties"]["$ai_trace_id"] == trace_id
 
     def test_a_run_from_another_project_is_not_rated(self):
         other_org = Organization.objects.create(name="OtherOrg")
@@ -247,6 +290,16 @@ class TestTurnFeedback(TestCase):
         assert properties["turn_id"] == "222.1"
         # A reaction carries no trigger_id, so a bad rating cannot be asked for a reason.
         assert not self.mock_slack.return_value.client.views_open.called
+
+    def test_a_thumb_reaction_names_the_turn_the_reply_answered(self):
+        # A reaction resolves its target by reading the posted reply's own blocks back.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+        self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id), trace_id)])
+
+        response = self._react("+1")
+
+        assert response.status_code == 202
+        assert self.mock_analytics.capture.call_args.kwargs["properties"]["$ai_trace_id"] == trace_id
 
     def test_a_non_thumb_reaction_costs_no_slack_fetch(self):
         response = self._react("eyes")

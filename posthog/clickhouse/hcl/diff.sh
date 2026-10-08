@@ -68,7 +68,7 @@ for env in $envs; do
     echo "=============================================================="
     echo "# $env/$role  (committed@$REF -> working tree)"
     echo "=============================================================="
-    if ! "$HCLEXP" diff -left "$committed" -right "$working" -sql; then
+    if ! "$HCLEXP" diff -left "$committed" -right "$working" -ignore-column-order -sql; then
       echo "WARN: hclexp diff failed for $env/$role" >&2
       rc=1
     fi

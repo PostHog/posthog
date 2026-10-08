@@ -31,7 +31,7 @@ Then update:
 No codegen step needed (tonic regenerates on `cargo build`), but you must:
 
 - Implement the RPC in `rust/personhog-replica/` (storage layer + service handler)
-- Wire it through `rust/personhog-router/` (backend, router, and service layers)
+- Add the method name to `KNOWN_METHODS` in `rust/personhog-router/src/proxy.rs` (the router forwards raw bytes; leader-routed methods are matched by name there)
 - Add tests (see Rust test conventions in `rust/personhog-replica/AGENTS.md`)
 
 ## Ingestion worker protos

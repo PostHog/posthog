@@ -24,9 +24,10 @@ if (not inputs.bypass_authorization_check) {
   if (empty(inputs.authorization_header)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Authorization header value not configured',
-      }
+        'status': 200,
+        'body': 'Authorization header value not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

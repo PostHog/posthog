@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-data-catalog",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests scripts/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",

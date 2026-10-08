@@ -10,6 +10,9 @@ Which one you want depends on the question.
 Use a recurring report for anything you'd think about periodically, like what agents keep trying to do.
 Use an instant alert for something you'd want to know about immediately, like one of your tools breaking.
 
+The **Notifications** tab lists every kind of notification in one table, with its cadence and whether it is on.
+Expand a row to see what it sends, and the destinations you have set up for it.
+
 ## Recurring reports
 
 A recurring report is an AI-written summary of your MCP traffic, delivered on a schedule.
@@ -21,13 +24,13 @@ Two are ready to set up from the **Notifications** tab:
 To set one up:
 
 1. Open **MCP analytics** and select the **Notifications** tab.
-2. Under **Recurring reports**, select **Set up** on the report you want.
+2. Select **Set up** on the row of the report you want.
 3. Choose where it should go and how often, then create it.
 
 The report's question is already written for you, and you can edit it before saving.
 
 Recurring reports are built on PostHog's AI subscriptions, which are in early access.
-If you don't see a **Set up** button, turn on **AI subscriptions** in your [feature previews](https://app.posthog.com/settings/user-feature-previews) first.
+If the report shows **Turn on early access** instead of **Set up**, select it to turn on **AI subscriptions** in your [feature previews](https://app.posthog.com/settings/user-feature-previews) first.
 Your organization also needs to approve AI data processing in its settings.
 
 Because a report summarizes a window of time, it stays useful on a low-volume server and can't flood a channel.
@@ -36,7 +39,7 @@ Because a report summarizes a window of time, it stays useful on a low-volume se
 
 An instant alert reaches you as soon as something happens that you'd want to know about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
 
-To create one, select **Notify me** under **Instant alerts**, then choose a channel.
+To create one, select **Set up** on the **A tool call failed** row, then choose a channel.
 PostHog prefills the message with the tool, your server, the agent's client, and its intent.
 You can customize it later from the alert's own page.
 

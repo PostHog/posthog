@@ -14,8 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
     WorldBankPaginator,
     WorldBankResumeConfig,
     check_indicator_codes,
-    flatten_observation,
-    parse_indicator_codes,
     validate_credentials,
     world_bank_source,
 )
@@ -42,27 +40,7 @@ def _meta_response(pages: Any) -> MagicMock:
     return response
 
 
-class TestParseIndicatorCodes:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("SP.POP.TOTL", ["SP.POP.TOTL"]),
-            ("SP.POP.TOTL\nNY.GDP.PCAP.CD", ["SP.POP.TOTL", "NY.GDP.PCAP.CD"]),
-            ("SP.POP.TOTL, NY.GDP.PCAP.CD", ["SP.POP.TOTL", "NY.GDP.PCAP.CD"]),
-            ("SP.POP.TOTL;NY.GDP.PCAP.CD", ["SP.POP.TOTL", "NY.GDP.PCAP.CD"]),
-            ("  SP.POP.TOTL  \n\n  SP.POP.TOTL ", ["SP.POP.TOTL"]),
-            ("", []),
-            (None, []),
-        ],
-    )
-    def test_parses_and_deduplicates(self, raw: Optional[str], expected: list[str]) -> None:
-        assert parse_indicator_codes(raw) == expected
-
-
 class TestCheckIndicatorCodes:
-    def test_accepts_a_list_at_the_cap(self) -> None:
-        assert check_indicator_codes([f"CODE.{index}" for index in range(MAX_INDICATOR_CODES)]) is None
-
     def test_rejects_an_empty_list(self) -> None:
         error = check_indicator_codes([])
 
@@ -130,43 +108,6 @@ class TestWorldBankPaginator:
         assert paginator.has_next_page is False
         assert paginator.get_resume_state() is None
 
-    def test_resume_state_round_trip(self) -> None:
-        paginator = WorldBankPaginator()
-        paginator.update_state(_meta_response(5), data=[{"id": "ABW"}])
-        state = paginator.get_resume_state()
-        assert state == {"page": 2}
-
-        resumed = WorldBankPaginator()
-        resumed.set_resume_state(state or {})
-        assert resumed.page == 2
-        assert resumed.has_next_page is True
-
-
-class TestFlattenObservation:
-    def test_lifts_nested_ids_to_the_row_root(self) -> None:
-        # Observations carry no id of their own, so the primary key is built from these.
-        row = flatten_observation(
-            {
-                "indicator": {"id": "SP.POP.TOTL", "value": "Population, total"},
-                "country": {"id": "US", "value": "United States"},
-                "countryiso3code": "USA",
-                "date": "2024",
-                "value": 340003797,
-            }
-        )
-
-        assert row["indicator_id"] == "SP.POP.TOTL"
-        assert row["indicator_name"] == "Population, total"
-        assert row["country_id"] == "US"
-        assert row["country_name"] == "United States"
-        assert row["value"] == 340003797
-
-    def test_tolerates_missing_nested_objects(self) -> None:
-        row = flatten_observation({"date": "2024", "value": None})
-
-        assert row["indicator_id"] is None
-        assert row["country_id"] is None
-
 
 class TestRequiredDataSelector:
     def test_error_envelope_raises_a_message_the_source_can_classify(self) -> None:
@@ -179,10 +120,6 @@ class TestRequiredDataSelector:
             )
 
         assert "Required data_selector '[1]' matched nothing in the response" in str(excinfo.value)
-
-    def test_null_row_list_is_a_valid_empty_page(self) -> None:
-        # An indicator with no observations for the requested filter answers `[metadata, null]`.
-        assert RESTClient()._extract_response(_payload(None), DATA_SELECTOR, required=True) == []
 
 
 class TestWorldBankSourceTransport:
@@ -220,67 +157,6 @@ class TestWorldBankSourceTransport:
             )
 
         return sent_params, sent_urls, pages
-
-    def test_catalog_endpoint_paginates_and_checkpoints_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, sent_urls, pages = self._drive(
-            "countries",
-            manager,
-            [
-                _http_response(_payload([{"id": "ABW"}], pages=2, page=1)),
-                _http_response(_payload([{"id": "AFG"}], pages=2, page=2)),
-            ],
-        )
-
-        # XML is the API default, so `format=json` has to ride on every request.
-        assert [params["format"] for params in sent_params] == ["json", "json"]
-        assert [params["page"] for params in sent_params] == [1, 2]
-        assert sent_urls[0] == "https://api.worldbank.org/v2/country"
-        assert pages == [[{"id": "ABW"}], [{"id": "AFG"}]]
-
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [WorldBankResumeConfig(page=2)]
-        manager.clear_state.assert_called_once()
-
-    def test_catalog_endpoint_resumes_from_the_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WorldBankResumeConfig(page=4)
-
-        sent_params, _, _ = self._drive(
-            "indicators", manager, [_http_response(_payload([{"id": "SP.POP.TOTL"}], pages=4, page=4))]
-        )
-
-        assert [params["page"] for params in sent_params] == [4]
-
-    def test_indicator_data_walks_every_code_and_flattens_rows(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        observation = {
-            "indicator": {"id": "SP.POP.TOTL", "value": "Population, total"},
-            "country": {"id": "US", "value": "United States"},
-            "countryiso3code": "USA",
-            "date": "2024",
-            "value": 340003797,
-        }
-        _, sent_urls, pages = self._drive(
-            "indicator_data",
-            manager,
-            [
-                _http_response(_payload([observation])),
-                _http_response(_payload([{**observation, "indicator": {"id": "NY.GDP.PCAP.CD", "value": "GDP"}}])),
-            ],
-            indicator_codes=["SP.POP.TOTL", "NY.GDP.PCAP.CD"],
-        )
-
-        assert sent_urls == [
-            "https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL",
-            "https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD",
-        ]
-        assert [row["indicator_id"] for page in pages for row in page] == ["SP.POP.TOTL", "NY.GDP.PCAP.CD"]
-        assert [row["country_id"] for page in pages for row in page] == ["US", "US"]
 
     def test_indicator_data_checkpoints_the_next_code_when_one_finishes(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

@@ -1,4 +1,5 @@
-import type { AgentSession } from "@posthog/shared";
+import type { AgentSession, StoredLogEntry } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -44,12 +45,21 @@ function createHarness({ spyConnect = true } = {}) {
     getSessions: () => sessions,
     getSessionByTaskId: (taskId: string) =>
       Object.values(sessions).find((s) => s.taskId === taskId),
+    setSession: (session: AgentSession) => {
+      sessions[session.taskRunId] = session;
+    },
     removeSession: vi.fn(),
     setTaskStarting: vi.fn(),
     clearTaskStarting: vi.fn(),
-    updateSession: vi.fn(),
+    updateSession: vi.fn(
+      (taskRunId: string, updates: Partial<AgentSession>) => {
+        Object.assign(sessions[taskRunId], updates);
+      },
+    ),
   };
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  const reconnect = vi.fn().mockResolvedValue({});
+  const track = vi.fn();
   const deps = {
     store,
     log,
@@ -64,18 +74,54 @@ function createHarness({ spyConnect = true } = {}) {
     trpc: {
       agent: {
         cancel: { mutate: vi.fn().mockResolvedValue(undefined) },
+        reconnect: { mutate: reconnect },
+        onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
+        onPermissionRequest: { subscribe: () => ({ unsubscribe: vi.fn() }) },
         onSessionIdleKilled: {
           subscribe: () => ({ unsubscribe: vi.fn() }),
         },
       },
+      workspace: {
+        verify: { query: vi.fn().mockResolvedValue({ exists: true }) },
+      },
     },
+    settings: {},
+    track,
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
   const connectToTask = spyConnect
     ? vi.spyOn(service, "connectToTask").mockResolvedValue(undefined)
     : undefined;
-  return { service, sessions, connectToTask, log, store };
+  return { service, sessions, connectToTask, log, store, reconnect, track };
+}
+
+function reconnectToLocalSession(
+  service: SessionService,
+  task: Task,
+  rawEntries: StoredLogEntry[],
+): Promise<boolean> {
+  return (
+    service as unknown as {
+      reconnectToLocalSession: (
+        taskId: string,
+        taskRunId: string,
+        taskTitle: string,
+        logUrl: string | undefined,
+        repoPath: string,
+        auth: { apiHost: string; projectId: number },
+        prefetchedLogs: { rawEntries: StoredLogEntry[] },
+      ) => Promise<boolean>;
+    }
+  ).reconnectToLocalSession(
+    task.id,
+    `run-${task.id}`,
+    task.title,
+    undefined,
+    "/repo",
+    { apiHost: "https://example.com", projectId: 1 },
+    { rawEntries },
+  );
 }
 
 function reconcile(
@@ -177,7 +223,7 @@ describe("SessionService run-less local task recovery", () => {
 
     await service.connectToTask({ task, repoPath: "/repo" });
 
-    expect(store.setTaskStarting).toHaveBeenCalledWith(task.id);
+    expect(store.setTaskStarting).toHaveBeenCalledWith(task.id, undefined);
     expect(store.clearTaskStarting).not.toHaveBeenCalled();
 
     const connectToTask = vi
@@ -196,5 +242,82 @@ describe("SessionService run-less local task recovery", () => {
     reconcile(service, task);
 
     expect(connectToTask).toHaveBeenCalledWith({ task, repoPath: "/repo" });
+  });
+
+  it("clears stale pending state when the reconnected log contains a completed turn", async () => {
+    const { service, sessions } = createHarness({ spyConnect: false });
+    const task = makeTask();
+    sessions["run-task-1"] = {
+      ...makeSession(task.id),
+      isPromptPending: true,
+      promptStartedAt: 1,
+      currentPromptId: 1,
+    };
+    const rawEntries: StoredLogEntry[] = [
+      {
+        type: "notification",
+        timestamp: new Date(1).toISOString(),
+        notification: {
+          id: 1,
+          method: "session/prompt",
+          params: { prompt: [{ type: "text", text: "Ship the fix" }] },
+        },
+      },
+      {
+        type: "notification",
+        timestamp: new Date(2).toISOString(),
+        notification: {
+          id: 1,
+          result: { stopReason: "end_turn" },
+        },
+      },
+    ];
+
+    await reconnectToLocalSession(service, task, rawEntries);
+
+    expect(sessions["run-task-1"]).toMatchObject({
+      isPromptPending: false,
+      promptStartedAt: null,
+      currentPromptId: null,
+    });
+  });
+
+  it("reports a failed reconnect with the startup step that failed", async () => {
+    const { service, sessions, reconnect, track } = createHarness({
+      spyConnect: false,
+    });
+    const task = makeTask();
+    sessions["run-task-1"] = makeSession(task.id);
+    reconnect.mockRejectedValue(
+      new Error("Session resumption timed out after 30000ms"),
+    );
+
+    await reconnectToLocalSession(service, task, []);
+
+    expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+      task_id: task.id,
+      error_type: "reconnect_failed",
+      failure_reason: "startup_timeout",
+      startup_step: "resumption",
+    });
+  });
+
+  it("reports a reconnect that returns null", async () => {
+    const { service, sessions, reconnect, track } = createHarness({
+      spyConnect: false,
+    });
+    const task = makeTask();
+    sessions["run-task-1"] = makeSession(task.id);
+    reconnect.mockResolvedValue(null);
+
+    await expect(reconnectToLocalSession(service, task, [])).resolves.toBe(
+      false,
+    );
+
+    expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+      task_id: task.id,
+      error_type: "reconnect_failed",
+      failure_reason: "other",
+    });
   });
 });

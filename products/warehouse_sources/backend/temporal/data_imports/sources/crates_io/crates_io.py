@@ -2,7 +2,7 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -34,6 +34,23 @@ THROTTLE_SECONDS = 1.0
 MAX_CRATES = 500
 
 VERSIONS_PER_PAGE = 100
+
+# crates.io rejects a larger page size on its paginated list endpoints with a 400.
+LIST_PER_PAGE = 100
+
+# Dependencies are only exposed per version, so a crate with a long release history would cost one
+# request per version on every sync. Only the most recently published versions are walked. The walk
+# sorts by publish date rather than semver, so a backport released onto an older line is included
+# and a stale high version number does not hold a slot.
+MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES = 25
+
+# A widely used crate has tens of thousands of reverse dependencies, which at the crawler-policy
+# request rate would let one crate consume the whole sync. Cap the walk instead.
+MAX_REVERSE_DEPENDENCY_PAGES = 100
+
+# Termination guard for the registry-wide lookup endpoints. The walk normally stops on the first
+# short page, so this only trips if the API stops signalling the end of the list.
+MAX_LIST_PAGES = 1000
 
 # Rows for a single crate are yielded in bounded chunks so a crate with a huge version history
 # never forces one oversized in-memory Arrow conversion downstream. The pipeline batches on top of
@@ -267,6 +284,149 @@ def _owner_rows(
         yield row
 
 
+def _iter_list_pages(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    url: str,
+    collection: str,
+    logger: FilteringBoundLogger,
+    max_pages: int,
+    params: dict[str, str] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield each page document of a page-numbered crates.io list endpoint.
+
+    ``collection`` is the response key holding the page's rows, which is what decides when the walk
+    ends: crates.io keeps serving pages past the end of the list, returning an empty array rather
+    than an error, and `meta.total` drops to 0 there, so a short page is the only reliable signal.
+    """
+    for page in range(1, max_pages + 1):
+        query = urlencode({**(params or {}), "per_page": LIST_PER_PAGE, "page": page})
+        document = _fetch_json(session, throttle, f"{url}?{query}", logger)
+        if document is None:
+            return
+        yield document
+        if len(document.get(collection) or []) < LIST_PER_PAGE:
+            return
+
+    logger.warning(f"crates.io: page cap reached, results may be truncated: url={url}, max_pages={max_pages}")
+
+
+def _dependency_rows(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    crate: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """One row per dependency declared by the crate's most recent versions.
+
+    Rows are stamped with the parent crate and version number: the endpoint's own `crate_id` names
+    the crate being depended on, not the crate that declares the dependency.
+    """
+    query = urlencode({"per_page": MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES, "sort": "date"})
+    document = _fetch_json(session, throttle, f"{_crate_url(crate)}/versions?{query}", logger)
+    if document is None:
+        return
+
+    versions = [
+        version for version in (document.get("versions") or []) if isinstance(version, dict) and version.get("num")
+    ]
+    total = (document.get("meta") or {}).get("total")
+    if isinstance(total, int) and total > len(versions):
+        logger.warning(
+            f"crates.io: version cap reached for dependencies, older versions skipped: "
+            f"crate={crate}, synced={len(versions)}, total={total}"
+        )
+
+    for version in versions:
+        num = str(version["num"])
+        dependencies = _fetch_json(session, throttle, f"{_crate_url(crate)}/{quote(num, safe='')}/dependencies", logger)
+        if dependencies is None:
+            continue
+        for dependency in dependencies.get("dependencies") or []:
+            if not isinstance(dependency, dict):
+                continue
+            row = dict(dependency)
+            # The version record carries the canonical crate name, so no extra lookup is needed.
+            row["crate"] = version.get("crate") or crate
+            row["version_num"] = num
+            yield row
+
+
+def _reverse_dependency_rows(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    crate: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """One row per version of another crate that depends on this crate.
+
+    Each page carries the dependency edges and, separately, the dependent versions they point at,
+    so the dependent crate and version number are joined onto the edge here. Without that a row
+    only identifies the dependent by a numeric version id.
+    """
+    url = f"{_crate_url(crate)}/reverse_dependencies"
+    for document in _iter_list_pages(
+        session, throttle, url, "dependencies", logger, max_pages=MAX_REVERSE_DEPENDENCY_PAGES
+    ):
+        versions_by_id = {
+            version["id"]: version
+            for version in (document.get("versions") or [])
+            if isinstance(version, dict) and version.get("id") is not None
+        }
+        for dependency in document.get("dependencies") or []:
+            if not isinstance(dependency, dict):
+                continue
+            row = dict(dependency)
+            # On this endpoint `crate_id` is the crate being depended on, already in canonical form.
+            row["crate"] = dependency.get("crate_id") or crate
+            version = versions_by_id.get(dependency.get("version_id")) or {}
+            row["dependent_crate"] = version.get("crate")
+            row["dependent_version_num"] = version.get("num")
+            yield row
+
+
+def _category_rows(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """One row per crates.io category. Registry-wide, so it does not depend on the configured crates."""
+    for document in _iter_list_pages(
+        session,
+        throttle,
+        f"{CRATES_IO_BASE_URL}/categories",
+        "categories",
+        logger,
+        max_pages=MAX_LIST_PAGES,
+        # Alphabetical is the API default, but the walk is page-numbered, so an explicit stable
+        # order stops rows shifting across page boundaries while the sync runs.
+        params={"sort": "alpha"},
+    ):
+        for row in document.get("categories") or []:
+            if isinstance(row, dict):
+                yield row
+
+
+def _keyword_rows(
+    session: requests.Session,
+    throttle: _RequestThrottle,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """One row per crates.io keyword. Registry-wide, so it does not depend on the configured crates."""
+    for document in _iter_list_pages(
+        session,
+        throttle,
+        f"{CRATES_IO_BASE_URL}/keywords",
+        "keywords",
+        logger,
+        max_pages=MAX_LIST_PAGES,
+        params={"sort": "alpha"},
+    ):
+        for row in document.get("keywords") or []:
+            if isinstance(row, dict):
+                yield row
+
+
 _ROW_BUILDERS: dict[
     str, Callable[[requests.Session, _RequestThrottle, str, FilteringBoundLogger], Iterator[dict[str, Any]]]
 ] = {
@@ -274,6 +434,16 @@ _ROW_BUILDERS: dict[
     "versions": _version_rows,
     "downloads": _download_rows,
     "owners": _owner_rows,
+    "dependencies": _dependency_rows,
+    "reverse_dependencies": _reverse_dependency_rows,
+}
+
+# Registry-wide lookup tables: one pass per sync rather than one pass per configured crate.
+_GLOBAL_ROW_BUILDERS: dict[
+    str, Callable[[requests.Session, _RequestThrottle, FilteringBoundLogger], Iterator[dict[str, Any]]]
+] = {
+    "categories": _category_rows,
+    "keywords": _keyword_rows,
 }
 
 
@@ -304,29 +474,41 @@ def validate_credentials(crates_raw: str | None) -> tuple[bool, str | None]:
     return False, f"crates.io API returned an unexpected status code: {response.status_code}"
 
 
+def _chunked(rows: Iterator[dict[str, Any]]) -> Iterator[list[dict[str, Any]]]:
+    """Stream rows into bounded chunks.
+
+    A crate with a very large version history, or a registry-wide lookup table, is never
+    materialized as one oversized list, and each yield caps the downstream Arrow conversion. The
+    pipeline batches on top of this.
+    """
+    chunk: list[dict[str, Any]] = []
+    for row in rows:
+        chunk.append(row)
+        if len(chunk) >= MAX_ROWS_PER_BATCH:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
 def get_rows(
     endpoint: str,
     crates: list[str],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    build_rows = _ROW_BUILDERS[endpoint]
-    # One session reused across every crate so urllib3 keeps the connection alive; the User-Agent
-    # is mandatory under the crates.io crawler policy.
+    # One session reused across every request so urllib3 keeps the connection alive; the
+    # User-Agent is mandatory under the crates.io crawler policy.
     session = make_tracked_session(headers={"User-Agent": USER_AGENT})
     throttle = _RequestThrottle(THROTTLE_SECONDS)
 
+    build_global_rows = _GLOBAL_ROW_BUILDERS.get(endpoint)
+    if build_global_rows is not None:
+        yield from _chunked(build_global_rows(session, throttle, logger))
+        return
+
+    build_rows = _ROW_BUILDERS[endpoint]
     for crate in crates:
-        # Stream the builder into bounded chunks: a crate with a very large version history is
-        # never materialized as one oversized list, and each yield caps the downstream Arrow
-        # conversion. The pipeline batches on top of this.
-        chunk: list[dict[str, Any]] = []
-        for row in build_rows(session, throttle, crate, logger):
-            chunk.append(row)
-            if len(chunk) >= MAX_ROWS_PER_BATCH:
-                yield chunk
-                chunk = []
-        if chunk:
-            yield chunk
+        yield from _chunked(build_rows(session, throttle, crate, logger))
 
 
 def crates_io_source(

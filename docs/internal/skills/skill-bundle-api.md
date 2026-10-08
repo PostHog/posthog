@@ -18,7 +18,7 @@ GET /api/projects/{team_id}/llm_skills/bundle/?content=stub|full&limit=N
 | Param     | Default | Behavior                                                                                                                                       |
 | --------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `content` | `stub`  | `stub` writes one `SKILL.md` per skill with its name, description and instructions to fetch the skill over MCP. `full` writes the whole skill. |
-| `limit`   | `20`    | Maximum skills in the zip, newest first, at most `100`. Every skill in the zip costs the agent prompt context on each turn, so keep it small.  |
+| `limit`   | `50`    | Maximum skills in the zip, newest first, at most `100`. Every skill in the zip costs the agent prompt context on each turn, so keep it small.  |
 
 The response is `application/zip` with `Content-Disposition: attachment; filename="skills-bundle.zip"`.
 Each skill sits under `<name>/`.

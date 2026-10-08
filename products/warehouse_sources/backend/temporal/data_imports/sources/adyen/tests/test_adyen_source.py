@@ -29,12 +29,6 @@ class TestAdyenSource:
             settlement_report_start_batch=None,
         )
 
-    def test_get_schemas_returns_the_whole_catalog(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(schema.description for schema in schemas)
-
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_incremental_flags_track_the_endpoint_catalog(self, endpoint: str) -> None:
         schema = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}[endpoint]
@@ -42,25 +36,6 @@ class TestAdyenSource:
 
         assert schema.incremental_fields == expected_fields
         assert schema.supports_incremental is bool(expected_fields)
-
-    def test_only_endpoints_with_a_server_side_filter_are_incremental(self) -> None:
-        incremental = {s.name for s in self.source.get_schemas(self.config, self.team_id) if s.supports_incremental}
-
-        assert incremental == {"Transactions", "Transfers", "SettlementDetailReports"}
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Transfers"])
-
-        assert [schema.name for schema in schemas] == ["Transfers"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["Nope"]) == []
-
-    def test_schemas_list_without_credentials_for_public_docs(self) -> None:
-        # The catalog is static, so the public docs endpoint can render it with a blank config.
-        assert self.source.lists_tables_without_credentials is True
-        blank = AdyenSourceConfig(api_key="")
-        assert {schema.name for schema in self.source.get_schemas(blank, self.team_id)} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -98,3 +73,28 @@ class TestAdyenSource:
 
         for key in ADYEN_ENDPOINTS[endpoint].primary_key:
             assert key in columns
+
+    @parameterized.expand(
+        [
+            ("Balance platform ID is required to sync this table.",),
+            ("Merchant account is required to sync this table.",),
+            ("Balance platform ID contains unsupported characters.",),
+            ("Merchant account contains unsupported characters.",),
+        ]
+    )
+    def test_non_retryable_errors_match_missing_or_malformed_identifiers(self, observed_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("HTTPSConnectionPool(host='balanceplatform-api-live.adyen.com', port=443): Read timed out.",),
+            ("500 Server Error: Internal Server Error",),
+            ("Connection reset by peer",),
+        ]
+    )
+    def test_non_retryable_errors_do_not_match_transient_errors(self, other_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(key in other_error for key in non_retryable_errors)

@@ -45,9 +45,9 @@ pub struct CachedPerson {
     pub version: i64,
     pub is_identified: bool,
     /// True when this entry is a recovered death document: the person was
-    /// destroyed and this version closes its stream. Kept in cache (rather
-    /// than dropped) so reads answer an authoritative not-found instead of
-    /// falling back to a PG row the writer may not have tombstoned yet.
+    /// destroyed and this version closes its stream. Cached while its
+    /// dirty mark stands (the writer may not have tombstoned the PG row
+    /// yet); the prune-time settle drops it, and PG answers after.
     pub is_deleted: bool,
     /// Epoch milliseconds of the person's last observed activity, when
     /// known (matching `created_at`'s unit). Max-merged on update — the
@@ -158,6 +158,13 @@ impl PersonCache {
                 None
             }
         }
+    }
+
+    /// A read that skips the hit/miss counters — for bookkeeping passes
+    /// (the death-document settle), not serving. It still promotes the
+    /// entry's recency, which is harmless for those passes.
+    pub fn peek(&self, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
+        self.inner.get(key).map(|entry| entry.value().clone())
     }
 
     pub fn put(&self, key: PersonCacheKey, person: CachedPerson) {

@@ -66,7 +66,7 @@ export interface AccessControlTableProps {
     loading: boolean
     canEditAny: boolean
     visibleResources: Set<APIScopeObject>
-    /** The tools selected in the Tool filter. They limit which tags each row shows. */
+    /** The products selected in the Product filter. They limit which tags each row shows. */
     filteredResources: Set<APIScopeObject>
     onEdit: (entry: AccessControlSettingsEntry) => void
     /** Entry whose detail is currently open, highlighted in the list */
@@ -125,7 +125,7 @@ function AccessSummary({
     }
 
     // The project tag comes first and counts towards the limit, so a row keeps the same width
-    // whether or not the Tool filter removed it
+    // whether or not the Product filter removed it
     const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS)
     const hiddenCount = tags.length - visibleTags.length
 

@@ -5,9 +5,11 @@ BOT_DEFINITIONS only covers bots that declare themselves in the user agent, and 
 ones we know about. A project adds its own rules in project settings when a scraper matters to
 them but is missing from that list — an internal load test, a partner integration, a niche crawler.
 
-Each rule matches one event property. The user agent says who a caller claims to be, so it is the
-default, but a bot that sends a browser user agent is only identifiable by where it comes from
-(`$ip`) or what it calls with (`$lib`), which is why the property is selectable.
+A rule holds one or more conditions, each on one event property, combined with AND or OR. The user
+agent says who a caller claims to be, so it is the default property, but a bot that sends a browser
+user agent is only identifiable by where it comes from (`$ip`), what it calls with (`$lib`), or a
+combination of properties no real browser produces (an 800x600 screen), which is why the property
+is selectable and conditions can be combined.
 
 The definitions are stored on `team.modifiers` and reach HogQL through
 `HogQLQueryModifiers.customBotDefinitions`, so they extend `$virt_is_bot`, `$virt_bot_name`,
@@ -18,7 +20,7 @@ Substring and regex rules end up inside a ClickHouse `multiMatchAllIndices` call
 with hyperscan. Hyperscan supports less than PCRE, and a pattern it rejects fails every query that
 reads one of those fields for the project. Two guards keep that from happening:
 
-- `validate_definition` runs on save and rejects what we can catch in Python.
+- `validate_rule` runs on save and rejects what we can catch in Python.
 - `assert_patterns_compile` asks ClickHouse itself whether the patterns compile, because Python's
   `re` accepting a pattern does not mean hyperscan will.
 
@@ -28,7 +30,7 @@ to the API before a rule tightened cannot break every query for the project.
 
 import re
 from ipaddress import ip_network
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Literal, Union
 
 import structlog
 
@@ -38,14 +40,20 @@ from products.web_analytics.backend.hogql_queries.bot_definitions import BotDefi
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import ipv6_prefix_groups
 
 if TYPE_CHECKING:
-    from posthog.schema import CustomBotDefinition
+    from posthog.schema import CustomBotRule
 
 logger = structlog.get_logger(__name__)
 
-# Bounds the work added to every query that reads a classification field.
+# Bounds the work added to every query that reads a classification field. The per-list and
+# per-rule caps multiply, so the aggregate cap is what actually limits a query: modifiers can
+# also arrive in a client-supplied query, and each condition is a hyperscan call per row.
 MAX_CUSTOM_BOT_DEFINITIONS = 50
+MAX_CONDITIONS_PER_RULE = 10
+MAX_TOTAL_CONDITIONS = 100
 MAX_PATTERN_LENGTH = 200
 MAX_NAME_LENGTH = 100
+# Ids are stored on team.modifiers, which is read on every query for the team.
+MAX_ID_LENGTH = 100
 
 USER_AGENT_FIELD = "$raw_user_agent"
 IP_FIELD = "$ip"
@@ -77,7 +85,7 @@ CUSTOM_BOT_FIELDS: dict[str, str] = {
 NUMERIC_FIELDS: frozenset[str] = frozenset({"$screen_width", "$screen_height"})
 
 CIDR_MATCHER = "cidr"
-PATTERN_MATCHERS = ("contains", "regex")
+PATTERN_MATCHERS = ("contains", "regex", "exact")
 
 # Category used when a project does not pick one.
 CUSTOM_CATEGORY = "custom"
@@ -141,7 +149,33 @@ class CidrGroup:
     definitions: list[BotDefinition]
 
 
-CustomBotGroup = Union[PatternGroup, CidrGroup]
+@frozen
+class PatternCondition:
+    key: str
+    pattern: str
+
+
+@frozen
+class CidrCondition:
+    key: str
+    prefixlen: int
+    network: str
+
+
+@frozen
+class CompositeGroup:
+    """One rule with several conditions, matched when they combine true under `combiner`.
+
+    Unlike the single-condition groups, a composite rule cannot share a hyperscan pass with other
+    rules — its conditions read different properties — so each one is its own group.
+    """
+
+    combiner: Literal["AND", "OR"]
+    conditions: list[Union[PatternCondition, CidrCondition]]
+    definition: BotDefinition
+
+
+CustomBotGroup = Union[PatternGroup, CidrGroup, CompositeGroup]
 
 
 def _escape_literal(value: str) -> str:
@@ -149,9 +183,14 @@ def _escape_literal(value: str) -> str:
 
 
 def compile_pattern(pattern: str, matcher: str) -> str:
-    """Turn a substring or regex rule into the regex handed to multiMatchAllIndices."""
+    """Turn a substring, equality, or regex condition into the regex handed to hyperscan."""
     if matcher == "regex":
         return pattern
+    # Equality compiles to an anchored literal so it can share the hyperscan pass with the other
+    # matchers. Case-sensitive: it exists for values like a screen width or a country code, where
+    # the exact bytes are the point.
+    if matcher == "exact":
+        return f"^{_escape_literal(pattern)}$"
     # Substring matching is case-insensitive so people do not have to think about how an SDK cases
     # its user agent.
     return f"(?i){_escape_literal(pattern)}"
@@ -206,17 +245,76 @@ def validate_pattern(pattern: str, matcher: str, key: str) -> None:
         raise ValueError(f"Pattern is not a valid regular expression: {error}.") from error
 
 
-def validate_definition(definition: "CustomBotDefinition") -> None:
-    """Raise ValueError when a definition cannot be used."""
-    if not definition.name or not definition.name.strip():
+def validate_rule(rule: "CustomBotRule") -> None:
+    """Raise ValueError when a rule cannot be used."""
+    if not rule.name or not rule.name.strip():
         raise ValueError("Bot name cannot be empty.")
-    if len(definition.name) > MAX_NAME_LENGTH:
+    if len(rule.name) > MAX_NAME_LENGTH:
         raise ValueError(f"Bot name cannot be longer than {MAX_NAME_LENGTH} characters.")
-    if definition.key not in CUSTOM_BOT_FIELDS:
-        raise ValueError(f"Cannot match on property '{definition.key}'.")
-    if definition.category and definition.category not in TRAFFIC_TYPE_BY_CATEGORY:
-        raise ValueError(f"Unknown category '{definition.category}'.")
-    validate_pattern(definition.pattern, definition.matcher.value, definition.key)
+    if rule.category and rule.category not in TRAFFIC_TYPE_BY_CATEGORY:
+        raise ValueError(f"Unknown category '{rule.category}'.")
+    if len(rule.id) > MAX_ID_LENGTH:
+        raise ValueError(f"Rule id cannot be longer than {MAX_ID_LENGTH} characters.")
+    if not rule.items:
+        raise ValueError("A rule needs at least one condition.")
+    if len(rule.items) > MAX_CONDITIONS_PER_RULE:
+        raise ValueError(f"A rule can have at most {MAX_CONDITIONS_PER_RULE} conditions.")
+    # A shared id collapses entries in the editor's id-keyed drag-and-drop context.
+    seen_ids = {rule.id}
+    for item in rule.items:
+        if len(item.id) > MAX_ID_LENGTH:
+            raise ValueError(f"Condition id cannot be longer than {MAX_ID_LENGTH} characters.")
+        if item.id in seen_ids:
+            raise ValueError("Condition ids must be unique within a rule and differ from the rule id.")
+        seen_ids.add(item.id)
+        if item.key not in CUSTOM_BOT_FIELDS:
+            raise ValueError(f"Cannot match on property '{item.key}'.")
+        validate_pattern(item.pattern, item.matcher.value, item.key)
+
+
+def validate_rule_set(rules: list["CustomBotRule"]) -> None:
+    """Raise ValueError when the rules together exceed the aggregate condition budget."""
+    total = sum(len(rule.items) for rule in rules)
+    if total > MAX_TOTAL_CONDITIONS:
+        raise ValueError(f"You can have at most {MAX_TOTAL_CONDITIONS} conditions across all rules.")
+
+
+def parse_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
+    """Parse stored or submitted rules.
+
+    By default an entry that does not parse — including one saved by a pre-combiner release — is
+    dropped: one bad entry must not take a project's whole bot list out of every query. `strict`
+    raises instead, for the save paths, where dropping would lose a rule silently.
+
+    `warn_on_drop=False` is for the per-query path, where one permanently bad stored entry would
+    otherwise log in proportion to the team's query volume.
+    """
+    from pydantic import ValidationError  # noqa: PLC0415 — keeps pydantic models off the django.setup import path
+
+    from posthog.schema import CustomBotRule  # noqa: PLC0415 — same
+
+    rules: list[CustomBotRule] = []
+    for entry in raw:
+        if isinstance(entry, CustomBotRule):
+            rules.append(entry)
+            continue
+        try:
+            if not isinstance(entry, dict):
+                raise ValueError("Each rule must be an object.")
+            rules.append(CustomBotRule(**entry))
+        except (ValidationError, ValueError, TypeError) as error:
+            if strict:
+                raise ValueError(f"Invalid bot rule: {error}") from error
+            if warn_on_drop:
+                # A dropped rule stops classifying with no other trace, so make the drop visible
+                # the same way the bypassed compile probe is.
+                logger.warning(
+                    "custom_bot_rule_dropped",
+                    entry_id=str(entry.get("id", ""))[:MAX_ID_LENGTH] if isinstance(entry, dict) else "",
+                    name=str(entry.get("name", ""))[:MAX_NAME_LENGTH] if isinstance(entry, dict) else "",
+                    error=str(error),
+                )
+    return rules
 
 
 # ClickHouse codes that mean "this pattern is the problem": BAD_ARGUMENTS and
@@ -267,57 +365,109 @@ def assert_patterns_compile(patterns: list[str]) -> None:
         return
 
 
-def _to_bot_definition(definition: "CustomBotDefinition") -> BotDefinition:
-    category = definition.category or CUSTOM_CATEGORY
+def _to_bot_definition(rule: "CustomBotRule") -> BotDefinition:
+    category = rule.category or CUSTOM_CATEGORY
     return BotDefinition(
-        name=definition.name,
+        name=rule.name,
         category=category,
         traffic_type=TRAFFIC_TYPE_BY_CATEGORY.get(category, "Bot"),
         # A project's own label is the only operator we have for a bot we don't know.
-        operator=definition.name,
+        operator=rule.name,
     )
 
 
-def compile_definitions(definitions: list["CustomBotDefinition"] | None) -> list[CustomBotGroup]:
-    """Compile a project's definitions into the groups the HogQL builder emits.
+def _compile_composite(rule: "CustomBotRule") -> CompositeGroup:
+    conditions: list[Union[PatternCondition, CidrCondition]] = []
+    for item in rule.items:
+        if item.matcher.value == CIDR_MATCHER:
+            prefixlen, network = compile_cidr(item.pattern)
+            conditions.append(CidrCondition(key=item.key, prefixlen=prefixlen, network=network))
+        else:
+            conditions.append(PatternCondition(key=item.key, pattern=compile_pattern(item.pattern, item.matcher.value)))
+    combiner: Literal["AND", "OR"] = "OR" if rule.combiner.value == "OR" else "AND"
+    return CompositeGroup(combiner=combiner, conditions=conditions, definition=_to_bot_definition(rule))
 
-    Rules that match the same property the same way share a group, and the groups come back in the
-    order their first rule appears, which is the order they are checked at query time.
 
-    Unusable definitions are dropped rather than raised on: one saved before a rule tightened, or
+def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGroup]:
+    """Compile a project's rules into the groups the HogQL builder emits.
+
+    Contiguous one-condition rules that match the same property the same way share a group — one
+    hyperscan pass over that property at query time. A rule with several conditions becomes its
+    own group. The groups come back in list order, which is the order they are checked at query
+    time, so the editor's drag-to-reorder is the precedence.
+
+    Unusable rules are dropped rather than raised on: one saved before a rule tightened, or
     written straight to the API, must not break every query for the project.
     """
-    if not definitions:
+    if not rules:
         return []
 
-    # (property, kind) -> the rules that share that group. Insertion order is the order the groups
-    # are checked, so a dict keeps first appearance meaningful.
-    buckets: dict[tuple[str, str], list[CustomBotDefinition]] = {}
-    for definition in definitions[:MAX_CUSTOM_BOT_DEFINITIONS]:
+    # Contiguous one-condition rules on the same (property, kind) share a group — one hyperscan
+    # pass. Any other rule in between (a composite, or a rule on another property) closes the run:
+    # the editor promises list order is precedence, so a later rule must never slide into a group
+    # positioned above something listed before it. Interleaved orderings therefore degrade to one
+    # group per rule; a raised MAX_CUSTOM_BOT_DEFINITIONS should revisit this.
+    open_bucket_key: tuple[str, str] | None = None
+    open_bucket: list[CustomBotRule] = []
+    order: list[Union[tuple[str, str, list[CustomBotRule]], CustomBotRule]] = []
+    total_conditions = 0
+    for rule in rules[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
-            validate_definition(definition)
+            validate_rule(rule)
         except ValueError:
             continue
-        kind = CIDR_MATCHER if definition.matcher.value == CIDR_MATCHER else "pattern"
-        buckets.setdefault((definition.key, kind), []).append(definition)
+        # The aggregate budget is enforced here as well as on save, because modifiers can arrive
+        # in a client-supplied query that never went through a save path. Stop rather than skip:
+        # dropping only the oversized rule would let a later rule jump the precedence order.
+        total_conditions += len(rule.items)
+        if total_conditions > MAX_TOTAL_CONDITIONS:
+            break
+        if len(rule.items) > 1:
+            order.append(rule)
+            open_bucket_key = None
+            continue
+        item = rule.items[0]
+        kind = CIDR_MATCHER if item.matcher.value == CIDR_MATCHER else "pattern"
+        bucket_key = (str(item.key), kind)
+        if bucket_key != open_bucket_key:
+            open_bucket_key = bucket_key
+            open_bucket = []
+            order.append((str(item.key), kind, open_bucket))
+        open_bucket.append(rule)
 
-    return [
-        CidrGroup(
-            key=key,
-            networks=[compile_cidr(rule.pattern) for rule in rules],
-            definitions=[_to_bot_definition(rule) for rule in rules],
-        )
-        if kind == CIDR_MATCHER
-        else PatternGroup(
-            key=key,
-            patterns=[compile_pattern(rule.pattern, rule.matcher.value) for rule in rules],
-            definitions=[_to_bot_definition(rule) for rule in rules],
-        )
-        for (key, kind), rules in buckets.items()
-    ]
+    groups: list[CustomBotGroup] = []
+    for entry in order:
+        if not isinstance(entry, tuple):
+            groups.append(_compile_composite(entry))
+            continue
+        key, kind, bucket = entry
+        if kind == CIDR_MATCHER:
+            groups.append(
+                CidrGroup(
+                    key=key,
+                    networks=[compile_cidr(rule.items[0].pattern) for rule in bucket],
+                    definitions=[_to_bot_definition(rule) for rule in bucket],
+                )
+            )
+        else:
+            groups.append(
+                PatternGroup(
+                    key=key,
+                    patterns=[compile_pattern(rule.items[0].pattern, rule.items[0].matcher.value) for rule in bucket],
+                    definitions=[_to_bot_definition(rule) for rule in bucket],
+                )
+            )
+    return groups
 
 
-def compiled_patterns(definitions: list["CustomBotDefinition"] | None) -> list[str]:
-    """Every regex a project's definitions put in front of hyperscan, for the save-time check."""
-    groups = compile_definitions(definitions)
-    return [pattern for group in groups if isinstance(group, PatternGroup) for pattern in group.patterns]
+def compiled_patterns(rules: list["CustomBotRule"] | None) -> list[str]:
+    """Every regex a project's rules put in front of hyperscan, for the save-time check."""
+    patterns: list[str] = []
+    for group in compile_definitions(rules):
+        if isinstance(group, PatternGroup):
+            patterns.extend(group.patterns)
+        elif isinstance(group, CompositeGroup):
+            patterns.extend(
+                condition.pattern for condition in group.conditions if isinstance(condition, PatternCondition)
+            )
+    return patterns

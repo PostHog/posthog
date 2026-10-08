@@ -38,6 +38,25 @@ def prop_read(blob: str, *keys: Union[str, int]) -> ast.PropertyAccess:
     return ast.PropertyAccess(expr=ast.Field(chain=[blob]), keys=list(keys))
 
 
+def prefiltered(values: list[str], compare: Union[ast.Expr, None]) -> ast.Call:
+    # The resolver puts a substring pre-check ahead of an unbacked person JSON compare, so an extracted
+    # clause carries both. See `_person_json_substring_prefilter`.
+    assert compare is not None
+    return ast.Call(
+        name="and",
+        args=[
+            ast.Call(
+                name="multiSearchAny",
+                args=[
+                    ast.Field(chain=["properties"]),
+                    ast.Array(exprs=[ast.Constant(value=value) for value in values]),
+                ],
+            ),
+            compare,
+        ],
+    )
+
+
 class RemoveHiddenAliases(CloningVisitor):
     def visit_alias(self, node):
         if node.hidden:
@@ -92,12 +111,18 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
 
     def test_person_properties(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com'")
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
+        expected = prefiltered(
+            ["jimmy@posthog.com"],
+            _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+        )
         assert actual == expected
 
     def test_person_properties_andor_1(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or false")
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
+        expected = prefiltered(
+            ["jimmy@posthog.com"],
+            _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+        )
         assert actual == expected
 
     def test_person_properties_andor_2(self):
@@ -109,8 +134,17 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' and person.properties.email = 'timmy@posthog.com'"
         )
         expected = _expr(
-            "{e1} = 'jimmy@posthog.com' and {e2} = 'timmy@posthog.com'",
-            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
+            "{a} and {b}",
+            {
+                "a": prefiltered(
+                    ["jimmy@posthog.com"],
+                    _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+                "b": prefiltered(
+                    ["timmy@posthog.com"],
+                    _expr("{e} = 'timmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+            },
         )
         assert actual == expected
 
@@ -119,8 +153,17 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or person.properties.email = 'timmy@posthog.com'"
         )
         expected = _expr(
-            "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
+            "{a} or {b}",
+            {
+                "a": prefiltered(
+                    ["jimmy@posthog.com"],
+                    _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+                "b": prefiltered(
+                    ["timmy@posthog.com"],
+                    _expr("{e} = 'timmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+            },
         )
         assert actual == expected
 
@@ -129,8 +172,17 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (1 and person.properties.email = 'timmy@posthog.com')"
         )
         expected = _expr(
-            "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
+            "{a} or {b}",
+            {
+                "a": prefiltered(
+                    ["jimmy@posthog.com"],
+                    _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+                "b": prefiltered(
+                    ["timmy@posthog.com"],
+                    _expr("{e} = 'timmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+            },
         )
         assert actual == expected
 
@@ -139,8 +191,17 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             "SELECT * FROM events WHERE person.properties.email = 'jimmy@posthog.com' or (0 or person.properties.email = 'timmy@posthog.com')"
         )
         expected = _expr(
-            "{e1} = 'jimmy@posthog.com' or {e2} = 'timmy@posthog.com'",
-            {"e1": prop_read("properties", "email"), "e2": prop_read("properties", "email")},
+            "{a} or {b}",
+            {
+                "a": prefiltered(
+                    ["jimmy@posthog.com"],
+                    _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+                "b": prefiltered(
+                    ["timmy@posthog.com"],
+                    _expr("{e} = 'timmy@posthog.com'", {"e": prop_read("properties", "email")}),
+                ),
+            },
         )
         assert actual == expected
 
@@ -154,7 +215,10 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE event == '$pageview' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
+        expected = prefiltered(
+            ["jimmy@posthog.com"],
+            _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+        )
         assert actual == expected
 
     def test_person_properties_andor_9(self):
@@ -173,12 +237,18 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and person.properties.email = 'jimmy@posthog.com'"
         )
-        expected = _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")})
+        expected = prefiltered(
+            ["jimmy@posthog.com"],
+            _expr("{e} = 'jimmy@posthog.com'", {"e": prop_read("properties", "email")}),
+        )
         assert actual == expected
 
     def test_person_array(self):
         actual = self.get_clause("SELECT * FROM events WHERE person.properties.email IN ['jimmy@posthog.com']")
-        expected = _expr("{e} IN ['jimmy@posthog.com']", {"e": prop_read("properties", "email")})
+        expected = prefiltered(
+            ["jimmy@posthog.com"],
+            _expr("{e} IN ['jimmy@posthog.com']", {"e": prop_read("properties", "email")}),
+        )
         assert actual == expected
 
     def test_person_properties_function_calls(self):

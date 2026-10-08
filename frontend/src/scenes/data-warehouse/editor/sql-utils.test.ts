@@ -1,4 +1,10 @@
-import { normalizeIdentifier, parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from './sql-utils'
+import {
+    filtersPlaceholderBindings,
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+    queryUsesPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
     describe('normalizeIdentifier', () => {
@@ -29,6 +35,41 @@ describe('sql-utils', () => {
             ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
         ])('%s', (_name, query, expected) => {
             expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
+        })
+    })
+
+    describe('queryUsesPlaceholder', () => {
+        test.each([
+            ['placeholder in code', 'SELECT * FROM events WHERE timestamp >= {start}', true],
+            ['line-commented placeholder', 'SELECT * FROM events -- WHERE timestamp >= {start}', false],
+            ['quoted placeholder', "SELECT '{start}' FROM events", false],
+            ['placeholder with a longer name', 'SELECT * FROM events WHERE timestamp >= {start_date}', false],
+        ])('%s', (_name, query, expected) => {
+            expect(queryUsesPlaceholder(query, 'start')).toBe(expected)
+        })
+    })
+
+    describe('filtersPlaceholderBindings', () => {
+        test.each([
+            ['no placeholder', 'SELECT * FROM v', null],
+            ['plain placeholder is not column-bound', 'SELECT * FROM events WHERE {filters}', null],
+            ['single binding', 'SELECT * FROM v WHERE {filters(day AS timestamp)}', ['timestamp']],
+            [
+                'several bindings, one quoted',
+                "SELECT * FROM v WHERE {filters(created_at AS timestamp, plan AS 'plan')}",
+                ['timestamp', 'plan'],
+            ],
+            ['null opt-out still binds the key', 'SELECT * FROM v WHERE {filters(null AS timestamp)}', ['timestamp']],
+            [
+                'binding over a function call keeps the outer key',
+                'SELECT * FROM v WHERE {filters(toDateTime(day, 0) AS timestamp)}',
+                ['timestamp'],
+            ],
+            ['no timestamp binding', "SELECT * FROM v WHERE {filters(plan AS 'plan')}", ['plan']],
+            ['commented-out placeholder', 'SELECT * FROM v -- {filters(day AS timestamp)}', null],
+            ['key case is kept', 'SELECT * FROM v WHERE {filters(day AS Timestamp)}', ['Timestamp']],
+        ])('%s', (_name, query, expected) => {
+            expect(filtersPlaceholderBindings(query)).toEqual(expected)
         })
     })
 

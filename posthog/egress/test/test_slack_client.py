@@ -80,7 +80,7 @@ async def test_async_slack_client_normalizes_external_upload_ticket() -> None:
     )
     response = HttpResponse(status_code=200, headers={}, body={})
 
-    with patch("posthog.egress.slack.async_client.record_slack_api_response") as record_response:
+    with patch("posthog.egress.slack.observability.record_slack_api_response") as record_response:
         assert await handler.can_retry_async(state=RetryState(), request=request, response=response) is False
 
     assert record_response.call_args.kwargs["endpoint"] == "files.uploadExternal.data"

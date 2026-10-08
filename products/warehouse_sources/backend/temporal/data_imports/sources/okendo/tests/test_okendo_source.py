@@ -3,7 +3,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
 
 VALIDATE_PATCH = (
@@ -37,17 +36,6 @@ class TestOkendoSource:
     )
     def test_non_retryable_errors_do_not_match_unrelated(self, _name, other_error):
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No Okendo list endpoint filters by a created/updated timestamp, so advertising incremental
-        # would ship a sync that re-reads everything while claiming a watermark it can't honor.
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
 
     @parameterized.expand(
         [

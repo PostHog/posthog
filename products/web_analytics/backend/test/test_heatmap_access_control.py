@@ -282,7 +282,14 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             self.client.get(self._detail_url(other_heatmap.short_id)).status_code, status.HTTP_403_FORBIDDEN
         )
 
-    def test_object_level_editor_cannot_retarget_heatmap_url(self):
+    @parameterized.expand(
+        [
+            (SavedHeatmap.Source.SERVER, "url"),
+            (SavedHeatmap.Source.SERVER, "data_url"),
+            (SavedHeatmap.Source.TOOLBAR, "data_url"),
+        ]
+    )
+    def test_object_level_editor_cannot_retarget_heatmap_url(self, source: SavedHeatmap.Source, field: str) -> None:
         # Regression: HeatmapAggregateQueryScopingPermission's object-grant fallback authorizes
         # aggregate queries by matching the request's url_exact against a SavedHeatmap the caller
         # has object-level access to. If an object-only editor could repoint that heatmap's
@@ -292,12 +299,15 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
         self._create_access_control(self.viewer_user, resource_id=str(self.heatmap.id), access_level="editor")
         self.client.force_login(self.viewer_user)
 
-        retarget_response = self.client.patch(
-            self._detail_url(), data={"url": "https://attacker-controlled.example.com"}, format="json"
-        )
+        self.heatmap.source = source
+        self.heatmap.save(update_fields=["source"])
+        original_data_url = self.heatmap.data_url
+
+        retarget_response = self.client.patch(self._detail_url(), data={field: "https://example.com/*"}, format="json")
         self.assertEqual(retarget_response.status_code, status.HTTP_403_FORBIDDEN, retarget_response.json())
         self.heatmap.refresh_from_db()
         self.assertEqual(self.heatmap.url, "https://example.com")
+        self.assertEqual(self.heatmap.data_url, original_data_url)
 
         # Non-URL fields on the same object-level grant are unaffected.
         rename_response = self.client.patch(self._detail_url(), data={"name": "still allowed"}, format="json")

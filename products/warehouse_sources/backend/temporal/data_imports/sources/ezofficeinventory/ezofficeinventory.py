@@ -1,7 +1,7 @@
 import re
 import dataclasses
-from collections.abc import Callable
-from typing import Any, Optional
+from collections.abc import Callable, Iterable
+from typing import Any, Optional, cast
 
 from urllib3.util.retry import Retry
 
@@ -12,6 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponsePaginator,
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ApiKeyAuthConfig,
     AuthConfig,
     BearerTokenAuthConfig,
+    ClientConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -80,6 +84,21 @@ def _make_unwrap_map(unwrap_key: str) -> Callable[[dict[str, Any]], dict[str, An
     return _unwrap
 
 
+def _client_config(subdomain: str, api_key: str, api_version: str) -> ClientConfig:
+    return {
+        "base_url": base_url(subdomain),
+        # Only the non-secret Accept header is set here; the token goes through the auth config.
+        "headers": {"Accept": "application/json"},
+        "auth": _auth_config(api_version, api_key),
+        # Pin every request (including paginator/resume URLs) to the subdomain host and reject
+        # cross-host redirects — the user-supplied token must not be replayable off-host
+        # (SSRF / credential-exfiltration defense-in-depth). `allowed_hosts=[]` means
+        # "same host as base_url only".
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
 def _rest_config(
     subdomain: str, api_key: str, config: EZOfficeInventoryEndpointConfig, api_version: str
 ) -> RESTAPIConfig:
@@ -94,20 +113,57 @@ def _rest_config(
         resource["data_map"] = _make_unwrap_map(config.unwrap_key)
 
     return {
-        "client": {
-            "base_url": base_url(subdomain),
-            # Only the non-secret Accept header is set here; the token goes through the auth config.
-            "headers": {"Accept": "application/json"},
-            "auth": _auth_config(api_version, api_key),
-            # Pin every request (including paginator/resume URLs) to the subdomain host and reject
-            # cross-host redirects — the user-supplied token must not be replayable off-host
-            # (SSRF / credential-exfiltration defense-in-depth). `allowed_hosts=[]` means
-            # "same host as base_url only".
-            "allowed_hosts": [],
-            "allow_redirects": False,
-        },
+        "client": _client_config(subdomain, api_key, api_version),
         "resources": [resource],
     }
+
+
+def _fanout_source(
+    api_key: str,
+    subdomain: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    api_version: str,
+) -> SourceResponse:
+    """Fan a per-item history sub-resource out over the list endpoint it hangs off.
+
+    The parent list is re-walked each sync because neither the parent nor the child takes a
+    server-side time filter, so this path is always full refresh and carries no resume state.
+    """
+    endpoint_configs = endpoints_for_version(api_version)
+    config = endpoint_configs[endpoint]
+    assert config.fanout is not None
+    parent_config = endpoint_configs[config.fanout.parent_name]
+
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=endpoint_configs,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(subdomain, api_key, api_version),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=False,
+            # The history sub-resources document no page-size param; only the parent listing
+            # takes one, so it is sent through the fan-out's parent_params instead.
+            page_size_param=None,
+            parent_endpoint_extra={"paginator": _paginator(api_version), "data_selector": parent_config.data_selector},
+            child_endpoint_extra={"paginator": _paginator(api_version), "data_selector": config.data_selector},
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: dependent_resource,
+        primary_keys=config.primary_keys,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
 
 
 def ezofficeinventory_source(
@@ -121,6 +177,9 @@ def ezofficeinventory_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = endpoints_for_version(api_version)[endpoint]
+
+    if config.fanout is not None:
+        return _fanout_source(api_key, subdomain, endpoint, team_id, job_id, api_version)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():

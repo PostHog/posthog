@@ -1,3 +1,7 @@
+import {
+  type CanvasBuildLifecycle,
+  hasActiveCanvasBuild,
+} from "@posthog/core/canvas/canvasBuildSchemas";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { applyLayoutOperations } from "@posthog/core/canvas/gridLayoutOperations";
 import type {
@@ -7,7 +11,7 @@ import type {
 import { useHostTRPC } from "@posthog/host-router/react";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 // Poll fast while any placement is being agent-filled (the agent patches the
 // layout server-side), otherwise slowly — other viewers/agents can still edit.
@@ -20,7 +24,8 @@ export function useGridLayout(canvasId: string | undefined): {
   isLoading: boolean;
 } {
   const trpc = useHostTRPC();
-  const { data, isLoading } = useQuery(
+  const queryClient = useQueryClient();
+  const { data, isLoading, dataUpdatedAt } = useQuery(
     trpc.dashboards.layout.queryOptions(
       { id: canvasId ?? "" },
       {
@@ -35,6 +40,30 @@ export function useGridLayout(canvasId: string | undefined): {
       },
     ),
   );
+  // The layout payload carries each placed component's renderable build. Seed
+  // those into the per-component builds caches (the exact queries the
+  // placement tiles run), so a grid opens on this one call instead of one
+  // builds fetch per placement. Stamped with the layout fetch's own time so a
+  // fresher per-tile fetch (e.g. expired-URL recovery) is never overwritten.
+  useEffect(() => {
+    if (!data?.componentLifecycles) return;
+    for (const entry of data.componentLifecycles) {
+      const queryKey = trpc.dashboards.builds.queryKey({
+        id: entry.canvasId,
+        versionId: entry.requestedVersionId ?? undefined,
+      });
+      const existing = queryClient.getQueryState(queryKey);
+      if (existing && existing.dataUpdatedAt > dataUpdatedAt) continue;
+      // A lifecycle the tile is actively polling (rebuild in flight) must not
+      // be replaced: the seed carries only ready builds, so it would flip
+      // hasActiveCanvasBuild off and stop the tile's poller mid-build.
+      const current = queryClient.getQueryData<CanvasBuildLifecycle>(queryKey);
+      if (current && hasActiveCanvasBuild(current)) continue;
+      queryClient.setQueryData(queryKey, entry.lifecycle, {
+        updatedAt: dataUpdatedAt,
+      });
+    }
+  }, [data, dataUpdatedAt, queryClient, trpc]);
   return {
     layout: data?.layout,
     currentVersionId: data?.currentVersionId ?? null,
@@ -107,13 +136,17 @@ export function usePatchLayout(canvasId: string): {
           settled();
           // The server's document, with any gesture made since still on top of
           // it: adopting it bare would snap those back for their own round trip.
-          queryClient.setQueryData(key, {
+          // Patch responses carry no component lifecycles, so the cached ones
+          // (from the layout GET) survive the adoption.
+          queryClient.setQueryData<CanvasLayoutResult>(key, (current) => ({
             ...result,
+            componentLifecycles:
+              result.componentLifecycles ?? current?.componentLifecycles,
             layout: unacknowledged.current.reduce(
               (layout, entry) => applyLayoutOperations(layout, entry),
               result.layout,
             ),
-          });
+          }));
           return result;
         } catch (error) {
           settled();

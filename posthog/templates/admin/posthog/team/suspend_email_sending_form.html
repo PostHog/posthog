@@ -2,8 +2,7 @@
 {% load i18n %}
 {% block content %}
     <p>Suspend ALL workflow email sending for <strong>{{ team.name }}</strong>. The CDP email worker blocks every send for this team within a few minutes, and the team is notified by email and in-app. The reason below is shown to the customer.</p>
-    <form method="post"
-          onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+    <form method="post" class="js-disable-on-submit">
         {% csrf_token %}
         <div style="margin: 20px 0;">
             <label for="reason"

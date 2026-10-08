@@ -145,18 +145,6 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert name_change is not None
         self.assertEqual(name_change["after"], "Name Test Org Updated")
 
-    def test_organization_experiment_stats_method_logging(self):
-        organization = self.create_organization("Experiments Test Org")
-        self.update_organization(organization["id"], {"default_experiment_stats_method": "frequentist"})
-
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
-        assert log is not None
-        assert log.detail is not None
-        changes = log.detail.get("changes", [])
-        stats_change = next((c for c in changes if c["field"] == "default experiment stats method"), None)
-        assert stats_change is not None
-        self.assertEqual(stats_change["after"], "frequentist")
-
     def test_organization_2fa_enforcement_logging(self):
         organization = self.create_organization("2FA Test Org")
         Organization.objects.filter(id=organization["id"]).update(

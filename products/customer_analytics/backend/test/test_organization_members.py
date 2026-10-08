@@ -81,6 +81,50 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([member["user"]["email"] for member in response.json()["results"]], [expected_email])
 
+    @parameterized.expand(
+        [
+            ("owners first", "-level", ["owner@example.com", "admin@example.com", "never@example.com"]),
+            ("members first", "level", ["never@example.com", "admin@example.com", "owner@example.com"]),
+            ("recent login first", "-last_login", ["admin@example.com", "owner@example.com", "never@example.com"]),
+            ("never logged in first", "last_login", ["never@example.com", "owner@example.com", "admin@example.com"]),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_orders_members_by_level_or_last_login(self, _name, ordering, expected_emails, _mock_flag):
+        owner = self._join("owner@example.com", distinct_id="distinct-owner", level=OrganizationMembership.Level.OWNER)
+        admin = self._join("admin@example.com", distinct_id="distinct-admin", level=OrganizationMembership.Level.ADMIN)
+        self._join("never@example.com", distinct_id="distinct-never")
+        owner.last_login = datetime(2026, 1, 1, tzinfo=UTC)
+        owner.save(update_fields=["last_login"])
+        admin.last_login = datetime(2026, 2, 1, tzinfo=UTC)
+        admin.save(update_fields=["last_login"])
+
+        response = self.client.get(f"{self._url(self.target_org.id)}&{urlencode({'ordering': ordering})}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([member["user"]["email"] for member in response.json()["results"]], expected_emails)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejects_unknown_ordering(self, _mock_flag):
+        response = self.client.get(f"{self._url(self.target_org.id)}&ordering=user__email")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_filters_members_by_levels(self, _mock_flag):
+        self._join("owner@example.com", distinct_id="distinct-owner", level=OrganizationMembership.Level.OWNER)
+        self._join("admin@example.com", distinct_id="distinct-admin", level=OrganizationMembership.Level.ADMIN)
+        self._join("member@example.com", distinct_id="distinct-member")
+
+        response = self.client.get(f"{self._url(self.target_org.id)}&levels=15,8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual({r["user"]["email"] for r in body["results"]}, {"owner@example.com", "admin@example.com"})
+
+        response = self.client.get(f"{self._url(self.target_org.id)}&levels=owner")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_forbidden_when_flag_disabled(self, _mock_flag):
         response = self.client.get(self._url(self.target_org.id))
@@ -121,6 +165,39 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         second_page = self.client.get(self._url(self.target_org.id) + "&limit=5&offset=5")
         self.assertEqual(second_page.status_code, status.HTTP_200_OK)
         self.assertEqual(len(second_page.json()["results"]), 2)
+
+    @parameterized.expand(
+        [
+            ("default", "", False),
+            ("joined_at_desc", "&ordering=-joined_at", False),
+            ("joined_at_asc", "&ordering=joined_at", True),
+            ("level_asc", "&ordering=level", False),
+            ("level_desc", "&ordering=-level", False),
+            ("last_login_asc", "&ordering=last_login", False),
+            ("last_login_desc", "&ordering=-last_login", False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_pages_members_with_tied_joined_at(self, _name, ordering, ascending_ids, _mock_flag):
+        member_count = 11
+        for index in range(member_count):
+            self._join(f"tied{index}@example.com", distinct_id=f"tied-distinct-{index}")
+        memberships = OrganizationMembership.objects.filter(organization=self.target_org)
+        memberships.update(joined_at=datetime.now(tz=UTC))
+        # Every member shares one level and has no last_login, so each ordering ties down
+        # to `id` and the whole sequence is determined
+        expected_ids = sorted(
+            (str(membership_id) for membership_id in memberships.values_list("id", flat=True)),
+            reverse=not ascending_ids,
+        )
+
+        paged_ids: list[str] = []
+        for offset in range(0, member_count + 1, 2):
+            response = self.client.get(f"{self._url(self.target_org.id)}{ordering}&limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids += [member["id"] for member in response.json()["results"]]
+
+        self.assertEqual(paged_ids, expected_ids)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_excludes_inactive_and_bot_users(self, _mock_flag):

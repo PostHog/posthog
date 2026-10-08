@@ -2,9 +2,11 @@ export const PERSONAL_CHANNEL_NAME = "me";
 
 const GENERAL_CHANNEL_NAME = "general";
 
+export type ChannelType = "public" | "personal" | "private";
+
 export interface ChannelIdentity {
   system_role?: "personal" | "general" | null;
-  channel_type: "public" | "personal";
+  channel_type: ChannelType;
   name: string;
 }
 
@@ -12,6 +14,15 @@ export function isPersonalChannel(channel: ChannelIdentity): boolean {
   return channel.system_role != null
     ? channel.system_role === "personal"
     : channel.channel_type === "personal";
+}
+
+/**
+ * A shared space only its invited members can see. Distinct from the personal
+ * "#me" space (`isPersonalChannel`): a private space has no system role, so it
+ * is judged by its type alone.
+ */
+export function isPrivateChannel(channel: ChannelIdentity): boolean {
+  return channel.channel_type === "private";
 }
 
 export function isGeneralChannel(channel: ChannelIdentity): boolean {
@@ -43,7 +54,7 @@ export function channelDisplayName(name: string | null): string | null {
 
 function isPersonalChannelLabel(
   name: string,
-  channelType?: "public" | "personal",
+  channelType?: ChannelType,
 ): boolean {
   return channelType !== undefined
     ? channelType === "personal"
@@ -52,7 +63,7 @@ function isPersonalChannelLabel(
 
 export function channelDisplayLabel(
   name: string,
-  channelType?: "public" | "personal",
+  channelType?: ChannelType,
 ): string {
   return isPersonalChannelLabel(name, channelType)
     ? PERSONAL_CHANNEL_LABEL
@@ -61,7 +72,7 @@ export function channelDisplayLabel(
 
 export function channelDisplayReference(
   name: string,
-  channelType?: "public" | "personal",
+  channelType?: ChannelType,
 ): string {
   return isPersonalChannelLabel(name, channelType)
     ? "your personal space"

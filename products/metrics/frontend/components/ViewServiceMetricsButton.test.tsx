@@ -38,8 +38,8 @@ describe('ViewServiceMetricsButton', () => {
         )
     }
 
-    // Metrics is in private alpha behind a flag. A link rendered without it lands on the waitlist
-    // screen, not a chart — a dead end reached from a GA product.
+    // Metrics is in alpha behind a flag. A link rendered without it lands on the feature
+    // preview gate, not a chart — a dead end reached from a GA product.
     it.each([
         ['the metrics flag is off', { serviceName: 'checkout', flagOn: false }, AccessControlLevel.Viewer],
         ['the user cannot view metrics', { serviceName: 'checkout' }, undefined],

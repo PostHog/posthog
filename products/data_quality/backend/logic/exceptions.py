@@ -18,3 +18,14 @@ class CheckNameConflict(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "A check with this name already exists in this project."
     default_code = "check_name_conflict"
+
+
+class SubjectAccessUnverifiable(APIException):
+    """A 403 for a caller whose access to a table or view could not be established.
+
+    ``detail`` must stay a plain string, for the same reason as above.
+    """
+
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Could not verify your access to this table or view."
+    default_code = "subject_access_unverifiable"

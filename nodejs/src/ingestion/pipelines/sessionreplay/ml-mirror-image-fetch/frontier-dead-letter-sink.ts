@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -29,6 +30,7 @@ export class KafkaFrontierDeadLetterSink implements FrontierDeadLetterSink {
             key: message.key ?? null,
             value: message.value,
             headers: {
+                ...parseKafkaHeaders(message.headers),
                 'dlq-reason': reason,
                 'frontier-record-version': classifyFrontierRecordVersion(message.value),
                 'source-topic': message.topic,

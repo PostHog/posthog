@@ -1,3 +1,5 @@
+import errno
+
 from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
@@ -49,12 +51,81 @@ class TestIsTransientObjectStoreError:
                 botocore.exceptions.NoCredentialsError(),
                 True,
             ),
+            (
+                # A bare botocore connection failure reaching our own bucket endpoint (e.g.
+                # `ensure_bucket_exists`'s `head_bucket` hitting a still-booting local object store) —
+                # never an OSError subclass, so only the type check catches it.
+                "bare_endpoint_connection_error",
+                botocore.exceptions.EndpointConnectionError(endpoint_url="http://objectstorage:19000/data-warehouse"),
+                True,
+            ),
+            (
+                # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
+                # bundled endpoints.json before any network call is made - a full fd table fails that
+                # local open the same way it fails a socket connect, so it needs the same transient
+                # classification as the postgres connect-path EMFILE/ENFILE case.
+                "fd_table_full_emfile",
+                OSError(errno.EMFILE, "Too many open files"),
+                True,
+            ),
+            (
+                "fd_table_full_enfile",
+                OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                # A different errno must not be swept up by the fd-exhaustion check.
+                "unrelated_os_error_with_errno",
+                OSError(errno.ENOENT, "No such file or directory"),
+                False,
+            ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+            (
+                # s3fs maps every 403 onto the same generic PermissionError
+                # (s3fs/errors.py::translate_boto_error), so RequestTimeTooSkewed (the worker's clock
+                # drifting from S3's) reaches us with this exact fixed message instead of a real
+                # AccessDenied - and clears on its own once the worker's clock resyncs.
+                "s3_clock_skew_permission_error",
+                PermissionError("The difference between the request time and the current time is too large."),
+                True,
+            ),
+            (
+                # S3 omits the usual XML error body on some 5xx responses, so the AWS SDK for C++
+                # (pyarrow's S3FileSystem) can't classify the response and reports it as the fixed
+                # "UNKNOWN" code instead of a specific, permanent one like AccessDenied.
+                "bodyless_5xx_reported_as_unknown",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+                ),
+                True,
+            ),
+            (
+                # AWS omits the error body for every HeadObject response regardless of status, so a
+                # permanent 403/404 reports the same "UNKNOWN" code as the 5xx case above. Only the
+                # status in the message tells them apart, and this one must not be retried.
+                "bodyless_4xx_reported_as_unknown_not_transient",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
+                ),
+                False,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
             # exception sees the wrapper, not the original — it must still read as transient.
             ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
+            (
+                # An exhausted `ensure_bucket_exists` HeadBucket 403 retry is deliberately NOT folded
+                # in here: under `USE_LOCAL_SETUP` the credentials are operator-configured, so this
+                # shape can mean a genuinely broken local setup, not just a boot race. Only
+                # `is_transient_maintenance_error` (which has no retry budget to bypass) treats it as
+                # transient — see TestIsTransientMaintenanceError.
+                "exhausted_head_bucket_forbidden_not_matched_here",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "HeadBucket"),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
@@ -180,6 +251,14 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             ("genuine_bug", RuntimeError("maintenance blew up"), False),
+            # The watermark-persist connect (`update_sync_type_config_keys`) raises a bare OSError,
+            # not an OperationalError, when this worker's own fd table is full — same condition
+            # `postgres.py::_is_too_many_open_files_error` already retries on the source's connect path.
+            ("watermark_persist_emfile", OSError(errno.EMFILE, "Too many open files"), True),
+            ("watermark_persist_enfile", OSError(errno.ENFILE, "Too many open files in system"), True),
+            # An OSError with an unrelated errno (e.g. a real permissions problem) must not be swept
+            # up by the fd-exhaustion check just because it shares the exception type.
+            ("unrelated_os_error_wrong_errno", OSError(errno.EACCES, "Permission denied"), False),
             # A primary failover briefly turns the write connection into a read-only standby mid
             # watermark-persist — Postgres raises ReadOnlySqlTransaction (25006), which psycopg
             # classifies under InternalError rather than OperationalError.
@@ -189,6 +268,30 @@ class TestIsTransientMaintenanceError:
                     psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT FOR UPDATE in a read-only transaction")
                 ),
                 True,
+            ),
+            (
+                # `ensure_bucket_exists` already retries this exact shape (a bodyless HeadBucket 403,
+                # same ambiguity as the HeadObject case in TestIsTransientObjectStoreError) before
+                # giving up — an exhausted retry is the tail of that same local/self-hosted
+                # object-store bootstrap race. Only safe to fold in here: this function backs the
+                # best-effort pre-extraction probe, which has no retry budget to bypass.
+                "exhausted_head_bucket_forbidden",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "HeadBucket"),
+                True,
+            ),
+            (
+                # A 403 from some other S3 operation isn't the bodyless-response ambiguity HeadBucket
+                # has — must not be swept up just because it shares the error code.
+                "other_operation_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "PutObject"),
+                False,
+            ),
+            (
+                # A HeadBucket failure with a different code (e.g. a real AccessDenied that does
+                # carry a body) isn't the bootstrap race either.
+                "head_bucket_non_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "HeadBucket"),
+                False,
             ),
             # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
             # ReadOnlySqlTransaction check just because they share the same Django exception class.

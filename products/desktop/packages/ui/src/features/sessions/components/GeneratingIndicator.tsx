@@ -53,6 +53,7 @@ interface GeneratingIndicatorProps {
    *  behind, the hint adds a ticking "quiet for Ns" so a turn that renders
    *  nothing for minutes still reads as running rather than hung. */
   lastActivityAt?: number | null;
+  currentWork?: string;
 }
 
 export function GeneratingIndicator({
@@ -60,6 +61,7 @@ export function GeneratingIndicator({
   pausedDurationMs,
   activityKey,
   lastActivityAt,
+  currentWork,
 }: GeneratingIndicatorProps) {
   const [elapsed, setElapsed] = useState(0);
   const [quietFor, setQuietFor] = useState(0);
@@ -109,7 +111,7 @@ export function GeneratingIndicator({
     >
       <Brain size={12} className="ph-pulse shrink-0" />
       <Text render={<span />} className="truncate text-[13px] text-accent-11">
-        {activity}...
+        {currentWork ?? activity}...
       </Text>
       {/* The hint shrinks (and truncates) well before the activity word does. */}
       <Text

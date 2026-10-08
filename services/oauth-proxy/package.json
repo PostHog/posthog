@@ -19,8 +19,12 @@
         "test:watch": "vitest watch",
         "typecheck": "tsgo --noEmit"
     },
+    "dependencies": {
+        "jose": "^6.2.3"
+    },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",
+        "@posthog/brand": "catalog:",
         "typescript": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^4.1.0",

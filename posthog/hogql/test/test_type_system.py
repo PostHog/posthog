@@ -8,7 +8,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
@@ -818,15 +818,16 @@ class TestHogQLTypeSystem:
             # Falls through to the `*OrNull` parser, so the result really can be NULL.
             ("toDate", [ast.StringType(nullable=False)], True),
             ("toDateTime", [ast.StringType(nullable=False)], True),
-            # toDate overloads only for Date/DateTime, so an integer still parses.
-            ("toDate", [ast.IntegerType(nullable=False)], True),
             # toDateTimeUS declares no overloads at all — always the US best-effort parser.
             ("toDateTimeUS", [ast.StringType(nullable=False)], True),
             ("toDateTimeUS", [ast.DateTimeType(nullable=False)], True),
             # An overload wins, printing the plain constructor, which cannot fail.
             ("toDate", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.DateTimeType(nullable=False)], False),
+            ("toDate", [ast.IntegerType(nullable=False)], False),
             ("toDateTime", [ast.IntegerType(nullable=False)], False),
+            ("toDate", [ast.FloatType(nullable=False)], False),
+            ("toDateTime", [ast.FloatType(nullable=False)], False),
             # `_toDate` is already the plain constructor, so it never parses.
             ("_toDate", [ast.StringType(nullable=False)], False),
             # A nullable argument stays nullable down either path.
@@ -940,16 +941,29 @@ class TestHogQLTypeSystem:
             ),
         )
 
-    def test_select_set_query_unifies_output_column_types(self) -> None:
-        node = cast(
-            ast.SelectSetQuery,
-            resolve_types(
-                self._select("SELECT 1 AS value UNION ALL SELECT 2.0 AS value"), self.context, dialect="clickhouse"
-            ),
-        )
-
+    @pytest.mark.parametrize(
+        "query, dialect, expected",
+        [
+            ("SELECT 1 AS value UNION ALL SELECT 2.0 AS value", "clickhouse", ast.FloatType(nullable=False)),
+            ("SELECT 0, 1 AS value UNION ALL SELECT 2.5 AS other, 3", "trino", ast.IntegerType(nullable=False)),
+        ],
+    )
+    def test_select_set_query_unifies_output_column_types(
+        self, query: str, dialect: HogQLDialect, expected: ast.ConstantType
+    ) -> None:
+        node = cast(ast.SelectSetQuery, resolve_types(self._select(query), self.context, dialect=dialect))
         assert isinstance(node.type, ast.SelectSetQueryType)
-        assert node.type.resolve_column_constant_type("value", self.context) == ast.FloatType(nullable=False)
+        assert node.type.resolve_column_constant_type("value", self.context) == expected
+
+    def test_clickhouse_view_metadata_remains_lazy(self) -> None:
+        query = self._select("SELECT 1 FROM (SELECT 2 AS value) AS saved")
+        assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+        query.select_from.table.view_name = "unavailable_view"
+        context = HogQLContext(database=None, enable_select_queries=True)
+        resolved = resolve_types(query, context, dialect="clickhouse")
+        assert resolved.select_from is not None and isinstance(resolved.select_from.type, ast.SelectViewType)
+        with pytest.raises(ResolutionError, match="Database must be set for queries with views"):
+            resolved.select_from.type.resolve_database_table(context)
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(

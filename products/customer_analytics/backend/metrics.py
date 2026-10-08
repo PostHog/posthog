@@ -143,3 +143,15 @@ def record_account_track_rule_coordinator(
 # Cutover observability for #82564: the CDP worker's account actions move from
 # secret_api_token on the external routes to scoped JWTs on the internal routes.
 # The legacy worker path can be removed once auth_method="secret_api_token" stays at zero.
+
+
+def record_task_digest_delivery(*, outcome: str, delay_seconds: float | None) -> None:
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    try:
+        client.metrics.count("customer_analytics.task_digest.delivery", 1, attributes={"outcome": outcome})
+        if delay_seconds is not None:
+            client.metrics.histogram("customer_analytics.task_digest.send_delay", delay_seconds, unit="s")
+    except Exception:
+        pass

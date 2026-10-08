@@ -1,8 +1,8 @@
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -20,16 +20,27 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    MIN_PRECOMPUTATION_DURATION_SECONDS,
-    ExperimentQueryRunner,
-)
+from products.experiments.backend.hogql_queries.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
+
+
+# One precomputed case per metric path, kept so the query over the preaggregated tables stays
+# snapshotted. Nothing else snapshots that read path.
+SNAPSHOT_PRECOMPUTED_CASES = frozenset(
+    {
+        "test_property_sum_metric_1_precomputed",  # mean
+        "test_query_runner_funnel_metric_1_precomputed",  # funnel
+        "test_basic_retention_calculation_1_precomputed",  # retention
+        "test_basic_ratio_metric_1_precomputed",  # ratio
+        "test_query_runner_with_unique_users_metric_1_precomputed",  # unique users
+        "test_exposure_query_returns_correct_timeseries_1_precomputed",  # exposures runner
+    }
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -51,12 +62,22 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
+    def assertQueryMatchesSnapshot(
+        self, query: str, params: Optional[dict[str, Any]] = None, replace_all_numbers: bool = False
+    ) -> None:
+        # Every precomputed case of a ("direct", False) / ("precomputed", True) pair reads the same
+        # preaggregated tables, so one case per metric path carries that SQL and the rest repeat it
+        # with different filters. Both cases always run; only the repeats lose their snapshot.
+        if self._testMethodName.endswith("precomputed") and self._testMethodName not in SNAPSHOT_PRECOMPUTED_CASES:
+            return
+        super().assertQueryMatchesSnapshot(query, params=params, replace_all_numbers=replace_all_numbers)
+
     def _setup_precomputation_test(self, use_precomputation: bool):
         """Initialize test for precomputation path (cleanup existing data)"""
         if use_precomputation:
             self._clean_preaggregation_data()
             # Disable TTL merges so ClickHouse 26.3 doesn't immediately drop
-            # rows whose expires_at is in the past (due to freeze_time).
+            # rows whose expires_at is in the past (due to the frozen clock).
             for table_name in (
                 SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
                 SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(),
@@ -68,16 +89,6 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = True
         config.save()
-        # Retention metric-events pre-aggregation has an additional default-off
-        # kill-switch flag; force it on so tests still exercise the precomputed
-        # metric-events path.
-        if not getattr(self, "_retention_metric_events_precompute_patched", False):
-            patcher = patch.object(
-                ExperimentQueryRunner, "_retention_metric_events_precomputation_enabled", return_value=True
-            )
-            patcher.start()
-            self.addCleanup(patcher.stop)
-            self._retention_metric_events_precompute_patched = True
 
     def _disable_precomputation(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)

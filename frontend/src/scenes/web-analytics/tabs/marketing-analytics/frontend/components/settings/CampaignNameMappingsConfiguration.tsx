@@ -7,14 +7,16 @@ import { LemonButton, LemonInputSelect, LemonSelect, LemonTag, LemonTextArea, To
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 
-import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
+import { MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
     getGlobalCampaignMapping,
     parseCommaSeparatedValues,
     removeCampaignFromMappings,
-} from '../NonIntegratedConversionsTable/mappingUtils'
+} from '../CampaignMapping/mappingUtils'
 import { CampaignSuggestion, findCampaignSuggestions } from './stringSimilarity'
 
 export interface CampaignNameMappingsConfigurationProps {
@@ -155,7 +157,7 @@ export function CampaignNameMappingsConfiguration({
         updateCampaignNameMappings(newMappings)
     }
 
-    const availableSources = externalDataSources.filter((source) =>
+    const availableSources = Object.values(ExternalDataSourceTypeEnumApi).filter((source) =>
         VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
     )
 

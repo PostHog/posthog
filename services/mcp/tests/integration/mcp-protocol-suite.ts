@@ -1215,10 +1215,10 @@ export function defineToolBehaviorTests(
             expect(decodeText(orgResult.content)).toContain(harness.orgId)
         })
 
-        // ?projectId=N in the URL pins the active project for the whole
-        // session — agents pass this to avoid needing a switch-project
-        // tool call first. The state resolver writes it to the cache on
-        // every request, so a project-scoped tool should resolve it
+        // ?projectId=N in the URL pins the session's default active project,
+        // so agents pass this to avoid needing a switch-project tool call
+        // first. The state resolver asserts the pin (unless an in-session
+        // switch overrides it), so a project-scoped tool should resolve it
         // without an explicit switch.
         it('reads the active project pinned via ?projectId= URL param', async ({ skip }) => {
             if (!harness.projectId) {
@@ -1253,8 +1253,8 @@ export function defineToolBehaviorTests(
         // `SELECT 1 AS one` doesn't depend on any ingested data, so it works
         // against a freshly-booted local stack with no seed data.
         //
-        // The tool is gated by `query:read` + `insight:read` scopes — if the
-        // test API key doesn't carry them, execute-sql won't be in the
+        // The tool is gated by the `query:read` scope — if the
+        // test API key doesn't carry it, execute-sql won't be in the
         // catalog and we skip rather than fail (a different test would
         // catch the scope-filter regression).
         it('execute-sql runs a trivial HogQL query against the upstream', async ({ skip }) => {
@@ -1264,7 +1264,7 @@ export function defineToolBehaviorTests(
             }
             const { tools } = await client.listTools()
             if (!tools.some((t) => t.name === 'execute-sql')) {
-                skip('execute-sql not in catalog for this token — needs query:read + insight:read scopes.')
+                skip('execute-sql not in catalog for this token — needs the query:read scope.')
                 return
             }
             await client.callTool({

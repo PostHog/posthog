@@ -20,11 +20,16 @@ from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
 
-from ..diff_metadata import DiffMetadata
+from ..diff_metadata import (
+    DiffMetadata,
+    RowShift as StoredRowShift,
+)
 from ..logic import (
     approvals,
     artifact_store,
@@ -34,15 +39,18 @@ from ..logic import (
     flakiness,
     gating,
     history,
+    owners,
     quarantine,
+    quarantine_lifts,
     repos,
     run_queries,
     runs,
+    story_index,
     thumbnails,
     toleration,
 )
 from . import contracts
-from .enums import ActorType, RunPurpose
+from .enums import ActorType, QuarantineLiftState, RunPurpose, RunReviewFilter, ShiftBandKind
 
 User = get_user_model()
 
@@ -81,9 +89,11 @@ def _sanitize_run_metadata(metadata: dict | None) -> dict:
 # Re-export exceptions for callers
 RepoNotFoundError = errors.RepoNotFoundError
 RunNotFoundError = errors.RunNotFoundError
+QuarantineLiftRequestNotFoundError = errors.QuarantineLiftRequestNotFoundError
 ArtifactNotFoundError = errors.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = errors.GitHubIntegrationNotFoundError
 GitHubCommitError = errors.GitHubCommitError
+LiftCommitUnknownError = errors.LiftCommitUnknownError
 GitHubRateLimitError = GitHubRateLimitError
 PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
@@ -109,17 +119,38 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
-def _parse_diff_metadata(
-    diff_metadata_raw: dict | None,
-) -> tuple[contracts.ClusterSummary | None, bool]:
-    """Translate the compact storage shape into the verbose wire shape.
+def _to_row_shift(parsed: StoredRowShift | None) -> contracts.RowShift | None:
+    """Translate the stored row shift into the wire shape.
 
-    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
-    is None for legacy rows and identical-pair rows; size_mismatch
-    defaults to False everywhere it isn't explicitly recorded.
+    Takes the already validated model rather than the raw column, so a caller
+    that has parsed `DiffMetadata` does not pay for a second validation. The
+    contract carries fewer fields than storage does: the pixel counts behind
+    the residual are diagnostics, not something the UI renders.
     """
+    if parsed is None:
+        return None
+    return contracts.RowShift(
+        inserted_rows=parsed.inserted_rows,
+        deleted_rows=parsed.deleted_rows,
+        residual_percentage=parsed.residual_percentage,
+        raw_diff_percentage=parsed.raw_diff_percentage,
+        bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=ShiftBandKind(b.kind)) for b in parsed.bands],
+    )
+
+
+@frozen
+class _ParsedDiffMetadata:
+    # cluster_summary and row_shift are None for legacy rows and identical-pair
+    # rows; size_mismatch is False wherever it was not explicitly recorded.
+    cluster_summary: contracts.ClusterSummary | None = None
+    size_mismatch: bool = False
+    row_shift: contracts.RowShift | None = None
+
+
+def _parse_diff_metadata(diff_metadata_raw: dict | None) -> _ParsedDiffMetadata:
+    """Translate the compact storage shape into the verbose wire shape."""
     if not diff_metadata_raw:
-        return None, False
+        return _ParsedDiffMetadata()
     parsed = DiffMetadata.model_validate(diff_metadata_raw)
     cluster_summary: contracts.ClusterSummary | None = None
     if parsed.cluster_summary is not None:
@@ -140,14 +171,18 @@ def _parse_diff_metadata(
             total=cs.total,
             truncated=cs.truncated,
         )
-    return cluster_summary, parsed.size_mismatch
+    return _ParsedDiffMetadata(
+        cluster_summary=cluster_summary,
+        size_mismatch=parsed.size_mismatch,
+        row_shift=_to_row_shift(parsed.row_shift),
+    )
 
 
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
-    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
+    diff_meta = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -168,8 +203,9 @@ def _to_snapshot(
         metadata=snapshot.metadata or {},
         ssim_score=snapshot.ssim_score,
         change_kind=snapshot.change_kind or "",
-        cluster_summary=cluster_summary,
-        size_mismatch=size_mismatch,
+        cluster_summary=diff_meta.cluster_summary,
+        size_mismatch=diff_meta.size_mismatch,
+        row_shift=diff_meta.row_shift,
     )
 
 
@@ -189,7 +225,9 @@ def _compute_unresolved(run) -> int:
     return 0
 
 
-def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
+def _to_run(
+    run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None, unresolved: int | None = None
+) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
         id=run.id,
@@ -207,12 +245,13 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
-            unresolved=_compute_unresolved(run),
+            unresolved=_compute_unresolved(run) if unresolved is None else unresolved,
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -230,6 +269,7 @@ def _to_repo(repo) -> contracts.Repo:
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
+        debt_digest_enabled=repo.debt_digest_enabled,
         created_at=repo.created_at,
     )
 
@@ -289,9 +329,9 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        # `(run_type, identifier)` keys because the same identifier in
-        # different run types is a different baseline.
-        key = (run.run_type, identifier)
+        # Keyed per identity because the same identifier in different run types
+        # is a different baseline.
+        key = run_queries.SnapshotKey(run_type=run.run_type, identifier=identifier)
         metadata = snapshot.metadata or {}
         active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
@@ -304,6 +344,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                active_variants_current_baseline=raw.active_variants_by_key.get(key, 0),
                 is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
@@ -321,6 +362,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         recently_tolerated=raw.totals_recent,
         frequently_tolerated=raw.totals_frequent,
         currently_quarantined=raw.totals_quarantined,
+        variant_pileups=raw.totals_variant_pileups,
         by_run_type=raw.by_run_type,
     )
 
@@ -332,13 +374,66 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+def get_toleration_pileups(
+    repo_id: UUID,
+    *,
+    window_days: int = contracts.TOLERATION_PILEUP_WINDOW_DAYS,
+    min_tolerations: int = contracts.VARIANT_PILEUP_MIN,
+    min_automatic_tolerations: int | None = None,
+    include_quarantined: bool = True,
+    run_type: str | None = None,
+    limit: int = 100,
+) -> contracts.TolerationPileups:
+    """Snapshot identities that keep getting tolerated, biggest manual pile first.
+
+    Backs the pile-ups endpoint, which agents read. The defaults are the debt digest's rule, except
+    that quarantined identities stay in the list and are marked, so a reader sees open and muted
+    piles alike.
+    """
+    now = timezone.now()
+    quarantined_keys = quarantine.active_quarantine_keys(repo_id, now=now)
+    pileups = toleration.list_toleration_pileups(
+        repo_id,
+        now=now,
+        window_days=window_days,
+        min_intentional=min_tolerations,
+        min_automatic=min_automatic_tolerations,
+    )
+    matching = [
+        (key, counts)
+        for key, counts in pileups
+        if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
+    ]
+    return contracts.TolerationPileups(
+        entries=[
+            contracts.TolerationPileupEntry(
+                identifier=key.identifier,
+                run_type=key.run_type,
+                intentional_count=counts.intentional,
+                automatic_count=counts.automatic,
+                is_quarantined=key in quarantined_keys,
+            )
+            for key, counts in matching[:limit]
+        ],
+        window_days=window_days,
+        min_tolerations=min_tolerations,
+        min_automatic_tolerations=min_automatic_tolerations,
+        total=len(matching),
+        truncated=len(matching) > limit,
+        generated_at=now,
+    )
+
+
+def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOverview:
     """Snapshot identities carrying rendering instability or an open quarantine.
 
     Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
     scoping rule and query shape.
     """
     raw = flakiness.get_flakiness_overview(repo_id)
+    owner_team_by_key = owners.owner_teams(
+        repos.get_repo(repo_id, team_id), [flakiness.snapshot_key(row) for row in raw.rows], raw.newest_run_by_type
+    )
 
     quarantine_user_ids = {
         row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
@@ -381,6 +476,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                     if row.quarantine is not None
                     else None
                 ),
+                owner_team=owner_team_by_key.get(flakiness.snapshot_key(row)),
             )
         )
 
@@ -390,7 +486,6 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
         broken=raw.totals_broken,
         unstable=raw.totals_unstable,
         at_risk=raw.totals_at_risk,
-        noisy=raw.totals_noisy,
         clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
@@ -426,7 +521,7 @@ def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int |
 
 def list_runs(
     team_id: int,
-    review_state: str | None = None,
+    review_state: RunReviewFilter | None = None,
     repo_id: UUID | None = None,
     pr_number: int | None = None,
     commit_sha: str | None = None,
@@ -490,69 +585,98 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
         contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
     ]
 
-    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
+    story_index_upload = None
+    if input.story_index_hash:
+        upload = story_index.register_story_index(run_id, team_id, input.story_index_hash)
+        if upload is not None:
+            story_index_upload = contracts.UploadTarget(
+                content_hash=input.story_index_hash, url=upload.url, fields=upload.fields
+            )
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets, story_index_upload=story_index_upload)
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = run_queries.get_run_with_snapshots(run_id, team_id=team_id)
+    run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return _to_run(run, user_basic_infos)
+    return _to_run(run, user_basic_infos, unresolved=gating.count_unresolved(run))
+
+
+def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
+    """The repo and run type a run belongs to, for endpoints that only need to know where to look."""
+    run = run_queries.get_run(run_id, team_id=team_id)
+    return contracts.RunScope(repo_id=run.repo_id, run_type=run.run_type)
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+    run_id: UUID,
+    team_id: int | None = None,
+    include_quarantined: bool = True,
+    exclude_unchanged: bool = False,
+    snapshot_id: UUID | None = None,
+    quarantined_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> contracts.RunSnapshots:
-    if not include_quarantined and team_id is None:
-        raise ValueError("team_id is required to exclude quarantined snapshots")
-    snapshots = run_queries.get_run_snapshots(run_id, team_id=team_id)
-    if not snapshots:
-        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
-    repo_id = snapshots[0].run.repo_id
-    run_type = snapshots[0].run.run_type
-    quarantined_identifiers = (
-        {q.identifier for q in quarantine.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
-        if team_id is not None
-        else set()
-    )
-    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
-    user_basic_infos = _fetch_user_basic_infos(user_ids)
-    dtos: list[contracts.Snapshot] = []
+    """One page of a run's snapshots. `limit=None` returns every match from `offset` on.
+
+    Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
+    signs a download URL per artifact and a large run holds thousands of rows.
+    `quarantined_only` keeps only the quarantined snapshots and overrides `include_quarantined`.
+    """
+    if (quarantined_only or not include_quarantined) and team_id is None:
+        raise ValueError("team_id is required to filter snapshots by quarantine")
+    run = run_queries.get_run(run_id, team_id=team_id)
+    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
+
     quarantined_count = 0
-    for s in snapshots:
-        dto = _to_snapshot(s, repo_id, user_basic_infos)
-        if dto.identifier in quarantined_identifiers:
-            quarantined_count += 1
-            if not include_quarantined:
-                continue
-        dtos.append(dto)
-    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
+    if team_id is not None:
+        quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
+        quarantined_count = snapshots.filter(identifier__in=quarantined).count()
+        if quarantined_only:
+            snapshots = snapshots.filter(identifier__in=quarantined)
+        elif not include_quarantined:
+            snapshots = snapshots.exclude(identifier__in=quarantined)
+
+    total_count = snapshots.count()
+    page = list(snapshots[offset : offset + limit if limit is not None else None])
+    user_ids = {s.reviewed_by_id for s in page if s.reviewed_by_id}
+    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    return contracts.RunSnapshots(
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos) for s in page],
+        quarantined_count=quarantined_count,
+        total_count=total_count,
+    )
+
+
+def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
+    # Validate the stored column once and read both fields off it. The history
+    # contract has no `cluster_summary`, so the parse stops at the pydantic
+    # model rather than building the cluster dataclasses that would be thrown
+    # away. Defaults mirror `DiffMetadata`.
+    stored = DiffMetadata.model_validate(entry.diff_metadata or {})
+    return contracts.SnapshotHistoryEntry(
+        run_id=entry.run_id,
+        snapshot_id=entry.id,
+        result=entry.result,
+        branch=entry.run.branch,
+        commit_sha=entry.run.commit_sha,
+        created_at=entry.run.created_at,
+        pr_number=entry.run.pr_number,
+        diff_percentage=entry.diff_percentage,
+        review_state=entry.review_state,
+        current_artifact=_to_artifact(entry.current_artifact, repo_id) if entry.current_artifact else None,
+        ssim_score=entry.ssim_score,
+        change_kind=entry.change_kind or "",
+        size_mismatch=stored.size_mismatch,
+        row_shift=_to_row_shift(stored.row_shift),
+    )
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
     entries = history.get_snapshot_history(repo_id, identifier, run_type)
-    return [
-        contracts.SnapshotHistoryEntry(
-            run_id=e.run_id,
-            snapshot_id=e.id,
-            result=e.result,
-            branch=e.run.branch,
-            commit_sha=e.run.commit_sha,
-            created_at=e.run.created_at,
-            pr_number=e.run.pr_number,
-            diff_percentage=e.diff_percentage,
-            review_state=e.review_state,
-            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
-            ssim_score=e.ssim_score,
-            change_kind=e.change_kind or "",
-            # Read the flag directly instead of round-tripping through the
-            # full Pydantic parse — `cluster_summary` isn't on the history
-            # entry contract and we'd just be allocating cluster dataclasses
-            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
-            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
-        )
-        for e in entries
-    ]
+    return [_to_history_entry(entry, repo_id) for entry in entries]
 
 
 def mark_snapshot_as_tolerated(
@@ -578,14 +702,19 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None, check_run_id: str | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
     """
     if team_id is not None:
         run_queries.get_run(run_id, team_id=team_id)  # validates ownership
     run = runs.complete_run(run_id)
-    return _to_run(run)
+    # After `complete_run`, whose baseline healing saves a whole metadata dict it may have read stale.
+    if check_run_id is not None:
+        runs.record_completing_job(run_id, check_run_id)
+    # A re-run of the completing CI job lands here on a completed run, and the CLI gates on this
+    # number, so it must be the commit status verdict and not the unprefetched default of 0.
+    return _to_run(run, unresolved=gating.count_gating(run))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
@@ -746,6 +875,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)
@@ -757,3 +887,62 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
     quarantine.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)
+
+
+# --- Quarantine lift on merge ---
+
+
+def _to_quarantine_lift_entry(
+    request, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.QuarantineLiftEntry:
+    requested_by = (user_basic_infos or {}).get(request.requested_by_id) if request.requested_by_id else None
+    return contracts.QuarantineLiftEntry(
+        id=request.id,
+        quarantine_id=request.quarantine_id,
+        identifier=request.identifier,
+        run_type=request.run_type,
+        pr_number=request.pr_number,
+        expected_hash=request.expected_hash,
+        state=QuarantineLiftState(request.state),
+        detail=request.detail,
+        source=request.source,
+        created_at=request.created_at,
+        updated_at=request.updated_at,
+        resolved_at=request.resolved_at,
+        source_run_id=request.source_run_id,
+        requested_by=requested_by,
+        merge_commit_sha=request.merge_commit_sha,
+        lifted_at_sha=request.lifted_at_sha,
+    )
+
+
+def request_quarantine_lift_on_merge(
+    run_id: UUID,
+    input: contracts.LiftOnMergeInput,
+    user_id: int,
+    team_id: int,
+    source: ActorType = ActorType.HUMAN,
+) -> contracts.QuarantineLiftEntry:
+    """Lift a quarantined snapshot's quarantine once the run's pull request merges.
+
+    Raises RunNotFoundError for a missing run or snapshot, StaleRunError for a superseded run,
+    and ValueError with a reviewer-readable message for any other refusal.
+    """
+    request = quarantine_lifts.request_lift_on_merge(
+        run_id, input.identifier, team_id=team_id, user_id=user_id, source=source
+    )
+    return _to_quarantine_lift_entry(request, _fetch_user_basic_infos({user_id}))
+
+
+def list_quarantine_lifts_for_run(run_id: UUID, team_id: int) -> list[contracts.QuarantineLiftEntry]:
+    """Every lift request made for the run's pull request, newest first. Empty for a run without one."""
+    run = run_queries.get_run(run_id, team_id=team_id)
+    if run.pr_number is None:
+        return []
+    requests = quarantine_lifts.list_lift_requests_for_pr(run.repo_id, team_id, run.pr_number)
+    user_basic_infos = _fetch_user_basic_infos({r.requested_by_id for r in requests if r.requested_by_id})
+    return [_to_quarantine_lift_entry(r, user_basic_infos) for r in requests]
+
+
+def cancel_quarantine_lift(run_id: UUID, request_id: UUID, team_id: int) -> None:
+    quarantine_lifts.cancel_lift_request(request_id, team_id=team_id, run_id=run_id)

@@ -1,6 +1,9 @@
 //! Public-API integration tests for the filter catalog. The exhaustive per-field discrimination
 //! matrix and classifier edge cases live in the in-crate `#[cfg(test)]` modules.
 
+use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
+
 use cohort_stream_processor::filters::{
     build_catalog_from_rows, CohortId, CohortLeaf, CohortRow, FilterCatalog, FilterNode, TeamId,
 };
@@ -151,7 +154,68 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
 }
 
 #[test]
-fn bytecode_is_captured_and_deduped_by_condition_hash() {
+fn malformed_leaves_warn_once_per_cohort_per_build() {
+    struct LogWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().write(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(move || LogWriter(writer.clone()))
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let mut malformed = person_leaf();
+    malformed["bytecode"] = json!(["_X", 1]);
+
+    for _ in 0..2 {
+        let catalog = build_catalog(vec![
+            row(1, 7, cohort(vec![malformed.clone(); 10])),
+            row(2, 7, cohort(vec![malformed.clone(); 3])),
+            row(3, 7, cohort(vec![behavioral_performed_event(7)])),
+        ]);
+        let team = catalog.team(TeamId(7)).unwrap();
+        for id in [1, 2] {
+            assert_eq!(
+                team.eligibility[&CohortId(id)],
+                CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+            );
+        }
+        assert_eq!(team.by_condition_to_program.len(), 1);
+    }
+
+    let output = output.lock().unwrap();
+    // Narrowed to the warning under test: the same builds emit a cohort-parse warning carrying a
+    // `cohort_id` but no count, and a timezone warning carrying neither, so a fixture that grew one
+    // would panic inside the closure instead of failing an assertion.
+    let mut warnings: Vec<(i64, u64)> = String::from_utf8_lossy(&output)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|event| event["fields"]["malformed_leaves"].is_u64())
+        .map(|event| {
+            assert_eq!(event["level"], "WARN");
+            (
+                event["fields"]["cohort_id"].as_i64().unwrap(),
+                event["fields"]["malformed_leaves"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    warnings.sort_unstable();
+    assert_eq!(warnings, vec![(1, 10), (1, 10), (2, 3), (2, 3)]);
+}
+
+#[test]
+fn the_loaded_program_is_captured_and_deduped_by_condition_hash() {
     let catalog = build_catalog(vec![
         row(
             1,
@@ -162,12 +226,12 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
     ]);
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
-    assert_eq!(team.by_condition_to_bytecode.len(), 2);
+    assert_eq!(team.by_condition_to_program.len(), 2);
     assert_eq!(
-        team.by_condition_to_bytecode[&BEHAVIORAL_HASH].as_ref(),
+        team.by_condition_to_program[&BEHAVIORAL_HASH].tokens(),
         &behavioral_bytecode_loaded(),
     );
-    assert!(team.by_condition_to_bytecode.contains_key(&PERSON_HASH));
+    assert!(team.by_condition_to_program.contains_key(&PERSON_HASH));
 }
 
 #[test]
@@ -187,7 +251,7 @@ fn leaf_without_bytecode_is_dropped() {
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
     assert!(team.unique_condition_hashes.is_empty());
-    assert!(team.by_condition_to_bytecode.is_empty());
+    assert!(team.by_condition_to_program.is_empty());
     assert!(team.by_condition_to_lsk.is_empty());
 }
 

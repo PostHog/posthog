@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef, useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -67,6 +69,33 @@ export const LongThread: Story = {
                         </VirtualizedThread.Row>
                     )}
                 </VirtualizedThread.Root>
+            </div>
+        )
+    },
+}
+
+export const RememberedPosition: Story = {
+    render: function RememberedPosition(): JSX.Element {
+        const [visible, setVisible] = useState(true)
+        const items = makeItems(80)
+        return (
+            <div className="flex flex-col gap-2 w-180">
+                <LemonButton onClick={() => setVisible(!visible)}>{visible ? 'Close task' : 'Open task'}</LemonButton>
+                <div className="h-[600px] border rounded overflow-hidden">
+                    {visible && (
+                        <VirtualizedThread.Root
+                            items={items}
+                            getItemKey={getKey}
+                            scrollRestorationKey="remembered-position-story"
+                        >
+                            {(item) => (
+                                <VirtualizedThread.Row>
+                                    <FakeMessage role={item.role} text={item.text} />
+                                </VirtualizedThread.Row>
+                            )}
+                        </VirtualizedThread.Root>
+                    )}
+                </div>
             </div>
         )
     },

@@ -1,12 +1,13 @@
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
+import * as generated from './generated/api'
 import type { MCPServerInstallationApi, MCPServerInstallationToolApi } from './generated/api.schemas'
 import { mcpStoreLogic } from './mcpStoreLogic'
 
-jest.mock('lib/api')
+jest.mock('./generated/api')
+
+const mocked = jest.mocked(generated)
 
 function installation(id: string, url?: string): MCPServerInstallationApi {
     return {
@@ -52,8 +53,8 @@ describe('mcpStoreLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         jest.resetAllMocks()
-        jest.spyOn(api.mcpServers, 'list').mockResolvedValue({ count: 0, results: [] })
-        jest.spyOn(api.mcpServerInstallations, 'list').mockResolvedValue({ count: 0, results: [] })
+        mocked.mcpServersList.mockResolvedValue({ count: 0, results: [] })
+        mocked.mcpServerInstallationsList.mockResolvedValue({ count: 0, results: [] })
 
         logic = mcpStoreLogic()
         logic.mount()
@@ -74,10 +75,10 @@ describe('mcpStoreLogic', () => {
         ]
         logic.actions.loadInstallationsSuccess(installations)
         logic.actions.loadInstallationToolsSuccess(Object.fromEntries(installations.map(({ id }) => [id, [tool(id)]])))
-        jest.spyOn(api.mcpServerInstallations, 'updateToolApproval').mockResolvedValue({})
-        const listTools = jest
-            .spyOn(api.mcpServerInstallations, 'listTools')
-            .mockImplementation(async (installationId) => ({ results: [tool(installationId)] }))
+        mocked.mcpServerInstallationsToolsPartialUpdate.mockResolvedValue(tool('source'))
+        const listTools = mocked.mcpServerInstallationsToolsRetrieve.mockImplementation(
+            async (_projectId, installationId) => ({ count: 1, results: [tool(installationId)] })
+        )
 
         await expectLogic(logic, () => {
             logic.actions.setToolApprovalState({
@@ -87,6 +88,9 @@ describe('mcpStoreLogic', () => {
             })
         }).toFinishAllListeners()
 
-        expect(listTools.mock.calls.map(([installationId]) => installationId).sort()).toEqual(['same-server', 'source'])
+        expect(listTools.mock.calls.map(([, installationId]) => installationId).sort()).toEqual([
+            'same-server',
+            'source',
+        ])
     })
 })

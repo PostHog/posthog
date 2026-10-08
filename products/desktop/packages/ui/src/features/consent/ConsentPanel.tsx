@@ -90,7 +90,7 @@ export function ConsentPanel({
           queryKey: authKeys.currentUsers(),
         });
       } else {
-        await client.acceptDesktopBetaTerms(organization.id);
+        await client.acceptDesktopBetaTerms();
         track(ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP);
         await queryClient.invalidateQueries({
           queryKey: desktopBetaTermsKeys.all(),

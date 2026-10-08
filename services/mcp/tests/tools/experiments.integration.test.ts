@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -12,6 +13,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import experimentGetByFlagKey from '@/tools/experiments/getByFlagKey'
 import getExperimentResultsTool from '@/tools/experiments/getResults'
 import { GENERATED_TOOLS } from '@/tools/generated/experiments'
 import type { Context } from '@/tools/types'
@@ -53,6 +55,7 @@ describe('Experiments', { concurrent: false }, () => {
     const launchTool = GENERATED_TOOLS['experiment-launch']!()
     const endTool = GENERATED_TOOLS['experiment-end']!()
     const archiveTool = GENERATED_TOOLS['experiment-archive']!()
+    const duplicateTool = GENERATED_TOOLS['experiment-duplicate']!()
     const pauseTool = GENERATED_TOOLS['experiment-pause']!()
     const resumeTool = GENERATED_TOOLS['experiment-resume']!()
     const resetTool = GENERATED_TOOLS['experiment-reset']!()
@@ -365,7 +368,7 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'MDE Test Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 15,
                 },
                 allow_unknown_events: true,
@@ -376,6 +379,7 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
+            expect(experiment.running_time_calculation?.minimum_detectable_effect).toBe(15)
         })
 
         it('should create an experiment with filter test accounts enabled', async () => {
@@ -606,7 +610,7 @@ describe('Experiments', { concurrent: false }, () => {
                         },
                     },
                 },
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 20,
                 },
                 exposure_criteria: {
@@ -1195,13 +1199,13 @@ describe('Experiments', { concurrent: false }, () => {
             // Update minimum detectable effect
             const updateResult = await updateTool.handler(context, {
                 id: experiment.id,
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 25,
                 },
             } as any)
             const updatedExperiment = parseToolResponse(updateResult)
 
-            expect(updatedExperiment.parameters?.minimum_detectable_effect).toBe(25)
+            expect(updatedExperiment.running_time_calculation?.minimum_detectable_effect).toBe(25)
         })
 
         it('should handle invalid experiment ID', async () => {
@@ -1464,6 +1468,125 @@ describe('Experiments', { concurrent: false }, () => {
             const holdouts = parseToolResponse(listResult)
             const found = holdouts.results.find((h: any) => h.id === holdout.id)
             expect(found).toBeFalsy()
+        })
+    })
+
+    describe('id ergonomics (aliases, by-flag-key, typed not-found)', () => {
+        const getByFlagKeyTool = experimentGetByFlagKey()
+
+        const createDraft = async (prefix: string): Promise<{ id: number; feature_flag_key: string }> => {
+            const flagKey = generateUniqueKey(prefix)
+            const result = await createTool.handler(context, {
+                name: `Id ergonomics ${prefix}`,
+                feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(result)
+            trackExperiment(experiment)
+            return { id: experiment.id, feature_flag_key: flagKey }
+        }
+
+        // Only an ended experiment can be archived; archiving with the flag disabled is what
+        // cascades the archive onto the flag and hides it from the default flag list.
+        const launchAndArchive = async (id: number): Promise<void> => {
+            await launchTool.handler(context, { id } as any)
+            await endTool.handler(context, { id } as any)
+            parseToolResponse(await archiveTool.handler(context, { id, disable_feature_flag: true } as any))
+        }
+
+        it('experiment-get accepts experimentId through its schema, against the live API', async () => {
+            const created = await createDraft('exp-alias')
+
+            const params = getTool.schema.parse({ experimentId: String(created.id) })
+            expect(params).toEqual({ id: created.id })
+
+            const experiment = parseToolResponse(await getTool.handler(context, params as any))
+            expect(experiment.id).toBe(created.id)
+            expect(experiment.feature_flag_key).toBe(created.feature_flag_key)
+        })
+
+        it('experiment-get-by-flag-key returns the full experiment for its flag key', async () => {
+            const created = await createDraft('exp-by-key')
+
+            const params = getByFlagKeyTool.schema.parse({ flagKey: created.feature_flag_key })
+            const result = parseToolResponse(await getByFlagKeyTool.handler(context, params))
+
+            expect(result.found).toBe(true)
+            expect(result.id).toBe(created.id)
+            expect(result.feature_flag_key).toBe(created.feature_flag_key)
+            expect(result.metrics).toBeTruthy()
+            expect(result._posthogUrl).toContain(`/experiments/${created.id}`)
+        })
+
+        it('experiment-get-by-flag-key returns found:false as data when no flag has the key', async () => {
+            const missingKey = generateUniqueKey('exp-by-key-missing')
+
+            const result = parseToolResponse(await getByFlagKeyTool.handler(context, { feature_flag_key: missingKey }))
+
+            expect(result.found).toBe(false)
+            expect(result.reason).toBe('no_flag')
+            expect(result.feature_flag_key).toBe(missingKey)
+            expect(result.message).toContain(missingKey)
+        })
+
+        it('experiment-get surfaces a guessed id as a typed 404 that keeps the recovery message', async () => {
+            const thrown = await getTool.handler(context, { id: 999999999 } as any).then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+            expect(thrown).toBeInstanceOf(PostHogApiError)
+            expect((thrown as PostHogApiError).status).toBe(404)
+            expect((thrown as PostHogApiError).message).toContain('Experiment 999999999 not found in this project')
+            expect((thrown as PostHogApiError).message).toContain('experiment-list')
+        })
+
+        it('experiment-get-by-flag-key finds an archived experiment whose flag the flag list hides', async () => {
+            const created = await createDraft('exp-by-key-archived')
+            await launchAndArchive(created.id)
+
+            const result = parseToolResponse(
+                await getByFlagKeyTool.handler(context, { feature_flag_key: created.feature_flag_key })
+            )
+
+            expect(result.found).toBe(true)
+            expect(result.id).toBe(created.id)
+            expect(result.archived).toBe(true)
+        })
+
+        it('experiment-get-by-flag-key returns candidates for two drafts on one flag, then picks the live one', async () => {
+            const created = await createDraft('exp-by-key-dup')
+            const duplicate = parseToolResponse(
+                await duplicateTool.handler(context, {
+                    id: created.id,
+                    name: 'Id ergonomics duplicate',
+                    feature_flag_key: created.feature_flag_key,
+                } as any)
+            )
+            trackExperiment(duplicate)
+            expect(duplicate.feature_flag_key).toBe(created.feature_flag_key)
+
+            const ambiguous = parseToolResponse(
+                await getByFlagKeyTool.handler(context, { feature_flag_key: created.feature_flag_key })
+            )
+            expect(ambiguous.found).toBe(false)
+            expect(ambiguous.reason).toBe('ambiguous')
+            expect(ambiguous.candidates.map((candidate: { id: number }) => candidate.id).sort()).toEqual(
+                [created.id, duplicate.id].sort()
+            )
+            for (const candidate of ambiguous.candidates) {
+                expect(candidate).toMatchObject({ status: 'draft', archived: false })
+                expect(candidate.name).toBeTruthy()
+                expect(candidate.created_at).toBeTruthy()
+            }
+
+            await launchAndArchive(duplicate.id)
+
+            const picked = parseToolResponse(
+                await getByFlagKeyTool.handler(context, { feature_flag_key: created.feature_flag_key })
+            )
+            expect(picked.found).toBe(true)
+            expect(picked.id).toBe(created.id)
         })
     })
 })

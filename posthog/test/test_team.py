@@ -348,4 +348,4 @@ class TestTeam(BaseTest):
         ).select_related("button_tile")
         assert button_tiles.count() == 3
         urls = {tile.button_tile.url for tile in button_tiles if tile.button_tile is not None}
-        assert urls == {"/replay/home", "/web", "/activity/explore"}
+        assert urls == {"/replay/home", "/web", "/activity/events"}

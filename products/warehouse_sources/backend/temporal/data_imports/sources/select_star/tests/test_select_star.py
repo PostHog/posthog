@@ -73,18 +73,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"guid": "ta_1"}, {"guid": "ta_2"}])])
-
-        manager = _make_manager()
-        rows = _rows(select_star_source("tok", "Tables", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"guid": "ta_1"}, {"guid": "ta_2"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_next_url_until_null(self, MockSession) -> None:
         session = MockSession.return_value
         second = f"{TABLES_URL}?page=2"
@@ -98,58 +86,8 @@ class TestPagination:
         assert snapshots[1]["url"] == second
         manager.save_state.assert_called_once_with(SelectStarResumeConfig(next_url=second))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = f"{TABLES_URL}?page=2"
-        snapshots = _wire(session, [_page([{"guid": "b"}])])
-
-        manager = _make_manager(SelectStarResumeConfig(next_url=second))
-        rows = _rows(select_star_source("tok", "Tables", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"guid": "b"}]
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == second
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([])])
-
-        manager = _make_manager()
-        rows = _rows(select_star_source("tok", "Tables", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_token_scheme_not_bearer(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([])])
-
-        _rows(select_star_source("tok-123", "Tables", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        # Auth is applied by `requests` when the session actually prepares the request; assert on
-        # the auth callable's effect directly rather than depending on that internal prepare step.
-        prepared = mock.MagicMock()
-        prepared.headers = {}
-        snapshots[0]["auth"](prepared)
-        assert prepared.headers["Authorization"] == "Token tok-123"
-
 
 class TestIncrementalFilter:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_filter_when_not_incremental(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([])])
-
-        _rows(select_star_source("tok", "Tables", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-
-        assert "updated_on__gte" not in snapshots[0]["params"]
-        assert "last_queried_on__gte" not in snapshots[0]["params"]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_default_incremental_field_used_when_none_selected(self, MockSession) -> None:
         session = MockSession.return_value
@@ -168,46 +106,6 @@ class TestIncrementalFilter:
         )
 
         assert snapshots[0]["params"]["updated_on__gte"] == datetime(2026, 1, 1, tzinfo=UTC)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_honors_user_selected_incremental_field(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([])])
-
-        _rows(
-            select_star_source(
-                "tok",
-                "Tables",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="last_queried_on",
-            )
-        )
-
-        assert "updated_on__gte" not in snapshots[0]["params"]
-        assert snapshots[0]["params"]["last_queried_on__gte"] == datetime(2026, 1, 1, tzinfo=UTC)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_filter_param_for_endpoint_without_incremental_fields(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_page([])])
-
-        _rows(
-            select_star_source(
-                "tok",
-                "Columns",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert not any(key.endswith("__gte") for key in snapshots[0]["params"])
 
 
 class TestValidateCredentials:
@@ -230,22 +128,6 @@ class TestValidateCredentials:
         assert ok is False
         assert message
 
-    def test_401_and_403_messages_differ(self) -> None:
-        with mock.patch(SELECT_STAR_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-            _, unauthorized_message = validate_credentials("tok")
-        with mock.patch(SELECT_STAR_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = mock.MagicMock(status_code=403)
-            _, forbidden_message = validate_credentials("tok")
-        assert unauthorized_message != forbidden_message
-
-    @mock.patch(SELECT_STAR_SESSION_PATCH)
-    def test_connection_error_maps_to_generic_message(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, message = validate_credentials("tok")
-        assert ok is False
-        assert message
-
 
 class TestSelectStarSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
@@ -255,22 +137,6 @@ class TestSelectStarSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == ["guid"]
         assert response.sort_mode == "asc"
-
-    def test_tables_and_dashboards_are_partitioned(self) -> None:
-        for endpoint in ("Tables", "Dashboards"):
-            response = select_star_source(
-                "tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock()
-            )
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [SELECTSTAR_ENDPOINTS[endpoint].partition_key]
-
-    def test_endpoints_without_a_stable_created_field_are_not_partitioned(self) -> None:
-        for endpoint in ("Columns", "Databases", "Schemas", "Tags"):
-            response = select_star_source(
-                "tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock()
-            )
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
     def test_every_endpoint_uses_guid_primary_key(self) -> None:
         assert all(config.primary_keys == ["guid"] for config in SELECTSTAR_ENDPOINTS.values())

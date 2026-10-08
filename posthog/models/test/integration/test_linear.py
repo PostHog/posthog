@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.integration import Integration, LinearIntegration
+from posthog.models.integration import Assignee, AssigneeLookupFailed, Integration, LinearIntegration
 
 
 class TestLinearIntegrationModel(BaseTest):
@@ -112,8 +112,66 @@ class TestLinearIntegrationModel(BaseTest):
             "title": 'Title "quoted"',
             "description": "Description",
             "teamId": 'team-id" } mutation {',
+            "assigneeId": None,
         }
         assert 'issue-id" } mutation {' not in attachment_query
         assert attachment_variables["issueId"] == "LIN-123"
         assert attachment_variables["title"] == "PostHog issue"
         assert attachment_variables["url"].endswith(f'/project/{self.team.id}/error_tracking/issue-id" }} mutation {{')
+
+    def test_create_issue_sends_assignee_as_graphql_variable(self):
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(
+            linear,
+            "query",
+            side_effect=[
+                {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
+                {"data": {"attachmentCreate": {"success": True}}},
+            ],
+        ) as mock_query:
+            linear.create_issue(
+                "https://us.posthog.com/error_tracking/issue-id",
+                {"team_id": "team-id", "title": "Title", "description": "Description", "assignee": "user-id"},
+            )
+
+        assert mock_query.call_args_list[0].kwargs["variables"]["assigneeId"] == "user-id"
+
+    @parameterized.expand(
+        [
+            ("blank_search_lists_members", "  ", None),
+            (
+                "search_filters_by_name",
+                "ada",
+                {"or": [{"name": {"containsIgnoreCase": "ada"}}, {"displayName": {"containsIgnoreCase": "ada"}}]},
+            ),
+        ]
+    )
+    def test_list_assignees_skips_deactivated_users(self, _name, search, expected_filter):
+        linear = LinearIntegration(self.create_integration())
+        body = {
+            "data": {
+                "team": {
+                    "members": {
+                        "nodes": [
+                            {"id": "u1", "name": "Ada Lovelace", "displayName": "ada", "active": True},
+                            {"id": "u2", "name": "Gone User", "displayName": "gone", "active": False},
+                        ]
+                    }
+                }
+            }
+        }
+        with patch.object(linear, "query", return_value=body) as mock_query:
+            members = linear.list_assignees("team-id", search)
+
+        assert members == [Assignee(id="u1", name="ada")]
+        assert mock_query.call_args.kwargs["variables"] == {
+            "teamId": "team-id",
+            "first": 100,
+            "filter": expected_filter,
+        }
+
+    def test_list_assignees_raises_on_graphql_errors(self):
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}):
+            with self.assertRaises(AssigneeLookupFailed):
+                linear.list_assignees("team-id")

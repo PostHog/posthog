@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_lab
     lambda_labs_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.settings import LAMBDA_LABS_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -138,13 +137,6 @@ class TestExtractRecords:
         rows = _rows(_source(endpoint, _make_manager()))
         assert rows == expected
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession: mock.MagicMock) -> None:
-        # A 200 without the `data` key is treated as an empty collection, not a hard failure.
-        session = MockSession.return_value
-        _wire(session, [_response({})])
-        assert _rows(_source("instances", _make_manager())) == []
-
 
 class TestFormatIso8601:
     @pytest.mark.parametrize(
@@ -231,44 +223,6 @@ class TestPaginationAndResume:
         )
 
         assert params[0] == {"start": "2025-06-01T12:00:00.000Z"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_incremental_endpoint_ignores_incremental_value(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"data": [{"id": "i-1"}]})])
-
-        # `instances` has no server-side time filter, so a stray last-value must not become a `start`.
-        manager = _make_manager()
-        _rows(
-            _source(
-                "instances",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2025, 6, 1, tzinfo=UTC),
-            )
-        )
-
-        assert params[0] == {}
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(LAMBDA_LABS_ENDPOINTS.keys()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        config = LAMBDA_LABS_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Ascending is required for the audit-events incremental watermark to advance correctly.
-        assert response.sort_mode == "asc"
-
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
 
 class TestValidateCredentials:

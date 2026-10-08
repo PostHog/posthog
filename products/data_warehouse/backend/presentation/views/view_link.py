@@ -31,6 +31,11 @@ from products.data_tools.backend.facade.models import DataWarehouseJoin
 MATCH_RATE_SAMPLE_SIZE = 10_000
 PREVIEW_SCAN_ROWS = 1000
 PREVIEW_DISTINCT_PAIRS = 5
+NO_MATCHING_ROWS_MSG = (
+    "None of the sampled rows matched on these keys. Check that both key columns hold the same values, "
+    "then validate again."
+)
+
 # The match-rate stats query tests each sampled source key against the joining table's key column,
 # which reads that column in full. Cap its execution so this best-effort scan can't tie up warehouse
 # query capacity; over-limit runs raise and fall back to null stats rather than sampling the joining
@@ -388,7 +393,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             response_data["results"] = query_response.results
             response_data["is_valid"] = True
             if len(query_response.results) == 0:
-                response_data["msg"] = "Validation query returned no results"
+                response_data["msg"] = NO_MATCHING_ROWS_MSG
             total_rows, matched_rows, match_rate = _join_match_stats(
                 team=self.team,
                 database=database,

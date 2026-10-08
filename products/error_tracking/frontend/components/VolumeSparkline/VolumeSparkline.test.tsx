@@ -242,10 +242,15 @@ describe('VolumeSparkline', () => {
         })
     })
 
-    describe('event marker hover', () => {
+    describe('event markers', () => {
         const data = buildData()
         const firstSeen: SparklineEvent<string> = { id: 'first_seen', date: data[1].date, payload: 'First Seen' }
         const lastSeen: SparklineEvent<string> = { id: 'last_seen', date: data[3].date, payload: 'Last Seen' }
+        const beforeRange: SparklineEvent<string> = {
+            ...firstSeen,
+            date: new Date(data[0].date.getTime() - 3 * BUCKET_MS),
+        }
+        const rangeEnd = data[data.length - 1].date.getTime() + BUCKET_MS
 
         function renderWithEvents(events: SparklineEvent<string>[]): {
             container: HTMLElement
@@ -275,9 +280,35 @@ describe('VolumeSparkline', () => {
             }
         }
 
-        function hoverFirstPill(container: HTMLElement): void {
-            fireEvent.mouseEnter(container.querySelectorAll('[data-attr="error-tracking-volume-event-label"]')[0])
+        function getPills(container: HTMLElement): HTMLElement[] {
+            return Array.from(container.querySelectorAll('[data-attr="error-tracking-volume-event-label"]'))
         }
+
+        function hoverFirstPill(container: HTMLElement): void {
+            fireEvent.mouseEnter(getPills(container)[0])
+        }
+
+        // The edges matter: the first bucket starts on the plot's left edge, so a pixel comparison
+        // would drop a first-bucket event on a rounding error.
+        it.each([
+            { name: 'at the start of the first bucket', date: data[0].date },
+            { name: 'inside a middle bucket', date: new Date(data[2].date.getTime() + BUCKET_MS / 2) },
+            { name: 'at the end of the last bucket', date: new Date(rangeEnd) },
+        ])('renders a pill for an event $name', ({ date }) => {
+            const { container } = renderWithEvents([{ ...firstSeen, date }, lastSeen])
+
+            expect(getPills(container).map((pill) => pill.textContent)).toEqual(['First Seen', 'Last Seen'])
+        })
+
+        // A pill clamped to the plot edge would read as if the event happened in the edge bucket.
+        it.each([
+            { name: 'before the charted range', date: beforeRange.date },
+            { name: 'after the charted range', date: new Date(rangeEnd + 1) },
+        ])('renders no pill for an event $name', ({ date }) => {
+            const { container } = renderWithEvents([{ ...firstSeen, date }, lastSeen])
+
+            expect(getPills(container).map((pill) => pill.textContent)).toEqual(['Last Seen'])
+        })
 
         it('publishes the hovered event to the logic', () => {
             const { container } = renderWithEvents([firstSeen, lastSeen])
@@ -294,6 +325,7 @@ describe('VolumeSparkline', () => {
         // `hoverSelection` and keeps the bar hover paused.
         it.each([
             { name: 'the hovered event drops out of the list', remaining: [lastSeen] },
+            { name: 'the hovered event moves outside the charted range', remaining: [beforeRange, lastSeen] },
             { name: 'every event disappears at once', remaining: [] },
         ])('clears the hover when $name', ({ remaining }) => {
             const { container, rerenderWith } = renderWithEvents([firstSeen, lastSeen])

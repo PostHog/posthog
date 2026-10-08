@@ -6,7 +6,7 @@ from django.db.models.signals import post_save
 
 from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import RunReviewFilter, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import approvals, artifact_store, errors, repos, run_queries, runs
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -663,8 +663,8 @@ class TestRunSupersession:
         self._create_run(repo, commit_sha="old")
         self._create_run(repo, commit_sha="new")
 
-        current_runs = list(run_queries.list_runs_for_team(team.id, review_state="needs_review"))
-        stale_runs = list(run_queries.list_runs_for_team(team.id, review_state="stale"))
+        current_runs = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.NEEDS_REVIEW))
+        stale_runs = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.STALE))
 
         assert len(current_runs) == 1
         assert current_runs[0].commit_sha == "new"
@@ -708,7 +708,7 @@ class TestRunSupersession:
         first.refresh_from_db()
         assert first.superseded_by is not None
         # Approved runs still show in clean filter, not stale
-        clean = list(run_queries.list_runs_for_team(team.id, review_state="clean"))
+        clean = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.CLEAN))
         assert any(r.id == first.id for r in clean)
 
     def test_clean_run_superseded_but_stays_clean(self, repo, team, mocker):
@@ -737,7 +737,7 @@ class TestRunSupersession:
         clean_run.refresh_from_db()
         assert clean_run.superseded_by is not None
         # Clean runs still show in clean filter, not stale
-        clean = list(run_queries.list_runs_for_team(team.id, review_state="clean"))
+        clean = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.CLEAN))
         assert any(r.id == clean_run.id for r in clean)
 
     def test_approved_run_shows_in_clean_not_stale(self, repo, team, user):
@@ -747,8 +747,8 @@ class TestRunSupersession:
 
         self._create_run(repo, commit_sha="2nd")
 
-        stale = list(run_queries.list_runs_for_team(team.id, review_state="stale"))
-        clean = list(run_queries.list_runs_for_team(team.id, review_state="clean"))
+        stale = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.STALE))
+        clean = list(run_queries.list_runs_for_team(team.id, review_state=RunReviewFilter.CLEAN))
 
         assert len(stale) == 0
         clean_shas = {r.commit_sha for r in clean}

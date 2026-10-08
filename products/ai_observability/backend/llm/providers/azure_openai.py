@@ -13,7 +13,8 @@ import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import AzureOpenAI as WrappedAzureOpenAI
 
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.errors import error_field_for_message
+from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext
 
 logger = logging.getLogger(__name__)
@@ -62,12 +63,7 @@ _ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
 
 def error_field_for_validation_message(error_message: str | None) -> str | None:
     """Map an Azure `validate_key` error message to the UI form field that should be highlighted."""
-    if not error_message:
-        return None
-    return next(
-        (field for prefix, field in _ERROR_FIELD_BY_PREFIX if error_message.startswith(prefix)),
-        None,
-    )
+    return error_field_for_message(_ERROR_FIELD_BY_PREFIX, error_message)
 
 
 def is_allowed_azure_endpoint(azure_endpoint: str) -> bool:
@@ -140,24 +136,24 @@ class AzureOpenAIAdapter(OpenAIAdapter):
         analytics: AnalyticsContext,
     ) -> Any:
         """Create an AzureOpenAI client. Ignores base_url — uses azure_endpoint instead."""
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
         posthog_client = posthoganalytics.default_client
-        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
+        http_client = self._build_http_client()
         if analytics.capture and posthog_client:
             return WrappedAzureOpenAI(
                 posthog_client=posthog_client,
                 api_key=api_key,
                 azure_endpoint=self.azure_endpoint,
                 api_version=self.api_version,
-                timeout=OpenAIConfig.TIMEOUT,
+                timeout=self.request_timeout,
+                max_retries=self.max_retries,
                 http_client=http_client,
             )
         return openai.AzureOpenAI(
             api_key=api_key,
             azure_endpoint=self.azure_endpoint,
             api_version=self.api_version,
-            timeout=OpenAIConfig.TIMEOUT,
+            timeout=self.request_timeout,
+            max_retries=self.max_retries,
             http_client=http_client,
         )
 

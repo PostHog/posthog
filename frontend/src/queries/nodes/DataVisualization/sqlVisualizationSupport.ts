@@ -1,3 +1,5 @@
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+
 import { ChartDisplayType } from '~/types'
 
 import { Column, applyVisualizationType } from './dataVisualizationLogic'
@@ -15,11 +17,12 @@ const VISUALIZATION_SUPPORT: Record<ChartDisplayType, VisualizationSupport> = {
     [ChartDisplayType.ActionsUnstackedBar]: 'axes',
     [ChartDisplayType.ActionsPie]: 'axes',
     [ChartDisplayType.ActionsDonut]: 'axes',
+    [ChartDisplayType.ActionsProportionBar]: 'axes',
     [ChartDisplayType.ActionsLineGraphCumulative]: 'axes',
     [ChartDisplayType.ScatterPlot]: 'manual',
     [ChartDisplayType.TwoDimensionalHeatmap]: 'manual',
-    [ChartDisplayType.ActionsBarValue]: 'manual',
-    [ChartDisplayType.Metric]: 'manual',
+    [ChartDisplayType.ActionsBarValue]: 'axes',
+    [ChartDisplayType.Metric]: 'axes',
     [ChartDisplayType.WorldMap]: 'manual',
     [ChartDisplayType.CalendarHeatmap]: 'manual',
     [ChartDisplayType.BoxPlot]: 'manual',
@@ -48,11 +51,18 @@ export function sqlVisualizationDisabledReason(
     }
 
     const nextQuery = applyVisualizationType(query, displayType, columns, rowCount)
-    if (nextQuery.chartSettings?.xAxis && nextQuery.chartSettings.yAxis?.length) {
+    const hasYAxis = !!nextQuery.chartSettings?.yAxis?.length
+    // A pie, donut or proportion bar draws one part per numeric column, so like `Metric` it needs no X-axis column.
+    if (
+        hasYAxis &&
+        (drawnAs === ChartDisplayType.Metric ||
+            PART_OF_WHOLE_DISPLAY_TYPES.includes(drawnAs) ||
+            nextQuery.chartSettings?.xAxis)
+    ) {
         return undefined
     }
 
-    return nextQuery.chartSettings?.yAxis?.length
+    return hasYAxis
         ? 'This insight has no column left to label the X-axis'
         : 'This insight has no numeric column to plot'
 }

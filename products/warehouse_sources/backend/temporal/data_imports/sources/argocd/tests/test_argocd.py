@@ -4,6 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd import argocd as argocd_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.argocd import (
     HOST_NOT_ALLOWED_ERROR,
@@ -17,12 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.arg
     _list_params,
     _normalize_application,
     _normalize_cluster,
+    _normalize_event,
+    _normalize_managed_resource,
     _normalize_repository,
+    _normalize_resource_node,
+    _revision_requests,
     argocd_source,
     get_rows,
     normalize_host,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
 
 APPLICATION = {
     "metadata": {
@@ -55,7 +62,25 @@ def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") 
     response.iter_content = mock.Mock(side_effect=lambda chunk_size: iter([body] if body else []))
     response.__enter__ = mock.Mock(return_value=response)
     response.__exit__ = mock.Mock(return_value=False)
+    if not response.ok:
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} Client Error: for url: https://argocd.example.com", response=response
+        )
     return response
+
+
+def _patch_session_by_url(responses: dict[str, mock.MagicMock]):
+    """Patch the session so each request is answered by the first matching URL fragment."""
+    session = mock.MagicMock()
+
+    def _get(url: str, **_kwargs: Any) -> mock.MagicMock:
+        for fragment, response in responses.items():
+            if fragment in url:
+                return response
+        raise AssertionError(f"unexpected request: {url}")
+
+    session.get.side_effect = _get
+    return mock.patch.object(argocd_module, "make_tracked_session", return_value=session)
 
 
 def _patch_session(response: Optional[mock.MagicMock] = None, raises: Optional[Exception] = None):
@@ -186,6 +211,69 @@ class TestNormalization:
             }
         )
         assert row == {"repo": "https://github.com/org/repo"}
+
+    def test_event_lifts_identity_and_involved_object(self):
+        row = _normalize_event(
+            {
+                "metadata": {"uid": "ev-1", "creationTimestamp": "2025-02-01T00:00:00Z"},
+                "reason": "OperationCompleted",
+                "message": "Sync operation to abc succeeded",
+                "type": "Normal",
+                "involvedObject": {"kind": "Application", "name": "guestbook", "namespace": "argocd"},
+            }
+        )
+        assert row["uid"] == "ev-1"
+        assert row["created_at"] == "2025-02-01T00:00:00Z"
+        assert row["reason"] == "OperationCompleted"
+        assert row["involved_object_name"] == "guestbook"
+
+    @pytest.mark.parametrize(
+        "normalize, item",
+        [
+            (_normalize_managed_resource, {"kind": "Namespace", "name": "web"}),
+            (lambda item: _normalize_resource_node(item, orphaned=False), {"kind": "Namespace", "name": "web"}),
+        ],
+    )
+    def test_key_columns_are_never_null(self, normalize, item):
+        # group and namespace are absent for core-API and cluster-scoped resources, and both
+        # are primary key columns.
+        row = normalize(item)
+        assert row["group"] == ""
+        assert row["namespace"] == ""
+        assert row["name"] == "web"
+
+    def test_managed_resource_carries_live_and_target_state(self):
+        row = _normalize_managed_resource(
+            {
+                "group": "apps",
+                "kind": "Deployment",
+                "namespace": "web",
+                "name": "frontend",
+                "modified": True,
+                "liveState": '{"spec":{"replicas":3}}',
+                "targetState": '{"spec":{"replicas":2}}',
+                "normalizedLiveState": '{"spec":{"replicas":3}}',
+                "predictedLiveState": '{"spec":{"replicas":2}}',
+            }
+        )
+        assert row["modified"] is True
+        assert row["live_state"] == '{"spec":{"replicas":3}}'
+        assert row["target_state"] == '{"spec":{"replicas":2}}'
+
+    def test_resource_node_lifts_health(self):
+        row = _normalize_resource_node(
+            {
+                "kind": "Pod",
+                "name": "frontend-abc",
+                "namespace": "web",
+                "uid": "pod-1",
+                "health": {"status": "Degraded", "message": "back-off restarting"},
+            },
+            orphaned=False,
+        )
+        assert row["health_status"] == "Degraded"
+        assert row["health_message"] == "back-off restarting"
+        assert row["orphaned"] is False
 
 
 class TestGetRows:
@@ -351,6 +439,315 @@ class TestGetRows:
             argocd_module._read_bounded(slow, max_bytes=1_000, max_seconds=600)
 
 
+MULTI_SOURCE_APPLICATION = {
+    "metadata": {"name": "multi", "namespace": "team-ns", "uid": "uid-2"},
+    "spec": {"project": "team-a"},
+    "status": {
+        "history": [
+            {
+                "id": 1,
+                "revisions": ["sha-old", "1.2.3"],
+                "sources": [{"repoURL": "https://github.com/org/repo"}, {"chart": "nginx"}],
+            },
+            {
+                "id": 2,
+                "revisions": ["sha-new", "1.2.4"],
+                "sources": [{"repoURL": "https://github.com/org/repo"}, {"chart": "nginx"}],
+            },
+        ]
+    },
+}
+
+
+class TestRevisionRequests:
+    @pytest.mark.parametrize(
+        "app, expected",
+        [
+            # The metadata endpoint resolves git commits through the repo server. A Helm chart
+            # version is not one, so source index 1 of the multi-source app is never requested.
+            (MULTI_SOURCE_APPLICATION, [("sha-new", 0), ("sha-old", 0)]),
+            # Newest first, so the cap keeps the recent revisions.
+            (APPLICATION, [("def", 0), ("abc", 0)]),
+            # A revision deployed twice is resolved once.
+            ({"status": {"history": [{"revision": "abc"}, {"revision": "abc"}]}}, [("abc", 0)]),
+            ({"metadata": {"name": "new-app"}, "status": {}}, []),
+        ],
+    )
+    def test_revisions_to_resolve(self, app, expected):
+        assert _revision_requests(app) == expected
+
+    def test_cap_keeps_the_most_recent_revisions(self):
+        app = {"status": {"history": [{"revision": f"sha-{i}"} for i in range(10)]}}
+        with mock.patch.object(argocd_module, "MAX_REVISIONS_PER_APPLICATION", 3):
+            assert _revision_requests(app) == [("sha-9", 0), ("sha-8", 0), ("sha-7", 0)]
+
+
+class TestFanOut:
+    def _run(self, endpoint: str, responses: dict[str, mock.MagicMock], **kwargs: Any):
+        with _patch_session_by_url(responses) as patched:
+            rows: list[dict[str, Any]] = []
+            for batch in get_rows(
+                host="https://argocd.example.com",
+                api_token="tok",
+                endpoint=endpoint,
+                team_id=1,
+                logger=mock.MagicMock(),
+                **kwargs,
+            ):
+                rows.extend(batch)
+        return rows, patched.return_value
+
+    def _child_urls(self, session: mock.MagicMock, fragment: str) -> list[str]:
+        return [call.args[0] for call in session.get.call_args_list if fragment in call.args[0]]
+
+    def test_events_are_fetched_per_application_with_parent_scope(self):
+        events = {"items": [{"metadata": {"uid": "ev-1"}, "reason": "ResourceUpdated"}]}
+        rows, session = self._run(
+            "application_events",
+            {
+                "/events": _response(json_data=events),
+                "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+            },
+        )
+
+        assert [row["uid"] for row in rows] == ["ev-1"]
+        assert rows[0]["application_name"] == "guestbook"
+        assert rows[0]["application_namespace"] == "argocd"
+        # The namespace and project come from the application that was walked, not from the
+        # source's optional project filter, because the name alone is ambiguous across
+        # namespaces.
+        url = self._child_urls(session, "/events")[0]
+        assert url.startswith("https://argocd.example.com/api/v1/applications/guestbook/events?")
+        assert "appNamespace=argocd" in url
+        assert "project=default" in url
+
+    def test_application_name_is_url_quoted_in_the_path(self):
+        app = {"metadata": {"name": "team/app one", "namespace": "argocd"}, "spec": {}, "status": {}}
+        _rows, session = self._run(
+            "resource_tree",
+            {
+                "/resource-tree": _response(json_data={"nodes": []}),
+                "/api/v1/applications": _response(json_data={"items": [app]}),
+            },
+        )
+        assert self._child_urls(session, "/resource-tree")[0].startswith(
+            "https://argocd.example.com/api/v1/applications/team%2Fapp%20one/resource-tree"
+        )
+
+    def test_revision_metadata_requests_each_revision_with_its_source_index(self):
+        rows, session = self._run(
+            "revision_metadata",
+            {
+                "/revisions/": _response(json_data={"author": "Jane <jane@example.com>", "message": "ship it"}),
+                "/api/v1/applications": _response(json_data={"items": [MULTI_SOURCE_APPLICATION]}),
+            },
+        )
+
+        assert [row["revision"] for row in rows] == ["sha-new", "sha-old"]
+        assert rows[0]["author"] == "Jane <jane@example.com>"
+        assert rows[0]["source_index"] == 0
+        assert rows[0]["application_name"] == "multi"
+        urls = self._child_urls(session, "/revisions/")
+        assert urls[0].startswith("https://argocd.example.com/api/v1/applications/multi/revisions/sha-new/metadata?")
+        assert "sourceIndex=0" in urls[0]
+
+    def test_resource_tree_flattens_managed_and_orphaned_nodes(self):
+        tree = {
+            "nodes": [{"kind": "Pod", "name": "frontend-abc", "namespace": "web", "uid": "pod-1"}],
+            "orphanedNodes": [{"kind": "ConfigMap", "name": "left-over", "namespace": "web", "uid": "cm-1"}],
+        }
+        rows, _session = self._run(
+            "resource_tree",
+            {
+                "/resource-tree": _response(json_data=tree),
+                "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+            },
+        )
+
+        assert [(row["name"], row["orphaned"]) for row in rows] == [("frontend-abc", False), ("left-over", True)]
+
+    def test_empty_resource_tree_yields_nothing(self):
+        # An application with no cached tree marshals both node arrays as null.
+        rows, _session = self._run(
+            "resource_tree",
+            {
+                "/resource-tree": _response(json_data={"nodes": None, "orphanedNodes": None}),
+                "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+            },
+        )
+        assert rows == []
+
+    def test_managed_resources_are_batched_smaller_than_other_endpoints(self):
+        # Each row carries the resource's full manifests, so the batch size must be the
+        # managed-resource one rather than the shared default.
+        items = [{"kind": "Pod", "name": f"pod-{i}", "namespace": "web"} for i in range(5)]
+        with (
+            mock.patch.object(argocd_module, "_MANAGED_RESOURCE_ROWS_PER_BATCH", 2),
+            mock.patch.object(argocd_module, "_ROWS_PER_BATCH", 1000),
+            _patch_session_by_url(
+                {
+                    "/managed-resources": _response(json_data={"items": items}),
+                    "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+                }
+            ),
+        ):
+            batches = list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="managed_resources",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                )
+            )
+        assert [len(batch) for batch in batches] == [2, 2, 1]
+
+    def test_parent_walk_honours_the_project_filter(self):
+        _rows, session = self._run(
+            "application_events",
+            {
+                "/events": _response(json_data={"items": None}),
+                "/api/v1/applications": _response(json_data={"items": []}),
+            },
+            project="team-a",
+        )
+        assert "projects=team-a" in session.get.call_args_list[0].args[0]
+
+    def test_application_walk_is_capped(self):
+        apps = [{"metadata": {"name": f"app-{i}", "namespace": "argocd"}, "spec": {}, "status": {}} for i in range(4)]
+        logger = mock.MagicMock()
+        with (
+            mock.patch.object(argocd_module, "MAX_FAN_OUT_APPLICATIONS", 2),
+            _patch_session_by_url(
+                {
+                    "/resource-tree": _response(json_data={"nodes": []}),
+                    "/api/v1/applications": _response(json_data={"items": apps}),
+                }
+            ) as patched,
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="resource_tree",
+                    team_id=1,
+                    logger=logger,
+                )
+            )
+        assert len(self._child_urls(patched.return_value, "/resource-tree")) == 2
+        logger.warning.assert_called_once()
+
+    def test_walk_stops_at_its_time_budget(self):
+        # Per-request limits reset on the next request, so without a budget for the walk a slow
+        # host holds an import worker for one request per application. A budget already spent
+        # stops the walk, so no application is requested.
+        apps = [{"metadata": {"name": f"app-{i}", "namespace": "argocd"}, "spec": {}, "status": {}} for i in range(4)]
+        logger = mock.MagicMock()
+        with (
+            mock.patch.object(argocd_module, "MAX_FAN_OUT_SECONDS", -1),
+            _patch_session_by_url(
+                {
+                    "/resource-tree": _response(json_data={"nodes": []}),
+                    "/api/v1/applications": _response(json_data={"items": apps}),
+                }
+            ) as patched,
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="resource_tree",
+                    team_id=1,
+                    logger=logger,
+                )
+            )
+        assert self._child_urls(patched.return_value, "/resource-tree") == []
+        logger.warning.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "endpoint, fragment, json_data",
+        [
+            ("application_events", "/events", {"items": [{"metadata": {"uid": "ev-1"}}]}),
+            ("revision_metadata", "/revisions/", {"author": "Jane"}),
+            ("managed_resources", "/managed-resources", {"items": [{"kind": "Pod", "name": "frontend"}]}),
+            ("resource_tree", "/resource-tree", {"nodes": [{"kind": "Pod", "name": "frontend"}]}),
+        ],
+    )
+    def test_every_row_carries_its_primary_key_columns(self, endpoint, fragment, json_data):
+        # A key column missing from a normalized row makes the Delta merge match on null, so
+        # the rows duplicate on every sync.
+        rows, _session = self._run(
+            endpoint,
+            {
+                fragment: _response(json_data=json_data),
+                "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+            },
+        )
+        assert rows
+        for row in rows:
+            for key in ARGOCD_ENDPOINTS[endpoint].primary_keys:
+                assert row.get(key) is not None
+
+    @pytest.mark.parametrize("status_code", [400, 404, 500])
+    def test_one_broken_application_is_skipped_not_fatal(self, status_code):
+        # Argo CD reports a deleted application, an uncomparable spec and an unresolvable
+        # revision as 404/500 for that one application. The rest of the table must still sync.
+        apps = [
+            {"metadata": {"name": "broken", "namespace": "argocd"}, "spec": {}, "status": {}},
+            {"metadata": {"name": "healthy", "namespace": "argocd"}, "spec": {}, "status": {}},
+        ]
+        logger = mock.MagicMock()
+        with (
+            mock.patch.object(argocd_module, "MAX_CHILD_RETRIES", 1),
+            _patch_session_by_url(
+                {
+                    "/broken/resource-tree": _response(status_code=status_code),
+                    "/healthy/resource-tree": _response(
+                        json_data={"nodes": [{"kind": "Pod", "name": "p", "namespace": "web"}]}
+                    ),
+                    "/api/v1/applications": _response(json_data={"items": apps}),
+                }
+            ),
+        ):
+            rows = [
+                row
+                for batch in get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="resource_tree",
+                    team_id=1,
+                    logger=logger,
+                )
+                for row in batch
+            ]
+
+        assert [row["application_name"] for row in rows] == ["healthy"]
+        logger.warning.assert_called_once()
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_rejected_token_fails_the_sync(self, status_code):
+        # A skipped application must not hide a token that the server no longer accepts.
+        with (
+            mock.patch.object(argocd_module, "MAX_CHILD_RETRIES", 1),
+            _patch_session_by_url(
+                {
+                    "/resource-tree": _response(status_code=status_code),
+                    "/api/v1/applications": _response(json_data={"items": [APPLICATION]}),
+                }
+            ),
+            pytest.raises(requests.HTTPError),
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="resource_tree",
+                    team_id=1,
+                    logger=mock.MagicMock(),
+                )
+            )
+
+
 class TestValidateCredentials:
     def test_success_without_reading_the_body(self):
         # The probe runs inline on the API thread; on success it must decide from the status
@@ -372,6 +769,16 @@ class TestValidateCredentials:
             validate_credentials("https://argocd.example.com", "tok", schema_name="projects")
         url = patched.return_value.get.call_args.args[0]
         assert url == "https://argocd.example.com/api/v1/projects"
+
+    @pytest.mark.parametrize(
+        "schema_name", ["application_events", "revision_metadata", "managed_resources", "resource_tree"]
+    )
+    def test_per_application_schema_probes_the_applications_list(self, schema_name):
+        # These paths need an application name, so the probe cannot request them directly.
+        # They are reached by walking the applications list and need the same permission.
+        with _patch_session(_response(json_data={"items": None})) as patched:
+            assert validate_credentials("https://argocd.example.com", "tok", schema_name=schema_name) == (True, None)
+        assert patched.return_value.get.call_args.args[0].startswith("https://argocd.example.com/api/v1/applications?")
 
     def test_authority_parser_mismatch_is_rejected_without_probing(self):
         # The probe must not be sent to a host the SSRF check never validated.
@@ -436,16 +843,12 @@ class TestValidateCredentials:
             assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
 
     def test_ssl_error_gets_actionable_message(self):
-        import requests
-
         with _patch_session(raises=requests.exceptions.SSLError("self signed certificate")):
             valid, msg = validate_credentials("https://argocd.example.com", "tok")
             assert valid is False
             assert "certificate" in (msg or "")
 
     def test_connection_error_returns_failure(self):
-        import requests
-
         with _patch_session(raises=requests.exceptions.ConnectionError("boom")):
             valid, msg = validate_credentials("https://argocd.example.com", "tok")
             assert valid is False

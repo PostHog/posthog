@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "rule_type": "percentage_rollout",
+      "targeting": {
+        "properties": []
+      },
+      "value": true,
+      "rollout_percentage": 25.5,
+      "on_rollout_miss": "continue",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "release-preview",
+      "assign_by": "person"
+    }
+  ],
+  "aggregation_group_type_index": 0
+}

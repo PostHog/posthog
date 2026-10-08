@@ -33,8 +33,9 @@ _OUTPUT_FIELDS_HELP = (
 )
 
 _PROMPT_TEXT_HELP = (
-    "System prompt; {email} is replaced with the signup email domain at runtime. "
-    f"At most {MAX_PROMPT_TEXT_CHARS} characters."
+    "System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the "
+    "model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs "
+    f"Firecrawl credits. At most {MAX_PROMPT_TEXT_CHARS} characters."
 )
 
 _MODEL_HELP = "Gateway model to classify with, routed through the LLM gateway. See GET /models/ for what it serves."

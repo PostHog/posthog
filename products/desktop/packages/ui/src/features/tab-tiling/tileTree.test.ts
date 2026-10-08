@@ -1,0 +1,166 @@
+import { describe, expect, it } from "vitest";
+import {
+  groupForTab,
+  lastActiveIn,
+  MAX_TILES_PER_GROUP,
+  pruneActiveByGroup,
+  pruneGroups,
+  setSplitSizes,
+  type TileEdge,
+  type TileGroup,
+  type TileNode,
+  tileTab,
+  untileTab,
+} from "./tileTree";
+
+function ids(): () => string {
+  let n = 0;
+  return () => `s${++n}`;
+}
+
+function leaf(tabId: string): TileNode {
+  return { type: "tab", tabId };
+}
+
+function split(
+  id: string,
+  direction: "horizontal" | "vertical",
+  children: TileNode[],
+): TileNode {
+  return { type: "split", id, direction, children };
+}
+
+function build(steps: [string, string, TileEdge][]): TileGroup[] {
+  const makeId = ids();
+  return steps.reduce<TileGroup[]>(
+    (groups, [tabId, target, edge]) =>
+      tileTab(groups, tabId, target, edge, makeId),
+    [],
+  );
+}
+
+describe("tileTree", () => {
+  it.each<{ edge: TileEdge; expected: TileNode }>([
+    {
+      edge: "right",
+      expected: split("s1", "horizontal", [leaf("a"), leaf("b")]),
+    },
+    {
+      edge: "left",
+      expected: split("s1", "horizontal", [leaf("b"), leaf("a")]),
+    },
+    {
+      edge: "bottom",
+      expected: split("s1", "vertical", [leaf("a"), leaf("b")]),
+    },
+    { edge: "top", expected: split("s1", "vertical", [leaf("b"), leaf("a")]) },
+  ])(
+    "dropping on the $edge edge creates a split in that order",
+    ({ edge, expected }) => {
+      const groups = build([["b", "a", edge]]);
+      expect(groups).toEqual([{ id: "s1", root: expected }]);
+    },
+  );
+
+  it("keeps three tabs on one axis as one flat split", () => {
+    const groups = build([
+      ["b", "a", "right"],
+      ["c", "b", "right"],
+    ]);
+    expect(groups[0].root).toEqual(
+      split("s1", "horizontal", [leaf("a"), leaf("b"), leaf("c")]),
+    );
+  });
+
+  it("nests a split on the other axis to form a grid", () => {
+    const groups = build([
+      ["b", "a", "right"],
+      ["c", "a", "bottom"],
+      ["d", "b", "bottom"],
+    ]);
+    expect(groups[0].root).toEqual(
+      split("s1", "horizontal", [
+        split("s2", "vertical", [leaf("a"), leaf("c")]),
+        split("s3", "vertical", [leaf("b"), leaf("d")]),
+      ]),
+    );
+  });
+
+  it("moves a tiled tab into another group when dropped there", () => {
+    const groups = build([
+      ["b", "a", "right"],
+      ["d", "c", "right"],
+      ["b", "d", "bottom"],
+    ]);
+    expect(groupForTab(groups, "a")).toBeNull();
+    expect(groups).toEqual([
+      {
+        id: "s2",
+        root: split("s2", "horizontal", [
+          leaf("c"),
+          split("s3", "vertical", [leaf("d"), leaf("b")]),
+        ]),
+      },
+    ]);
+  });
+
+  it("refuses a drop when the target group is full", () => {
+    const steps: [string, string, TileEdge][] = [];
+    for (let i = 1; i < MAX_TILES_PER_GROUP; i++) {
+      steps.push([`t${i}`, "a", "right"]);
+    }
+    const full = build(steps);
+    expect(tileTab(full, "extra", "a", "bottom", ids())).toBe(full);
+  });
+
+  it("ignores a drop of a tab onto its own tile", () => {
+    const groups = build([["b", "a", "right"]]);
+    expect(tileTab(groups, "a", "a", "left", ids())).toBe(groups);
+  });
+
+  it("collapses the parent split when a tile leaves a grid", () => {
+    const groups = build([
+      ["b", "a", "right"],
+      ["c", "a", "bottom"],
+    ]);
+    expect(untileTab(groups, "c")[0].root).toEqual(
+      split("s1", "horizontal", [leaf("a"), leaf("b")]),
+    );
+  });
+
+  it("dissolves the group when only one tile remains", () => {
+    const groups = build([["b", "a", "right"]]);
+    expect(untileTab(groups, "b")).toEqual([]);
+  });
+
+  it("records sizes and returns the same array for an unchanged layout", () => {
+    const groups = build([["b", "a", "right"]]);
+    const sized = setSplitSizes(groups, "s1", [30, 70]);
+    expect(sized[0].root).toMatchObject({ sizes: [30, 70] });
+    expect(setSplitSizes(sized, "s1", [30, 70])).toBe(sized);
+  });
+
+  it("prunes closed tabs and keeps the array when nothing closed", () => {
+    const groups = build([
+      ["b", "a", "right"],
+      ["c", "a", "bottom"],
+    ]);
+    expect(pruneGroups(groups, ["a", "b", "c"])).toBe(groups);
+    expect(pruneGroups(groups, ["a", "b"])[0].root).toEqual(
+      split("s1", "horizontal", [leaf("a"), leaf("b")]),
+    );
+    expect(pruneGroups(groups, ["c"])).toEqual([]);
+  });
+
+  it("reopens a split on its first tile once the remembered tile left", () => {
+    const groups = tileTab([], "b", "a", "right", ids());
+    const group = groups[0];
+    expect(lastActiveIn(group, { [group.id]: "b" })).toBe("b");
+    const next = tileTab(groups, "c", "a", "right", ids());
+    const remembered = pruneActiveByGroup(untileTab(next, "b"), {
+      [group.id]: "b",
+    });
+    expect(remembered).toEqual({});
+    expect(lastActiveIn(untileTab(next, "b")[0], remembered)).toBe("a");
+  });
+});

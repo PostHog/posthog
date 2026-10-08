@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
+import { OBSERVE_POLL_GRACE_MS } from './observationPolling'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -38,6 +39,7 @@ describe('observationsDockLogic', () => {
     let releaseScanners: () => void
     let inlineScanOutcome: string
     let observationResults: ReplayObservationApi[]
+    let observationsFail: boolean
     let scannerResults: ReplayScannerApi[]
 
     beforeEach(() => {
@@ -46,6 +48,7 @@ describe('observationsDockLogic', () => {
         inlineScanCalls = 0
         inlineScanOutcome = 'started'
         observationResults = []
+        observationsFail = false
         scannerResults = []
         useMocks({
             get: {
@@ -55,7 +58,8 @@ describe('observationsDockLogic', () => {
                     })
                     return [200, { results: scannerResults }]
                 },
-                '/api/projects/:team/vision/observations/': () => [200, { results: observationResults }],
+                '/api/projects/:team/vision/observations/': () =>
+                    observationsFail ? [500, {}] : [200, { results: observationResults }],
             },
             post: {
                 '/api/projects/:team/vision/scanners/:id/observe/': async () => {
@@ -135,6 +139,9 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+        // The second click is dropped, but it now says so rather than leaving the user in front of a
+        // button that looked live and did nothing.
+        expect(lemonToast.info).toHaveBeenCalled()
     })
 
     it('warns rather than promising a result when an already-summarized row is unreadable', async () => {
@@ -221,6 +228,167 @@ describe('observationsDockLogic', () => {
 
         expect(observeCalls).toBe(routingCase.runsOwnScanner ? 1 : 0)
         expect(inlineScanCalls).toBe(routingCase.runsOwnScanner ? 0 : 1)
+    })
+
+    it('stays pending while a summary row is still running, and settles once it is not', async () => {
+        // The reason the button kept reverting mid-scan: the old spinner cleared on the trigger
+        // response, not on the summary itself. `summarizePending` reads the row's own status, so it
+        // holds a recording that was opened with a summary already in flight, then clears when the
+        // scan lands — no click needed to reproduce either state.
+        const runningRow = {
+            id: 'obs-run',
+            scanner_id: 'scanner-x',
+            session_id: 'sess-1',
+            status: 'running',
+            scanner_snapshot: { scanner_type: 'summarizer' },
+        } as ReplayObservationApi
+
+        observationResults = [runningRow]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: true, summarizePending: true })
+
+        observationResults = [{ ...runningRow, status: 'succeeded' } as ReplayObservationApi]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
+    })
+
+    it('does not treat a running monitor scan as a summary in flight', async () => {
+        // The summarize button only owns summaries. A monitor scan the sidebar started is in flight
+        // too, but claiming it here would leave the button pending over a run it never triggered.
+        observationResults = [
+            {
+                id: 'obs-mon',
+                scanner_id: 'scanner-m',
+                session_id: 'sess-1',
+                status: 'running',
+                scanner_snapshot: { scanner_type: 'monitor' },
+            } as ReplayObservationApi,
+        ]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
+    })
+
+    it('keeps the summary pending when a scan the sidebar started fails', async () => {
+        // The sidebar picker runs on this same keyed logic, so its `observeFailure` arrives on the
+        // summary's reducer. It used to clear the button, putting the idle label back under a user
+        // whose summary was still running — the exact symptom this PR removes.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        observationResults = [
+            { id: 'obs-mon', scanner_id: 'm1', session_id: 'sess-1', status: 'succeeded' } as ReplayObservationApi,
+        ]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // A sidebar pick of a scanner that already ran here, which is one of the failure paths.
+        logic.actions.observe('m1')
+
+        await expectLogic(logic).toDispatchActions(['observeFailure'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+    })
+
+    // Both triggers share one in-flight guard, so which run the guard rejected decides whether the
+    // button still has a summary to wait for. Rejecting the click either way is what the guard is
+    // for; leaving it pending over a scan it never started is not.
+    test.each([
+        { blocker: 'a sidebar scan', firstClick: (): void => logic.actions.observe('m1'), stillPending: false },
+        { blocker: 'its own first click', firstClick: (): void => logic.actions.summarize(), stillPending: true },
+    ])('summarize blocked by $blocker stays pending: $stillPending', async (guardCase) => {
+        await loadScanners([scanner('s1', 'summarizer'), scanner('m1', 'monitor')])
+
+        guardCase.firstClick()
+        // Let the first request reach the mock, so its in-flight flag is set before the next click.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(observeCalls).toBe(1)
+        expect(lemonToast.info).toHaveBeenCalled()
+        await expectLogic(logic).toMatchValues({ summarizePending: guardCase.stillPending })
+    })
+
+    it('settles the button when a fast summary lands inside the grace window', async () => {
+        // The grace window covers the wait for a row that does not exist yet. A summary that finished
+        // inside it used to hold the button on "Summarizing…" for the rest of the window, right next
+        // to the finished summary the dock had already rendered.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // The row this scan created, terminal while the grace window is still open.
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+    })
+
+    it('settles the button while an unrelated sidebar scan is still being started', async () => {
+        // `observeInFlight` names which run is open. Gating on it being set at all let a sidebar scan's
+        // open request hold "Summarizing…" after the summary itself had already settled.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+
+        // A monitor scan started from the sidebar, its request still open.
+        logic.actions.observe('m1')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+    })
+
+    it('keeps the button pending while the scanner it started has no row yet', async () => {
+        // The grace window ends on the row this run created, not on any summary row. A recording that
+        // already carries an older summary must not settle the button for a second summarizer whose
+        // own row is still on its way.
+        await loadScanners([scanner('s1', 'summarizer')])
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseObserve()
+        await expectLogic(logic).toDispatchActions(['observeSuccess'])
+
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+    })
+
+    it('stops showing the summary as pending once the reload keeps failing', async () => {
+        // With no summary row ever loaded, the grace window is the only thing keeping the poll alive.
+        // A run of failed reloads used to stop polling with nothing left to clear the pending state,
+        // so the button read "Summarizing…" until the dock remounted.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // Past the grace window with the row still absent, so the next failure is the last poll.
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + OBSERVE_POLL_GRACE_MS + 1)
+        observationsFail = true
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['loadObservationsFailure', 'summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+        nowSpy.mockRestore()
     })
 
     it('keeps the summarizer picked from the dropdown on the next recording', async () => {

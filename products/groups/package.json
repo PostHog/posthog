@@ -2,11 +2,18 @@
     "name": "@posthog/products-groups",
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/react": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

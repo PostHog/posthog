@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution, sync_canonical_validation
@@ -19,6 +20,7 @@ class TestReviewResolutionConfigAPI(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_resolution(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/resolution"
 

@@ -8,7 +8,6 @@ import { doraLogic } from './doraLogic'
 
 export function DoraDeploymentHealth(): JSX.Element {
     const { dora, doraLoading } = useValues(doraLogic)
-    const firstLoad = doraLoading && !dora
 
     return (
         <Section id="dora-metrics" title="Deployment health">
@@ -22,7 +21,7 @@ export function DoraDeploymentHealth(): JSX.Element {
                         previousValue={dora?.deployments_per_day_prev}
                         formatValue={(value) => `${value.toFixed(1)}/day`}
                         emptyText="No successful deployments in this window."
-                        loading={firstLoad}
+                        loading={doraLoading}
                     />
                     <WindowComparisonCard
                         title="Failed deployment share"
@@ -34,7 +33,7 @@ export function DoraDeploymentHealth(): JSX.Element {
                         deltaUnit="pt"
                         goodWhenDown
                         emptyText="No deployments reached an outcome in this window."
-                        loading={firstLoad}
+                        loading={doraLoading}
                     />
                     <WindowComparisonCard
                         title="Failed deploy to next success"
@@ -45,7 +44,7 @@ export function DoraDeploymentHealth(): JSX.Element {
                         formatValue={compactAgeLabel}
                         goodWhenDown
                         emptyText="No failed deployment recovered in this window."
-                        loading={firstLoad}
+                        loading={doraLoading}
                     />
                 </div>
             </div>

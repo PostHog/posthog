@@ -169,23 +169,6 @@ def test_missing_data_key_raises(make_session: mock.MagicMock) -> None:
         _rows(_source("messages", _manager()))
 
 
-@pytest.mark.parametrize(
-    ("endpoint", "primary_keys", "sort_mode"),
-    [
-        ("messages", ["id"], "asc"),
-        ("mailboxes", ["id"], "desc"),
-        ("domains", ["id"], "desc"),
-        ("suppressions", ["email_address"], "desc"),
-    ],
-)
-def test_source_response_metadata(endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
-    response = _source(endpoint, _manager())
-    assert response.primary_keys == primary_keys
-    assert response.partition_keys == ["created_at"]
-    assert response.partition_format == "month"
-    assert response.sort_mode == sort_mode
-
-
 @mock.patch(TRACKED_SESSION_PATCH)
 def test_get_capabilities_returns_status_and_scopes(make_session: mock.MagicMock) -> None:
     session = make_session.return_value

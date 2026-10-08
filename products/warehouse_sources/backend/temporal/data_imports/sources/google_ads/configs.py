@@ -36,15 +36,17 @@ def parse_start_date(value: str) -> datetime.date:
     return datetime.datetime.fromisoformat(value.strip()).date()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GoogleAdsResumeConfig:
     """Resumable state for the Google Ads source.
 
     `page_token` is the opaque continuation token returned by
-    `GoogleAdsService.search` for the next page to fetch.
+    `GoogleAdsService.search` for the next page to fetch. `campaign_id` names the campaign
+    shard that the token belongs to, for resources that are read one campaign at a time.
     """
 
     page_token: str
+    campaign_id: str | None = None
 
 
 def clean_customer_id(s: str | None) -> str | None:

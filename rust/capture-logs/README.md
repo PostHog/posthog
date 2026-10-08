@@ -23,7 +23,9 @@ The service is configured using environment variables:
 | MANAGEMENT_BIND_HOST | :: | Host to bind the health check and metrics server |
 | MANAGEMENT_BIND_PORT | 8080 | Port for the health check and metrics server |
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
+| FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
+| MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
 
 ## Authentication
 
@@ -43,12 +45,41 @@ POST /v1/logs?token=your-project-token
 
 The token is your PostHog project token.
 
+## Backdated logs
+
+A log record whose timestamp is more than 24 hours behind the ingest time is normally replaced
+with the ingest time, and the original is kept on the `$originalTimestamp` attribute. That guard
+protects every query range on the team from one client with a broken clock.
+
+A historical import needs the original timestamps. Widen the past bound for one request with the
+`backfill_days` query parameter, on `POST /v1/logs` and `POST /i/v1/logs` only. The Datadog and
+Prometheus routes do not accept it, because the Datadog agent cannot send a query string at all.
+Traces and metrics do not accept it either.
+
+```http
+POST /i/v1/logs?backfill_days=540
+```
+
+The value must be between 1 and `MAX_BACKFILL_DAYS`. A request outside that range is answered 400,
+rather than being narrowed to the default, because an import whose timestamps are quietly replaced
+looks successful and writes most of its records onto the ingest time.
+
+`MAX_BACKFILL_DAYS` is per-deployment, so turning it on grants the capability to every project on
+that deployment.
+
+The future bound stays at 24 hours whatever `backfill_days` says. A timestamp ahead of the
+ingest time is a client clock error in every case, and accepting one would let a single client
+write rows past the end of every other query range on the team.
+
+Imported records take their retention from the ingest time, not from their own timestamp, so a
+backfill expires `retention_days` after it is imported.
+
 ## Response codes
 
 | Status | Meaning | Client behavior |
 |--------|---------|-----------------|
 | 200 | Accepted | — |
-| 400 | Body could not be decoded as OTLP protobuf or JSON | Permanent |
+| 400 | Body could not be decoded as OTLP protobuf or JSON, or `backfill_days` was rejected | Permanent |
 | 401 | No token, or a token that cannot be a project API key (for example a `phx_` personal API key) | Permanent, so the client stops and surfaces the misconfiguration |
 | 413 | Body over `MAX_REQUEST_BODY_SIZE_BYTES` | Permanent |
 
@@ -118,12 +149,42 @@ Requirements:
 2. Include your PostHog project token in the Authorization header or as a query parameter
 3. Use standard OTLP log format (JSON, JSONL, or Protobuf)
 
+## Amazon Data Firehose (CloudWatch Logs)
+
+`POST /i/v1/logs/aws/firehose` implements the [Firehose HTTP endpoint destination contract](https://docs.aws.amazon.com/firehose/latest/dev/httpdeliveryrequestresponse.html).
+A customer creates a Firehose stream with this URL as its HTTP endpoint and the project API key as the stream's access key, then subscribes CloudWatch log groups to the stream.
+
+- Auth: the project API key in `X-Amz-Firehose-Access-Key`, or a Bearer `Authorization` header for manual testing.
+  A pasted `Bearer` prefix in the access key field is tolerated.
+  The same shape check as every other route applies.
+- Each Firehose record is one CloudWatch subscription batch (base64, usually gzip).
+  Every `logEvents` entry becomes a log row.
+  `CONTROL_MESSAGE` records are acknowledged and skipped.
+  A record that is not a CloudWatch envelope (VPC flow logs, WAF) is split on newlines.
+  A record that cannot be decoded at all is skipped and counted, so one bad record does not make Firehose retry the good ones.
+- Row mapping: `body` = message; `timestamp` = the event timestamp; `service.name` is inferred from the log group (`/aws/lambda/<fn>` → `<fn>`, `/aws/rds/instance/<id>/...` → `<id>`, else the group name) unless a Firehose common attribute `service.name` is set.
+  Resource attributes are `cloud.provider=aws`, `cloud.account.id`, `cloud.region` (from `X-Amz-Firehose-Source-Arn`), `aws.log.group.name`, `aws.log.stream.name`, plus any common attributes; the AWS facts win over a common attribute of the same name.
+  Severity comes from a JSON `level`/`severity` key or a leading `ERROR`/`WARN`/`INFO`/`DEBUG` token, else `info`.
+- Rows are chunked into Kafka messages sized at half the producer's `message.max.bytes`, because a decoded Firehose request can be far larger than one message.
+  Batches are produced concurrently.
+  Delivery is at-least-once: a Kafka failure returns 500, Firehose redelivers the whole request with the same request id, and the batches already produced are duplicated.
+- Size limits: the request body is capped by `FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES` (default 8 MiB, above the 2 MiB used by the other routes because Firehose buffers whole MiB and base64 adds a third), and the decoded records of one request are capped at eight times that.
+  Either limit answers 413, which Firehose treats as permanent, so the failed batch lands in the customer's S3 backup bucket.
+- Every response carries the contract body: `{"requestId", "timestamp"}` on 200, plus `"errorMessage"` on 400 (unparseable body, no decodable record), 401 (missing or invalid access key), 413 and 500 (Kafka).
+  Rejections raised by the body-size and decompression layers are re-shaped into the same body.
+- Recommended stream settings: buffer 1 MB / 60 s, GZIP content encoding, retry 300 s, S3 backup for failed data only.
+
+Metrics: `capture_logs_firehose_records_total{kind}` (`data`, `control`, `raw`, `invalid`) and `capture_logs_firehose_events_total`.
+Request outcomes are on the shared `http_requests_total{path,status}` and rejected tokens on `capture_logs_requests_rejected_total`.
+
 ## Endpoints
 
 ### Log Ingestion
 
 - `POST /v1/logs` - Accept OTLP logs (JSON, JSONL, or Protobuf)
 - `POST /i/v1/logs` - Alternative endpoint for OTLP logs
+- `POST /i/v1/logs/datadog[/<token>]` - Datadog agent intake
+- `POST /i/v1/logs/aws/firehose` - Amazon Data Firehose HTTP endpoint destination
 - `OPTIONS /v1/logs` - CORS preflight support
 - `OPTIONS /i/v1/logs` - CORS preflight support
 

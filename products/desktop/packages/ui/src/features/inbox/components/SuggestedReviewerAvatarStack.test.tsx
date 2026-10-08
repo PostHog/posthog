@@ -155,7 +155,8 @@ describe("SuggestedReviewerAvatarStack", () => {
     expect(onCardClick).not.toHaveBeenCalled();
     expect(mocks.mutate).toHaveBeenCalledWith(
       {
-        content: [{ github_login: "bob" }],
+        // The write names the kept reviewer by PostHog user, so it keeps routing if they unlink GitHub.
+        content: [{ user_uuid: "user-bob" }],
         optimisticReviewers: [teammate],
       },
       expect.objectContaining({
@@ -165,6 +166,41 @@ describe("SuggestedReviewerAvatarStack", () => {
     );
     expect(mocks.trackAction).toHaveBeenCalledWith("remove_suggested_reviewer");
     document.removeEventListener("click", onCardClick);
+  });
+
+  it("lists a reviewer who has no GitHub login", async () => {
+    const user = userEvent.setup();
+    // The avatar stack can only draw reviewers with a login, but this one still routes the report.
+    const unlinked: SuggestedReviewer = {
+      github_login: null,
+      github_name: null,
+      relevant_commits: [],
+      user: {
+        id: 2,
+        uuid: "user-carol",
+        email: "carol@example.com",
+        first_name: "Carol",
+        last_name: "Diaz",
+      },
+      explanation: "Owns the checkout service.",
+    };
+    render(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={{
+          count: 1,
+          results: [{ ...artefacts.results[0], content: [teammate, unlinked] }],
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "View suggested reviewer rationale",
+      }),
+    );
+
+    expect(screen.getByText("Carol Diaz")).toBeTruthy();
   });
 
   it("does not render the reviewer action as a report status", async () => {

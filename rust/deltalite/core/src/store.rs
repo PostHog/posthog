@@ -1,15 +1,14 @@
 //! Multipart upload for large data files.
 //!
-//! `RecordBatchWriter::flush()` uploads each finished Parquet file through
-//! `ObjectStore::put` -- a single PUT (~`target_file_size` bytes, 100 MB by default).
+//! The partition writer (`crate::writer`, like delta-rs's `RecordBatchWriter`)
+//! uploads each finished Parquet file through `ObjectStore::put` -- a single PUT (~`target_file_size` bytes, 100 MB by default).
 //! On real S3 that serialises the whole file on one connection and re-uploads
 //! everything on a connection reset; measured under injected per-request latency it
 //! cost deltalite ~4x more wall-clock than MERGE. delta-rs's own DataFusion writer
 //! uses ~5 MB multipart parts for the same reason.
 //!
-//! The writer offers no hook to change this, but the store it writes through does:
-//! `RecordBatchWriter::for_table` takes `table.object_store()`, which comes from the
-//! table's `LogStore`. [`MultipartPutStore`] wraps an object store so that plain
+//! The writer uploads through `table.object_store()`, which comes from the table's
+//! `LogStore`. [`MultipartPutStore`] wraps an object store so that plain
 //! overwrite `put`s above a size threshold become multipart uploads, and
 //! [`MultipartLogStore`] wraps a log store to hand that store to the writer.
 //!
@@ -17,20 +16,28 @@
 //! `write_commit_entry` (delegated verbatim to the inner log store, preserving the
 //! conditional-put `If-None-Match` behaviour), and any `put_opts` with a non-Overwrite
 //! mode or a preconditioned option set is forwarded unmodified.
+//!
+//! [`MultipartLogStore`] can also answer the question that delta-rs asks before each
+//! commit put ("what is the latest version?") without a LIST of the log; see
+//! [`CommitProbe`].
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use deltalake::kernel::transaction::TransactionError;
 use deltalake::logstore::{CommitOrBytes, LogStore, LogStoreConfig};
 use futures::stream::{BoxStream, StreamExt};
+use metrics::counter;
 use object_store::path::Path;
 use object_store::{
     GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, ObjectStoreExt,
     PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
 };
 use uuid::Uuid;
+
+use crate::logprobe::{commit_path, probe_log, LogAnchor, LogProbe};
 
 /// Default size above which a single `put` becomes a multipart upload.
 pub const DEFAULT_MULTIPART_THRESHOLD: usize = 64 * 1024 * 1024;
@@ -221,13 +228,92 @@ impl ObjectStore for MultipartPutStore {
 }
 
 /// A [`LogStore`] wrapper whose `object_store()` returns a [`MultipartPutStore`] over
-/// the inner store, so data files written by `RecordBatchWriter` (and read by the
+/// the inner store, so data files written by the partition writer (and read by the
 /// probe/rewrite) go through the multipart-aware store while commit-entry writes stay
 /// on the inner log store's own path.
 pub struct MultipartLogStore {
     inner: Arc<dyn LogStore>,
     threshold: usize,
     part_size: usize,
+    commit_probe: Option<CommitProbe>,
+}
+
+/// Kill switch for the commit that probes the log in place of the LIST before the
+/// commit put; `0` restores the LIST.
+pub const OPTIMISTIC_COMMIT_VERSION_ENV: &str = "DELTALITE_OPTIMISTIC_COMMIT_VERSION";
+
+/// The name of the delta-rs log store that commits with a create-only put.
+const CONDITIONAL_PUT_LOG_STORE: &str = "DefaultLogStore";
+
+/// Answers `get_latest_version(v)` for a snapshot at `v` with the log probe (see
+/// [`crate::logprobe`]) in place of the LIST.
+///
+/// delta-rs lists the log before each commit put to learn the latest version. The LIST
+/// proves two things: the commit file of `v` is there, and no later one is. The probe
+/// proves the same two things with one GET and one HEAD, issued together: the next
+/// commit file answers 404, and a commit file of the loaded table is unchanged. The
+/// create-only put of `v + 1` stays the conflict check, as before.
+///
+/// The probe answers the first question for each `v` only. When delta-rs asks again for
+/// the same `v`, its put lost a race, so that call and every later one use the LIST and
+/// the conflict checks as before. The probe is also not used when the table was replaced
+/// (the commit fails as a conflict, and the caller loads the table again), when a
+/// request fails, or after `deadline`.
+pub(crate) struct CommitProbe {
+    anchor: LogAnchor,
+    /// The end of the time in which a 404 for the next commit file is proof.
+    deadline: Instant,
+    state: Mutex<CommitProbeState>,
+}
+
+#[derive(Default)]
+struct CommitProbeState {
+    /// The last start version answered by the probe.
+    answered: Option<u64>,
+    /// Set when a call fell back to the LIST: the commit is contended.
+    listing: bool,
+}
+
+impl CommitProbe {
+    pub(crate) fn new(anchor: LogAnchor, deadline: Instant) -> Self {
+        Self {
+            anchor,
+            deadline,
+            state: Mutex::new(CommitProbeState::default()),
+        }
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, CommitProbeState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Whether the probe may answer for `start_version`. A refusal is permanent.
+    fn begin(&self, start_version: u64) -> bool {
+        let mut state = self.state();
+        if state.listing || state.answered == Some(start_version) || Instant::now() >= self.deadline
+        {
+            state.listing = true;
+            return false;
+        }
+        state.answered = Some(start_version);
+        true
+    }
+
+    fn use_listing(&self) {
+        self.state().listing = true;
+    }
+}
+
+fn replaced_table_error(version: u64) -> deltalake::DeltaTableError {
+    deltalake::DeltaTableError::Transaction {
+        source: TransactionError::LogStoreError {
+            msg: format!(
+                "the table was replaced or its log was cleaned up after version {version} \
+                 was loaded; the commit was not written"
+            ),
+            source: "the log file that identifies the loaded table has changed".into(),
+        },
+    }
 }
 
 impl MultipartLogStore {
@@ -237,7 +323,18 @@ impl MultipartLogStore {
             inner,
             threshold,
             part_size,
+            commit_probe: None,
         }
+    }
+
+    /// Let `probe` answer the version question before a commit put. Ignored for a log
+    /// store that does not commit with a create-only put (for example the DynamoDB
+    /// lock store), which keeps its own `get_latest_version`.
+    pub(crate) fn with_commit_probe(mut self, probe: CommitProbe) -> Self {
+        if self.inner.name() == CONDITIONAL_PUT_LOG_STORE {
+            self.commit_probe = Some(probe);
+        }
+        self
     }
 }
 
@@ -291,7 +388,28 @@ impl LogStore for MultipartLogStore {
     }
 
     async fn get_latest_version(&self, start_version: u64) -> deltalake::DeltaResult<u64> {
-        self.inner.get_latest_version(start_version).await
+        let Some(probe) = &self.commit_probe else {
+            return self.inner.get_latest_version(start_version).await;
+        };
+        if !probe.begin(start_version) {
+            return self.inner.get_latest_version(start_version).await;
+        }
+        let outcome = match commit_path(self.inner.as_ref(), start_version + 1) {
+            Some(next) => {
+                let store = self.inner.root_object_store(None);
+                probe_log(&store, &next, &probe.anchor).await
+            }
+            None => LogProbe::Unknown,
+        };
+        counter!("deltalite_commit_probe_total", "outcome" => outcome.label()).increment(1);
+        match outcome {
+            LogProbe::Current => Ok(start_version),
+            LogProbe::Replaced => Err(replaced_table_error(start_version)),
+            LogProbe::NewCommits | LogProbe::Unknown => {
+                probe.use_listing();
+                self.inner.get_latest_version(start_version).await
+            }
+        }
     }
 
     fn object_store(&self, operation_id: Option<Uuid>) -> Arc<dyn ObjectStore> {
@@ -383,5 +501,148 @@ mod tests {
         assert!(parts.iter().all(|p| p.content_length() <= 5 * 1024 * 1024));
         let total: usize = parts.iter().map(|p| p.content_length()).sum();
         assert_eq!(total, 12 * 1024 * 1024);
+    }
+
+    /// A log store over an in-memory object store that counts the LIST-based version
+    /// questions it answers.
+    struct FakeLogStore {
+        name: &'static str,
+        store: Arc<dyn ObjectStore>,
+        config: LogStoreConfig,
+        latest: u64,
+        listings: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl LogStore for FakeLogStore {
+        fn name(&self) -> String {
+            self.name.to_string()
+        }
+        async fn read_commit_entry(&self, _: u64) -> deltalake::DeltaResult<Option<Bytes>> {
+            Ok(None)
+        }
+        async fn write_commit_entry(
+            &self,
+            _: u64,
+            _: CommitOrBytes,
+            _: Uuid,
+        ) -> Result<(), TransactionError> {
+            Ok(())
+        }
+        async fn abort_commit_entry(
+            &self,
+            _: u64,
+            _: CommitOrBytes,
+            _: Uuid,
+        ) -> Result<(), TransactionError> {
+            Ok(())
+        }
+        async fn get_latest_version(&self, _: u64) -> deltalake::DeltaResult<u64> {
+            self.listings
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.latest)
+        }
+        fn object_store(&self, _: Option<Uuid>) -> Arc<dyn ObjectStore> {
+            self.store.clone()
+        }
+        fn root_object_store(&self, _: Option<Uuid>) -> Arc<dyn ObjectStore> {
+            self.store.clone()
+        }
+        fn config(&self) -> &LogStoreConfig {
+            &self.config
+        }
+    }
+
+    fn commit_file(version: u64) -> Path {
+        Path::from(format!("bucket/t/_delta_log/{version:020}.json"))
+    }
+
+    /// A log with commits `0..=5` behind a store named `name`, and the probe for it.
+    async fn probed_store(
+        name: &'static str,
+        deadline: Instant,
+    ) -> (Arc<FakeLogStore>, MultipartLogStore) {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        for version in 0..=5 {
+            store
+                .put(&commit_file(version), payload_of(10))
+                .await
+                .unwrap();
+        }
+        let anchor = LogAnchor::from_meta(&store.head(&commit_file(3)).await.unwrap()).unwrap();
+        let location = url::Url::parse("memory:///bucket/t").unwrap();
+        let fake = Arc::new(FakeLogStore {
+            name,
+            store,
+            config: LogStoreConfig::new(&location, Default::default()),
+            latest: 9,
+            listings: Default::default(),
+        });
+        let wrapped = MultipartLogStore::new(fake.clone(), 0, 0)
+            .with_commit_probe(CommitProbe::new(anchor, deadline));
+        (fake, wrapped)
+    }
+
+    fn listings(fake: &FakeLogStore) -> usize {
+        fake.listings.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn soon() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(60)
+    }
+
+    #[tokio::test]
+    async fn the_probe_answers_once_for_each_version_and_then_the_listing_does() {
+        let (fake, store) = probed_store(CONDITIONAL_PUT_LOG_STORE, soon()).await;
+
+        assert_eq!(store.get_latest_version(5).await.unwrap(), 5);
+        assert_eq!(
+            listings(&fake),
+            0,
+            "no LIST while the next commit is absent"
+        );
+
+        // delta-rs asks again for the same version when its put lost a race.
+        assert_eq!(store.get_latest_version(5).await.unwrap(), 9);
+        assert_eq!(store.get_latest_version(9).await.unwrap(), 9);
+        assert_eq!(listings(&fake), 2, "a contended commit stays on the LIST");
+    }
+
+    #[tokio::test]
+    async fn a_commit_that_exists_sends_the_question_to_the_listing() {
+        let (fake, store) = probed_store(CONDITIONAL_PUT_LOG_STORE, soon()).await;
+        assert_eq!(store.get_latest_version(4).await.unwrap(), 9);
+        assert_eq!(listings(&fake), 1);
+    }
+
+    #[tokio::test]
+    async fn a_log_store_without_a_create_only_put_keeps_its_listing() {
+        let (fake, store) = probed_store("S3DynamoDbLogStore", soon()).await;
+        assert_eq!(store.get_latest_version(5).await.unwrap(), 9);
+        assert_eq!(listings(&fake), 1);
+    }
+
+    #[tokio::test]
+    async fn the_probe_is_not_used_after_its_deadline() {
+        let (fake, store) = probed_store(CONDITIONAL_PUT_LOG_STORE, Instant::now()).await;
+        assert_eq!(store.get_latest_version(5).await.unwrap(), 9);
+        assert_eq!(listings(&fake), 1);
+    }
+
+    #[tokio::test]
+    async fn a_replaced_table_fails_the_commit_as_a_conflict() {
+        let (fake, store) = probed_store(CONDITIONAL_PUT_LOG_STORE, soon()).await;
+        fake.store
+            .put(&commit_file(3), payload_of(11))
+            .await
+            .unwrap();
+
+        let err = store.get_latest_version(5).await.unwrap_err();
+        assert_eq!(listings(&fake), 0);
+        let mapped: crate::errors::Error = err.into();
+        assert!(
+            matches!(mapped, crate::errors::Error::Conflict(_)),
+            "{mapped:?}"
+        );
     }
 }

@@ -18,21 +18,27 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
-from products.alerts.backend.destinations import count_active_alert_destinations
-from products.alerts.backend.facade.api import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    AlertScheduleRestriction,
-    DestinationType,
+from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
+    count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+    redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
-    validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -77,11 +83,6 @@ _SENTINEL: Final = object()
 
 def _any_field_changed(instance: VisionAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
 
 
 class VisionAlertSelectionSerializer(serializers.Serializer):
@@ -136,12 +137,12 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     metric = serializers.ChoiceField(
         choices=VisionAlertMetric.choices,
-        default=VisionAlertMetric.COUNT,
+        required=False,
         help_text="Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.",
     )
     direction = serializers.ChoiceField(
         choices=VisionAlertDirection.choices,
-        default=VisionAlertDirection.ABOVE,
+        required=False,
         help_text="Metric alerts only: whether the alert fires at or above, or at or below, the threshold.",
     )
     threshold = serializers.FloatField(
@@ -150,11 +151,11 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.",
     )
     window_days = serializers.IntegerField(
-        default=1,
+        required=False,
         help_text=f"Metric alerts only: rolling window in days. Allowed values: {list(ALERT_WINDOW_DAYS)}.",
     )
     check_interval_minutes = serializers.IntegerField(
-        default=60,
+        required=False,
         min_value=MIN_CHECK_INTERVAL_MINUTES,
         help_text=f"Metric alerts only: evaluation cadence in minutes, at least {MIN_CHECK_INTERVAL_MINUTES}.",
     )
@@ -164,19 +165,19 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Current lifecycle state. Always not_firing for match alerts. Server-managed.",
     )
     evaluation_periods = serializers.IntegerField(
-        default=1,
+        required=False,
         min_value=1,
         max_value=10,
         help_text="Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).",
     )
     datapoints_to_alarm = serializers.IntegerField(
-        default=1,
+        required=False,
         min_value=1,
         max_value=10,
         help_text="Metric alerts only: how many periods must breach to fire (N in N-of-M).",
     )
     cooldown_minutes = serializers.IntegerField(
-        default=0,
+        required=False,
         min_value=0,
         help_text="Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.",
     )
@@ -206,7 +207,9 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         read_only=True, allow_null=True, help_text="When the alert was first enabled. Null means still a draft."
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the alert was created.")
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who created the alert; null once that user is deleted."
+    )
     updated_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the alert was last modified."
     )
@@ -483,6 +486,44 @@ class VisionAlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
+class VisionAlertDestinationConfigSerializer(VisionAlertDestinationResponseSerializer):
+    type = serializers.ChoiceField(choices=VISION_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(
+        help_text="Whether every HogFunction in the group is enabled, so the destination notifies on every event kind."
+    )
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Integration ID of the Slack workspace, for Slack destinations."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID, for Slack destinations.")
+    webhook_url = serializers.CharField(
+        required=False,
+        help_text="Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret.",
+    )
+
+
+class VisionAlertConfigurationDetailSerializer(VisionAlertConfigurationSerializer):
+    destinations = serializers.SerializerMethodField(
+        help_text="This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed."
+    )
+
+    class Meta(VisionAlertConfigurationSerializer.Meta):
+        fields = [*VisionAlertConfigurationSerializer.Meta.fields, "destinations"]
+
+    @extend_schema_field(VisionAlertDestinationConfigSerializer(many=True))
+    def get_destinations(self, obj: VisionAlertConfiguration) -> list[dict[str, Any]]:
+        groups = list_alert_destination_groups(
+            team_id=obj.team_id, alert_id=str(obj.id), allowed_event_ids=VISION_ALERT_EVENT_IDS
+        )
+        return [
+            {
+                "hog_function_ids": list(group.hog_function_ids),
+                "enabled": group.fully_enabled,
+                **redact_destination_data(group.data),
+            }
+            for group in groups
+        ]
+
+
 @extend_schema_view(list=extend_schema(parameters=[VisionAlertListQuerySerializer]))
 class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_alert"
@@ -497,13 +538,19 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "reset",
     ]
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
-    queryset = VisionAlertConfiguration.objects.unscoped().order_by("-created_at")
+    queryset = VisionAlertConfiguration.objects.unscoped().order_by("-created_at", "id")
     serializer_class = VisionAlertConfigurationSerializer
     lookup_field = "id"
 
     # Configuring an alert or its destinations routes recording-derived content off-platform,
     # so it needs the same session-recording read gate as vision actions.
     _CONFIG_ACTIONS = {"create", "update", "partial_update", "create_destination"}
+
+    def get_serializer_class(self) -> type[VisionAlertConfigurationSerializer]:
+        # Only a single-alert read lists destinations; other actions would pay for a HogFunction query per row.
+        if self.action == "retrieve":
+            return VisionAlertConfigurationDetailSerializer
+        return VisionAlertConfigurationSerializer
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:
@@ -530,7 +577,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ReplayScanner.objects.filter(team_id=self.team_id)
             )
             queryset = queryset.filter(scanner_id__in=accessible_scanners.values_list("id", flat=True))
-        return queryset.filter(team_id=self.team_id).select_related("created_by", "scanner")
+        return queryset.filter(team_id=self.team_id).select_related("created_by", "scanner", "team")
 
     def safely_get_object(self, queryset: QuerySet) -> VisionAlertConfiguration:
         alert = get_object_or_404(
@@ -570,7 +617,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: VisionAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["vision_alert:write"])
+    @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = VisionAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -588,7 +635,6 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             configs = [
                 build_alert_destination_config(
-                    team=alert.team,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
@@ -597,12 +643,16 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 for kind in event_kinds
             ]
-            hog_functions = create_alert_destination_hog_functions(
-                configs,
-                request=self.request,
-                alert_id=str(alert.id),
-                allowed_event_ids=VISION_ALERT_EVENT_IDS,
-            )
+            try:
+                hog_function_ids = create_alert_destination_hog_functions(
+                    configs,
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=VISION_ALERT_EVENT_IDS,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -610,7 +660,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(event_kinds)},
             request=request,
         )
-        response = VisionAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        response = VisionAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
         return Response(response.data, status=201)
 
     @extend_schema(
@@ -626,12 +676,15 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
-            soft_delete_alert_destinations(
-                team_id=self.team_id,
-                alert_id=str(alert.id),
-                allowed_event_ids=VISION_ALERT_EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
+            try:
+                soft_delete_alert_destinations(
+                    team_id=self.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids=VISION_ALERT_EVENT_IDS,
+                    hog_function_ids=hog_function_ids,
+                )
+            except AlertDestinationValidationError as error:
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -668,7 +721,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 | Q(error_message__isnull=False)
                 | ~Q(state_before=F("state_after"))
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
 
         kind = request.query_params.get("kind")

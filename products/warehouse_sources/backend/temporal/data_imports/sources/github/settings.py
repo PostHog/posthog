@@ -252,8 +252,10 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         sort_mode="desc",  # API always returns newest-first; sort/direction are ignored
         response_data_path="workflow_runs",
         # workflow_run carries updated_at, which GitHub bumps on every status change — the natural
-        # recency key so a completed run is never frozen by a stale earlier webhook event.
-        version_keys=["updated_at"],
+        # recency key so a completed run is never frozen by a stale earlier webhook event. A re-run
+        # keeps the run id and raises run_attempt, which ranks first: the new attempt's first event
+        # can share its second with the previous attempt's completion, and must still win.
+        version_keys=["run_attempt", "updated_at"],
         # Webhook-only marker, like workflow_jobs and reviews: the webhook is the source of truth.
         # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
         # webhook mode from the first sync (skips the initial_sync_complete gate in github.py), and
@@ -370,7 +372,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
         # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
         # deployments created in the last 30 days; the updated_at recency skip keeps that to
-        # parents that actually gained a status since the child watermark.
+        # parents that actually gained a status since the previous successful sync started.
         initial_lookback_days=0,
         webhook_reconcile_lookback_days=30,
         # Statuses stop arriving within hours of the deployment, and 500 spans over a day even on a

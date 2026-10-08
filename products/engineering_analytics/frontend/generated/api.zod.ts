@@ -17,7 +17,7 @@ export const EngineeringAnalyticsCiSignalsConfigUpdateBody = /* @__PURE__ */ zod
 })
 
 /**
- * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
+ * Opens a pull request that edits the repository's checked-in .test_quarantine.json and, for a new quarantine, opens a tracking issue that the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
  * @summary Quarantine, extend, or unquarantine a flaky test
  */
 export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.object({

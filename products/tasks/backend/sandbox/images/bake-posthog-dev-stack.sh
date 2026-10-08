@@ -201,7 +201,7 @@ log "warming pnpm store"
 # store (under ~/.local/share/pnpm), which lives outside the checkout and survives the
 # cleanup below — the task-time `pnpm install` becomes mostly a linking pass. Bake and
 # task time run the same image's pnpm, so the store layout always matches.
-pnpm fetch --frozen-lockfile
+pnpm fetch
 # Link a full node_modules once: it backfills anything fetch skipped (git/tarball
 # resolutions) and provides the workspace-pinned playwright CLI for the browser
 # install below. --ignore-scripts keeps third-party postinstall hooks from failing

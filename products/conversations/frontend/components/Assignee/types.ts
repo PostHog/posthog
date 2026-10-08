@@ -16,6 +16,14 @@ export function toTicketAssignee(entry: Exclude<AssigneeFilterEntry, string>): N
     return entry.type === 'user' ? { type: 'user', id: Number(entry.id) } : { type: 'role', id: String(entry.id) }
 }
 
+export function isSameAssigneeEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
+    // String tokens ('unassigned', 'me') only match the identical token, never a concrete user/role.
+    if (typeof a === 'string' || typeof b === 'string') {
+        return a === b
+    }
+    return a.type === b.type && String(a.id) === String(b.id)
+}
+
 /** Mirrors the entry cap the tickets list endpoint applies to the `assignee` param. */
 export const MAX_ASSIGNEE_FILTER_ENTRIES = 100
 

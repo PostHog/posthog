@@ -1,5 +1,6 @@
-import { cn, Spinner } from "@posthog/quill";
+import { cn } from "@posthog/quill";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import type { Mermaid } from "mermaid";
 import { useEffect, useId, useState } from "react";
@@ -122,12 +123,10 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps) {
 
   if (state.status === "loading") {
     return (
-      <div
-        className={cn("mb-3 flex justify-center py-4", className)}
+      <LoadingState
+        className={cn("mb-3 py-4", className)}
         data-testid="mermaid-loading"
-      >
-        <Spinner />
-      </div>
+      />
     );
   }
 

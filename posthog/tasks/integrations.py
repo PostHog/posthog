@@ -10,7 +10,7 @@ from posthog.models.integration import (
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
-from products.workflows.backend.providers import SESProvider
+from products.workflows.backend.facade.api import delete_ses_identity
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -123,7 +123,7 @@ def delete_ses_identity_if_unused(domain: str) -> None:
     if Integration.objects.filter(kind="email", config__domain=domain).exists():
         return
 
-    SESProvider().delete_identity(domain)
+    delete_ses_identity(domain)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)

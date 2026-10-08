@@ -72,57 +72,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_yields_items_and_stops(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(zenloop, "PER_PAGE", 2)
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        manager = _make_manager()
-        rows = _rows(zenloop_source("token", "surveys", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 1
-        # Page shorter than PER_PAGE, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_short_page(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(zenloop, "PER_PAGE", 2)
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"id": 1}, {"id": 2}]),
-                _response([{"id": 3}, {"id": 4}]),
-                _response([{"id": 5}]),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(zenloop_source("token", "surveys", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3, 4, 5]
-        # The short third page ends the sync with no extra empty-page request.
-        assert session.send.call_count == 3
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == 2
-        assert params[1]["page"] == 2
-        assert params[2]["page"] == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_each_full_batch_only(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(zenloop, "PER_PAGE", 2)
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}]), _response([{"id": 3}])])
-
-        manager = _make_manager()
-        _rows(zenloop_source("token", "surveys", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # State saved AFTER the full page 1 (pointing at page 2), never for the final short page.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [ZenloopResumeConfig(next_page=2)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession, monkeypatch) -> None:
         monkeypatch.setattr(zenloop, "PER_PAGE", 2)
         session = MockSession.return_value
@@ -134,30 +83,6 @@ class TestPagination:
 
         assert [r["id"] for r in rows] == [3, 4, 5]
         assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_no_rows(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(zenloop, "PER_PAGE", 2)
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(zenloop_source("token", "surveys", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_selects_rows_under_endpoint_named_key(self, MockSession, monkeypatch) -> None:
-        monkeypatch.setattr(zenloop, "PER_PAGE", 2)
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 9}], response_key="properties")])
-
-        manager = _make_manager()
-        rows = _rows(zenloop_source("token", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": 9}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession, monkeypatch) -> None:

@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -12,7 +12,7 @@ import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const testUniqueKey = 'testUniqueKey'
 
-const makeInitialQuery = (): DataVisualizationNode => ({
+const makeInitialQuery = (): VisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -56,7 +56,7 @@ const makeInitialQuery = (): DataVisualizationNode => ({
 // globalQuery represents the query object that is passed into the data
 // visualization logic and series breakdown logic it is modified by calls to
 // setQuery so we want to ensure this is updated correctly
-let globalQuery: DataVisualizationNode = makeInitialQuery()
+let globalQuery: VisualizationNode = makeInitialQuery()
 
 const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     key: testUniqueKey,
@@ -327,6 +327,88 @@ describe('seriesBreakdownLogic', () => {
                 ],
                 isUnaggregated: false,
             },
+        })
+    })
+
+    it.each([
+        { xColumn: 'event', breakdownColumn: 'browser' },
+        { xColumn: 'browser', breakdownColumn: 'event' },
+    ])(
+        'shows taxonomy display names when the event column is the $xColumn x-axis or $breakdownColumn breakdown',
+        async ({ xColumn, breakdownColumn }) => {
+            logic = seriesBreakdownLogic({ key: testUniqueKey })
+            logic.mount()
+
+            const builtDataNodeLogic = dataNodeLogic({
+                key: testUniqueKey,
+                query: globalQuery.source,
+            })
+            builtDataNodeLogic.mount()
+            builtDataNodeLogic.actions.setResponse({
+                results: [
+                    ['$pageview', 'Safari', 11],
+                    ['signed_up', 'Safari', 22],
+                ],
+                columns: ['event', 'browser', 'total_count'],
+                types: [
+                    ['event', 'String'],
+                    ['browser', 'Nullable(String)'],
+                    ['total_count', 'UInt64'],
+                ],
+            })
+
+            builtDataVizLogic.actions.clearAxis()
+            builtDataVizLogic.actions.updateXSeries(xColumn)
+            builtDataVizLogic.actions.addYSeries('total_count')
+            logic.actions.addSeriesBreakdown(breakdownColumn)
+
+            const { xData, seriesData } = logic.values.seriesBreakdownData
+            if (xColumn === 'event') {
+                expect(xData.data).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Safari'])
+            } else {
+                expect(xData.data).toEqual(['Safari'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.breakdownValue)).toEqual(['$pageview', 'signed_up'])
+            }
+        }
+    )
+
+    it('sums raw breakdown values at zero decimal places', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+        builtDataNodeLogic.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', 42.195],
+                ['logged_out', 'Safari', 11.7],
+                ['downloaded_file', 'Safari', 0.49],
+                ['downloaded_file', 'Safari', 0.49],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'Float64'],
+            ],
+        })
+
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+        builtDataVizLogic.actions.updateSeriesIndex(0, 'total_count', { formatting: { decimalPlaces: 0 } })
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            seriesBreakdownData: expect.objectContaining({
+                seriesData: [expect.objectContaining({ name: 'Safari', data: [42.195, 11.7, 0.98] })],
+            }),
         })
     })
 

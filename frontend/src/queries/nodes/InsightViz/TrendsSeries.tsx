@@ -18,10 +18,11 @@ import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/querie
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { LifecycleSeriesHeader } from 'products/product_analytics/frontend/insights/lifecycle/LifecycleSeriesHeader'
+import { TrendsFormula } from 'products/product_analytics/frontend/insights/trends/filters/TrendsFormula'
+
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/actionsAndEventsToSeries'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
-import { TrendsFormula } from './TrendsFormula'
 
 const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
@@ -34,7 +35,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, setFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -74,7 +75,7 @@ export function TrendsSeries(): JSX.Element | null {
         <LemonSwitch
             className="mt-2"
             checked={hasFormula}
-            onChange={() => toggleFormulaMode()}
+            onChange={setFormulaMode}
             disabled={hasFormula && !canDisableFormula}
             label="Formula mode"
             bordered

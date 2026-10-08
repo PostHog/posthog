@@ -9,8 +9,6 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
-import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
@@ -18,6 +16,8 @@ import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { retentionGraphLogic } from '../retentionGraphLogic'
+import { retentionModalLogic } from '../retentionModalLogic'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,

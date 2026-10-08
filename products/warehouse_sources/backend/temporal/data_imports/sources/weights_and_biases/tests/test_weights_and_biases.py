@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
     WANDB_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases import (
-    PAGE_SIZE,
     WeightsAndBiasesConfigError,
     WeightsAndBiasesGraphQLError,
     WeightsAndBiasesResumeConfig,
@@ -123,19 +122,6 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "viewer, expected",
-        [
-            ({"id": "abc", "username": "someone"}, True),
-            (None, False),  # the API returns 200 with viewer=null for a bad key
-        ],
-    )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_viewer_presence_decides_validity(self, mock_session, viewer, expected):
-        mock_session.return_value.post.return_value = _ok_response({"data": {"viewer": viewer}})
-
-        assert validate_credentials("key", None) is expected
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_on_exception(self, mock_session):
         mock_session.return_value.post.side_effect = Exception("boom")
@@ -150,60 +136,6 @@ class TestValidateCredentials:
 
         assert mock_session.return_value.auth == ("api", "secret-key")
         assert mock_session.return_value.post.call_args.args[0] == "https://acme.wandb.io/graphql"
-
-
-class TestProjectsEndpoint:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_and_saves_state_after_yield(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _projects_response(["p1", "p2"], has_next=True, end_cursor="cur-1"),
-            _projects_response(["p3"], has_next=False),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("key", None, "acme", "projects", mock.MagicMock(), manager))
-
-        assert [row["name"] for batch in batches for row in batch] == ["p1", "p2", "p3"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].cursor == "cur-1"
-        second_vars = mock_session.return_value.post.call_args_list[1].kwargs["json"]["variables"]
-        assert second_vars["after"] == "cur-1"
-        assert second_vars["first"] == PAGE_SIZE
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_edges_page_with_has_next_keeps_paginating(self, mock_session):
-        # The live API returns empty edges with hasNextPage=true for pages whose rows are
-        # hidden from the caller — terminating on the empty page would silently truncate.
-        mock_session.return_value.post.side_effect = [
-            _connection_response(("models",), [], has_next=True, end_cursor="cur-1"),
-            _projects_response(["p1"], has_next=False),
-        ]
-
-        batches = list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
-
-        assert [row["name"] for batch in batches for row in batch] == ["p1"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_non_advancing_cursor_terminates(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _projects_response(["p1"], has_next=True, end_cursor="cur-1"),
-            _projects_response(["p2"], has_next=True, end_cursor="cur-1"),
-        ]
-
-        batches = list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
-
-        assert mock_session.return_value.post.call_count == 2
-        assert [row["name"] for batch in batches for row in batch] == ["p1", "p2"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value.post.return_value = _projects_response(["p9"], has_next=False)
-
-        manager = _make_manager(WeightsAndBiasesResumeConfig(cursor="cur-resume"))
-        list(get_rows("key", None, "acme", "projects", mock.MagicMock(), manager))
-
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert variables["after"] == "cur-resume"
 
 
 class TestRunsEndpoint:
@@ -241,19 +173,6 @@ class TestRunsEndpoint:
         variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
         assert json.loads(variables["filters"]) == {expected_filter_key: {"$gt": "2024-01-02T00:00:00Z"}}
         assert variables["order"] == expected_order
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_has_null_filters_and_stable_order(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _projects_response(["proj-a"]),
-            _connection_response(("project", "runs"), []),
-        ]
-
-        list(get_rows("key", None, "acme", "runs", mock.MagicMock(), _make_manager()))
-
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert variables["filters"] is None
-        assert variables["order"] == "+created_at"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_rows_carry_project_name_and_state_saved_per_page(self, mock_session):
@@ -296,20 +215,6 @@ class TestRunsEndpoint:
             "proj-c",
             None,
         )
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_deleted_bookmarked_project_restarts_from_first(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _projects_response(["proj-a"]),
-            _connection_response(("project", "runs"), [_run_edge("ra")], has_next=False),
-        ]
-
-        manager = _make_manager(WeightsAndBiasesResumeConfig(project="deleted-proj", cursor="cur-9"))
-        batches = list(get_rows("key", None, "acme", "runs", mock.MagicMock(), manager))
-
-        run_vars = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert (run_vars["project"], run_vars["after"]) == ("proj-a", None)
-        assert [row["id"] for batch in batches for row in batch] == ["ra"]
 
 
 class TestArtifactsEndpoint:

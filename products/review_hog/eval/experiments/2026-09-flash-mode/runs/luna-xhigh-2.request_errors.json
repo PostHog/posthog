@@ -1,0 +1,212 @@
+{
+    "schema_version": 1,
+    "usage_file": "luna-xhigh-2.ai_usage.json",
+    "usage_sha256": "646dbd06521070e21695232ecc13f20c5c933a65bb025dc9c5b564a404de3048",
+    "accounting_basis": "priced_successful_generations",
+    "requests": 546,
+    "priced_generations": 537,
+    "request_errors": 9,
+    "priced_successful_generation_cost_usd": "3.15126478",
+    "unpriced_error_cost_usd": null,
+    "cost_imputed": false,
+    "litellm_version": "1.92.0",
+    "evidence_method": "Complete Kafka snapshot matched all retained usage rows. Successful events all contained gateway dollars. Nine failure events contained the exact error below and no token or cost fields. Classification follows the installed OpenAI Responses API request and error paths.",
+    "source_evidence": {
+        "http_before_stream": {
+            "file": "litellm/llms/custom_httpx/llm_http_handler.py",
+            "lines": [2585, 2615],
+            "fact": "The HTTP POST completes before ResponsesAPIStreamingIterator is constructed."
+        },
+        "http_status_check": {
+            "file": "litellm/llms/custom_httpx/http_handler.py",
+            "lines": [633, 635],
+            "fact": "response.raise_for_status() runs before the response returns."
+        },
+        "not_found_mapping": {
+            "file": "litellm/litellm_core_utils/exception_mapping_utils.py",
+            "lines": [406, 414],
+            "fact": "HTTP status 404 maps to the exact NotFoundError: OpenAIException prefix captured in all nine events."
+        },
+        "stream_failure_mapping": {
+            "file": "litellm/responses/streaming_iterator.py",
+            "lines": [316, 339],
+            "fact": "A streamed response.failed event constructs APIError with status 500."
+        },
+        "gateway_pre_stream_failure": {
+            "file": "services/llm-gateway/src/llm_gateway/api/handler.py",
+            "lines": [333, 393],
+            "fact": "An initial provider exception is returned before the response stream is created."
+        },
+        "gateway_failure_capture": {
+            "file": "services/llm-gateway/src/llm_gateway/callbacks/posthog.py",
+            "lines": [343, 403],
+            "fact": "The failure callback emits error metadata without token or cost fields."
+        }
+    },
+    "limitations": [
+        "This is the cost of priced successful generations. The rejected attempts retain unknown cost; no zero was imputed.",
+        "Provider invoice charges are not verified by gateway capture. The product billable flag does not establish provider billing.",
+        "Pre-stream classification uses the retained exact error and installed source. A request-level HTTP log was not available."
+    ],
+    "errors": [
+        {
+            "row_index": 489,
+            "identity": {
+                "ts": 1789676675825,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 497,
+            "identity": {
+                "ts": 1789676710606,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 500,
+            "identity": {
+                "ts": 1789676717684,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 501,
+            "identity": {
+                "ts": 1789676718221,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 504,
+            "identity": {
+                "ts": 1789676739626,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 508,
+            "identity": {
+                "ts": 1789676768234,
+                "stage": "validation-c1",
+                "model": "gpt-5.6-luna",
+                "session": "49a17e92-1221-4b35-8f59-9d81ce6bca77",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 529,
+            "identity": {
+                "ts": 1789676874451,
+                "stage": "validation-c2",
+                "model": "gpt-5.6-luna",
+                "session": "c4e0164e-cafb-477b-8360-1c1418654487",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 537,
+            "identity": {
+                "ts": 1789676950302,
+                "stage": "validation-c2",
+                "model": "gpt-5.6-luna",
+                "session": "c4e0164e-cafb-477b-8360-1c1418654487",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        },
+        {
+            "row_index": 543,
+            "identity": {
+                "ts": 1789676968961,
+                "stage": "validation-c2",
+                "model": "gpt-5.6-luna",
+                "session": "c4e0164e-cafb-477b-8360-1c1418654487",
+                "effort": "xhigh"
+            },
+            "is_error": true,
+            "error": "litellm.NotFoundError: NotFoundError: OpenAIException - ",
+            "http_status": 404,
+            "phase": "before_response_stream",
+            "usage_fields_present": [],
+            "cost_fields_present": [],
+            "cost_usd": null
+        }
+    ],
+    "capture_snapshot_complete": true,
+    "raw_rows_matched": 546,
+    "successful_generations_missing_cost": 0,
+    "priced_error_events": 0,
+    "collector_usage_sha256": "8700e4d181dc05f3ca3f23df10dae32221a1a95fb0b98e26c99c7367c81c1979",
+    "serialization_note": "Repository JSON formatting changed whitespace after collection. Every parsed value, including Decimal token costs and null error costs, was verified unchanged against the collected artifact. usage_sha256 binds this formatted file; collector_usage_sha256 identifies the original serialization."
+}

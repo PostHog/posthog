@@ -1,13 +1,18 @@
 # AppFollow API inventory
 
-Reference for the endpoints this source syncs. AppFollow API v2, base URL `https://api.appfollow.io/api/v2`,
+Reference for the endpoints this source syncs. The source supports API `v2` and `v3` (the default for new
+sources). See [API v3](#api-v3) for the tables that change under a v3 pin. AppFollow API v2, base URL `https://api.appfollow.io/api/v2`,
 auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.io/reference/overview>.
 
-> **Verification status:** the response shapes below are reconstructed from the public API docs and the
-> open-source Airbyte `source-appfollow` connector (which confirms `app_collections`, `app_lists`,
-> `users`, and `ratings` shapes). We did **not** have an API token to curl-verify the `reviews` and
-> `ratings_history` request/response details live, so a few field names and the `last_modified` format
-> are best-effort — see the inline notes in `appfollow.py`.
+> **Verification status:** every path and query parameter below was checked against the published v2
+> OpenAPI definition for that endpoint. Response shapes are a different matter: AppFollow publishes an
+> **empty 200 schema for every v2 endpoint**, so no envelope key or row field is documented anywhere.
+> Those columns are reconstructed from the docs, the open-source Airbyte `source-appfollow` connector
+> (which confirms `app_collections`, `app_lists`, `users`, and `ratings`), and the shape of the
+> product's own UI. We did **not** have an API token to curl-verify anything live, so field names, the
+> `last_modified` format, and the envelope keys marked "unpublished" below are best-effort — see the
+> inline notes in `appfollow.py`. `_extract_rows` takes candidate envelope keys and falls back to a
+> root list for those endpoints, so a wrong guess yields an empty table rather than a wrong one.
 
 ## Cost & limits
 
@@ -20,13 +25,17 @@ auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.i
 
 ## Endpoints
 
-| Schema            | Path                                                                    | Shape                                 | Rows under | Primary key                   | Incremental                   | Default sync |
-| ----------------- | ----------------------------------------------------------------------- | ------------------------------------- | ---------- | ----------------------------- | ----------------------------- | ------------ |
-| `app_collections` | `/account/apps`                                                         | single request                        | `apps`     | `[id]`                        | — (full refresh)              | ✅           |
-| `app_lists`       | `/account/apps/app?apps_id=<id>`                                        | fan-out over collections              | `apps_app` | `[app_collection_id, app_id]` | — (full refresh)              | ✅           |
-| `users`           | `/account/users`                                                        | single request                        | root list  | `[id]`                        | — (full refresh)              | ❌           |
-| `reviews`         | `/reviews?ext_id=<ext_id>&from=&to=&page=`                              | fan-out over apps, page/`pages_count` | `reviews`  | `[ext_id, review_id]`         | `updated` via `last_modified` | ✅           |
-| `ratings_history` | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit       | `ratings`  | `[ext_id, store, date]`       | `date` via `from`             | ❌           |
+| Schema            | Path                                                                    | Shape                                 | Rows under  | Primary key                                 | Incremental                   | Default sync |
+| ----------------- | ----------------------------------------------------------------------- | ------------------------------------- | ----------- | ------------------------------------------- | ----------------------------- | ------------ |
+| `app_collections` | `/account/apps`                                                         | single request                        | `apps`      | `[id]`                                      | — (full refresh)              | ✅           |
+| `app_lists`       | `/account/apps/app?apps_id=<id>`                                        | fan-out over collections              | `apps_app`  | `[app_collection_id, app_id]`               | — (full refresh)              | ✅           |
+| `users`           | `/account/users`                                                        | single request                        | root list   | `[id]`                                      | — (full refresh)              | ❌           |
+| `reviews`         | `/reviews?ext_id=<ext_id>&from=&to=&page=`                              | fan-out over apps, page/`pages_count` | `reviews`   | `[ext_id, review_id]`                       | `updated` via `last_modified` | ✅           |
+| `ratings_history` | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit       | `ratings`   | `[ext_id, store, date]`                     | `date` via `from`             | ❌           |
+| `rankings`        | `/meta/rankings?ext_id=<ext_id>&date=`                                  | fan-out over apps, single request     | unpublished | `[ext_id, country, device, genre_id, date]` | — (full refresh)              | ❌           |
+| `keywords`        | `/aso/keywords?ext_id=<ext_id>&date=&page=`                             | fan-out over apps, `page`             | unpublished | `[ext_id, country, device, date, keyword]`  | — (full refresh)              | ❌           |
+| `app_versions`    | `/meta/versions?ext_id=<ext_id>&country=&page=`                         | fan-out over apps, `page`             | unpublished | `[ext_id, country, version]`                | — (full refresh)              | ❌           |
+| `reviews_stats`   | `/reviews/stats?ext_id=<ext_id>&from=&to=`                              | fan-out over apps, single request     | unpublished | `[ext_id, date]`                            | `date` via `from`             | ❌           |
 
 ## Discovery chain
 
@@ -48,3 +57,58 @@ enumerate a workspace's apps is:
   window to `DEFAULT_START_DATE`..today and let `last_modified` do the incremental work.
 - `ratings_history`: `type=total` returns one dated snapshot per day; the `from` date filter is the
   incremental cursor (past snapshots don't change, so `from`=watermark is safe).
+- `reviews_stats`: `from`/`to` bound the reported range, so `from`=watermark is the incremental cursor,
+  exactly as for `ratings_history`.
+- `rankings` and `keywords` take a single optional `date`, **not** a range. There is no server-side
+  filter to drive a delta off, and one request per day per app would cost 10 credits each, so both sync
+  as a full refresh of one day. We request today explicitly and stamp that date on every row, so the
+  primary key and the partition key are populated even though the response schema is unpublished.
+- `app_versions`: `/meta/versions` exposes no date parameter at all. Full refresh; the table is small.
+
+## Pagination notes
+
+- `keywords` and `app_versions` page with a bare 1-indexed `page`. Neither publishes a page count, a
+  total, or a page-size parameter, so the walk can only end on an empty page. `MAX_PAGES_PER_APP` caps
+  it and logs when the cap is reached.
+- `rankings` and `reviews_stats` expose no pagination at all — one request per app is the whole walk.
+
+## Country resolution
+
+`/meta/versions` **requires** a `country`, and an app row does not reliably carry one. The fan-out
+resolves it per app: the app's own `country`, then the nested `app.country`, then the collection's
+`default_country`, then the first entry of the collection's `countries`, then `us`. An app tracked in
+two collections with different countries is fetched once per country, because versions vary by country.
+
+## API v3
+
+API v3 (<https://docs.api.appfollow.io/v3.0/reference/overview>) is a new set of endpoints under
+`https://api.appfollow.io/api/v3`. They are not backward compatible with v2, but the same token and
+`X-AppFollow-API-Token` header work. v3 publishes response schemas, so the v3 columns below come from the
+reference rather than from reconstruction.
+
+v3 replaces only the collection, app, and review endpoints. Under a v3 pin those three tables move to the
+v3 wire. Every other table keeps its v2 request path, which AppFollow still serves, including the v2
+collection and app walk that discovers the `ext_id`s those fan-outs need. The table set does not change.
+
+| Schema            | v3 path                            | Shape                                 | Rows under              | Primary key              | Incremental       |
+| ----------------- | ---------------------------------- | ------------------------------------- | ----------------------- | ------------------------ | ----------------- |
+| `app_collections` | `GET /workspaces`                  | single request                        | values of `collections` | `[collectionId]`         | — (full refresh)  |
+| `app_lists`       | `GET /workspaces/apps?appsId=<id>` | fan-out over workspaces               | `apps`                  | `[collectionId, itemId]` | — (full refresh)  |
+| `reviews`         | `POST /reviews/feed` (JSON body)   | fan-out over workspaces, `nextCursor` | `reviews`               | `[itemId, id]`           | `date` via `from` |
+
+- `/workspaces` returns a map from `collectionCode` to workspace. We emit the values in the
+  `sortedCollections` order so the reviews resume bookmark stays stable.
+- `/workspaces/apps` rows carry no workspace id, so we stamp `collectionId` for the primary key.
+  `itemId` identifies an app within one workspace.
+- `/reviews/feed` takes `appsId` (required), `from`/`to` (required dates), `limit` (max 100), `sort`,
+  and `cursor`. We send `sort=oldest`. There is no last-modified filter, so `from`=watermark is the
+  incremental cursor, and an edit to a review older than the watermark is not re-synced.
+- Review rows nest store, rating, country, version, and dates under `metaInformation`. We lift those
+  fields to the top level and also write `date` (from `created`) and `app_version` (from `version`),
+  the v2 column names that readers of the `reviews` table key on.
+- v3 has no `users`, rankings, keywords, store release history, or per-day review-statistics endpoint,
+  so those tables stay on v2.
+- `ratings_history` also stays on v2. The v3 `POST /ratings/chart` requires a `store` from its own
+  store-code enum, but the v3 app list documents a different store value (`itunes`), so the docs do not
+  show how to feed one into the other. It also returns a different row shape (`value`, `starsTotal`,
+  `stars` per period).

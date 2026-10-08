@@ -3,6 +3,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
+import pytest
+
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -18,10 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     TOAST_OMITTED_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
-    deduplicate_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 
 
@@ -46,6 +48,17 @@ def _make_event(
 
 
 class TestChangeEventBatcher:
+    def test_discarding_a_table_releases_its_share_of_the_flush_budget(self):
+        batcher = ChangeEventBatcher(max_bytes=1)
+        batcher.add(_make_event(table="users"))
+        batcher.add(_make_event(table="orders"))
+
+        batcher.discard("users")
+        batcher.discard("orders")
+
+        assert batcher.event_count == 0
+        assert batcher.should_flush is False
+
     def test_empty_flush(self):
         batcher = ChangeEventBatcher()
         result = batcher.flush()
@@ -286,80 +299,6 @@ class TestEventsToTableEdgeCases:
         assert table.column("seats").type == pa.string()
 
 
-class TestDeduplicateTable:
-    def _make_raw_table(self, events):
-        batcher = ChangeEventBatcher()
-        for ev in events:
-            batcher.add(ev)
-        return batcher.flush()["users"]
-
-    @parameterized.expand(
-        [
-            (
-                "single_event_unchanged",
-                [("I", {"id": 1})],
-                ["id"],
-                1,
-                None,
-            ),
-            (
-                "two_updates_same_pk_keeps_last",
-                [("U", {"id": 1, "name": "Alice"}), ("U", {"id": 1, "name": "Bob"})],
-                ["id"],
-                1,
-                {"name": "Bob"},
-            ),
-            (
-                "different_pks_both_kept",
-                [("I", {"id": 1, "name": "Alice"}), ("I", {"id": 2, "name": "Bob"})],
-                ["id"],
-                2,
-                None,
-            ),
-            (
-                "insert_then_delete_keeps_delete",
-                [("I", {"id": 1, "name": "Alice"}), ("D", {"id": 1})],
-                ["id"],
-                1,
-                {"_ph_cdc_op": "D"},
-            ),
-            (
-                "empty_pk_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                [],
-                2,
-                None,
-            ),
-            (
-                "missing_pk_col_returns_unchanged",
-                [("I", {"id": 1}), ("I", {"id": 2})],
-                ["nonexistent_col"],
-                2,
-                None,
-            ),
-        ],
-    )
-    def test_deduplicate(self, _name, ops_and_cols, pk_columns, expected_rows, expected_values):
-        events = [
-            _make_event(op=op, columns=cols, position=f"0/{i}00") for i, (op, cols) in enumerate(ops_and_cols, start=1)
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, pk_columns)
-        assert result.num_rows == expected_rows
-        if expected_values:
-            for col, val in expected_values.items():
-                assert result.column(col)[0].as_py() == val
-
-    def test_preserves_row_order(self):
-        events = [
-            _make_event(op="I", columns={"id": 2, "name": "Bob"}, position="0/100"),
-            _make_event(op="I", columns={"id": 1, "name": "Alice"}, position="0/200"),
-        ]
-        table = self._make_raw_table(events)
-        result = deduplicate_table(table, ["id"])
-        assert result.column("id").to_pylist() == [2, 1]
-
-
 class TestBuildScd2Table:
     def _make_raw_table(self, events):
         batcher = ChangeEventBatcher()
@@ -459,11 +398,12 @@ class TestEnrichDeleteRows:
         assert result.column(CDC_OP_COLUMN)[1].as_py() == "D"
         assert result.column(DELETED_COLUMN)[1].as_py() is True
 
-    def test_delete_after_update_uses_update_data(self):
+    def test_delete_uses_the_last_change_before_it(self):
         events = [
             _make_event(op="I", columns={"id": 1, "name": "Alice"}),
             _make_event(op="U", columns={"id": 1, "name": "Bob"}),
             _make_event(op="D", columns={"id": 1}),
+            _make_event(op="I", columns={"id": 1, "name": "Carol"}),
         ]
         table = self._make_raw_table(events)
         result = enrich_delete_rows(table, ["id"])
@@ -707,7 +647,6 @@ class TestSeqColumn:
         assert has_engine_seq(table)
         assert has_engine_seq(toasted)
         assert has_engine_seq(enriched)
-        assert has_engine_seq(deduplicate_table(enriched, ["id"]))
         assert has_engine_seq(build_scd2_table(enriched, ["id"]))
 
     def test_engine_seq_is_stamped_and_survives_a_parquet_round_trip(self):
@@ -751,3 +690,42 @@ class TestSeqColumn:
         # The DELETE row copied `name` from the preceding update, proving
         # enrichment ran while seq stayed per-event.
         assert enriched.column("name")[1].as_py() == "Alice"
+
+
+class TestScd2TimestampType:
+    def test_scd2_columns_match_the_timestamp_column(self):
+        # `valid_from` carries the timestamp column's own values, so it must carry its type too:
+        # declaring a fixed UTC type made pyarrow reject every naive batch.
+        ts = pa.timestamp("us")
+        table = pa.table(
+            {
+                "id": pa.array([1, 1], pa.int64()),
+                CDC_TIMESTAMP_COLUMN: pa.array([0, 1], ts),
+            }
+        )
+
+        result = build_scd2_table(table, ["id"])
+
+        assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
+        assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
+        assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
+
+
+class TestScd2ReservedColumns:
+    @parameterized.expand([(SCD2_VALID_FROM_COLUMN,), (SCD2_VALID_TO_COLUMN,)])
+    def test_a_source_column_named_like_the_stamp_fails_before_the_writer(self, taken):
+        # Delta refuses the duplicate name at write time, but by then a batch is half built and
+        # the error names a qualified field, not the customer's column. A silent skip here is
+        # worse still: the writer would close rows against the customer's own values.
+        table = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                taken: pa.array([datetime(2020, 1, 1)], pa.timestamp("us")),
+                CDC_SEQ_COLUMN: pa.array([5], pa.int64()),
+                CDC_OP_COLUMN: pa.array(["U"], pa.string()),
+                CDC_TIMESTAMP_COLUMN: pa.array([datetime(2026, 1, 1)], pa.timestamp("us")),
+            }
+        )
+
+        with pytest.raises(CDCReservedColumnError, match=taken):
+            build_scd2_table(table, ["id"])

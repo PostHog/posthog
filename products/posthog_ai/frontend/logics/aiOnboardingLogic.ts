@@ -60,10 +60,10 @@ export interface aiOnboardingLogicActions {
         seed: ComposerSeed
     } // composerSeedLogic
     updateHasSeenProductIntroFor: (
-        productKey: ProductKey,
+        productKey: string,
         value?: boolean | undefined
     ) => {
-        productKey: ProductKey
+        productKey: string
         value: boolean
     } // userLogic
     clickGithubCta: () => {

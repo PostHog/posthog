@@ -1,14 +1,12 @@
+import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
+import { shortIdActivityLink } from 'lib/components/ActivityLog/activityDescriptions/shortIdActivityLink'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
@@ -25,16 +23,6 @@ const notebookActionsMapping: Record<
     },
 }
 
-function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail.name ? (
-        <>{logItem?.detail.name}</>
-    ) : (
-        <i>Untitled</i>
-    )
-}
-
 export function notebookActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.NOTEBOOK) {
         console.error('notebook describer received a non-Notebook activity')
@@ -42,42 +30,16 @@ export function notebookActivityDescriber(logItem: ActivityLogItem, asNotificati
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
-        let changes: Description[] = []
-        let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
-
-        for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !notebookActionsMapping[change.field]) {
-                continue //  not all notebook fields are describable
-            }
-
-            const actionHandler = notebookActionsMapping[change.field]
-            const processedChange = actionHandler(change, logItem)
-            if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
-            }
-
-            const { description, suffix } = processedChange
-            if (description) {
-                changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
-            }
-        }
-
-        if (changes.length) {
-            return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
-                        suffix={changeSuffix}
-                    />
-                ),
-            }
+        const changes = describeMappedChanges(
+            logItem,
+            notebookActionsMapping,
+            shortIdActivityLink(logItem, urls.notebook),
+            <>on {shortIdActivityLink(logItem, urls.notebook)}</>
+        )
+        if (changes) {
+            return changes
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, shortIdActivityLink(logItem, urls.notebook))
 }

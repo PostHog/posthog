@@ -70,7 +70,7 @@ describe('helpers', () => {
             ])
         })
 
-        it('keeps only the picked tools, and drops the project tag, while the Tool filter has a selection', () => {
+        it('keeps only the picked products, and drops the project tag, while the Product filter has a selection', () => {
             const visibleResources = new Set<APIScopeObject>(['dashboard', 'tracing', 'insight'])
             const filteredResources = new Set<APIScopeObject>(['tracing'])
             expect(getAccessSummaryTags(roleEntry, visibleResources, filteredResources)).toEqual([

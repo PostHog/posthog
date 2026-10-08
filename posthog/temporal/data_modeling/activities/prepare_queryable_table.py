@@ -55,8 +55,8 @@ def _update_saved_query_with_table(
         saved_query_table.row_count = inputs.row_count
         saved_query_table.save()
 
-    # The table is what makes the query a matview, so this is the one place that always knows the
-    # node type is stale — every other materialization entry point can leave it behind.
+    # Every other materialization entry point can leave a stale node type behind, so repair it here.
+    # A query reverted mid-run is left alone: it no longer asks to materialize.
     promote_view_nodes_to_matview(saved_query)
 
 

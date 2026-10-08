@@ -1,6 +1,6 @@
 class WizardRunDispatchError(Exception):
-    def __init__(self, *, exhausted: bool) -> None:
-        self.exhausted = exhausted
+    def __init__(self, *, is_exhausted: bool) -> None:
+        self.exhausted = is_exhausted
         super().__init__()
 
 

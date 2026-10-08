@@ -22,6 +22,7 @@ import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { insightsModel } from '~/models/insightsModel'
 import {
     AgentMode,
     AssistantTool,
@@ -29,7 +30,7 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { RecordingUniversalFilters } from '~/types'
+import { InsightShortId, RecordingUniversalFilters } from '~/types'
 
 export interface EnhancedToolCall extends AssistantToolCall {
     status: TaskExecutionStatus
@@ -41,6 +42,24 @@ export interface EnhancedToolCall extends AssistantToolCall {
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
+}
+
+/**
+ * Longest message the server accepts. Mirrors `MAX_MESSAGE_CONTENT_LENGTH` in ee/api/conversation.py;
+ * keep the two in sync. Anything longer comes back as a 400 on the `content` field.
+ */
+export const MAX_MESSAGE_LENGTH = 40000
+
+/** Shown when a message is over `MAX_MESSAGE_LENGTH`, both before sending and if the server rejects it. */
+export const MESSAGE_TOO_LONG = `Your message is too long. Shorten it to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters or fewer.`
+
+/**
+ * Counts the way the server's `CharField` does: it trims whitespace, then measures Unicode code
+ * points (Python `len`), not UTF-16 units. Emoji are one code point each but two UTF-16 units, so
+ * `String.length` would reject messages the server accepts.
+ */
+export function messageLength(content: string): number {
+    return Array.from(content.trim()).length
 }
 
 /** Static tool definition for display purposes. */
@@ -64,6 +83,7 @@ export interface ToolDefinition<N extends string = string> {
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | ReplayVisionScanWidgetDef | null]
+    onResult?: (result: any) => void
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -574,7 +594,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         modes: [AgentMode.ProductAnalytics],
+        onResult: (result) => {
+            if (result?.saved_insight?.short_id) {
+                insightsModel.actions.insightSaved(result.saved_insight.short_id as InsightShortId)
+            }
+        },
         displayFormatter: (toolCall, { registeredToolMap }) => {
+            if (toolCall.args?.insight_id) {
+                return toolCall.status === 'completed' ? 'Updated insight' : 'Updating insight...'
+            }
             const isEditing = registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
@@ -612,34 +640,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return ['Filtered recordings', widgetDef]
             }
             return ['Filtering recordings...', widgetDef]
-        },
-    },
-    analyze_user_interviews: {
-        name: 'Analyze user interviews',
-        description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed user interviews'
-            }
-            return 'Analyzing user interviews...'
-        },
-    },
-    create_user_interview_topic: {
-        name: 'Set up user interviews',
-        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
-        product: Scene.UserInterviews,
-        flag: FEATURE_FLAGS.USER_INTERVIEWS,
-        icon: iconForType('user_interview'),
-        modes: [AgentMode.UserInterview],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created interview topic'
-            }
-            return 'Setting up interview topic...'
         },
     },
     create_hog_function_filters: {
@@ -769,18 +769,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Summarized experiment results'
             }
             return 'Summarizing experiment results...'
-        },
-    },
-    summarize_replay_vision_summaries: {
-        name: 'Summarize session summaries',
-        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized session summaries'
-            }
-            return 'Summarizing session summaries...'
         },
     },
     draft_replay_vision_scanner_prompt: {
@@ -1472,7 +1460,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
+    Exclude<
+        AgentMode,
+        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox | AgentMode.UserInterview
+    >,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {
@@ -1540,13 +1531,6 @@ export const MODE_DEFINITIONS: Record<
             Scene.AIObservabilityPlayground,
             Scene.AIObservabilityUsers,
         ]),
-    },
-    [AgentMode.UserInterview]: {
-        name: 'User interviews',
-        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
-        icon: iconForType('user_interview'),
-        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
-        flag: 'USER_INTERVIEWS',
     },
     [AgentMode.CustomerAnalytics]: {
         name: 'Customer analytics',

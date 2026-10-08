@@ -7,12 +7,10 @@ import { useAnimatedNumber } from '@posthog/quill-charts'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
+import { type RecalculationPayload, experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { experimentResultsNotificationLogic } from '~/scenes/experiments/experimentResultsNotificationLogic'
 import { useRetryCountdownLabel } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import { Experiment } from '~/types'
-
-import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
 
 /**
  * Status line for an in-flight recalculation. Renders only while a run is actually executing
@@ -55,7 +53,7 @@ function InFlightStatus({
     notifyWhenResultsReady,
     onSubscribe,
 }: {
-    recalculation: ExperimentMetricsRecalculationApi | null
+    recalculation: RecalculationPayload | null
     liveRowsProgress: { recalculationId: string; rowsRead: number; estimatedRows: number } | null
     retryingCount: number
     nextRetryAt: string | null
@@ -170,8 +168,15 @@ function ClimbingRows({ rowsRead, estimatedRows }: { rowsRead: number; estimated
 
     return (
         <span className="text-muted text-xs whitespace-nowrap">
-            · {humanFriendlyNumber(animatedRowsRead, 0)}
-            {showCeiling && ` / ${humanFriendlyNumber(animatedEstimatedTotal, 0)}`} rows read
+            {/* The counts are bare text nodes React tracks individually, and the `showCeiling` one
+                comes and goes. Once a page-translation extension replaces them with <font> elements,
+                removing one throws removeChild NotFoundError and the rest freeze at the translated
+                value (react#11538). Only the numbers opt out of translation. */}
+            <span translate="no">
+                · {humanFriendlyNumber(animatedRowsRead, 0)}
+                {showCeiling && ` / ${humanFriendlyNumber(animatedEstimatedTotal, 0)}`}
+            </span>{' '}
+            rows read
         </span>
     )
 }

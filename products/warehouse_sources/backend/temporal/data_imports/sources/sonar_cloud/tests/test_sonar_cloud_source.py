@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SonarCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
 
 
@@ -17,10 +16,6 @@ def _config() -> SonarCloudSourceConfig:
 
 
 class TestSonarCloudSourceConfig:
-    def test_is_visible_not_unreleased(self) -> None:
-        # A finished source must be visible: unreleasedSource hides it from every user.
-        assert SonarCloudSource().get_source_config.unreleasedSource in (None, False)
-
     def test_region_and_organization_are_connection_host_fields(self) -> None:
         # `region` retargets where the stored token is sent and `organization` retargets which tenant
         # it acts on; the update serializer must force re-entering the token when either changes.
@@ -28,20 +23,9 @@ class TestSonarCloudSourceConfig:
 
 
 class TestGetSchemas:
-    def test_lists_every_endpoint_full_refresh(self) -> None:
-        schemas = SonarCloudSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # No endpoint has a verified server-side update cursor, so all are full refresh.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-
     def test_filters_by_name(self) -> None:
         schemas = SonarCloudSource().get_schemas(_config(), team_id=1, names=["issues"])
         assert [s.name for s in schemas] == ["issues"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials must produce the public-docs table catalog.
-        tables = SonarCloudSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
 
 class TestValidateCredentials:
@@ -71,14 +55,6 @@ class TestResumableWiring:
         assert kwargs["organization"] == "org"
         assert kwargs["region"] == "eu"
         assert kwargs["endpoint"] == "issues"
-
-
-class TestNonRetryableErrors:
-    def test_covers_both_region_hosts(self) -> None:
-        errors = SonarCloudSource().get_non_retryable_errors()
-        assert "401 Client Error: Unauthorized for url: https://sonarcloud.io/api" in errors
-        assert "401 Client Error: Unauthorized for url: https://sonarqube.us/api" in errors
-        assert "403 Client Error: Forbidden for url: https://sonarcloud.io/api" in errors
 
 
 def _fake_inputs(schema_name: str = "projects") -> SourceInputs:

@@ -270,6 +270,23 @@ describe("TeamSkillsService.fetchSkillForInstall", () => {
     expect(client.getLlmSkillFile).toHaveBeenCalledTimes(2);
   });
 
+  it("refuses to install a body that arrived incomplete", async () => {
+    const client = {
+      getLlmSkillByName: vi.fn().mockResolvedValue({
+        name: "pr-shepherd",
+        description: "Shepherds PRs",
+        body: "# Body",
+        body_total_length: 9689,
+        files: [],
+      }),
+      getLlmSkillFile: vi.fn(),
+    } as unknown as PostHogAPIClient;
+
+    await expect(
+      makeService().fetchSkillForInstall(client, "pr-shepherd"),
+    ).rejects.toThrow("Only part of");
+  });
+
   it("maps disable-model-invocation metadata onto the exported skill", async () => {
     const client = {
       getLlmSkillByName: vi.fn().mockResolvedValue({

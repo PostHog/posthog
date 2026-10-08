@@ -5,13 +5,20 @@ use metrics::Counter;
 use quick_cache::{sync, DefaultHashBuilder, Equivalent, Lifecycle, UnitWeighter};
 
 use crate::{
-    metrics_consts::{CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, UPDATES_CACHE},
+    metrics_consts::{
+        CACHE_EVICTIONS, CACHE_HITS, CACHE_MISSES, CACHE_REPLACEMENTS, UPDATES_CACHE,
+    },
     types::{EventProperty, GroupType, PropertyParentType, PropertyValueType, Update},
 };
 
 // Per-subcache eviction observer. The `stats` feature of quick_cache is not
 // enabled, so all cache hit/miss/eviction signal in this service comes from
 // explicit metrics emitted here and in `contains_key`.
+//
+// quick_cache also calls `on_evict` with the old entry when `insert` finds the
+// key already resident, so this counter includes the in-place replacements
+// `Cache::insert` makes on purpose. Those are counted separately as
+// CACHE_REPLACEMENTS; capacity evictions are the difference.
 //
 // Counter handles are resolved once at construction and reused: these paths run
 // per update (and `on_evict` runs under the shard write lock), so a registry
@@ -38,6 +45,47 @@ struct SubCacheEntry<K: Eq + Hash + Clone, V: Clone> {
     cache: SubCache<K, V>,
     hits: Counter,
     misses: Counter,
+    replacements: Counter,
+}
+
+impl<K: Eq + Hash + Clone, V: Clone> SubCacheEntry<K, V> {
+    // Writes exactly what a plain `insert` would, and reports whether the write
+    // replaced a resident entry. quick_cache `replace` with `soft: false` takes
+    // the same `insert_existing` path as `insert` on a resident key (same
+    // segment, same `referenced` bump, same `on_evict`), and only differs by
+    // failing when the key is not resident. That failure is how a concurrent
+    // remove between the caller's peek and this write stays uncounted: the
+    // value then goes in through `insert`, as it would have anyway.
+    fn write(&self, key: K, value: V, peeked_resident: bool) -> InsertOutcome {
+        if !peeked_resident {
+            self.cache.insert(key, value);
+            return InsertOutcome::Inserted;
+        }
+        match self.cache.replace(key, value, false) {
+            Ok(()) => {
+                self.replacements.increment(1);
+                InsertOutcome::Replaced
+            }
+            Err((key, value)) => {
+                self.cache.insert(key, value);
+                InsertOutcome::Inserted
+            }
+        }
+    }
+}
+
+/// What `Cache::insert` did with an update. Only `Unchanged` skips the write,
+/// and it does so on exactly the guards that predate this bookkeeping.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InsertOutcome {
+    /// The row identity was not resident and is now.
+    Inserted,
+    /// The identity was resident and quick_cache replaced the entry in place,
+    /// whether or not the value differs.
+    Replaced,
+    /// A guard rejected the update before any write: an older or equal eventdef
+    /// bucket, or an untyped property over a typed one.
+    Unchanged,
 }
 
 fn build_subcache<K: Eq + Hash + Clone, V: Clone>(
@@ -57,6 +105,7 @@ fn build_subcache<K: Eq + Hash + Clone, V: Clone>(
         cache,
         hits: metrics::counter!(CACHE_HITS, &[("cache", label)]),
         misses: metrics::counter!(CACHE_MISSES, &[("cache", label)]),
+        replacements: metrics::counter!(CACHE_REPLACEMENTS, &[("cache", label)]),
     }
 }
 
@@ -255,7 +304,18 @@ impl Cache {
     // cached fresher state; replacing that state would make the next sighting
     // miss and re-issue a write Postgres treats as a no-op. The peek-then-insert
     // pairs below race too, but losing that race costs one redundant upsert.
-    pub fn insert(&self, key: Update) {
+    //
+    // Every write that reaches quick_cache here is the same write with or
+    // without the outcome bookkeeping: an equal value re-inserted over a
+    // resident key still goes through, so the entry keeps the `referenced`
+    // credit quick_cache grants on that path. The peek only decides whether
+    // the write is issued as a `replace` (counted) or an `insert`.
+    //
+    // The peek and the write are separate lock acquisitions. A concurrent
+    // producer can insert the same new key in between, which makes the second
+    // write an uncounted replacement. That race is the one already measured by
+    // DUPLICATES_IN_BATCH and is far too rare to move the replacement counter.
+    pub fn insert(&self, key: Update) -> InsertOutcome {
         match key {
             Update::Event(def) => {
                 let lookup = EventDefKeyRef {
@@ -263,22 +323,22 @@ impl Cache {
                     project_id: def.project_id,
                     name: &def.name,
                 };
-                if self
-                    .eventdefs
-                    .cache
-                    .peek(&lookup)
-                    .is_some_and(|bucket| bucket >= def.last_seen_at)
-                {
-                    return;
+                let cached = self.eventdefs.cache.peek(&lookup);
+                if cached.is_some_and(|bucket| bucket >= def.last_seen_at) {
+                    return InsertOutcome::Unchanged;
                 }
                 let key = EventDefKey {
                     team_id: def.team_id,
                     project_id: def.project_id,
                     name: def.name,
                 };
-                self.eventdefs.cache.insert(key, def.last_seen_at);
+                self.eventdefs
+                    .write(key, def.last_seen_at, cached.is_some())
             }
-            Update::EventProperty(ep) => self.eventprops.cache.insert(ep, ()),
+            Update::EventProperty(ep) => {
+                let resident = self.eventprops.cache.peek(&ep).is_some();
+                self.eventprops.write(ep, (), resident)
+            }
             Update::Property(def) => {
                 let lookup = PropDefKeyRef {
                     team_id: def.team_id,
@@ -287,14 +347,9 @@ impl Cache {
                     event_type: def.event_type,
                     group_name: def.group_type_index.as_ref().map(group_name),
                 };
-                if def.property_type.is_none()
-                    && self
-                        .propdefs
-                        .cache
-                        .peek(&lookup)
-                        .is_some_and(|cached| cached.is_some())
-                {
-                    return;
+                let cached = self.propdefs.cache.peek(&lookup);
+                if def.property_type.is_none() && matches!(cached, Some(Some(_))) {
+                    return InsertOutcome::Unchanged;
                 }
                 let key = PropDefKey {
                     team_id: def.team_id,
@@ -305,7 +360,8 @@ impl Cache {
                         GroupType::Unresolved(name) | GroupType::Resolved(name, _) => name,
                     }),
                 };
-                self.propdefs.cache.insert(key, def.property_type);
+                self.propdefs
+                    .write(key, def.property_type, cached.is_some())
             }
         }
     }

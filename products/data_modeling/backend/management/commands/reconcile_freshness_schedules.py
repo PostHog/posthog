@@ -13,7 +13,6 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
     delete_v1_saved_query_schedules,
     null_saved_query_intervals,
-    tiered_schedules_enabled,
 )
 from products.data_modeling.backend.models.dag import DAG
 
@@ -64,12 +63,6 @@ class Command(BaseCommand):
                 preview_args += ["--dag-id", options["dag_id"]]
             call_command("preview_freshness_schedules", *preview_args, stdout=self.stdout)
             return
-
-        if not tiered_schedules_enabled(team):
-            raise CommandError(
-                f"Team {team.pk} is not on the tiered-schedules flag; converting it would create "
-                "tiers that no mutation trigger maintains"
-            )
 
         dags = DAG.objects.filter(team_id=team.pk)
         if options["dag_id"]:

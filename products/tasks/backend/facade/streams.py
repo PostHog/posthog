@@ -8,8 +8,17 @@ dedicated-stream flag helper from here.
 """
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
-from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex, format_log_cursor, parse_log_cursor
-from products.tasks.backend.logic.stream.event_ingest import handle_task_run_event_ingest
+from products.tasks.backend.logic.services.run_log_mirror import MAX_IDENTIFIER_CHARS
+from products.tasks.backend.logic.stream.backlog import (
+    TaskRunStreamBacklogIndex,
+    format_log_cursor,
+    parse_log_cursor,
+    session_update_type,
+)
+from products.tasks.backend.logic.stream.event_ingest import (
+    handle_task_run_event_ingest,
+    handle_task_run_event_ingest_wsgi,
+)
 from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -24,6 +33,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 from products.tasks.backend.redis import run_uses_dedicated_stream
 
 __all__ = [
+    "MAX_IDENTIFIER_CHARS",
     "TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS",
     "TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS",
     "TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS",
@@ -35,9 +45,11 @@ __all__ = [
     "format_log_cursor",
     "get_task_run_stream_key",
     "handle_task_run_event_ingest",
+    "handle_task_run_event_ingest_wsgi",
     "parse_log_cursor",
     "reset_task_run_stream",
     "run_stream_presence_gated",
     "run_stream_thin_tail",
     "run_uses_dedicated_stream",
+    "session_update_type",
 ]

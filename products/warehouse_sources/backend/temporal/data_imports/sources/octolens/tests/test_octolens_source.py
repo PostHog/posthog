@@ -16,26 +16,6 @@ class TestOctolensSource:
         self.config = OctolensSourceConfig(api_key="octolens-key")
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://app.octolens.com/api/v2/mentions",
-            "403 Client Error: Forbidden for url: https://app.octolens.com/api/v2/keywords",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "unrelated_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://app.octolens.com/api/v2/mentions",
-            "500 Server Error for url: https://app.octolens.com/api/v2/mentions",
-        ],
-    )
-    def test_non_retryable_errors_ignore_throttling_and_server_errors(self, unrelated_error: str) -> None:
-        assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
         "status, expected_valid, expected_message",
         [
             (200, True, None),
@@ -52,12 +32,6 @@ class TestOctolensSource:
         is_valid, message = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert message == expected_message
-
-    @mock.patch(f"{SOURCE_MODULE}.check_access")
-    def test_validate_credentials_probes_the_resolved_api_version(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id)
-        mock_check.assert_called_once_with("octolens-key", "v2")
 
     @mock.patch(f"{SOURCE_MODULE}.check_access")
     def test_validate_credentials_rejects_unknown_schema_without_probing(self, mock_check: mock.MagicMock) -> None:

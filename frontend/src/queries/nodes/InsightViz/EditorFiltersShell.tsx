@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { AnyAssistantGeneratedQuery } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -104,7 +104,9 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
     const { insightProps } = useValues(insightLogic)
     const { querySource, shouldShowSessionAnalysisWarning } = useValues(insightVizDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
-    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { handleInsightSuggested, onKeepSuggestedInsight, onRejectSuggestedInsight } = useActions(
+        insightLogic(insightProps)
+    )
     const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
 
     const panelRef = useRef<HTMLDivElement>(null)
@@ -205,6 +207,7 @@ export function EditorFiltersShell({ query, showing, embedded, children }: Edito
                             <SuggestionBanner
                                 previousQuery={previousQuery}
                                 suggestedQuery={suggestedQuery}
+                                onKeep={onKeepSuggestedInsight}
                                 onReject={onRejectSuggestedInsight}
                             />
                         )}

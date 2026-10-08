@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from django.contrib import admin, messages
 from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.admin.views.main import ChangeList
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import (
     ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
@@ -15,9 +16,11 @@ from django.db.models import CASCADE, PROTECT, RESTRICT, Model
 from django.db.models.deletion import get_candidate_relations_to_delete
 from django.db.models.fields.related import ForeignObject
 from django.db.models.fields.reverse_related import ForeignObjectRel
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.http import urlencode
 from django.utils.translation import (
     gettext,
     gettext_lazy as _,
@@ -34,6 +37,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.helpers.impersonation import get_impersonated_user, is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -54,6 +58,18 @@ _HIDDEN_SUMMARY_LABELS = {"salt", "hash", "checksum"}
 DELETION_SUMMARY_COUNT_CAP = 100
 
 DELETION_REASON_FIELD = "deletion_reason"
+
+# Support tools (Hogdesk) link to the user search as `?q=<email>&ticket=<ticket url>`, and
+# change_form.html prefills the "Log in as user" reason from it.
+TICKET_PARAM = "ticket"
+
+
+class UserChangeList(ChangeList):
+    # Django reads unknown query params as field lookups, and a `ticket` lookup on User redirects to `?e=1`.
+    def get_filters_params(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        lookup_params = super().get_filters_params(params)
+        lookup_params.pop(TICKET_PARAM, None)
+        return lookup_params
 
 
 class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
@@ -176,6 +192,27 @@ class UserAdmin(DjangoUserAdmin):
     ]
     ordering = ("email",)
 
+    def get_changelist(self, request: HttpRequest, **kwargs: Any) -> type[ChangeList]:
+        return UserChangeList
+
+    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
+        response = super().changelist_view(request, extra_context)
+        ticket = request.GET.get(TICKET_PARAM)
+        if ticket and isinstance(response, TemplateResponse):
+            changelist = (response.context_data or {}).get("cl")
+            if changelist is not None and changelist.result_count == 1:
+                user = changelist.result_list[0]
+                # Exact email only, not any single result: the search matches substrings, and a near
+                # miss has to stay on the list where the engineer can see it.
+                if EmailNormalizer.normalize(user.email) != EmailNormalizer.normalize(changelist.query.strip()):
+                    return response
+                # Save and Close return to `_changelist_filters`, so `ticket` in it would bounce them back here.
+                filters = request.GET.copy()
+                del filters[TICKET_PARAM]
+                query = urlencode({TICKET_PARAM: ticket, "_changelist_filters": filters.urlencode()})
+                return HttpResponseRedirect(f"{reverse('admin:posthog_user_change', args=[user.pk])}?{query}")
+        return response
+
     @admin.display(description="Current Team")
     def current_team_link(self, user: User):
         if not user.team:
@@ -252,7 +289,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send verification email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("revoke_sessions") == "1":
             try:
@@ -266,7 +303,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to revoke sessions: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("send_password_reset") == "1":
             try:
@@ -287,7 +324,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send password reset email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("send_2fa_reset") == "1":
             try:
@@ -318,7 +355,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send 2FA reset email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         return super().change_view(request, object_id, form_url, extra_context)
 

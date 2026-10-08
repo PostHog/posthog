@@ -28,6 +28,47 @@ Suggested entry format:
 
 ---
 
+## 2026-10-06: Single-person event lookups under override-based person IDs: prefilter on stored person ID or override distinct IDs, keep the resolved check
+
+**Context.** The related groups panel on person pages (`ee/clickhouse/queries/related_actors_query.py`, `_query_related_groups`): `SELECT DISTINCT` group keys `FROM events WHERE person_id = {person} AND timestamp` in the last 90 days. Under the override-based persons-on-events modes, HogQL resolves `events.person_id` through `person_distinct_id_overrides` for every row in the window before the person filter can apply. On team 2 a large share of loads failed with `MEMORY_LIMIT_EXCEEDED` after ~40s.
+
+**Question.** Can the lookup stop resolving identity for the whole team's window without changing which groups come back for merged, detached or squashed persons?
+
+**What we tried.** In production, in two steps:
+
+- (A) Baseline.
+- (B) [#107324](https://github.com/PostHog/posthog/pull/107324): read the group key columns (`$group_N`, or `_$group_N_raw` when the group type has a `created_at`) instead of group keys from JSON `properties`.
+- (C) [#109931](https://github.com/PostHog/posthog/pull/109931): B plus a `PREWHERE` that narrows to candidate rows, while the resolved `person_id = {person}` filter stays in `WHERE` as the correctness check:
+
+```sql
+PREWHERE events.team_id = {team_id} AND timestamp > {after} AND timestamp < {before}
+  AND (events.event_person_id = {person}
+       OR events.distinct_id IN (SELECT distinct_id FROM raw_person_distinct_id_overrides WHERE person_id = {person}))
+```
+
+The candidate set is a superset: a row resolves to the person either through its stored `event_person_id` (no override) or through an override row for its `distinct_id`. A stale override that now points elsewhere passes the prefilter and fails the `WHERE`. The `IN` is local, not `GLOBAL IN`, so candidates and resolution read the same shard's snapshot; a replica ahead of the initiator could otherwise miss overrides.
+
+**Numbers.** Team 2 production, initial queries from `system.query_log`, split by `lc_plan_fingerprint`, relative to A. A and B cover a few hours each on the same day; C covers the ~24h after its deploy:
+
+| Variant                    | p50 duration, successful | Read bytes | Median peak memory | Worst-case peak memory   |
+| -------------------------- | ------------------------ | ---------- | ------------------ | ------------------------ |
+| A baseline                 | 1.0x                     | 1.0x       | 1.0x               | at the per-query limit   |
+| B group key columns        | ~1.0x                    | ~0.95x     | ~0.95x             | at the per-query limit   |
+| C B + candidate `PREWHERE` | ~0.95x                   | ~0.5x      | ~0.05x             | under 1 GB, far below it |
+
+C ended the memory-limit failures. Rows read did not change: every query still read the whole window.
+
+**Caveats.** Team 2 only. B's effect depends on the events table: its PR benchmark showed the win on the native-JSON events table, and team 2 showed none. Under cluster-wide load a few C queries still took 15-60s with unchanged memory and reads.
+
+**Takeaways.**
+
+- **The win was memory, not wall time.** Distinct ID filtering can't use the events sort key without an `event` filter, so every row in the window is still read. Removing the per-row override resolution removed the memory that grew with the team's event volume. Judge a fix like this on failure rate and peak memory, not successful-query p50.
+- **Prove equivalence on real persons before shipping.** Run old and new SQL over the same fixed window, with the query as a subquery, and compare `count()` plus `cityHash64(arrayStringConcat(arraySort(groupArray(...))))` computed in the outer query. Aggregating inside ClickHouse matters: HogQL adds a default `LIMIT 100` to an outer query without one, and with no `ORDER BY` the two plans can return different subsets of a larger result. Include persons whose events sit under an older `event_person_id`, so the override path runs. Run the two halves as separate queries: in one `UNION ALL`, the old half can hit the memory limit on its own.
+- **Split before and after by plan fingerprint, not merge time.** `lc_plan_fingerprint` changes when the generated SQL shape changes, so the first new fingerprint marks the moment the deploy reached production. Each variant then gets its own rows even within one day.
+- **Check a fix that seems to land.** B merged and looked done, but team 2's failure rate did not move. Measure each step separately instead of crediting the series.
+
+---
+
 ## 2026-07-02: GROUP BY elements_chain is scan-bound; URL filters prune by granule-spread, not row-selectivity; OFFSET re-runs the whole aggregation
 
 **Context.** The toolbar clickmap endpoint (`/api/element/stats/`, `GET_ELEMENTS` in `posthog/models/element/sql.py`): raw single-team SQL grouping `events.elements_chain` by chain and event type over a team + date range + `$current_url` filter, ordered by count. Production p50 is fine (~250ms) but wide date ranges on pages whose URL is dense in the team's own traffic read hundreds of GiB and take seconds; the toolbar also paginates this with LIMIT/OFFSET.
@@ -183,3 +224,29 @@ At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grow
 | Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
 
 ~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.
+
+## 2026-09-08: counting persons on big teams: stream it, or better, sample it
+
+Context: the workflows blast radius (count persons matching filters). The person table stores multiple rows per person (one per update), so every "how many persons" query first collapses them to one row per person (`GROUP BY id`). By default ClickHouse does that with an in-memory hash table holding one entry per person. At 87M persons that is 18.6 GiB and the query gets killed.
+
+Three ways to run the same count, measured on team 2 (~87M persons):
+
+| approach                          | memory           | time   |
+| --------------------------------- | ---------------- | ------ |
+| hash table (default)              | 18.6 GiB, killed | 0.8 s  |
+| `optimize_aggregation_in_order=1` | 604 MiB          | 9.1 s  |
+| sample 1 in 64, multiply by 64    | 245 MiB          | 0.09 s |
+
+- `optimize_aggregation_in_order=1`: the table is sorted by `(team_id, id)`, so ClickHouse can walk it in order and drop each person's state once all their rows went by. Bounded memory, but ~11x slower: the parallel streams funnel through one thread to keep the order. Use it when the result must be exact.
+- Sampling: add `WHERE modulo(cityHash64(id), 64) = 0`, count, multiply by 64. The hash puts every person in one of 64 buckets and you count only bucket 0. Because the bucket comes from `id` (the thing you GROUP BY), all rows of a person land in the same bucket, so the dedup stays exact inside the sample. Only the multiply is an estimate.
+- How wrong the estimate gets: about `sqrt(63 / matched)`. ~1% at 640k matches, 17-32% worst case below ~20k. So fall back to the exact query when the sample has few matches (we cut at 10,000 sampled matches), which is exactly where exact is cheap anyway.
+
+Traps we hit:
+
+- Write the sample condition as `modulo(cityHash64(id), 64) = 0`, not `cityHash64(id) % 64 = 0`. Same meaning, but the persons lazy table only pushes function calls into the inner scan; with the `%` operator the pushdown is dropped and the query silently scans the whole team again. Pin the pushdown with a test on the generated SQL.
+- Counting distinct groups instead of persons (we count unique emails for send dedup): hash the group key, not the person. Sampling persons makes a 2-person email twice as likely to land in the sample, so the estimate drifts back toward a person count. `cityHash64(lower(trim(email)))` gives every email exactly a 1/64 chance. Worst draw at 87M email groups: 0.2% off.
+- Don't put `optimize_aggregation_in_order` on the sampled query. The sample already made the hash table small, so the setting only made it 40% slower with 2.4x the memory (measured).
+- `count(DISTINCT id)` on the persons table is a waste when nothing joins: the dedup already returns one row per person, plain `count()` is the same result without holding every id. But a filter that adds a join needs the DISTINCT back, e.g. a `distinct_id` filter joins one row per alias and plain `count()` counts that person once per alias.
+- The `id IN (prefilter)` set the persons table builds stays in memory no matter what (it is a set, not a GROUP BY, so the spill setting can't touch it). ~1 GiB per ~6M matched ids. Sampling shrinks it; exact queries on huge broad audiences keep paying it, which is where precalculated audiences eventually win.
+
+Applied in `products/workflows/backend/services/audience_v2.py` behind the `workflows-audience-query-v2` flag.

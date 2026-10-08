@@ -1,0 +1,58 @@
+import { useValues } from 'kea'
+
+import { Button, Text } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { SignalReport } from 'products/signals/frontend/inbox/types'
+
+import { todayReportLogic } from './todayReportLogic'
+import { TodayReportSignalRow } from './TodayReportSignalRow'
+import { isSampleReportId } from './todaySampleReports'
+import { TodaySectionTitle } from './TodaySectionTitle'
+
+function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
+    const { shownEvidence } = useValues(todayReportLogic({ reportId }))
+    if (shownEvidence.length === 0) {
+        return (
+            <Text size="sm" variant="muted" render={<p />}>
+                No signals are attached to this report yet.
+            </Text>
+        )
+    }
+    return (
+        <div className="-mx-2 flex flex-col">
+            {shownEvidence.map((signal) => (
+                <TodayReportSignalRow key={signal.signal_id} reportId={reportId} signal={signal} />
+            ))}
+        </div>
+    )
+}
+
+export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.Element {
+    const { shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
+    const fullReport = urls.inboxReport('reports', report.id)
+    const showsSeeAll = evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
+
+    return (
+        <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
+            <div className="flex items-baseline justify-between gap-3">
+                <TodaySectionTitle>Evidence</TodaySectionTitle>
+                {showsSeeAll && (
+                    <Button
+                        variant="link-muted"
+                        size="sm"
+                        className="-me-2"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={fullReport} />}
+                        data-attr="today-report-evidence-all"
+                    >
+                        {`See all ${evidenceCount}`}
+                    </Button>
+                )}
+            </div>
+            <EvidenceRows reportId={report.id} />
+        </section>
+    )
+}

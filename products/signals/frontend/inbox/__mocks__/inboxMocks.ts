@@ -16,14 +16,14 @@ function nextId(): string {
 }
 
 export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
+    const id = overrides.id ?? nextId()
     return {
-        id: nextId(),
+        id,
         title: 'Untitled report',
         summary: null,
         status: SignalReportStatus.READY,
         total_weight: 1.0,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         artefact_count: 0,
@@ -33,6 +33,29 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
         already_addressed: null,
         source_products: [],
         implementation_pr_url: null,
+        assignee: null,
+        pull_requests: overrides.implementation_pr_url
+            ? [
+                  {
+                      id: nextId(),
+                      url: overrides.implementation_pr_url,
+                      state:
+                          overrides.implementation_pr_state ??
+                          (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
+                      merged: overrides.implementation_pr_merged ?? false,
+                      review_decision: null,
+                      merged_at: null,
+                      claim_id: null,
+                      attached_at: BASE_DATE,
+                      attached_by: {
+                          kind: 'task',
+                          user: null,
+                          agent: null,
+                          task_id: `${id}-task-impl`,
+                      },
+                  },
+              ]
+            : [],
         ...overrides,
     }
 }
@@ -49,7 +72,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 3.4,
         signal_count: 12,
-        relevant_user_count: 47,
         source_products: ['error_tracking'],
         is_suggested_reviewer: true,
     }),
@@ -62,7 +84,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'immediately_actionable',
         total_weight: 5.8,
         signal_count: 31,
-        relevant_user_count: 118,
         source_products: ['error_tracking', 'session_replay'],
     }),
     makeReport({
@@ -74,7 +95,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 2.1,
         signal_count: 8,
-        relevant_user_count: 23,
         source_products: ['session_replay'],
         is_suggested_reviewer: true,
     }),
@@ -87,7 +107,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'requires_human_input',
         total_weight: 1.6,
         signal_count: 5,
-        relevant_user_count: 210,
         source_products: ['session_replay', 'llm_analytics'],
     }),
     makeReport({
@@ -99,7 +118,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: null,
         total_weight: 0.9,
         signal_count: 3,
-        relevant_user_count: 14,
         source_products: ['session_replay'],
     }),
     makeReport({
@@ -110,7 +128,6 @@ export const reportTabReports: SignalReport[] = [
         actionability: 'not_actionable',
         total_weight: 1.2,
         signal_count: 6,
-        relevant_user_count: 9,
         source_products: ['zendesk'],
     }),
 ]
@@ -251,6 +268,26 @@ export const allReports: SignalReport[] = [...reportTabReports, ...pullRequestRe
 
 // ── Detail-endpoint payloads ────────────────────────────────────────────────
 
+/** Answers `POST signals/reports/source_metadata/` from the given reports, as the inbox list loads its source line. */
+export function mockSourceMetadata(
+    reports: SignalReport[]
+): ({ request }: { request: Request }) => Promise<[number, { reports: object[] }]> {
+    return async ({ request }) => {
+        const { report_ids } = (await request.json()) as { report_ids: string[] }
+        const byId = new Map(reports.map((report) => [report.id, report]))
+        return [
+            200,
+            {
+                reports: report_ids.map((id) => ({
+                    id,
+                    source_products: byId.get(id)?.source_products ?? [],
+                    scout_name: byId.get(id)?.scout_name ?? null,
+                })),
+            },
+        ]
+    }
+}
+
 export function mockSignals(reportId: string, count = 4): SignalNode[] {
     return Array.from({ length: count }).map((_, i) => ({
         signal_id: `${reportId}-sig-${i}`,
@@ -387,6 +424,16 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             },
             created_at: BASE_DATE,
             created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-impl-decision`,
+            type: 'implementation_decision',
+            content: {
+                supersede: true,
+                reason: 'The crash is in the serializer, not the form, so the fix moves to the API layer.',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
         },
     ]
     return { results, count: results.length }

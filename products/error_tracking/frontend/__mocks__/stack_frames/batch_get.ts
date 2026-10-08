@@ -48,7 +48,12 @@ function generateFrameContext(frame: ErrorTrackingStackFrame): ErrorTrackingStac
         },
         contents: frame,
         symbol_set_ref: '123123',
-        release: null,
+        release: {
+            id: '019aca26-0a47-776c-baa2-0afbec3ec7bb',
+            version: '1.2.3',
+            project: 'error-tracking-mock',
+            created_at: '2025-04-21T22:02:15.122000Z',
+        },
     }
 }
 

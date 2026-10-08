@@ -13,6 +13,18 @@ Entries without ids (older agents, server-published events) are never dropped.
 
 TASK_RUN_STREAM_LOG_CURSOR_PREFIX = "log-"
 
+STREAMING_CHUNK_UPDATES = frozenset({"agent_message_chunk", "agent_thought_chunk"})
+
+
+def session_update_type(event: dict) -> str | None:
+    notification = event.get("notification")
+    if not isinstance(notification, dict) or notification.get("method") != "session/update":
+        return None
+    params = notification.get("params")
+    update = params.get("update") if isinstance(params, dict) else None
+    session_update = update.get("sessionUpdate") if isinstance(update, dict) else None
+    return session_update if isinstance(session_update, str) else None
+
 
 def _parse_event_id(event_id: str) -> tuple[str, int] | None:
     boot, _, seq = event_id.rpartition("-")
@@ -75,11 +87,11 @@ class TaskRunStreamBacklogIndex:
         return self._covers_parsed(*parsed)
 
     def has_gap_before(self, event: dict) -> bool:
-        """True when the event's per-boot predecessor is missing from the log backlog.
+        """True when the oldest id-carrying tail entry shows the log lagging behind the Redis trim.
 
-        Meaningful only for the first id-carrying live entry the backlog does not
-        cover: a hole before it means Redis evicted events whose log batch never
-        landed, which is the one loss mode thin-tail trimming cannot rule out.
+        A covered entry means the log reaches into the tail; a streaming chunk means an
+        in-flight message outgrew the tail, which the log only carries once it completes.
+        Otherwise a missing per-boot predecessor is the loss mode thin-tail trimming cannot rule out.
         """
         event_id = event.get("event_id")
         if not isinstance(event_id, str) or not event_id:
@@ -88,7 +100,9 @@ class TaskRunStreamBacklogIndex:
         if parsed is None:
             return False
         boot, seq = parsed
-        if seq <= 1:
+        if seq <= 1 or self._covers_parsed(boot, seq):
+            return False
+        if session_update_type(event) in STREAMING_CHUNK_UPDATES:
             return False
         return not self._covers_parsed(boot, seq - 1)
 

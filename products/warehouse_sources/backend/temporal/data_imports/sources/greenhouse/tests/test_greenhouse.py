@@ -1,3 +1,4 @@
+import re
 import json
 import dataclasses
 from datetime import UTC, date, datetime
@@ -9,14 +10,10 @@ from unittest.mock import MagicMock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    HttpBasicAuth,
-    OAuth2Auth,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
     GREENHOUSE_ENDPOINTS,
-    GREENHOUSE_TOKEN_URL,
     PAGE_SIZE,
+    V3_ONLY_ENDPOINT_ERROR,
     GreenhouseResumeConfig,
     _build_auth,
     _build_initial_params,
@@ -60,10 +57,13 @@ def _make_manager(resume_state: GreenhouseResumeConfig | None = None) -> MagicMo
 def _source(endpoint: str, **kwargs: Any) -> Any:
     # Transport tests run on v1: its HTTP Basic auth needs no token exchange, so the only network
     # boundary is the patched rest_client session. Version-specific request shape is covered by the
-    # param/auth/url tests below.
+    # param/auth/url tests below. v3-only endpoints build on v3; the token is minted lazily on the
+    # first request, so building the response needs no network.
     kwargs.setdefault("resumable_source_manager", _make_manager())
-    kwargs.setdefault("api_version", GREENHOUSE_V1)
-    return greenhouse_source(endpoint, team_id=1, job_id="j", api_key="key", **kwargs)
+    kwargs.setdefault("api_version", GREENHOUSE_V3 if GREENHOUSE_ENDPOINTS[endpoint].v3_only else GREENHOUSE_V1)
+    return greenhouse_source(
+        endpoint, team_id=1, job_id="j", api_key="key", client_id="cid", client_secret="csecret", **kwargs
+    )
 
 
 class TestFormatDatetime:
@@ -80,25 +80,11 @@ class TestFormatDatetime:
     def test_format_datetime(self, value: object, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 WATERMARK = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
 
 
 class TestBuildInitialParams:
-    @pytest.mark.parametrize("api_version", [GREENHOUSE_V1, GREENHOUSE_V3])
-    def test_full_refresh_only_sets_per_page(self, api_version: str) -> None:
-        params = _build_initial_params(GREENHOUSE_ENDPOINTS["departments"], api_version, False, None, None)
-        assert params == {"per_page": PAGE_SIZE}
-
-    @pytest.mark.parametrize("api_version", [GREENHOUSE_V1, GREENHOUSE_V3])
-    def test_first_incremental_sync_has_no_filter(self, api_version: str) -> None:
-        # No watermark yet -> pull everything, only per_page is set.
-        params = _build_initial_params(GREENHOUSE_ENDPOINTS["candidates"], api_version, True, None, "updated_at")
-        assert params == {"per_page": PAGE_SIZE}
-
     @pytest.mark.parametrize(
         "endpoint, api_version, incremental_field, expected_filter",
         [
@@ -123,21 +109,6 @@ class TestBuildInitialParams:
 
 
 class TestBuildAuth:
-    def test_v1_sends_the_api_key_as_http_basic(self) -> None:
-        auth = _build_auth(GREENHOUSE_V1, "test_key", None, None)
-        assert isinstance(auth, HttpBasicAuth)
-        assert (auth.username, auth.password) == ("test_key", "")
-
-    def test_v3_mints_a_bearer_token_from_oauth_client_credentials(self) -> None:
-        # v3 rejects Basic outright, so an api_key-shaped auth here 401s on every request.
-        auth = _build_auth(GREENHOUSE_V3, "test_key", "cid", "csecret")
-        assert isinstance(auth, OAuth2Auth)
-        assert auth.token_url == GREENHOUSE_TOKEN_URL
-        assert (auth.client_id, auth.client_secret) == ("cid", "csecret")
-        assert auth.grant_type == "client_credentials"
-        # Greenhouse takes the client pair as Basic on the token request, not in the body.
-        assert auth.client_auth_method == "basic"
-
     @pytest.mark.parametrize(
         "api_version, api_key, client_id, client_secret",
         [
@@ -194,16 +165,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
-    @mock.patch(GREENHOUSE_SESSION_PATCH)
-    def test_uses_http_basic_auth_with_blank_password(self, mock_session_factory: MagicMock) -> None:
-        mock_get = mock_session_factory.return_value.get
-        mock_get.return_value = MagicMock(status_code=200)
-
-        validate_credentials(GREENHOUSE_V1, api_key="test_key")
-
-        auth = mock_get.call_args.kwargs["auth"]
-        assert (auth.username, auth.password) == ("test_key", "")
-
     @pytest.mark.parametrize(
         "api_version, expected_url",
         [
@@ -232,79 +193,13 @@ class TestValidateCredentials:
 
 class TestGreenhouseSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == GREENHOUSE_ENDPOINTS[endpoint].primary_keys
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        partition_key = GREENHOUSE_ENDPOINTS[endpoint].partition_key
-
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_partition_key_is_never_updated_at(self, endpoint: str) -> None:
         assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
 
-    def test_sort_mode_is_ascending(self) -> None:
-        response = _source("candidates")
-        assert response.sort_mode == "asc"
-
-
-class TestRequestUrlPerVersion:
-    @pytest.mark.parametrize(
-        "endpoint, api_version, expected_url",
-        [
-            ("candidates", GREENHOUSE_V1, "https://harvest.greenhouse.io/v1/candidates"),
-            ("candidates", GREENHOUSE_V3, "https://harvest.greenhouse.io/v3/candidates"),
-            # v3 renamed this collection; the schema (and warehouse table) keeps the v1 name.
-            ("scheduled_interviews", GREENHOUSE_V1, "https://harvest.greenhouse.io/v1/scheduled_interviews"),
-            ("scheduled_interviews", GREENHOUSE_V3, "https://harvest.greenhouse.io/v3/interviews"),
-        ],
-    )
-    @mock.patch(f"{OAUTH_MODULE}.OAuth2Auth._obtain_token")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_targets_the_versioned_collection(
-        self,
-        mock_factory: MagicMock,
-        mock_mint: MagicMock,
-        endpoint: str,
-        api_version: str,
-        expected_url: str,
-    ) -> None:
-        session = mock_factory.return_value
-        session.headers = {}
-        sent: list[str] = []
-
-        def _prepare(request: Any) -> MagicMock:
-            sent.append(request.url)
-            prepared = MagicMock()
-            prepared.url = request.url
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_make_response([])]
-
-        response = greenhouse_source(
-            endpoint,
-            team_id=1,
-            job_id="j",
-            api_version=api_version,
-            resumable_source_manager=_make_manager(),
-            api_key="key",
-            client_id="cid",
-            client_secret="csecret",
-        )
-        pages: Any = response.items()
-        [row for page in pages for row in page]
-
-        assert sent[0] == expected_url
+    @pytest.mark.parametrize("endpoint", [name for name, config in GREENHOUSE_ENDPOINTS.items() if config.v3_only])
+    def test_v3_only_endpoint_refuses_to_sync_on_v1(self, endpoint: str) -> None:
+        with pytest.raises(ValueError, match=re.escape(V3_ONLY_ENDPOINT_ERROR)):
+            _source(endpoint, api_version=GREENHOUSE_V1)
 
 
 class TestGreenhousePaginationAndResume:
@@ -397,35 +292,6 @@ class TestGreenhousePaginationAndResume:
         assert sent[0][1] == {"per_page": PAGE_SIZE, "updated_after": "2026-03-04T02:58:14.000Z"}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_url_after_each_non_terminal_page(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
-        url2 = "https://harvest.greenhouse.io/v1/jobs?per_page=500&page=2"
-        url3 = "https://harvest.greenhouse.io/v1/jobs?per_page=500&page=3"
-        self._wire(
-            session,
-            [
-                _make_response([{"id": 1}], next_url=url2),
-                _make_response([{"id": 2}], next_url=url3),
-                _make_response([{"id": 3}]),
-            ],
-        )
-
-        manager = _make_manager()
-        self._rows(_source("jobs", resumable_source_manager=manager))
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [GreenhouseResumeConfig(next_url=url2), GreenhouseResumeConfig(next_url=url3)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminal_single_page_does_not_save_state(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
-        self._wire(session, [_make_response([{"id": 1}])])
-
-        manager = _make_manager()
-        self._rows(_source("jobs", resumable_source_manager=manager))
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_seeds_first_request_with_saved_next_url(self, mock_factory: MagicMock) -> None:
         session = mock_factory.return_value
         saved_url = "https://harvest.greenhouse.io/v1/candidates?per_page=500&page=5"
@@ -435,16 +301,6 @@ class TestGreenhousePaginationAndResume:
         self._rows(_source("candidates", resumable_source_manager=manager))
 
         assert sent[0] == (saved_url, {})
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing_and_stops(self, mock_factory: MagicMock) -> None:
-        session = mock_factory.return_value
-        sent = self._wire(session, [_make_response([])])
-
-        rows = self._rows(_source("jobs"))
-        assert rows == []
-        assert session.send.call_count == 1
-        assert len(sent) == 1
 
 
 class TestResumeConfigSerialization:

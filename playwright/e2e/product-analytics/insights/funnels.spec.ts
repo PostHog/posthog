@@ -449,6 +449,7 @@ test.describe('Funnel insights', () => {
                 .click()
             await expect(page.getByText("a dashboard's filters applied")).not.toBeVisible()
             await expect(insight.editButton).toBeVisible()
+            expect(page.url()).toContain(`dashboard=${dashboardId}`)
         })
 
         await test.step('edit controls work after discard', async () => {

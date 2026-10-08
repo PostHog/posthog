@@ -4,7 +4,7 @@ import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { scoutPickerLogic } from './scoutPickerLogic'
 
@@ -14,9 +14,7 @@ export default function CyclotronJobInputScoutPicker({ value, onChange }: Custom
     const selected = typeof value === 'string' ? value : ''
     const options: LemonInputSelectOption[] = scoutConfigs.map((config) => ({
         key: config.skill_name,
-        label: config.enabled
-            ? prettifyScoutSkillName(config.skill_name)
-            : `${prettifyScoutSkillName(config.skill_name)} (paused)`,
+        label: config.enabled ? scoutDisplayName(config) : `${scoutDisplayName(config)} (paused)`,
     }))
     // A stored skill name that isn't in this team's fleet (deleted since, or authored
     // elsewhere) still needs to render as itself, not as blank.

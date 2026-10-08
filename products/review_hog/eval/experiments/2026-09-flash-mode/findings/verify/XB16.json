@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB16",
+    "cluster": 6,
+    "is_real": true,
+    "severity": "must_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 enables the carve-out solely from self_driving_review and proceeds through the shared draft prerequisite at review_pr.py:590. The current initial server path can actually mis-stamp it: tasks/backend/presentation/views/api.py:1101-1118 permits task output updates, facade/api.py:1770-1788,2149-2154 allows replacing pr_url, and review_hog/receivers.py:92-138 forwards the replacement for a non-internal signal task whose reviewer opted in. Those qualifying tasks are supported by tasks serializers.py:435-460,611-614. stamphog/tasks/tasks.py:1166-1181 checks only open/head before creating inbox provenance, then activities.py:451 enables the engine flag. A valid unrelated human draft thus bypasses its deterministic draft refusal and can reach approval posting at activities.py:723-745.",
+            "refutation": "I first tried to refute the premise by treating the sandbox context as trusted server-owned data. It is indeed server-built and uses a real bool (logic/reviewer.py:119-137; activities.py:451,468-474), so arbitrary context-file editing or malformed booleans are unnecessary and not evidence here. But the server's initial provenance source is a caller-writable PR URL without current author/head/link validation. The webhook's bot/native-head checks at tasks.py:169-178 do not protect this initial path. Hence the allegedly incorrect stamp is code-proven and reachable, not merely a hypothetical future caller error."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "/tmp/frozen-75215/tools/pr-approval-agent/review_local.py:321-330 accepts self_driving_review=True and skips the bot refusal without asserting bot authorship or a native head; shared prerequisites at review_pr.py:590 also bypass draft rejection. The disputed server stamp is reachable: ReviewHog receivers.py:92-138 accepts mutable output.pr_url from an opted-in noninternal signal task, and Stamphog tasks.py:1166-1181 checks only open/head before persisting provenance at :1229. Tasks presentation/views/api.py:1101-1118 and facade/api.py:1770-1788,2139-2154 allow controllers to replace that URL; manual signal tasks are supported by tests/test_api.py:1307-1333. activities.py:451 derives True from the resulting row, making a human/fork target receive self-driving treatment and potentially an approval at :745.",
+            "refutation": "First checked whether the sandbox marker is untrusted arbitrary input or whether the server universally validates its associated PR. The marker is indeed server-owned: logic/reviewer.py:119-138 serializes it and activities.py:468-471 writes context after cloning, so changing a PR file cannot simply set it. Nevertheless the initial worker can create false provenance from a supported task output write and omits the webhook's native-head/linkage guards. tests/test_review_local.py:282-315 cover absent and true flags with valid bot fixtures, not a wrongly linked human/fork target. Thus the retained issue is a reachable incorrect server stamp reaching an unguarded engine, not a hypothetical malformed sandbox context."
+        },
+        {
+            "is_real": true,
+            "severity": "must_fix",
+            "evidence": "review_local.py:321-326 trusts self_driving_review, and review_pr.py:590 uses it to remove the draft gate for any author. This is reachable through a real producer error: products/stamphog/backend/tasks/tasks.py:1166-1181 creates inbox provenance after open/head checks without bot/native/task-target validation, and temporal/activities.py:448-451 converts it to the flag. The URL originates in caller-editable TaskRun output (tasks/backend/facade/api.py:2149-2154), which the opted-in receiver forwards at review_hog/backend/receivers.py:126-138. Manual Inbox implementations supply qualifying non-internal signal tasks (frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80-96). Replacing that URL with an unrelated human draft or fork PR in a connected repository therefore stamps precisely the incorrect marker in the claim.",
+            "refutation": "I first checked whether this was a hypothetical corrupted server flag behind a trusted boundary. The sandbox context is indeed server-created and JSON-serialized (stamphog/backend/logic/reviewer.py:123-137; temporal/activities.py:1123-1131), so direct marker manipulation by the PR is not established. However the server creates the flag from an unverified editable target on its initial path. Its connected-repository query only checks the base target repository (tasks.py:1130-1146), cloning accepts the PR head (activities.py:989-992), and final SHA/supersession checks do not restore provenance before approval at 723-745. Thus the producer makes this conditional engine weakness concretely reachable; the finding is retained on that basis, not generic defense in depth."
+        }
+    ]
+}

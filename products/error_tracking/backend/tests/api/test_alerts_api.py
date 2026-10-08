@@ -126,6 +126,19 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert update.status_code == 200, update.json()
         assert update.json()["filters"]["bytecode"] is not None
 
+    def test_alert_accepts_a_comparison_against_an_empty_string(self):
+        # An empty string is a real value, unlike a missing one.
+        integration = self._create_slack_integration()
+        leaf = {"key": "environment", "value": "", "operator": "exact", "type": "event"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/",
+            data=self._valid_payload(integration, filters={"properties": [leaf]}),
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+
     def test_alert_create_rejects_uncompilable_filters(self):
         integration = self._create_slack_integration()
 
@@ -166,11 +179,48 @@ class TestErrorTrackingAlerts(APIBaseTest):
             ("empty_triggers", {"triggers": []}),
             ("empty_destinations", {"destinations": []}),
             ("negative_throttle", {"throttle_seconds": -1}),
+            ("throttle_over_30_days", {"throttle_seconds": 30 * 24 * 60 * 60 + 1}),
             (
                 "unknown_channel",
                 {"destinations": [{"channel_type": "carrier_pigeon", "integration_id": 1, "config": {}}]},
             ),
             ("missing_integration", {"destinations": [{"channel_type": "slack", "config": {"channel": "C1"}}]}),
+            (
+                "typeless_event_entity",
+                {"filters": {"events": [{"id": "$error_tracking_issue_created"}]}},
+            ),
+            ("keyless_property_filter", {"filters": {"properties": [{"value": "x", "type": "event"}]}}),
+            (
+                "valueless_property_filter",
+                {"filters": {"properties": [{"key": "environment", "operator": "exact", "type": "event"}]}},
+            ),
+            ("idless_event_entity", {"filters": {"events": [{"type": "events"}]}}),
+            (
+                "object_event_properties",
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$error_tracking_issue_created",
+                                "type": "events",
+                                "properties": {"key": "sleep(5)", "type": "hogql"},
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
+                "person_property_filter",
+                {"filters": {"properties": [{"key": "email", "value": "@example.com", "type": "person"}]}},
+            ),
+            (
+                "action_filters",
+                {"filters": {"actions": [{"id": "1", "name": "Action", "type": "actions"}]}},
+            ),
+            (
+                "filter_test_accounts",
+                {"filters": {"filter_test_accounts": True}},
+            ),
             (
                 "missing_channel_in_config",
                 {"destinations": [{"channel_type": "slack", "integration_id": VALID_INTEGRATION, "config": {}}]},
@@ -201,6 +251,40 @@ class TestErrorTrackingAlerts(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 0
+
+    def test_alert_limits_destinations_per_alert_and_alerts_per_team(self):
+        integration = self._create_slack_integration()
+        destinations = [
+            {"channel_type": "slack", "integration_id": integration.id, "config": {"channel": f"C{i}"}}
+            for i in range(3)
+        ]
+        with patch("products.error_tracking.backend.logic.alerts.MAX_DESTINATIONS_PER_ALERT", 2):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/",
+                data=self._valid_payload(integration, destinations=destinations),
+                format="json",
+            )
+            assert create.status_code == 400, create.json()
+            assert "at most 2 destinations" in str(create.json())
+
+            created = self._create_alert(integration)
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/{created['id']}/",
+                data={"destinations": destinations},
+                format="json",
+            )
+            assert update.status_code == 400, update.json()
+
+        with patch("products.error_tracking.backend.logic.alerts.MAX_ALERTS_PER_TEAM", 2):
+            self._create_alert(integration, name="Second")
+            third = self.client.post(
+                f"/api/projects/{self.team.id}/error_tracking/alerts/",
+                data=self._valid_payload(integration, name="Third"),
+                format="json",
+            )
+        assert third.status_code == 400, third.json()
+        assert "at most 2 alerts" in str(third.json())
+        assert ErrorTrackingAlert.objects.for_team(self.team.id).count() == 2
 
     def test_alert_rejects_duplicate_destinations(self):
         integration = self._create_slack_integration()

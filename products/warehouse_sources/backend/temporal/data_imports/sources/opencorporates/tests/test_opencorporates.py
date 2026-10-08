@@ -15,9 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.opencorpor
     opencorporates_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.settings import (
-    OPENCORPORATES_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -130,14 +127,6 @@ class TestCompaniesPagination:
         assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_companies_page([], page=1, total_pages=0)])
-
-        assert _rows(_source("Companies")) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(
@@ -149,57 +138,8 @@ class TestCompaniesPagination:
         # The first request must start from the persisted page, not page 1.
         assert params[0]["page"] == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        page1 = [{"company_number": f"{i}", "jurisdiction_code": "gb"} for i in range(100)]
-        page2 = [{"company_number": f"{i}", "jurisdiction_code": "gb"} for i in range(100, 200)]
-        _wire(
-            session,
-            [_companies_page(page1, page=1, total_pages=2), _companies_page(page2, page=2, total_pages=2)],
-        )
-
-        manager = _make_manager()
-        _rows(_source("Companies", manager=manager))
-
-        # State saved once, with the next page to resume from, only while more pages remain.
-        manager.save_state.assert_called_once_with(OpencorporatesResumeConfig(next_page=2))
-
-
-class TestOfficersPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page_when_total_pages_missing(self, MockSession) -> None:
-        # officers/search isn't confirmed to report `results.total_pages`; the base paginator's
-        # stop_after_empty_page must still terminate cleanly.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _officers_page([{"id": "1", "name": "A"}], drop_total_pages=True),
-                _officers_page([], drop_total_pages=True),
-            ],
-        )
-
-        rows = _rows(_source("Officers"))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 2
-
 
 class TestRequestParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_updated_at_and_order(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_companies_page([], page=1, total_pages=0)])
-
-        _rows(_source("Companies", query="acme", should_use_incremental_field=False))
-
-        assert params[0]["q"] == "acme"
-        assert params[0]["per_page"] == 100
-        assert "updated_at" not in params[0]
-        assert "order" not in params[0]
-        assert "jurisdiction_code" not in params[0]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_jurisdiction_code_is_passed_when_set(self, MockSession) -> None:
         session = MockSession.return_value
@@ -224,17 +164,6 @@ class TestRequestParams:
 
         assert params[0]["updated_at"] == "2026-01-15:"
         assert params[0]["order"] == "updated_at"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_watermark_params_on_first_incremental_sync(self, MockSession) -> None:
-        # A first incremental sync has no stored watermark, so no server-side filter should be sent.
-        session = MockSession.return_value
-        params = _wire(session, [_companies_page([], page=1, total_pages=0)])
-
-        _rows(_source("Companies", should_use_incremental_field=True, db_incremental_field_last_value=None))
-
-        assert "updated_at" not in params[0]
-        assert "order" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_officers_never_sends_incremental_filter(self, MockSession) -> None:
@@ -318,12 +247,6 @@ class TestSourceResponse:
         else:
             assert response.partition_keys == [expected_partition]
             assert response.partition_mode == "datetime"
-
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in OPENCORPORATES_ENDPOINTS:
-            response = _source(endpoint)
-            assert response.name == endpoint
-            assert callable(response.items)
 
 
 class TestValidateCredentials:

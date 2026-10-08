@@ -1,9 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
@@ -101,6 +104,70 @@ class TestRecalculationService(BaseTest):
         assert row.total_metrics == 3
         assert set(row.metric_uuids) == {"p1", "s1", "shared1"}
 
+    @parameterized.expand(
+        [
+            # (name, trigger, latest_status, latest_trigger, minutes_since_completed, expects_new_run)
+            ("manual_inside_window_is_rate_limited", "manual", "completed", "manual", 2, False),
+            ("agent_mcp_inside_window_is_rate_limited", "agent_mcp", "completed", "manual", 2, False),
+            ("manual_outside_window_starts_new", "manual", "completed", "manual", 6, True),
+            ("manual_after_failed_run_starts_new", "manual", "failed", "manual", 2, True),
+            ("manual_after_timeseries_sync_starts_new", "manual", "completed", "timeseries_sync", 2, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", "completed", "manual", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
+        ]
+    )
+    def test_request_recalculation_user_refresh_window(
+        self,
+        name: str,
+        trigger: str,
+        latest_status: str,
+        latest_trigger: str,
+        minutes_since_completed: int,
+        expects_new_run: bool,
+    ):
+        exp = self._launched_experiment(flag_key=f"window-{name}")
+        now = timezone.now()
+        # query_to sits a day back, as on a stopped experiment, so the window can only come from completed_at.
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=latest_status,
+            trigger=latest_trigger,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(minutes=minutes_since_completed),
+        )
+
+        if expects_new_run:
+            result = request_recalculation(exp, self.user, trigger)
+            assert result["is_existing"] is False
+            assert result["id"] != str(latest.id)
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+            return
+
+        with pytest.raises(RecalculationRateLimited) as exc_info:
+            request_recalculation(exp, self.user, trigger)
+        # Three minutes of the window remain; the wait tells the caller when to try again.
+        assert exc_info.value.wait is not None
+        assert 170 <= exc_info.value.wait <= 180
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @override_settings(DEBUG=True, TEST=False)
+    def test_request_recalculation_skips_the_refresh_window_in_local_development(self):
+        exp = self._launched_experiment(flag_key="window-debug")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()
         first = request_recalculation(exp, self.user, "manual")
@@ -152,6 +219,14 @@ class TestRecalculationService(BaseTest):
         result = request_recalculation(exp, self.user, "manual")
         assert result["is_existing"] is True
         assert result["id"] == str(recent_row.id)
+
+    def test_request_recalculation_without_a_user(self):
+        exp = self._launched_experiment(flag_key="no-user")
+        result = request_recalculation(exp, None, "stale_refresh")
+        assert result["is_existing"] is False
+        recalc = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert recalc.created_by is None
+        assert recalc.trigger == "stale_refresh"
 
     def test_request_recalculation_rejects_unlaunched(self):
         exp = Experiment.objects.create(
@@ -420,6 +495,7 @@ class TestRecalculationService(BaseTest):
 
 
 @pytest.mark.django_db(transaction=True)
+@time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -471,8 +547,8 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_builds_completed_fallback_from_latest_point(self):
         exp = self._experiment("ts-one", ["m1"])
-        older = datetime(2026, 2, 1, tzinfo=UTC)
-        latest = datetime(2026, 2, 2, tzinfo=UTC)
+        older = timezone.now() - timedelta(hours=3)
+        latest = timezone.now() - timedelta(hours=1)
         self._timeseries_point(exp, "m1", older, {"stale": True})
         self._timeseries_point(exp, "m1", latest, {"ok": True})
 
@@ -490,7 +566,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_omits_metrics_without_a_timeseries_point(self):
         exp = self._experiment("ts-partial", ["m1", "m2"])
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         # m2 has no point.
 
         payload = build_timeseries_cold_start_payload(exp)
@@ -500,10 +576,25 @@ class TestTimeseriesColdStartPayload(BaseTest):
         uuids = {r["metric_uuid"] for r in payload["results"]}
         assert uuids == {"m1"}
 
+    @parameterized.expand(
+        [
+            ("fresh_point", timedelta(hours=23), True),
+            ("stale_point", timedelta(hours=25), False),
+            # The backfill writes end-of-day points, so today's point can sit in the future.
+            ("future_point", timedelta(hours=-10), False),
+        ]
+    )
+    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+        exp = self._experiment(f"ts-age-{_name}", ["m1"])
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+
+        payload = build_timeseries_cold_start_payload(exp)
+        assert (payload is not None) == included
+
     def test_config_fingerprint_mismatch_yields_no_point(self):
         exp = self._experiment("ts-drift", ["m1"])
         # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
         assert build_timeseries_cold_start_payload(exp) is None
@@ -586,7 +677,7 @@ class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
 
         with tags_context(
             team_id=self.team.id,
-            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1_attempt01",
             product=Product.EXPERIMENTS,
             feature=Feature.CACHE_WARMUP,
         ):

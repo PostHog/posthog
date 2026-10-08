@@ -3,17 +3,27 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { ChatMessage } from '../../types'
-import { MessageList } from './MessageList'
+import { MessageList, type TimelineExtra } from './MessageList'
 
 // The real Message pulls in the tiptap-backed Editor exports for markdown and rich content; the
 // behavior under test is MessageList's own scroll handling, which only needs a stand-in row.
 jest.mock('./Message', () => {
     const React = jest.requireActual<typeof import('react')>('react')
     return {
-        Message: ({ message }: { message: ChatMessage }) =>
-            React.createElement('div', { 'data-attr': `message-${message.id}` }, message.content),
+        Message: jest.fn(({ message, onApplyAiDraft }: { message: ChatMessage; onApplyAiDraft?: () => void }) =>
+            React.createElement(
+                'div',
+                { 'data-attr': `message-${message.id}` },
+                message.content,
+                onApplyAiDraft
+                    ? React.createElement('button', { 'data-attr': `apply-${message.id}`, onClick: onApplyAiDraft })
+                    : null
+            )
+        ),
     }
 })
+
+const mockMessage = jest.requireMock<typeof import('./Message')>('./Message').Message as jest.Mock
 
 // jsdom has no layout, so the component's "is the reader at the bottom?" arithmetic
 // (scrollHeight - scrollTop - clientHeight < 120) needs fixed geometry. With these, the reader is
@@ -54,6 +64,7 @@ let scrollToSpy: jest.Mock
 
 describe('MessageList', () => {
     beforeEach(() => {
+        mockMessage.mockClear()
         scrollToSpy = jest.fn()
         Element.prototype.scrollTo = scrollToSpy
         Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
@@ -140,6 +151,45 @@ describe('MessageList', () => {
 
         expect(scrollToSpy).toHaveBeenCalledWith({ top: SCROLL_HEIGHT, behavior: 'smooth' })
         expect(screen.queryByText(PILL)).not.toBeInTheDocument()
+    })
+
+    // Applying a draft records the outcome against the ticket's current AI run, so an older draft
+    // must not offer the action — it would mark the newest run as used.
+    it('offers the draft action on the newest AI draft only', () => {
+        const draft = (id: string, createdAt: string): ChatMessage => ({
+            id,
+            content: `Draft ${id}`,
+            authorType: 'AI',
+            authorName: 'PostHog Assistant',
+            createdAt,
+            isPrivate: true,
+            persistAs: 'reply',
+        })
+
+        render(
+            <MessageList
+                messages={[draft('old', '2026-01-01T00:00:00Z'), draft('new', '2026-01-01T00:05:00Z')]}
+                messagesLoading={false}
+                canEditTicket
+                latestAiDraftId="new"
+                onApplyAiDraft={jest.fn()}
+            />
+        )
+
+        expect(screen.getByTestId('apply-new')).toBeInTheDocument()
+        expect(screen.queryByTestId('apply-old')).not.toBeInTheDocument()
+    })
+
+    it('does not recreate message rows when only loading state changes', () => {
+        const messages = [FIRST]
+        const extras: TimelineExtra[] = []
+
+        const { rerender } = render(<MessageList messages={messages} messagesLoading={false} extras={extras} />)
+        mockMessage.mockClear()
+
+        rerender(<MessageList messages={messages} messagesLoading extras={extras} />)
+
+        expect(mockMessage).not.toHaveBeenCalled()
     })
 
     it('dismisses the pill once the reader scrolls back to the bottom themselves', () => {

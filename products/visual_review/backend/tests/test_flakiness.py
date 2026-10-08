@@ -205,7 +205,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
     def _entry(self, identifier: str):
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
         return next((e for e in result.entries if e.identifier == identifier), None)
 
     def test_a_quarantine_over_a_snapshot_still_failing_does_not_ask_to_be_lifted(self):
@@ -335,12 +335,12 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("far_under_the_threshold", 0.01, FlakinessState.NOISY),
+            ("far_under_the_threshold", 0.01, None),
             ("touching_the_threshold", PIXEL_DIFF_THRESHOLD_PERCENT - 0.05, FlakinessState.AT_RISK),
         ]
     )
-    def test_headroom_separates_absorbed_noise_from_a_snapshot_on_the_edge(
-        self, _name: str, worst_diff: float, expected: str
+    def test_headroom_separates_absorbed_drift_from_a_snapshot_on_the_edge(
+        self, _name: str, worst_diff: float, expected: str | None
     ):
         # Always being absorbed is not a safety property. A snapshot is absorbed
         # only while it stays under the threshold, so one sitting just under the
@@ -353,9 +353,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         entry = self._entry("jittery")
 
-        assert entry is not None
-        assert entry.worst_soft_diff_percentage == worst_diff
-        assert entry.flakiness_state == expected
+        assert (entry.flakiness_state if entry is not None else None) == expected
 
     def test_a_snapshot_failing_the_gate_is_listed_without_recording_a_variant(self):
         # A hard failure mints nothing, so a population drawn from tolerations
@@ -389,6 +387,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
             diff_percentage=0.02,
             tolerated_hash_match=variant if outcome == SOFT_MATCH else None,
         )
+        self._mk_quarantine("jittery")
 
         entry = self._entry("jittery")
 
@@ -414,12 +413,8 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 tolerated_hash_match=tolerated,
             )
 
-        entry = self._entry("accepted")
-
-        assert entry is not None
-        assert entry.soft_count == 1  # only the auto-minted match
-        assert entry.worst_soft_diff_percentage == 0.01
-        assert entry.flakiness_state == FlakinessState.NOISY
+        # Counting the human matches would make it at risk, and so listed.
+        assert self._entry("accepted") is None
 
     def test_the_rate_denominator_covers_the_same_days_as_its_numerator(self):
         # The numerator is summed from per-day buckets while the denominator was
@@ -481,7 +476,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="shared")
         self._render("shared", outcome=HARD, count=3)
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
         by_type = {e.run_type: e for e in result.entries if e.identifier == "shared"}
 
         assert by_type[RunType.STORYBOOK].hard_count == 3
@@ -497,7 +492,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         entry = next(
             e
-            for e in vr_api.get_flakiness_overview(self.repo.id).entries
+            for e in vr_api.get_flakiness_overview(self.repo.id, self.team.id).entries
             if e.identifier == "shared" and e.run_type == RunType.PLAYWRIGHT
         )
 
@@ -509,6 +504,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         for index in range(5):
             self._mk_variant(identifier="redesigned", alternate_hash=f"old-{index}", baseline_hash="baseline-previous")
         self._mk_variant(identifier="redesigned", alternate_hash="new-0")
+        self._mk_quarantine("redesigned")
 
         entry = self._entry("redesigned")
 
@@ -542,6 +538,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
             alternate_hash="dead",
             expires_at=timezone.now() - timedelta(days=1),
         )
+        self._mk_quarantine("lapsed")
 
         entry = self._entry("lapsed")
 
@@ -557,7 +554,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self._mk_variant(identifier="flaky", alternate_hash="a")
 
         with CaptureQueriesContext(connections[WRITER_DB]) as captured:
-            vr_api.get_flakiness_overview(self.repo.id)
+            vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         soft_queries = [q["sql"] for q in captured.captured_queries if ClassificationReason.TOLERATED_HASH in q["sql"]]
         assert soft_queries
@@ -571,7 +568,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
         self._mk_quarantine("brand-new")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["brand-new"]
         assert result.totals.quarantined == 1
@@ -582,7 +579,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         Run.objects.filter(repo=self.repo).update(status=RunStatus.PENDING)
         self._mk_quarantine("muted-early")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["muted-early"]
         assert result.totals.tracked == 0
@@ -597,6 +594,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(main_run, identifier="shared", baseline_hash="baseline-stale")
         _mk_snapshot(self.master_run, identifier="shared")
         self._mk_variant(identifier="shared", alternate_hash="a")
+        self._mk_quarantine("shared")
 
         entry = self._entry("shared")
 
@@ -631,30 +629,38 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # one row somebody has to answer, and it carries the least activity.
         _mk_snapshot(self.master_run, identifier="muted")
         self._mk_quarantine("muted")
-        _mk_snapshot(self.master_run, identifier="noisy")
-        variant = self._mk_variant(identifier="noisy", alternate_hash="a")
-        self._render("noisy", outcome=SOFT_MATCH, count=5, diff_percentage=0.01, tolerated_hash_match=variant)
+        _mk_snapshot(self.master_run, identifier="edge")
+        variant = self._mk_variant(identifier="edge", alternate_hash="a")
+        self._render(
+            "edge",
+            outcome=SOFT_MATCH,
+            count=5,
+            diff_percentage=PIXEL_DIFF_THRESHOLD_PERCENT - 0.05,
+            tolerated_hash_match=variant,
+        )
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
-        assert [e.identifier for e in result.entries] == ["muted", "noisy"]
+        assert [e.identifier for e in result.entries] == ["muted", "edge"]
 
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")
-        _mk_snapshot(self.master_run, identifier="flaky")
-        self._mk_variant(identifier="flaky", alternate_hash="a")
+        _mk_snapshot(self.master_run, identifier="drifting")
+        self._mk_variant(identifier="drifting", alternate_hash="a")
+        _mk_snapshot(self.master_run, identifier="flaky", outcome=HARD)
+        self._render("flaky", outcome=HARD)
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["flaky"]
         assert result.totals.listed == 1
-        assert result.totals.tracked == 2
+        assert result.totals.tracked == 3
 
     def test_the_denominator_counts_only_snapshots_with_a_baseline(self):
         _mk_snapshot(self.master_run, identifier="compared")
         _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert result.totals.tracked == 1
 
@@ -681,7 +687,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
             created_at=timezone.now() - timedelta(days=FLAKINESS_WINDOW_DAYS + 10)
         )
         _mk_snapshot(self.master_run, identifier="flaky")
-        self._mk_variant(identifier="flaky", alternate_hash="a")
+        self._mk_quarantine("flaky")
 
         entry = self._entry("flaky")
 
@@ -702,19 +708,20 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="stable")
         self._mk_quarantine("wrecked")
 
-        totals = vr_api.get_flakiness_overview(self.repo.id).totals
+        totals = vr_api.get_flakiness_overview(self.repo.id, self.team.id).totals
 
         assert totals.tracked == 3
-        assert totals.listed == 2
+        assert totals.listed == 1
         assert totals.broken == 1
-        assert totals.noisy == 1
+        assert totals.clean == 0
         assert totals.quarantined == 1
-        assert totals.by_run_type == {RunType.STORYBOOK: 2}
+        assert totals.by_run_type == {RunType.STORYBOOK: 1}
 
     def test_endpoint_serializes_the_overview(self):
         _mk_snapshot(self.master_run, identifier="flaky")
-        variant = self._mk_variant(identifier="flaky", alternate_hash="a", diff_percentage=0.04)
-        self._render("flaky", outcome=SOFT_MATCH, diff_percentage=0.04, tolerated_hash_match=variant)
+        edge_diff = PIXEL_DIFF_THRESHOLD_PERCENT - 0.05
+        variant = self._mk_variant(identifier="flaky", alternate_hash="a", diff_percentage=edge_diff)
+        self._render("flaky", outcome=SOFT_MATCH, diff_percentage=edge_diff, tolerated_hash_match=variant)
 
         url = f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/flakiness/"
         response = self.client.get(url)
@@ -725,9 +732,46 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         entry = data["entries"][0]
         assert entry["variant_count"] == 1
         assert entry["soft_count"] == 1
-        assert entry["flakiness_state"] == FlakinessState.NOISY
+        assert entry["flakiness_state"] == FlakinessState.AT_RISK
         assert len(entry["daily_hard_counts"]) == FLAKINESS_WINDOW_DAYS
         assert data["totals"]["tracked"] == 1
+
+    @parameterized.expand(
+        [
+            ("digest_rule_keeps_quarantined_flagged", "", [("muted", 3, 0, True), ("piled", 3, 0, False)], 2, False),
+            (
+                "automatic_threshold_adds_noisy",
+                "?min_automatic_tolerations=2",
+                [("muted", 3, 0, True), ("piled", 3, 0, False), ("noisy", 0, 2, False)],
+                3,
+                False,
+            ),
+            ("quarantined_can_be_left_out", "?include_quarantined=false", [("piled", 3, 0, False)], 1, False),
+            ("limit_truncates", "?limit=1", [("muted", 3, 0, True)], 2, True),
+        ]
+    )
+    def test_toleration_pileups_endpoint(self, _name, query, expected, total, truncated):
+        for identifier, reason, variants in (
+            ("piled", ToleratedReason.HUMAN, 3),
+            ("muted", ToleratedReason.HUMAN, 3),
+            ("once", ToleratedReason.HUMAN, 1),
+            ("noisy", ToleratedReason.AUTO_THRESHOLD, 2),
+        ):
+            _mk_snapshot(self.master_run, identifier=identifier)
+            for index in range(variants):
+                self._mk_variant(identifier=identifier, alternate_hash=f"v{index}", reason=reason)
+        self._mk_quarantine("muted")
+
+        url = f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/toleration-pileups/{query}"
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [
+            (entry["identifier"], entry["intentional_count"], entry["automatic_count"], entry["is_quarantined"])
+            for entry in data["entries"]
+        ] == expected
+        assert (data["total"], data["truncated"]) == (total, truncated)
 
     def test_endpoint_404_for_unknown_repo(self):
         url = f"/api/projects/{self.team.id}/visual_review/repos/{uuid4()}/flakiness/"

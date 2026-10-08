@@ -4,7 +4,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -157,7 +157,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -267,7 +267,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -377,7 +377,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -487,7 +487,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -587,7 +587,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -687,7 +687,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -787,7 +787,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -887,7 +887,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1050,7 +1050,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1613,7 +1613,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1687,7 +1687,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1761,7 +1761,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1835,7 +1835,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1924,17 +1924,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     LEFT JOIN
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
-        FROM person
-        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                       FROM person
-                                                       WHERE equals(person.team_id, 99999)
-                                                       GROUP BY person.id
-                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1)))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -1962,7 +1952,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -1988,24 +1978,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2046,24 +2026,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2097,7 +2067,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2123,24 +2093,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2174,7 +2134,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2305,24 +2265,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2362,24 +2312,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2414,7 +2354,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2442,7 +2382,6 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp,
             conversion_count AS conversion_count,
             conversion_person_id AS conversion_person_id
@@ -2450,20 +2389,11 @@
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp,
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp,
                countIf(equals(events.event, 'custom_event')) AS conversion_count,
                any(if(equals(events.event, 'custom_event'), if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), NULL)) AS conversion_person_id
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2498,7 +2428,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2629,24 +2559,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2686,24 +2606,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2738,7 +2648,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2764,24 +2674,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2876,7 +2776,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -2902,24 +2802,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3012,7 +2902,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3038,24 +2928,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3148,7 +3028,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3174,24 +3054,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3232,7 +3102,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3258,24 +3128,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3316,7 +3176,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3342,24 +3202,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3400,7 +3250,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3426,24 +3276,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3477,7 +3317,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3503,24 +3343,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3561,7 +3391,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3587,24 +3417,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3639,7 +3459,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3665,24 +3485,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3717,7 +3527,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3743,24 +3553,14 @@
             filtered_pageview_count AS filtered_pageview_count,
             multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), isNotNull(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(tupleElement(first_pageview_properties, 5), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', ifNull(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(tupleElement(first_pageview_properties, 5), '')), 'Referral', 'Unknown'))) AS breakdown_value,
             session_id AS session_id,
-            is_bounce AS is_bounce,
             start_timestamp AS start_timestamp
      FROM
        (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
                count() AS filtered_pageview_count,
                argMinIf(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_campaign'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_medium'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'utm_source'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$referring_domain'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'fbclid'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'gad_source'), ''), 'null'), '^"|"$', '')), toTimeZone(events.timestamp, 'UTC'), in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
-               events__session.session_id AS session_id,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               min(events__session.`$start_timestamp`) AS start_timestamp
+               if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+               any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
         FROM events
-        LEFT JOIN
-          (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-                  if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-                  min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-                  raw_sessions.session_id_v7 AS session_id_v7
-           FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-06-26 10:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-06-27 23:59:59', 'UTC')), toIntervalDay(3))))
-           GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3790,12 +3590,55 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestWebStatsTableQueryRunner.test_in_app_browser_breakdown_groups_by_webview_app_and_drops_regular_traffic
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$webview_app'), ''), 'null'), '^"|"$', '') AS breakdown_value,
+            if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), events.`$session_id`, NULL) AS session_id,
+            any(if(ifNull(equals(bitAnd(bitShiftRight(events.`$session_id_uuid`, 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(events.`$session_id_uuid`, 80), 'Int64'), 1000)), NULL)) AS start_timestamp
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  HAVING isNotNull(`context.columns.breakdown_value`)
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_0_Page
   '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3858,7 +3701,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -3932,7 +3775,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4006,7 +3849,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4080,7 +3923,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4143,7 +3986,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4216,7 +4059,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4289,7 +4132,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4364,7 +4207,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4556,7 +4399,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4628,7 +4471,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4664,17 +4507,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     LEFT JOIN
-       (SELECT person.id AS id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
-        FROM person
-        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                      (SELECT person.id AS id, max(person.version) AS version
-                                                       FROM person
-                                                       WHERE equals(person.team_id, 99999)
-                                                       GROUP BY person.id
-                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)))
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1)))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
@@ -4701,7 +4534,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -4850,7 +4683,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5019,7 +4852,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5091,7 +4924,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5201,7 +5034,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5264,7 +5097,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5327,7 +5160,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5390,7 +5223,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5454,7 +5287,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5562,7 +5395,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5625,7 +5458,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5688,7 +5521,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -5883,7 +5716,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -6307,7 +6140,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -6413,7 +6246,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -6519,7 +6352,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -6595,7 +6428,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
@@ -6747,7 +6580,7 @@
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 1 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,

@@ -1,19 +1,34 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
+from django.test import SimpleTestCase
+
+import pydantic
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
+    CompareFilter,
     EventsNode,
     FilterLogicalOperator,
     LifecycleDataWarehouseNode,
     LifecycleQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    StickinessQuery,
+    TrendsQuery,
 )
 
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql.constants import MAX_EXPANDED_INSIGHT_QUERIES
+
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    expanded_series_count,
+    validate_series_fan_out,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
@@ -113,3 +128,89 @@ class TestDisallowUnsupportedDataWarehouseSettings(BaseTest):
         )
 
         DisallowUnsupportedDataWarehouseSettings().validate(self._context(query))
+
+
+def _series(count: int) -> list[EventsNode]:
+    return [EventsNode(event=f"event_{index}") for index in range(count)]
+
+
+def _cohort_breakdown(count: int) -> BreakdownFilter:
+    return BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=list(range(1, count + 1)))
+
+
+class TestValidateSeriesFanOut(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_limit", 200, None, False),
+            ("compare_doubles_up_to_the_limit", 100, None, True),
+            ("cohorts_multiply_up_to_the_limit", 40, _cohort_breakdown(5), False),
+            ("every_factor_together_at_the_limit", 25, _cohort_breakdown(4), True),
+        ]
+    )
+    def test_allows_expansions_within_the_limit(
+        self, _name: str, series_count: int, breakdown_filter: BreakdownFilter | None, compare: bool
+    ) -> None:
+        query = TrendsQuery(
+            series=_series(series_count),
+            breakdownFilter=breakdown_filter,
+            compareFilter=CompareFilter(compare=compare),
+        )
+
+        validate_series_fan_out(query, cohort_breakdown_expands=True)
+
+    @parameterized.expand(
+        [
+            ("compare_doubles_past_the_limit", 101, None, True, 202),
+            ("cohorts_multiply_past_the_limit", 50, _cohort_breakdown(5), False, 250),
+            ("every_factor_together_past_the_limit", 34, _cohort_breakdown(3), True, 204),
+        ]
+    )
+    def test_rejects_expansions_over_the_limit(
+        self, _name: str, series_count: int, breakdown_filter: BreakdownFilter | None, compare: bool, expected: int
+    ) -> None:
+        query = TrendsQuery(
+            series=_series(series_count),
+            breakdownFilter=breakdown_filter,
+            compareFilter=CompareFilter(compare=compare),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            validate_series_fan_out(query, cohort_breakdown_expands=True)
+
+        self.assertIn(f"needs {expected} queries", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
+
+    def test_breakdown_that_does_not_expand_leaves_the_series_count_alone(self) -> None:
+        query = TrendsQuery(
+            series=_series(200),
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT, breakdown=[f"prop_{index}" for index in range(10)]
+            ),
+        )
+
+        validate_series_fan_out(query, cohort_breakdown_expands=False)
+
+    def test_rejects_stickiness_expansion_over_the_limit(self) -> None:
+        query = StickinessQuery(series=_series(101), compareFilter=CompareFilter(compare=True))
+
+        with self.assertRaises(ValidationError) as context:
+            validate_series_fan_out(query, cohort_breakdown_expands=False)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_series_fan_out_too_large"])
+
+    def test_conjoined_cohort_breakdown_does_not_multiply_the_series(self) -> None:
+        query = TrendsQuery(series=_series(150), breakdownFilter=_cohort_breakdown(5))
+
+        self.assertEqual(expanded_series_count(query, cohort_breakdown_expands=False), 150)
+        self.assertEqual(expanded_series_count(query, cohort_breakdown_expands=True), 750)
+
+        validate_series_fan_out(query, cohort_breakdown_expands=False)
+
+
+class TestSeriesLengthSchemaLimit(SimpleTestCase):
+    @parameterized.expand([("trends", TrendsQuery), ("stickiness", StickinessQuery)])
+    def test_series_longer_than_the_limit_is_rejected_before_the_runner(self, _name: str, query_class) -> None:
+        query_class(series=_series(MAX_EXPANDED_INSIGHT_QUERIES))
+
+        with self.assertRaises(pydantic.ValidationError):
+            query_class(series=_series(MAX_EXPANDED_INSIGHT_QUERIES + 1))

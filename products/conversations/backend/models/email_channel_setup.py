@@ -10,7 +10,7 @@ class EmailChannelSetupProvider(models.TextChoices):
 
 
 class EmailChannelSetup(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     channel = models.OneToOneField(
         "conversations.EmailChannel",
         on_delete=models.CASCADE,

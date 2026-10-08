@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA16",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:422-428 executes a Django select_for_update queryset, which uses the write router; its subsequent update at 430-432 is also a write-routed operation. posthog/product_db_router.py:37-40 returns stamphog_db_writer for ReviewRun. The caller already opens transaction.atomic on router.db_for_write(ReviewRun) at tasks.py:1183-1185 and invokes the helper inside it at 1222. The existing webhook caller uses the same helper/transaction pattern at 1029-1036. A minimal no-database Django routing check through the authorized mainrepo .codex/with-flox environment returned plain='reader', locked_values='writer' for the exact select_for_update().filter().values_list() query shape.",
+            "refutation": "I first tested the critical premise that SELECT FOR UPDATE is routed as an ordinary read. Django marks locking querysets for write routing, and filter/values_list preserve it; the isolated routing check confirms that with distinct reader/writer aliases. The frozen TeamScopedQuerySet derives from models.QuerySet (posthog/models/scoping/manager.py:62) and does not override select_for_update. Thus the absence of an explicit using(run_write_db) is not a replica bug: both the lock and UPDATE already use the same writer transaction. Adding the suggested pin would duplicate the existing routing safeguard."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:423-427 calls select_for_update() on an otherwise unpinned QuerySet; Django marks such queries for write routing, so evaluation selects db_for_write rather than db_for_read. The subsequent update at :430-431 also uses write routing. /tmp/frozen-75215/posthog/product_db_router.py:37-40 returns the product writer, matching the transaction selected at tasks.py:1183-1185. /tmp/frozen-75215/posthog/models/scoping/manager.py:62-86 inherits Django QuerySet behavior without overriding select_for_update or its database routing; for_team at :118-131 only adds tenant filtering.",
+            "refutation": "First checked the premise that every SQL SELECT necessarily invokes ProductDBRouter.db_for_read. It does not: Django's select_for_update sets _for_write=True, and QuerySet.db consults router.db_for_write for that query even though it returns rows. The local scoped manager does not force a reader alias. Thus the lock query and UPDATE already execute on the writer inside the caller's writer transaction. Existing new-head supersession tests at products/stamphog/backend/tests/test_tasks.py:974-1020 exercise this helper; the proposed explicit alias would be redundant, not a fix for a reachable read-only-replica failure."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "The disputed helper uses Django QuerySet.select_for_update at products/stamphog/backend/tasks/tasks.py:423-427 and QuerySet.update at 430-431. Both are write-routed ORM operations: select_for_update sets the queryset's write-routing flag even though its SQL starts with SELECT. ProductDBRouter.db_for_write returns stamphog_db_writer (posthog/product_db_router.py:37-40; products/db_routing.yaml:2-3), matching the explicit transaction alias at tasks.py:1183-1185. ReviewRun inherits ProductTeamModel at models.py:140; its TeamScopedQuerySet/for_team manager only applies the team filter and does not force a reader alias (posthog/models/scoping/manager.py:62-74,104-148).",
+            "refutation": "I checked the operation's routing semantics and whether the custom team manager pins the reader. It does not. The claim treats every SELECT as db_for_read, but Django routes select_for_update through db_for_write; the subsequent update is also routed to the writer. Consequently the read-replica rejection premise is false, and adding using(run_write_db) here would duplicate existing routing rather than repair a reachable defect. Ordinary unlocked reads need explicit writer pinning, but this helper is already a locking/write queryset."
+        }
+    ]
+}

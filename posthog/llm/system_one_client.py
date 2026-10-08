@@ -1,0 +1,202 @@
+"""Picks the System One server a caller reaches, the way ``build_openai_client`` picks a chat gateway.
+
+The Go ai-gateway serves System One models that PostHog hosts, and bills the wallet of the team that
+owns ``AI_GATEWAY_API_KEY``. TypeSafe serves Jev, but a caller reaches it only by passing a
+``TypeSafeFallback`` in local development: TypeSafe is a third party, approved for experiments that
+send no customer data (see ``posthog/egress/typesafe/README.md``). The two serve different models,
+so the fallback names its own, and the result says which model answered.
+"""
+
+from collections.abc import Mapping
+from dataclasses import field
+from urllib.parse import urlparse, urlunparse
+
+from django.conf import settings
+
+import httpx
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.typesafe.client import system_one
+from posthog.egress.typesafe.transport import typesafe_allowed
+from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
+from posthog.llm.system_one import (
+    SYSTEM_ONE_PATH,
+    ChoiceQuestion,
+    JsonValue,
+    Question,
+    SystemOneNotConfigured,
+    SystemOneRequestFailed,
+    SystemOneResult,
+    build_system_one_body,
+    parse_system_one_response,
+)
+
+logger = structlog.get_logger(__name__)
+
+DEFAULT_TIMEOUT_SECONDS = 30.0
+
+# The decision models the gateway serves (JevK5) answer with one letter per option, A to P.
+GATEWAY_MAX_CHOICE_OPTIONS = 16
+GATEWAY_MAX_QUESTIONS = 32
+
+
+@frozen
+class TypeSafeFallback:
+    """Where no gateway is configured, ask TypeSafe for ``model`` from the ``source`` egress budget."""
+
+    model: str
+    source: str
+    priority: Priority = Priority.NORMAL
+
+
+@frozen
+class GatewaySystemOneClient:
+    url: str
+    api_key: str = field(repr=False)
+    headers: Mapping[str, str]
+    model: str
+    timeout: float
+
+    def _validate_questions(self, questions: Mapping[str, Question]) -> None:
+        if not 1 <= len(questions) <= GATEWAY_MAX_QUESTIONS:
+            raise ValueError(f"A System One request needs between 1 and {GATEWAY_MAX_QUESTIONS} questions")
+        for question_id, question in questions.items():
+            if isinstance(question, ChoiceQuestion) and len(question.criteria) > GATEWAY_MAX_CHOICE_OPTIONS:
+                raise ValueError(f"{question_id!r} has more than {GATEWAY_MAX_CHOICE_OPTIONS} options")
+
+    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+        self._validate_questions(questions)
+        try:
+            with httpx.Client(trust_env=False, timeout=self.timeout) as client:
+                response = client.post(
+                    self.url,
+                    json=build_system_one_body(state=state, questions=questions, model=self.model),
+                    headers={**self.headers, "Authorization": f"Bearer {self.api_key}"},
+                )
+        except httpx.HTTPError as exc:
+            raise SystemOneRequestFailed(f"The ai-gateway was not reached: {exc.__class__.__name__}") from exc
+        return self._parse_response(response, questions)
+
+    async def adecide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+        self._validate_questions(questions)
+        try:
+            async with httpx.AsyncClient(trust_env=False, timeout=self.timeout) as client:
+                response = await client.post(
+                    self.url,
+                    json=build_system_one_body(state=state, questions=questions, model=self.model),
+                    headers={**self.headers, "Authorization": f"Bearer {self.api_key}"},
+                )
+        except httpx.HTTPError as exc:
+            raise SystemOneRequestFailed(f"The ai-gateway was not reached: {exc.__class__.__name__}") from exc
+        return self._parse_response(response, questions)
+
+    def _parse_response(self, response: httpx.Response, questions: Mapping[str, Question]) -> SystemOneResult:
+        if response.status_code != 200:
+            # The error body can echo the state, so it stays out of the exception that gets logged.
+            raise SystemOneRequestFailed(
+                f"The ai-gateway returned HTTP {response.status_code}", status_code=response.status_code
+            )
+        try:
+            payload: object = response.json()
+        except ValueError as exc:
+            raise SystemOneRequestFailed("The ai-gateway returned a non-JSON body") from exc
+        return parse_system_one_response(payload, questions)
+
+
+@frozen
+class TypeSafeSystemOneClient:
+    model: str
+    source: str
+    priority: Priority
+    timeout: float
+
+    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+        return system_one(
+            state=state,
+            questions=questions,
+            source=self.source,
+            model=self.model,
+            priority=self.priority,
+            timeout=self.timeout,
+        )
+
+
+type SystemOneClient = GatewaySystemOneClient | TypeSafeSystemOneClient
+
+
+def _system_one_url(gateway_url: str) -> str:
+    """The gateway URL setting carries the OpenAI ``/v1`` base path, and System One hangs off the origin."""
+    parsed = urlparse(gateway_url)
+    path = parsed.path.rstrip("/").removesuffix("/v1")
+    return urlunparse(parsed._replace(path=path + SYSTEM_ONE_PATH, params="", query="", fragment=""))
+
+
+def _usable_gateway() -> AIGatewayConfig | None:
+    """The gateway config, unless its key would travel in clear to a host off this machine."""
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        logger.warning("system_one_gateway_url_not_https")
+        return None
+    return gateway
+
+
+def system_one_configured(typesafe_fallback: TypeSafeFallback | None = None) -> bool:
+    if _usable_gateway() is not None:
+        return True
+    return typesafe_fallback is not None and typesafe_allowed() and bool(settings.TYPESAFE_API_KEY)
+
+
+def build_system_one_client(
+    *,
+    model: str,
+    ai_product: str,
+    team_id: int | None = None,
+    typesafe_fallback: TypeSafeFallback | None = None,
+    distinct_id: str | None = None,
+    trace_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> SystemOneClient:
+    """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe in local
+    development when the caller passes ``typesafe_fallback``.
+
+    ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. ``team_id``
+    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. Raises
+    :class:`SystemOneNotConfigured` when no server the caller allows is configured.
+    """
+    if not ai_product:
+        raise ValueError("ai_product is required")
+    if team_id is not None and team_id <= 0:
+        raise ValueError(f"team_id must be positive, got {team_id}")
+    gateway = _usable_gateway()
+    if gateway is not None:
+        labels = dict(properties or {})
+        if team_id is not None:
+            labels["team_id"] = str(team_id)
+        if not distinct_id and team_id is not None:
+            distinct_id = team_distinct_id(team_id)
+        return GatewaySystemOneClient(
+            url=_system_one_url(gateway.url),
+            api_key=gateway.api_key,
+            headers=ai_gateway_headers(
+                ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id
+            )
+            or {},
+            model=model,
+            timeout=timeout,
+        )
+    if typesafe_fallback is None or not typesafe_allowed():
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY for System One")
+    if not settings.TYPESAFE_API_KEY:
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY")
+    return TypeSafeSystemOneClient(
+        model=typesafe_fallback.model,
+        source=typesafe_fallback.source,
+        priority=typesafe_fallback.priority,
+        timeout=timeout,
+    )

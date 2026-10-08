@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -26,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot import (
+    QUERY_REJECTED_MESSAGE,
     PardotResumeConfig,
     pardot_source,
     validate_credentials as validate_pardot_credentials,
@@ -65,12 +64,15 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             "Integration not found": "The linked Account Engagement integration no longer exists. Please reconnect the source.",
             "401 Client Error: Unauthorized for url": "Account Engagement rejected the access token. Please reconnect the source.",
             "403 Client Error: Forbidden for url": "Account Engagement denied access. Check that the connected user has API access and that the business unit ID is correct.",
+            # A refused query is deterministic, so retrying burns the activity's whole budget
+            # on the same 400. None keeps the raised message, which carries the reason v5 gave.
+            QUERY_REJECTED_MESSAGE: None,
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PARDOT,
+            name=ExternalDataSourceType.PARDOT,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["salesforce pardot", "marketing cloud account engagement"],
             label="Pardot",

@@ -14,6 +14,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 
 from products.surveys.backend.models import Survey
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 from products.surveys.backend.util import get_archived_response_uuids, get_survey_response_clickhouse_query
 
 from ee.hogai.llm import MaxChatOpenAI
@@ -104,35 +105,36 @@ def generate_survey_headline(
     end_date = (survey.end_date or datetime.now()).replace(hour=23, minute=59, second=59, microsecond=0)
 
     select_fields = []
+    merged_fields = []
     for orig_idx, q in questions_with_idx:
         is_multiple_choice = q.get("type", "").lower() == SurveyQuestionType.MULTIPLE_CHOICE
         field = get_survey_response_clickhouse_query(orig_idx, q.get("id"), is_multiple_choice)
         select_fields.append(f"{field} as q{orig_idx}")
-
-    if survey.enable_partial_responses:
-        partial_filter = f"AND uniqueSurveySubmissionsFilter('{survey.id}')"
-    else:
-        partial_filter = """AND (
-            NOT JSONHas(properties, '$survey_completed')
-            OR JSONExtractBool(properties, '$survey_completed') = true
-        )"""
+        presence = f"length(q{orig_idx}) > 0" if is_multiple_choice else f"isNotNull(q{orig_idx})"
+        merged_fields.append(f"argMaxIf(q{orig_idx}, timestamp, {presence}) as answer_{orig_idx}")
 
     # Get archived response UUIDs to exclude
     # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
     archived_uuids = get_archived_response_uuids(survey.id, team.pk)
-    archived_filter = " AND uuid NOT IN {exclude_uuids}" if archived_uuids else ""
+    archived_filter = " HAVING response_uuid NOT IN {exclude_uuids}" if archived_uuids else ""
 
     with timer("query"):
         query = f"""
-            SELECT {", ".join(select_fields)}
-            FROM events
-            WHERE event == 'survey sent'
-                AND properties.$survey_id = {{survey_id}}
-                AND timestamp >= {{start_date}}
-                AND timestamp <= {{end_date}}
-                {partial_filter}
+            SELECT {", ".join(f"answer_{idx}" for idx, _ in questions_with_idx)}
+            FROM (
+                SELECT {", ".join(merged_fields)}, argMax(uuid, timestamp) as response_uuid,
+                    max(timestamp) as submitted_at
+                FROM (
+                    SELECT {", ".join(select_fields)}, uuid, timestamp,
+                        {SUBMISSION_GROUPING_KEY} as submission_key
+                    FROM events
+                    WHERE {RESPONSE_EVENT_FILTER}
+                        AND properties.$survey_id = {{survey_id}}
+                        AND timestamp >= {{start_date}}
+                        AND timestamp <= {{end_date}}
+                ) GROUP BY submission_key
                 {archived_filter}
-            ORDER BY timestamp DESC
+            ) ORDER BY submitted_at DESC
         """
 
         placeholders: dict[str, ast.Expr] = {

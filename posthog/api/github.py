@@ -23,6 +23,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_REFRESH_TOKEN,
     CANONICAL_PERSONAL_API_KEY,
     CANONICAL_PROJECT_SECRET_API_KEY,
+    CANONICAL_TEAM_SECRET_TOKEN,
     revoke_leaked_secret,
 )
 from posthog.egress.github.transport import github_request
@@ -260,13 +261,15 @@ class SecretAlert(APIView):
                 more_info = f"This key was detected by GitHub at {item['url']}."
                 revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
                 local_found = revocation.found
-                key_kind = "project_secret_api_key" if revocation.found else None
+                key_kind = revocation.key_type
 
+                # A leaked team token with a backfilled PSAK row (#63111) matches above, where
+                # _revoke_project_secret_api_key also sends the rotate-your-key notice.
                 if not revocation.found:
                     try:
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
-                        key_kind = "team_secret_token"
+                        key_kind = CANONICAL_TEAM_SECRET_TOKEN
                         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                     except Team.DoesNotExist:

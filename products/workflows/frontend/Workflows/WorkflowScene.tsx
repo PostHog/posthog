@@ -7,9 +7,12 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,20 +23,29 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { NewWorkflowAgent } from './NewWorkflowAgent'
+import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
+import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
+    NEW_WORKFLOW_AGENT_HEADLINES,
     WORKFLOW_AGENT_HEADLINES,
+    buildNewWorkflowComposerContext,
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -55,10 +67,21 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
+    const rawTriggerPrefill = searchParams[TRIGGER_PREFILL_PARAM]
+    const triggerPrefill =
+        rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
+            ? JSON.stringify(rawTriggerPrefill)
+            : rawTriggerPrefill
+    const workflowProps: WorkflowLogicProps = {
+        id: workflowSceneProps.id,
+        templateId,
+        editTemplateId,
+        triggerPrefill,
+    }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
-    const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
+    const logic = workflowLogic(workflowProps)
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
     const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
@@ -74,7 +97,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
+    const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { aiComposerAvailable } = useValues(newWorkflowLogic)
+    // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
+    const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
     // while it is open the panel's framing follows the email being edited, not the graph. Both
     // swaps update the same provider registrations in place, so they keep their first-registered
@@ -86,22 +115,39 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
         () =>
-            sceneIntegrationEnabled
-                ? buildWorkflowAgentContext(
-                      debouncedAgentSource.workflow,
-                      debouncedAgentSource.id,
-                      hogFunctionTemplatesById,
-                      editingEmailActionId
-                  )
-                : null,
-        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
+            showAiComposer
+                ? buildNewWorkflowComposerContext()
+                : sceneIntegrationEnabled
+                  ? buildWorkflowAgentContext(
+                        debouncedAgentSource.workflow,
+                        debouncedAgentSource.id,
+                        hogFunctionTemplatesById,
+                        editingEmailActionId
+                    )
+                  : null,
+        [showAiComposer, sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: editingEmail ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
+        headlines: showAiComposer
+            ? NEW_WORKFLOW_AGENT_HEADLINES
+            : editingEmail
+              ? EMAIL_EDITOR_AGENT_HEADLINES
+              : WORKFLOW_AGENT_HEADLINES,
+        composer: showAiComposer ? AI_FIRST_COMPOSER_OVERRIDE : undefined,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
+        // The composer is the page while drafting; the panel opens itself once the draft exists.
+        autoOpen: !showAiComposer,
     })
+
+    if (showAiComposer) {
+        return (
+            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+                <NewWorkflowAgent />
+            </SceneContent>
+        )
+    }
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -115,7 +161,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...workflowSceneProps} />,
+            content: <Workflow {...workflowProps} />,
         },
 
         {
@@ -134,6 +180,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
+        selfOptimisingEnabled
+            ? {
+                  label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
+                  key: 'self-driving',
+                  content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Assets',
             key: 'assets',
@@ -162,16 +215,21 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
     ]
 
+    // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
+    const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={{ id: props.id, templateId, editTemplateId }}>
+            <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
+                {selfOptimisingEnabled && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
-                    <Workflow {...props} />
+                    <Workflow {...workflowProps} />
                 ) : (
                     <LemonTabs
-                        activeKey={currentTab}
+                        activeKey={activeTab}
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset

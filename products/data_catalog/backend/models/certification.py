@@ -16,13 +16,9 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     objects = EnvironmentScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable",
@@ -46,7 +42,7 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in CertificationStatus],
-        default=CertificationStatus.PROPOSED,
+        default=CertificationStatus.PROPOSED.value,
         help_text="proposed, certified (prefer this source), or deprecated (avoid this source).",
     )
     proposed_status = models.CharField(
@@ -55,7 +51,7 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             (CertificationStatus.CERTIFIED.value, CertificationStatus.CERTIFIED.value),
             (CertificationStatus.DEPRECATED.value, CertificationStatus.DEPRECATED.value),
         ],
-        default=CertificationStatus.CERTIFIED,
+        default=CertificationStatus.CERTIFIED.value,
         help_text="The mark this proposal asks for: 'certified' (trust this source) or 'deprecated' "
         "(avoid this source). Informational once the mark is settled.",
     )

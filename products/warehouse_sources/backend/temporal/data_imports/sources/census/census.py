@@ -67,17 +67,21 @@ def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str
     return _mapper
 
 
-def validate_credentials(api_key: str, region: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
-    # A missing scope on a workspace token would 403 rather than 401; accept that at source-create
-    # (schema_name is None) since the user may only want to sync a subset of resources.
-    ok_statuses = (200, 403) if schema_name is None else (200,)
-    ok, status = validate_via_probe(
+def _probe(api_key: str, region: str, path: str, ok_statuses: tuple[int, ...]) -> tuple[bool, int | None]:
+    return validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,), capture=False),
-        f"{_host(region)}/api/v1/syncs",
+        f"{_host(region)}{path}",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         ok_statuses=ok_statuses,
         allow_redirects=False,
     )
+
+
+def validate_credentials(api_key: str, region: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+    # A missing scope on a workspace token would 403 rather than 401; accept that at source-create
+    # (schema_name is None) since the user may only want to sync a subset of resources.
+    ok_statuses = (200, 403) if schema_name is None else (200,)
+    ok, status = _probe(api_key, region, "/api/v1/syncs", ok_statuses)
     if ok:
         return True, None
     if status == 401:
@@ -87,6 +91,20 @@ def validate_credentials(api_key: str, region: str, schema_name: Optional[str] =
     if status is None:
         return False, "Could not reach Census. Please check your network and selected region, then retry."
     return False, f"Census API returned an unexpected status: {status}"
+
+
+def get_endpoint_permissions(api_key: str, region: str, endpoints: list[str]) -> dict[str, str | None]:
+    permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+    for name in endpoints:
+        config = CENSUS_ENDPOINTS.get(name)
+        if config is None or config.permission_denied_reason is None:
+            continue
+        # Only a refusal means the token cannot read the table; a throttle, 5xx, or network
+        # failure leaves the endpoint reported as reachable and is handled at sync time.
+        _, status = _probe(api_key, region, config.path, (200,))
+        if status in (401, 403):
+            permissions[name] = config.permission_denied_reason
+    return permissions
 
 
 def get_resource(endpoint: str) -> EndpointResource:

@@ -37,6 +37,7 @@ run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS en
 from __future__ import annotations
 
 import os
+import re
 import ast
 import sys
 import json
@@ -80,6 +81,8 @@ FULL_RUN_PATTERNS = (
     ".test_quarantine.json",
     # CI / Docker infrastructure
     ".github/workflows/ci-backend.yml",
+    # A new path in the events_json list has to run on the PR that adds it.
+    ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",
     "docker-compose",
     "docker/clickhouse/",
@@ -91,10 +94,14 @@ FULL_RUN_PATTERNS = (
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
-    # C++ parser and HogQL VM: no Python import edge reaches them, but they change
-    # what every HogQL query evaluates to.
+    # Both HogQL parsers and the HogQL VM: no Python import edge reaches them, but they
+    # change what every HogQL query evaluates to.
     "common/hogql_parser/",
+    "rust/hogql/parser/",
     "common/hogvm/",
+    # The personhog gRPC stubs are an installed package, so the import graph has no edge from
+    # `personhog.*` to these files. Every personhog_client consumer depends on them.
+    "packages/personhog-proto/",
     # Generates frontend/src/products.json, which is a full-run pattern in its own right.
     "manifest.tsx",
 )
@@ -412,8 +419,18 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
-def _existing_test_files(paths: list[str] | set[str]) -> list[str]:
-    return sorted(path for path in paths if (REPO_ROOT / path).is_file())
+def _pytest_ignored_prefixes() -> tuple[str, ...]:
+    """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
+    that it gets by name, so a selected file under one of them fails collection."""
+    config = REPO_ROOT / "pytest.ini"
+    if not config.is_file():
+        return ()
+    return tuple(f"{path.rstrip('/')}/" for path in re.findall(r"--ignore[= ](\S+)", config.read_text()))
+
+
+def _runnable_test_files(paths: list[str] | set[str]) -> list[str]:
+    ignored = _pytest_ignored_prefixes()
+    return sorted(path for path in paths if (REPO_ROOT / path).is_file() and not path.startswith(ignored))
 
 
 def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[str]) -> None:
@@ -428,7 +445,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     all_test_files = set(features_by_path.keys())
 
     # ── 1. Changed test files themselves ─────────────────────────────
-    changed_tests = _existing_test_files([path for path in changed_files if _is_test_file(path)])
+    changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
@@ -578,7 +595,7 @@ def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        tests = _existing_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
+        tests = _runnable_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
 
@@ -685,7 +702,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]
-    combined_tests = _existing_test_files(set(snob_tests) | set(ast_selection.tests))
+    combined_tests = _runnable_test_files(set(snob_tests) | set(ast_selection.tests))
 
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)

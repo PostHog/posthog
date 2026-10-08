@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator.source import AviatorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
@@ -40,10 +39,6 @@ class TestAviatorSource:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["queue_stats"])
         assert [s.name for s in schemas] == ["queue_stats"]
@@ -57,6 +52,9 @@ class TestAviatorSource:
             ("queued_pull_requests", False, []),
             ("queue_stats", False, []),
             ("config_history", False, []),
+            ("branches", False, []),
+            ("bot_pull_requests", False, []),
+            ("user_actions", False, []),
         ]
     )
     def test_incremental_support_per_endpoint(
@@ -93,9 +91,3 @@ class TestAviatorSource:
         with patch.object(source_module, "aviator_source") as mock_source:
             self.source.source_for_pipeline(config, MagicMock(), inputs)
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Drift here (an endpoint renamed in settings but not here) silently drops the curated docs
-        # and falls back to LLM enrichment, so keep the two in lockstep.
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

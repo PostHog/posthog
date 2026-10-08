@@ -6,10 +6,11 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { createFuseSearch } from 'lib/utils/fuseSearch'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
+
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,

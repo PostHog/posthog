@@ -7,7 +7,6 @@ import {
     type TimeSeriesBarChartConfig,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
-    createXAxisTickCallback,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -64,11 +63,11 @@ export function MetricsSeriesChart({
         () =>
             buildMetricsChartConfig({
                 display,
-                xAxis: { tickFormatter: createXAxisTickCallback({ allDays: labels, timezone }) },
+                xAxis: { timezone },
                 seriesCount: chartSeries.length,
                 labelFormatter: (label: string) => dayjs(label).tz(timezone).format('D MMM YYYY HH:mm:ss'),
             }),
-        [labels, timezone, chartSeries.length, display]
+        [timezone, chartSeries.length, display]
     )
 
     const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null

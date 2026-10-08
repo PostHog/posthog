@@ -1,15 +1,32 @@
+import json
 import uuid
+import importlib.util
+from itertools import product
+from pathlib import Path
 
 from posthog.test.base import APIBaseTest
 
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, override_settings
-from django.urls import resolve
+from django.urls import URLResolver, resolve
+from django.urls.resolvers import RegexPattern
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog import urls
+from posthog.api.playwright_setup import delete_events
+from posthog.frontend_views import (
+    home,
+    home_with_region_redirect,
+    public_page_metadata_context,
+    region_host_from_current_instance,
+)
 from posthog.models.instance_setting import override_instance_config
-from posthog.urls import region_host_from_current_instance
+from posthog.temporal.codec_server import decode_payloads
+from posthog.views import handler500, metrics_view
+
+from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 
 
 class TestUrls(APIBaseTest):
@@ -201,6 +218,36 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
 
 
+class TestPublicPageMetadata(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("login_with_next", "/login?next=/insights", "Log in • PostHog", "/login"),
+            ("signup_with_email", "/signup/?email=someone%40example.com", "Sign up • PostHog", "/signup"),
+            ("preflight", "/preflight", "PostHog", None),
+            ("invite_signup", "/signup/0b8e1f2a-1111-4c2d-9e3f-123456789abc", "PostHog", None),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.example.com")
+    def test_head_renders_search_metadata(self, _name, request_path, expected_title, expected_canonical_path):
+        request = RequestFactory().get(request_path)
+        html = render_to_string("head.html", public_page_metadata_context(request))
+
+        self.assertIn(f"<title>{expected_title}</title>", html)
+        if expected_canonical_path is None:
+            self.assertNotIn('rel="canonical"', html)
+            self.assertNotIn('name="description"', html)
+            self.assertNotIn("application/ld+json", html)
+        else:
+            canonical_url = f"https://us.example.com{expected_canonical_path}"
+            self.assertIn(f'<link rel="canonical" href="{canonical_url}">', html)
+            self.assertIn(f'<meta property="og:url" content="{canonical_url}">', html)
+            self.assertIn('<meta name="description" content="', html)
+            structured_data = json.loads(html.split('<script type="application/ld+json">')[1].split("</script>")[0])
+            self.assertEqual(structured_data["@type"], "WebPage")
+            self.assertEqual(structured_data["url"], canonical_url)
+            self.assertEqual(structured_data["name"], expected_title)
+
+
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
     @parameterized.expand(
         [
@@ -250,3 +297,27 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
 
         assert response.status_code == 302
         assert response["Location"] == expected_location
+
+
+class TestConditionalRoutes(SimpleTestCase):
+    @parameterized.expand(list(product([False, True], [False, True], ["US", "EU"])))
+    def test_route_gates_and_precedence(self, debug: bool, test: bool, region: str) -> None:
+        with override_settings(DEBUG=debug, TEST=test, CLOUD_DEPLOYMENT=region):
+            spec = importlib.util.spec_from_file_location("posthog._test_urls", Path(urls.__file__))
+            assert spec is not None and spec.loader is not None
+            urlconf = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(urlconf)
+        patterns = urlconf.urlpatterns
+        resolver = URLResolver(RegexPattern(r"^/"), patterns)
+        self.assertIs(resolver.resolve("/_metrics").func, metrics_view if debug else home_with_region_redirect)
+        self.assertIs(resolver.resolve("/delete_events/").func, delete_events if test else home_with_region_redirect)
+        self.assertIs(resolver.resolve("/decode").func, decode_payloads if debug or test else home_with_region_redirect)
+        self.assertEqual(
+            sum(pattern.name == "temporal_decode" for pattern in patterns if hasattr(pattern, "name")),
+            int(debug or test),
+        )
+        spend = resolver.resolve("/api/llm_analytics/@me/spend/")
+        self.assertEqual(getattr(spend.func, "cls", None) is PersonalSpendEUProxyViewSet, region == "EU")
+        self.assertIs(resolver.resolve("/login").func, home)
+        self.assertIs(resolver.resolve("/events").func, home_with_region_redirect)
+        self.assertIs(urlconf.handler500, handler500)

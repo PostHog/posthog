@@ -20,9 +20,6 @@ explicit with ``if error := verify_...(request): return error``.
 
 from __future__ import annotations
 
-import hmac
-import hashlib
-
 from django.conf import settings
 from django.http.request import RawPostDataException
 
@@ -112,14 +109,6 @@ def verify_stripe_signature(request: Request) -> Response | None:
 
     _log_and_capture_event("success", 200, endpoint)
     return None
-
-
-def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
-    """Compute HMAC-SHA256 signature for a request body. Exposed for testing."""
-    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
-    mac.update(f"{timestamp}.".encode())
-    mac.update(body)
-    return mac.digest().hex()
 
 
 def _get_raw_body(request: Request) -> bytes | None:

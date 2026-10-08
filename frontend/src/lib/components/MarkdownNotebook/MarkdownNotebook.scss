@@ -888,6 +888,11 @@
     pointer-events: auto;
 }
 
+.MarkdownNotebook__link-hint-anchor {
+    position: fixed;
+    pointer-events: none;
+}
+
 // Holding Cmd/Ctrl (MarkdownNotebook--link-modifier-held, toggled in MarkdownNotebook.tsx)
 // makes links clickable again so modifier-click can open them while editing
 .MarkdownNotebook--link-modifier-held .MarkdownNotebook__text-block[contenteditable='true'] a,
@@ -977,8 +982,10 @@ h3.MarkdownNotebook__text-block--heading {
     left: var(--markdown-notebook-format-toolbar-left);
     z-index: calc(var(--z-popover) + 2);
     display: inline-flex;
+    flex-wrap: wrap;
     gap: 0.125rem;
     align-items: center;
+    max-width: calc(100vw - 1rem);
     padding: 0.25rem;
     margin: 0;
     color: var(--color-text-primary);
@@ -1119,6 +1126,18 @@ h3.MarkdownNotebook__text-block--heading {
     padding: 0 0.0625rem;
     color: inherit;
     background: var(--mark);
+    border-radius: 0.1875rem;
+}
+
+.MarkdownNotebook__insert-item-badge {
+    flex: 0 0 auto;
+    padding: 0 0.25rem;
+    margin-left: auto;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.125rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-fill-tertiary);
     border-radius: 0.1875rem;
 }
 
@@ -2246,4 +2265,429 @@ button.MarkdownNotebook__component-title:focus-visible {
     display: flex;
     gap: 0.375rem;
     justify-content: flex-end;
+}
+
+// Jupyter mode: the notebook reads like JupyterLab. Cells sit flat on the page with an
+// `In [n]:` prompt column, the active cell carries a blue bar, and outputs line up under the code.
+.MarkdownNotebook--jupyter {
+    --jupyter-prompt-width: 4.75rem;
+
+    // Where markdown text starts: past the prompt column and the 1px border of a code cell's input
+    // area, so text and code start in the same column.
+    --jupyter-text-left: calc(var(--jupyter-prompt-width) + 1px);
+    --jupyter-text-control-left: calc(-1 * var(--jupyter-text-left));
+    --jupyter-prompt-font-size: 0.8125rem;
+    --jupyter-input-prompt-color: var(--color-blue-600);
+    --jupyter-output-prompt-color: var(--color-orange-600);
+    --jupyter-active-color: var(--color-blue-500);
+    --jupyter-editor-background: color-mix(in sRGB, var(--color-bg-surface-primary) 95%, var(--color-text-primary));
+    --jupyter-editor-border: var(--color-border-primary);
+    --jupyter-error-background: color-mix(in sRGB, var(--color-bg-surface-primary) 88%, var(--color-text-error));
+    --jupyter-table-stripe: color-mix(in sRGB, var(--color-bg-surface-primary) 94%, var(--color-text-primary));
+    --jupyter-table-hover: color-mix(in sRGB, var(--color-bg-surface-primary) 80%, var(--color-blue-400));
+    --markdown-notebook-canvas-max-width: 68rem;
+    --jupyter-paper-background: var(--color-bg-surface-primary);
+    --jupyter-selected-background: color-mix(in sRGB, var(--jupyter-paper-background) 88%, var(--color-blue-300));
+
+    // The notebook sits on a sheet of its own, centered on the page, as in classic Jupyter.
+    // Its left edge needs no gutter: a cell drags from its prompt column and comments sit on the right.
+    .MarkdownNotebook__canvas {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        padding-left: 0.5rem;
+        background: var(--jupyter-paper-background);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 2px;
+        box-shadow: 0 0 12px 1px rgb(0 0 0 / 10%);
+    }
+
+    &.MarkdownNotebook--edit .MarkdownNotebook__canvas {
+        padding-bottom: 6rem;
+    }
+
+    // The toolbar spans the sheet exactly, rather than stepping in to the text column.
+    .MarkdownNotebook__canvas-header {
+        padding-right: 0;
+        padding-left: 0;
+    }
+
+    .MarkdownNotebook__text-group {
+        width: 100%;
+        padding: 0.3125rem 0.5rem 0.3125rem var(--jupyter-text-left);
+        margin: 0.125rem 0;
+        background: none;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    // The same bar a selected code cell carries, so a markdown cell reads as selected too.
+    .MarkdownNotebook__text-group::before {
+        position: absolute;
+        top: 0.3125rem;
+        bottom: 0.3125rem;
+        left: 0;
+        width: 3px;
+        content: '';
+        border-radius: 1px;
+    }
+
+    .MarkdownNotebook__text-group--jupyter-active::before {
+        background: var(--jupyter-active-color);
+    }
+
+    // A block clips its overflow, so its existing left rail carries the selection instead.
+    .MarkdownNotebook__component-shell--jupyter-active:not(.MarkdownNotebook__jupyter-cell) {
+        border-left-color: var(--jupyter-active-color);
+    }
+
+    // Several cells picked with Shift+Up/Down, as JupyterLab tints them.
+    .MarkdownNotebook__text-group--jupyter-selected,
+    .MarkdownNotebook__component-shell--jupyter-selected {
+        background: var(--jupyter-selected-background);
+    }
+
+    // Other blocks (insights, recordings, …) render as rich output, indented past the prompts.
+    // Comment threads keep their own placement in the margin.
+    .MarkdownNotebook__row:not(.MarkdownNotebook__row--margin-comment)
+        > .MarkdownNotebook__component-shell:not(.MarkdownNotebook__jupyter-cell) {
+        margin-left: var(--jupyter-prompt-width);
+    }
+
+    // Row controls: the comment button sits right of the sheet's content, past the source and
+    // output, and a text row's drag handle sits in the prompt column its text leaves empty.
+    .MarkdownNotebook__block-comment-button {
+        right: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.25rem);
+        left: auto;
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__block-comment-button {
+        right: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.75rem);
+        left: auto;
+    }
+
+    // A text row's controls fill the prompt column its text leaves empty: the + lines up with
+    // the + between cells, and the drag handle sits right after it, clear of the text.
+    .MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area,
+    .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone {
+        left: var(--jupyter-text-control-left);
+        width: var(--jupyter-text-left);
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-button {
+        left: var(--jupyter-text-control-left);
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__drag-handle {
+        left: calc(var(--jupyter-text-control-left) + var(--markdown-notebook-inline-control-width) + 0.25rem);
+        transform: none;
+    }
+
+    .MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
+        left: calc(var(--jupyter-text-control-left) - var(--markdown-notebook-quote-indent));
+        width: calc(var(--jupyter-text-left) + var(--markdown-notebook-quote-indent));
+    }
+
+    .MarkdownNotebook__blockquote-group .MarkdownNotebook__drag-handle {
+        left: calc(
+            var(--jupyter-text-control-left) - var(--markdown-notebook-quote-indent) +
+                var(--markdown-notebook-inline-control-width) + 0.25rem
+        );
+    }
+}
+
+.MarkdownNotebook__jupyter-cell {
+    position: relative;
+    padding: 0.3125rem 0.5rem 0.3125rem 0;
+    margin: 0.125rem 0;
+    overflow: visible;
+    background: none;
+    border: none;
+    border-radius: 0;
+
+    // The blue bar marks the selected cell, as in JupyterLab, so the focus ring would double it.
+    &:focus,
+    &:focus-visible {
+        outline: none;
+        box-shadow: none;
+    }
+
+    &:focus::after {
+        display: none;
+    }
+}
+
+.MarkdownNotebook__jupyter-cell.MarkdownNotebook__component-shell--selected,
+.MarkdownNotebook__jupyter-cell--selected {
+    background: var(--jupyter-selected-background);
+
+    &::after {
+        display: none;
+    }
+}
+
+.MarkdownNotebook__jupyter-collapser {
+    position: absolute;
+    top: 0.3125rem;
+    bottom: 0.3125rem;
+    left: 0;
+    width: 3px;
+    border-radius: 1px;
+}
+
+.MarkdownNotebook__jupyter-drag-area {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    width: calc(var(--jupyter-prompt-width) - 0.25rem);
+    cursor: grab;
+
+    &:active {
+        cursor: grabbing;
+    }
+}
+
+.MarkdownNotebook__jupyter-cell--active .MarkdownNotebook__jupyter-collapser {
+    background: var(--jupyter-active-color);
+}
+
+.MarkdownNotebook__jupyter-input,
+.MarkdownNotebook__jupyter-output-row {
+    display: flex;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.MarkdownNotebook__jupyter-prompt {
+    flex: 0 0 var(--jupyter-prompt-width);
+    padding: 0.5rem 0.5rem 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--jupyter-prompt-font-size);
+    line-height: 1.3;
+    text-align: right;
+    white-space: nowrap;
+    user-select: none;
+    opacity: 0.8;
+}
+
+.MarkdownNotebook__jupyter-prompt--input {
+    color: var(--jupyter-input-prompt-color);
+}
+
+.MarkdownNotebook__jupyter-prompt--output {
+    padding-top: 0.25rem;
+    color: var(--jupyter-output-prompt-color);
+}
+
+.MarkdownNotebook__jupyter-cell--active .MarkdownNotebook__jupyter-prompt {
+    opacity: 1;
+}
+
+.MarkdownNotebook__jupyter-input-area {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--jupyter-editor-background);
+    border: 1px solid var(--jupyter-editor-border);
+    border-radius: 2px;
+
+    // Monaco paints its own theme background; the cell's grey editor surface shows through instead.
+    .monaco-editor {
+        --vscode-editor-background: transparent;
+        --vscode-editorGutter-background: transparent;
+        --vscode-editorStickyScroll-background: transparent;
+    }
+
+    .MarkdownNotebook__real-node,
+    .MarkdownNotebook__real-node-settings {
+        min-height: 0;
+        background: none;
+        border: none;
+    }
+}
+
+// Edit mode: the editor that holds the caret lights up, as JupyterLab's does.
+.MarkdownNotebook__jupyter-input-area:focus-within {
+    background: var(--color-bg-surface-primary);
+    border-color: var(--jupyter-active-color);
+}
+
+.MarkdownNotebook__jupyter-output {
+    min-width: 0;
+
+    .MarkdownNotebook__real-node,
+    .MarkdownNotebook__real-node-content {
+        // Jupyter outputs grow with what they hold; a fixed height would scroll inside the cell.
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible;
+        resize: none;
+        background: none;
+    }
+
+    .MarkdownNotebook__real-node-resize-handle {
+        display: none;
+    }
+}
+
+.MarkdownNotebook__jupyter-output-area {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.25rem 0.25rem 0.25rem 0.125rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: var(--jupyter-prompt-font-size);
+    line-height: 1.3;
+    color: var(--color-text-primary);
+
+    pre {
+        margin: 0;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        white-space: pre-wrap;
+        user-select: text;
+    }
+
+    img {
+        max-width: 100%;
+    }
+}
+
+.MarkdownNotebook__jupyter-output-area--muted {
+    color: var(--color-text-secondary);
+}
+
+.MarkdownNotebook__jupyter-output-area--stderr,
+.MarkdownNotebook__jupyter-output-area--error {
+    background: var(--jupyter-error-background);
+}
+
+.MarkdownNotebook__jupyter-output-area--error {
+    color: var(--color-text-error);
+}
+
+.MarkdownNotebook__jupyter-output-collapsed {
+    display: block;
+    width: calc(100% - var(--jupyter-prompt-width));
+    height: 0.75rem;
+    margin: 0.25rem 0 0 var(--jupyter-prompt-width);
+    font-size: 0.75rem;
+    line-height: 0.5rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    background: var(--jupyter-editor-background);
+    border: none;
+    border-radius: 2px;
+
+    &:hover {
+        background: var(--jupyter-table-hover);
+    }
+}
+
+// JupyterLab's cell toolbar: a small floating strip on the active cell.
+.MarkdownNotebook__jupyter-cell-actions {
+    position: absolute;
+    top: -0.625rem;
+    right: 0.75rem;
+    z-index: var(--z-raised);
+    display: none;
+    gap: 0.125rem;
+    padding: 0.0625rem;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.25rem;
+}
+
+.MarkdownNotebook__jupyter-cell--active .MarkdownNotebook__jupyter-cell-actions {
+    display: flex;
+}
+
+// The dark page already uses the primary surface, so the sheet takes the darker one to stand apart.
+[theme='dark'] .MarkdownNotebook--jupyter {
+    --jupyter-paper-background: var(--color-bg-surface-tertiary);
+}
+
+// pandas' `DataFrame._repr_html_` look, as JupyterLab renders it.
+.MarkdownNotebook__jupyter-dataframe {
+    font-family: var(--font-sans, inherit);
+    font-size: 0.75rem;
+
+    table {
+        border-spacing: 0;
+        border-collapse: collapse;
+        border: none;
+    }
+
+    th,
+    td {
+        max-width: 24rem;
+        padding: 0.35em 0.6em;
+        overflow: hidden;
+        line-height: normal;
+        text-align: right;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
+        border: none;
+    }
+
+    thead th {
+        font-weight: 700;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    tbody th {
+        font-weight: 700;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: var(--jupyter-table-stripe);
+    }
+
+    tbody tr:hover {
+        background: var(--jupyter-table-hover);
+    }
+}
+
+.MarkdownNotebook__jupyter-dataframe-summary {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 0.375rem;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+}
+
+.MarkdownNotebook__jupyter-add-cell {
+    display: block;
+    width: calc(100% - var(--jupyter-prompt-width));
+    padding: 0.625rem 0.75rem;
+    margin: 0.5rem 0 0 var(--jupyter-prompt-width);
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 2px;
+
+    &:hover {
+        background: var(--jupyter-editor-background);
+        border-color: var(--jupyter-editor-border);
+    }
+}
+
+// Holds focus while a markdown cell is in command mode. Text never takes focus itself (the
+// canvas is the editing host), so without it letter keys would type into the cell.
+.MarkdownNotebook__jupyter-command-sink {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    outline: none;
 }

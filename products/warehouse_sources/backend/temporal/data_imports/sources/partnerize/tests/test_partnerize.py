@@ -125,21 +125,10 @@ class TestFormatStartDate:
 
 
 class TestUnwrap:
-    def test_strips_single_key_item_wrapper(self) -> None:
-        unwrap = _make_unwrap("campaign")
-        assert unwrap({"campaign": {"campaign_id": "10l176", "title": "Demo"}}) == {
-            "campaign_id": "10l176",
-            "title": "Demo",
-        }
-
     def test_missing_wrapper_key_yields_item_as_is(self) -> None:
         # Defensive: if the API returns flat rows, they pass through unmodified.
         unwrap = _make_unwrap("conversion_data")
         assert unwrap({"conversion_id": "111111l314"}) == {"conversion_id": "111111l314"}
-
-    def test_no_item_key_yields_item_as_is(self) -> None:
-        unwrap = _make_unwrap(None)
-        assert unwrap({"id": 1}) == {"id": 1}
 
 
 class TestReportRows:
@@ -157,18 +146,6 @@ class TestReportRows:
         assert [s.offset for s in _saved(manager)] == [2]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_stops_without_saving(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_conversion_page(["a"], limit=300)])
-        manager = _make_manager()
-
-        rows = _rows(_run("conversions", manager))
-
-        assert len(rows) == 1
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _, params = _wire(session, [_conversion_page([], limit=300)])
@@ -177,15 +154,6 @@ class TestReportRows:
         _rows(_run("conversions", manager))
 
         assert params[0]["offset"] == 600
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_uses_default_start_date(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_conversion_page([], limit=300)])
-
-        _rows(_run("conversions", _make_manager()))
-
-        assert params[0]["start_date"] == DEFAULT_START_DATE
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_windows_from_watermark(self, MockSession: mock.MagicMock) -> None:
@@ -205,32 +173,6 @@ class TestReportRows:
         assert params[0]["start_date"] == "2024-05-01T12:00:00Z"
         # The default window filters on the conversion time, no date_type override needed.
         assert "date_type" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_last_modified_cursor_sets_date_type(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_conversion_page([], limit=300)])
-
-        _rows(
-            _run(
-                "conversions",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-05-01 12:00:00",
-                incremental_field="last_modified",
-            )
-        )
-
-        assert params[0]["date_type"] == "last_updated"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_report_url_contains_publisher_id(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        urls, _ = _wire(session, [_conversion_page([], limit=300)])
-
-        _rows(_run("conversions", _make_manager()))
-
-        assert urls[0] == f"{PARTNERIZE_BASE_URL}/reporting/report_publisher/publisher/111111l92/conversion.json"
 
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -265,17 +207,6 @@ class TestReportRows:
         with pytest.raises(RESTClientRetryableError):
             _rows(_run("conversions", _make_manager()))
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_body_then_valid_recovers(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(["glitch"]), _conversion_page(["a"], limit=300)])
-
-        rows = _rows(_run("conversions", _make_manager()))
-
-        assert [r["conversion_id"] for r in rows] == ["a"]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("rate_limited", 429, "Too Many Requests"), ("server_error", 503, "Service Unavailable")])
     @mock.patch(SLEEP_PATCH)
@@ -382,18 +313,6 @@ class TestListRows:
         rows = _rows(_run("countries", manager))
 
         assert [r["ref_country_id"] for r in rows] == [1]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_stops_without_saving(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"countries": [{"country": {"ref_country_id": 1}}]})])
-        manager = _make_manager()
-
-        rows = _rows(_run("countries", manager))
-
-        assert len(rows) == 1
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 

@@ -12,6 +12,66 @@
                     {
                         "properties": {
                             "config": {
+                                "description": "New configuration for the notebook widget widget. Omit to leave unchanged.",
+                                "properties": {
+                                    "notebookShortId": {
+                                        "anyOf": [
+                                            {
+                                                "maxLength": 128,
+                                                "minLength": 1,
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Source notebook short ID."
+                                    },
+                                    "snapshotId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "New markdown description for the widget. Omit to leave unchanged.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "New display name for the widget. Empty string or null clears it; omit to leave unchanged."
+                            },
+                            "tile_id": {
+                                "description": "ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+                                "type": "number"
+                            },
+                            "widget_type": {
+                                "enum": ["notebook_widget"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["tile_id", "widget_type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
                                 "description": "New configuration for the recent events widget. Omit to leave unchanged.",
                                 "properties": {
                                     "dateRange": {

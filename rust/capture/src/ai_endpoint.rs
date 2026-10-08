@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use common_ingestion_warnings::WarningRequestContext;
 
-use crate::ai_rejection::{AiFailure, AiRejection, ALLOWED_AI_EVENTS};
+use crate::ai_rejection::{AiFailure, AiRejection};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
@@ -34,7 +34,7 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{
-    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+    exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
 
@@ -859,8 +859,8 @@ fn validate_event_structure(event: &Value) -> Result<(), AiRejection> {
         return Err(AiRejection::EventNameEmpty);
     }
 
-    if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(AiRejection::EventNameNotAllowed(event_name.to_string()));
+    if !is_ai_event(event_name) {
+        return Err(AiRejection::EventNameNotAiPrefixed(event_name.to_string()));
     }
 
     // Validate distinct_id

@@ -48,7 +48,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "entity": {
-                            "description": "The type of the entity that you want to retrieve properties for.",
+                            "description": "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.",
                             "type": "string"
                         },
                         "kind": {
@@ -80,7 +80,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "entity": {
-                            "description": "The type of the entity that you want to retrieve properties for.",
+                            "description": "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.",
                             "type": "string"
                         },
                         "kind": {

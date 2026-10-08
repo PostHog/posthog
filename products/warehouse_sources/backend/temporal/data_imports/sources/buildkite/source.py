@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     buildkite_source,
@@ -18,8 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import (
+    DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -58,7 +59,7 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUILDKITE,
+            name=ExternalDataSourceType.BUILDKITE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -72,6 +73,9 @@ Make sure to grant the following read scopes:
 - `read_pipelines`
 - `read_builds`
 - `read_agents`
+- `read_clusters`
+- `read_teams`
+- `read_suites`
 """,
             iconPath="/static/services/buildkite.png",
             fields=cast(
@@ -117,7 +121,14 @@ Make sure to grant the following read scopes:
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,

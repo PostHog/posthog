@@ -147,43 +147,68 @@ export function SuggestedReviewers({
             const displayName =
               reviewer.user?.first_name ??
               reviewer.github_name ??
-              reviewer.github_login;
-            return (
-              <View
-                key={reviewer.user?.uuid ?? reviewer.github_login}
-                className="flex-row items-center gap-2 rounded-full border border-gray-6 bg-gray-2 py-1.5 pr-1.5 pl-1.5"
-              >
-                <Pressable
-                  onPress={() => {
-                    fireAction("click_suggested_reviewer", {
-                      suggested_reviewer_login: reviewer.github_login,
-                    });
-                    openExternalUrl(
-                      `https://github.com/${reviewer.github_login}`,
-                    );
-                  }}
-                  hitSlop={4}
-                  className="flex-row items-center gap-2 active:opacity-70"
-                >
+              reviewer.github_login ??
+              reviewer.user?.email ??
+              "Reviewer";
+            const reviewerBody = (
+              <>
+                {reviewer.github_login ? (
                   <Image
                     source={{
                       uri: `https://github.com/${reviewer.github_login}.png?size=48`,
                     }}
                     className="h-6 w-6 rounded-full bg-gray-4"
                   />
-                  <Text className="text-[13px] text-gray-12">
-                    {displayName}
-                  </Text>
-                  {isMe && (
-                    <View className="rounded bg-status-warning/20 px-1 py-0.5">
-                      <Eye
-                        size={10}
-                        color={themeColors.status.warning}
-                        weight="bold"
-                      />
-                    </View>
-                  )}
-                </Pressable>
+                ) : (
+                  <View className="h-6 w-6 items-center justify-center rounded-full bg-gray-4">
+                    <Text className="text-[11px] text-gray-11">
+                      {displayName.slice(0, 1).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <Text className="text-[13px] text-gray-12">{displayName}</Text>
+                {isMe && (
+                  <View className="rounded bg-status-warning/20 px-1 py-0.5">
+                    <Eye
+                      size={10}
+                      color={themeColors.status.warning}
+                      weight="bold"
+                    />
+                  </View>
+                )}
+              </>
+            );
+            return (
+              <View
+                key={
+                  reviewer.user?.uuid ??
+                  reviewer.user_uuid ??
+                  reviewer.github_login ??
+                  displayName
+                }
+                className="flex-row items-center gap-2 rounded-full border border-gray-6 bg-gray-2 py-1.5 pr-1.5 pl-1.5"
+              >
+                {reviewer.github_login ? (
+                  <Pressable
+                    onPress={() => {
+                      fireAction("click_suggested_reviewer", {
+                        suggested_reviewer_login:
+                          reviewer.github_login ?? undefined,
+                      });
+                      openExternalUrl(
+                        `https://github.com/${reviewer.github_login}`,
+                      );
+                    }}
+                    hitSlop={4}
+                    className="flex-row items-center gap-2 active:opacity-70"
+                  >
+                    {reviewerBody}
+                  </Pressable>
+                ) : (
+                  <View className="flex-row items-center gap-2">
+                    {reviewerBody}
+                  </View>
+                )}
                 <Pressable
                   onPress={() => removeReviewer(reviewer)}
                   disabled={isPending}

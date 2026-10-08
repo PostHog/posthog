@@ -38,7 +38,6 @@ export function EmbeddedSessionView({
     promptStartedAt,
     isInitializing,
     cloudBranch,
-    cloudStatus,
     errorTitle,
     errorMessage,
     errorRetryable,
@@ -80,7 +79,6 @@ export function EmbeddedSessionView({
         onNewSession={isCloud ? undefined : handleNewSession}
         isInitializing={isInitializing}
         isCloud={isCloud}
-        cloudStatus={cloudStatus}
         compact
         isActiveSession={isActiveSession}
         threadActions={threadActions?.({

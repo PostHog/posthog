@@ -24,6 +24,7 @@
     "src/**/*"
   ],
   "dependencies": {
-    "@posthog/shared": "workspace:*"
+    "@posthog/shared": "workspace:*",
+    "zod": "^4.1.12"
   }
 }

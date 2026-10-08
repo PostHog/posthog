@@ -18,33 +18,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from products.posthog_ai.backend.exec_commands import normalize_tool_name, parse_exec_command
+
 from .acp_log import parse_log
 
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
-INFO_SYNTHETIC_PREFIX = "__info__:"
-"""Synthetic name assigned when ``exec {command: "info <tool>"}`` is unwrapped.
-
-Lets scorers treat the single-exec CLI's ``info <tool>`` and Claude Code's
-``ToolSearch(select:mcp__posthog__<tool>)`` as interchangeable
-"tool schema loaded" signals via a stable namespaced name.
-"""
-
-
-def normalize_tool_name(name: str | None) -> str:
-    """Strip the Claude-Code MCP namespace prefix from a tool name.
-
-    Claude Code surfaces MCP tools as ``mcp__<server>__<tool>``. Scorers
-    think in bare tool names like ``query-retention``; normalising here
-    keeps the public API simple.
-    """
-    if not name:
-        return ""
-    if name.startswith("mcp__"):
-        parts = name.split("__", 2)
-        if len(parts) == 3:
-            return parts[2]
-    return name
+EXECUTE_SQL_TOOL_NAME = "execute-sql"
 
 
 def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -59,7 +39,7 @@ def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str
     if normalized == EXEC_TOOL_NAME:
         command = tool_input.get("command", "")
         if isinstance(command, str):
-            unwrapped = _parse_exec_command(command)
+            unwrapped = parse_exec_command(command)
             if unwrapped is not None:
                 return unwrapped
     return (normalized, tool_input)
@@ -101,6 +81,27 @@ class ToolCall(BaseModel):
     Python/Bash post-processing); ``"optimized"`` or ``None`` is the default
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
+
+
+def is_schema_discovery_call(call: ToolCall) -> bool:
+    """True when an ``execute-sql`` call is a catalog lookup rather than an answer query.
+
+    The MCP instructions make catalog lookups mandatory and route them through
+    ``execute-sql`` against ``system.information_schema.*``: table and column
+    discovery (``sections/schema-discovery.md``), the metric catalog
+    (``sections/metric-discovery.md``), and join validation
+    (``sections/catalog-trust-discovery.md``). Those calls land in the same
+    ``execute-sql`` call list as the query that answers the user, so a scorer
+    that grades SQL usage must drop them first, otherwise it grades the
+    instructions the agent was told to follow instead of the route it chose.
+
+    Non-``execute-sql`` calls are never discovery, so callers can apply this to
+    a mixed call list.
+    """
+    if call.name != EXECUTE_SQL_TOOL_NAME:
+        return False
+    query = call.input.get("query")
+    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 class SkillCall(BaseModel):
@@ -249,7 +250,7 @@ class LogParser:
         if normalized == EXEC_TOOL_NAME:
             command = tool_input.get("command", "")
             if isinstance(command, str):
-                unwrapped = _parse_exec_command(command)
+                unwrapped = parse_exec_command(command)
                 if unwrapped is not None:
                     inner_name, inner_input = unwrapped
                     output_format = tool_input.get("output_format")
@@ -323,51 +324,3 @@ def _index_tool_use_positions(messages: list[dict[str, Any]]) -> dict[str, int]:
                 if isinstance(call_id, str) and call_id and call_id not in positions:
                     positions[call_id] = idx
     return positions
-
-
-def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
-    """Split a CLI-style ``exec`` command string into ``(virtual_name, input)``.
-
-    Recognised shapes (produced by single-exec mode where the agent talks to
-    the PostHog MCP through one ``exec`` tool):
-      - ``"info <tool>"``                    → ``("__info__:<tool>", {})``
-      - ``"call [--json] <tool> <json>"``    → ``("<tool>", parsed_json)``
-
-    Returns ``None`` for anything else (``search``, ``tools``, ``schema``,
-    malformed) so callers can fall through to the raw ``exec`` representation.
-    """
-    stripped = command.strip()
-    if not stripped:
-        return None
-
-    head, _, rest = stripped.partition(" ")
-    head = head.lower()
-
-    if head == "info":
-        tool = rest.strip().split(None, 1)[0] if rest.strip() else ""
-        if tool:
-            return (f"{INFO_SYNTHETIC_PREFIX}{tool}", {})
-        return None
-
-    if head == "call":
-        rest = rest.strip()
-        if rest.startswith("--json"):
-            rest = rest[len("--json") :].lstrip()
-        if not rest:
-            return None
-        tool, _, json_part = rest.partition(" ")
-        tool = tool.strip()
-        if not tool:
-            return None
-        json_part = json_part.strip()
-        parsed: dict[str, Any] = {}
-        if json_part:
-            try:
-                decoded = json.loads(json_part)
-                if isinstance(decoded, dict):
-                    parsed = decoded
-            except json.JSONDecodeError:
-                parsed = {}
-        return (tool, parsed)
-
-    return None

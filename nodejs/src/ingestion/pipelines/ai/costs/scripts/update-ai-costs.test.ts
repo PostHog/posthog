@@ -3,6 +3,7 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
@@ -49,6 +50,7 @@ const cost = (promptPrice: string, discount = 0, completion = promptPrice): Retu
 const candidate = (key: string, promptPrice: string, discount: number, vendorPromotion = false): EndpointCandidate => ({
     key,
     cost: cost(promptPrice, discount)!,
+    servedCost: cost(promptPrice, 0)!,
     discount,
     vendorPromotion,
     unrefutable: false,
@@ -619,6 +621,124 @@ describe('buildModelRow()', () => {
         expect(built!.cost.openai.prompt_token).toBe(0.000001)
     })
 
+    it.each([
+        { field: 'image_output' as const, rate: 0.00012 },
+        { field: 'audio_output' as const, rate: 0.00006 },
+    ])('backfills $field onto `default` from a provider variant', ({ field, rate }) => {
+        const built = buildModelRow('google/gemini-3-pro-image-preview', listPricing, [
+            {
+                tag: 'google-vertex',
+                provider_name: 'google-vertex',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', [field]: String(rate) },
+            },
+        ])
+        expect(built!.cost.default[field]).toBe(rate)
+    })
+
+    it('leaves an existing `default` modality rate untouched', () => {
+        const built = buildModelRow('x/y', { ...listPricing, image_output: '0.00012' }, [
+            {
+                tag: 'openai',
+                provider_name: 'openai',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00009' },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
+    it('prefers an undiscounted variant when backfilling a modality rate', () => {
+        const built = buildModelRow('x/y', listPricing, [
+            {
+                tag: 'discounted',
+                provider_name: 'discounted',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00005', discount: 0.5 },
+            },
+            {
+                tag: 'listed',
+                provider_name: 'listed',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00012)
+    })
+
+    it('prefers the endpoint tier that matches the default prompt rate regardless of response order', () => {
+        const standard = {
+            tag: 'google-standard',
+            provider_name: 'google-standard',
+            pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00012' },
+        }
+        const flex = {
+            tag: 'google-flex',
+            provider_name: 'google-flex',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [flex, standard])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [standard, flex])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00012, 0.00012])
+    })
+
+    it('uses the provider key as a deterministic fallback when no endpoint matches the default prompt rate', () => {
+        const firstByKey = {
+            tag: 'a-provider',
+            provider_name: 'a-provider',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006', discount: 0.5 },
+        }
+        const lastByKey = {
+            tag: 'z-provider',
+            provider_name: 'z-provider',
+            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009', discount: 0.5 },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [lastByKey, firstByKey])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [firstByKey, lastByKey])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00006, 0.00006])
+    })
+
+    it('prefers an undiscounted variant when no endpoint matches the default prompt rate', () => {
+        const discounted = {
+            tag: 'a-discounted',
+            provider_name: 'a-discounted',
+            pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006', discount: 0.5 },
+        }
+        const undiscounted = {
+            tag: 'z-undiscounted',
+            provider_name: 'z-undiscounted',
+            pricing: { prompt: '0.00000075', completion: '0.00000075', image_output: '0.00009' },
+        }
+
+        const rates = [
+            buildModelRow('x/y', listPricing, [discounted, undiscounted])!.cost.default.image_output,
+            buildModelRow('x/y', listPricing, [undiscounted, discounted])!.cost.default.image_output,
+        ]
+
+        expect(rates).toEqual([0.00009, 0.00009])
+    })
+
+    it('prefers a matching discounted variant over a nonmatching undiscounted variant', () => {
+        const built = buildModelRow('x/y', listPricing, [
+            {
+                tag: 'a-nonmatching',
+                provider_name: 'a-nonmatching',
+                pricing: { prompt: '0.00000025', completion: '0.00000025', image_output: '0.00006' },
+            },
+            {
+                tag: 'z-matching',
+                provider_name: 'z-matching',
+                pricing: { prompt: '0.0000005', completion: '0.0000005', image_output: '0.00005', discount: 0.5 },
+            },
+        ])
+        expect(built!.cost.default.image_output).toBe(0.00005)
+        expect(built!.cost['z-matching'].image_output).toBe(0.0001)
+    })
+
     it('confines a hostile provider name to a safe key', () => {
         // Interpolated into generated TypeScript, so an apostrophe must not reach it.
         const built = buildModelRow('evil/model', listPricing, [
@@ -674,6 +794,7 @@ describe('confirmDiscountAgainstSiblings()', () => {
         const discounted: EndpointCandidate = {
             key: 'openai',
             cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
+            servedCost: buildModelCost({ prompt: '0.0000005', completion: '0.000009' })!,
             discount: 0.5,
             vendorPromotion: false,
             unrefutable: false,
@@ -683,6 +804,7 @@ describe('confirmDiscountAgainstSiblings()', () => {
         const sibling: EndpointCandidate = {
             key: 'azure',
             cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
+            servedCost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
             discount: 0,
             vendorPromotion: false,
             unrefutable: false,
@@ -1236,6 +1358,56 @@ describe('collectModelRows()', () => {
         })
         expect(seen).toStrictEqual(['a/a', 'b/b'])
     })
+
+    it.each([
+        { field: 'image_output' as const, rate: 0.00012 },
+        { field: 'audio_output' as const, rate: 0.00006 },
+    ])('preserves the previous default $field rate when endpoint fetching fails', async ({ field, rate }) => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const previousDefaults = new Map<string, ModelCost>([
+            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, [field]: rate }],
+        ])
+
+        const totals = await collectModelRows(
+            [priced('a/a')],
+            () => Promise.reject(new Error('socket hang up')),
+            previousDefaults
+        )
+
+        expect(totals.models[0].cost.default[field]).toBe(rate)
+    })
+
+    it('keeps collecting other models after an endpoint fetch fails', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const totals = await collectModelRows([priced('a/a'), priced('b/b')], (id) =>
+            id === 'a/a' ? Promise.reject(new Error('socket hang up')) : Promise.resolve([])
+        )
+
+        expect(totals.models.map((model) => model.model)).toStrictEqual(['a/a', 'b/b'])
+    })
+
+    it('keeps a current model-level modality rate when endpoint fetching fails', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const previousDefaults = new Map<string, ModelCost>([
+            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 }],
+        ])
+        const totals = await collectModelRows(
+            [{ ...priced('a/a'), pricing: { ...priced('a/a').pricing, image_output: '0.00009' } }],
+            () => Promise.reject(new Error('socket hang up')),
+            previousDefaults
+        )
+
+        expect(totals.models[0].cost.default.image_output).toBe(0.00009)
+    })
+
+    it('does not preserve a previous modality rate after a successful empty response', async () => {
+        const previousDefaults = new Map<string, ModelCost>([
+            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 }],
+        ])
+        const totals = await collectModelRows([priced('a/a')], noEndpoints, previousDefaults)
+
+        expect(totals.models[0].cost.default.image_output).toBeUndefined()
+    })
 })
 
 describe('readEndpointsFromOpenRouter()', () => {
@@ -1247,18 +1419,24 @@ describe('readEndpointsFromOpenRouter()', () => {
         await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([1, 2])
     })
 
-    it('degrades to no endpoints on a non-ok response, and says so', async () => {
+    it('rejects a non-ok response so the caller can preserve prior data', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.resolve({ ok: false, status: 429, statusText: 'Too Many Requests' }))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('429 Too Many Requests')
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('a/b'))
     })
 
-    it('degrades to no endpoints when the request throws, and says so', async () => {
+    it('rejects when the request throws so the caller can preserve prior data', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.reject(new Error('socket hang up')))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('socket hang up')
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error fetching'), 'a/b', expect.anything())
+    })
+
+    it('rejects malformed JSON so the caller can preserve prior data', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.reject(new Error('bad JSON')) }))
+        await expect(readEndpointsFromOpenRouter('a/b')).rejects.toThrow('bad JSON')
     })
 
     it('degrades to no endpoints when the payload has no endpoints key', async () => {
@@ -1304,6 +1482,35 @@ describe('fetchOpenRouterCosts()', () => {
         mockFetch()
         const totals = await fetchOpenRouterCosts()
         expect(totals.models.map((m) => m.model)).toStrictEqual(['a/b'])
+    })
+
+    it('uses committed default modality rates when an endpoint request fails', async () => {
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        jest.spyOn(global, 'fetch' as never).mockImplementation(((url: string) => {
+            if (url.includes('/endpoints')) {
+                return Promise.reject(new Error('socket hang up'))
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () =>
+                    Promise.resolve({
+                        data: [
+                            {
+                                id: 'google/gemini-3-pro-image-preview',
+                                pricing: { prompt: '0.000002', completion: '0.000012' },
+                            },
+                        ],
+                    }),
+            })
+        }) as never)
+
+        const totals = await fetchOpenRouterCosts()
+        const committedImageOutputRate =
+            openRouterCostsByModel['google/gemini-3-pro-image-preview'].cost.default.image_output
+
+        expect(committedImageOutputRate).toBeDefined()
+        expect(totals.models[0].cost.default.image_output).toBe(committedImageOutputRate)
     })
 
     it('throws when the models list cannot be fetched', async () => {

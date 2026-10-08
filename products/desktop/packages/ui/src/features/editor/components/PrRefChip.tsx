@@ -75,6 +75,7 @@ export function PrRefChip({
             icon={StatusIcon}
             iconLabel={iconLabel}
             toneClass={toneClass}
+            preservePrNumber
           >
             {children}
           </GithubRefChipLink>
@@ -84,6 +85,7 @@ export function PrRefChip({
         {/* The tooltip surface is inverted, so its contents inherit that color
             rather than the page foreground/muted tokens. */}
         <div className="flex min-w-0 flex-col gap-1.5 text-start">
+          <span className="font-mono text-current/70">{children}</span>
           <div className="flex items-center gap-1.5 font-medium">
             <StatusIcon
               size={12}

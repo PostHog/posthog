@@ -1,6 +1,10 @@
 Compare the log patterns of two time windows and return what changed: templates that are **new**, templates whose rate **shifted** (with magnitude, e.g. 4x), and templates that are **gone**. This is the single most useful call for incident triage — "what is different about now vs. before it broke" in one round trip, instead of mining two windows yourself and hand-matching templates.
 
-All parameters must be nested inside a `query` object, with an optional sibling `baselineDateRange`.
+All parameters go inside `query`, except the optional sibling `baselineDateRange`. Other top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1d" } } }
+```
 
 # When to use
 

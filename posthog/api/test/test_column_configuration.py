@@ -1,11 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.column_configuration import ColumnConfigurationSerializer
 from posthog.models import ColumnConfiguration, User
+from posthog.uuidt import uuid7
 
 
 class TestColumnConfigurationAPI(APIBaseTest):
@@ -127,37 +130,75 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert len(data["results"]) == 1
         assert data["results"][0]["id"] == str(config.id)
 
-    def test_user_can_only_edit_their_views(self):
-        another_config = ColumnConfiguration.objects.create(
+    def test_team_member_can_edit_a_shared_view(self):
+        shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="customer_analytics_accounts_columns",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}", {"name": "New name"}
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/", {"name": "New name"}
         )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You do not have permission to change this view"
+        assert response.status_code == status.HTTP_200_OK
+        shared_view.refresh_from_db()
+        assert shared_view.name == "New name"
 
-    def test_user_can_only_delete_their_views(self):
-        another_config = ColumnConfiguration.objects.create(
+    @parameterized.expand([("patch", {"name": "New name"}), ("delete", None)])
+    def test_team_member_cannot_change_another_shared_view_outside_accounts(
+        self, method: str, data: dict[str, str] | None
+    ) -> None:
+        shared_view = ColumnConfiguration.objects.create(
             team=self.team,
             visibility=ColumnConfiguration.Visibility.SHARED,
-            context_key="context-key",
+            context_key="events_table",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
         )
 
-        response = self.client.delete(
-            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}"
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/", data=data
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "You do not have permission to change this view"
+        assert ColumnConfiguration.objects.filter(id=shared_view.id).exists()
+
+    def test_team_member_can_delete_a_shared_view(self):
+        shared_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not ColumnConfiguration.objects.filter(id=shared_view.id).exists()
+
+    def test_shared_view_becomes_the_editors_private_view(self):
+        shared_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{shared_view.id}/",
+            {"visibility": ColumnConfiguration.Visibility.PRIVATE},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["visibility"] == ColumnConfiguration.Visibility.PRIVATE
+        assert response.json()["created_by"] == self.user.id
+        shared_view.refresh_from_db()
+        assert shared_view.created_by == self.user
 
     def test_list_without_context_key_excludes_others_private_views(self):
         ColumnConfiguration.objects.create(
@@ -194,6 +235,63 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand([("patch", {"name": "New name"}), ("delete", None)])
+    def test_cannot_change_another_users_private_view(self, method: str, data: dict[str, str] | None):
+        private_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/column_configurations/{private_view.id}/", data=data
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert ColumnConfiguration.objects.filter(id=private_view.id).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "private",
+                ColumnConfiguration.Visibility.PRIVATE,
+                "A private view with this name already exists",
+            ),
+            (
+                "shared",
+                ColumnConfiguration.Visibility.SHARED,
+                "A shared view with this name already exists",
+            ),
+        ]
+    )
+    def test_update_name_conflict(self, _name: str, target_visibility: str, expected_detail: str):
+        existing_view = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=target_visibility,
+            context_key="customer_analytics_accounts_columns",
+            name="Existing name",
+            columns=["*"],
+            created_by=self.user if target_visibility == ColumnConfiguration.Visibility.PRIVATE else self.another_user,
+        )
+        view_to_update = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            context_key="customer_analytics_accounts_columns",
+            name="Original name",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{view_to_update.id}/",
+            {"name": existing_view.name, "visibility": target_visibility},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == expected_detail
+
     def test_update_via_patch(self):
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
@@ -224,6 +322,25 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["context_key"] == "survey:123"
+
+    def test_pages_do_not_repeat_or_drop_views_with_equal_created_at(self):
+        row_ids = sorted(uuid7() for _ in range(5))
+        for index, row_id in enumerate(row_ids):
+            ColumnConfiguration.objects.create(
+                id=row_id, team=self.team, context_key="people-list", name=f"View {index}", columns=["*", "person"]
+            )
+        ColumnConfiguration.objects.filter(pk__in=row_ids).update(created_at=timezone.now())
+
+        paged_ids: list[str] = []
+        for offset in range(0, len(row_ids), 2):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/column_configurations/",
+                {"context_key": "people-list", "limit": "2", "offset": str(offset)},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids.extend(result["id"] for result in response.json()["results"])
+
+        assert paged_ids == [str(row_id) for row_id in reversed(row_ids)]
 
     def test_get_empty_filters(self):
         column_config = ColumnConfiguration.objects.create(

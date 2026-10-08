@@ -70,6 +70,10 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
         "us": "us.anthropic.claude-opus-5",
         "eu": "eu.anthropic.claude-opus-5",
     },
+    "claude-opus-5-5": {
+        "us": "us.anthropic.claude-opus-5-5",
+        "eu": "eu.anthropic.claude-opus-5-5",
+    },
     "claude-fable-5": {
         "us": "us.anthropic.claude-fable-5",
         "eu": "global.anthropic.claude-fable-5",
@@ -93,6 +97,11 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
     "claude-sonnet-5": {
         "us": "us.anthropic.claude-sonnet-5",
         "eu": "eu.anthropic.claude-sonnet-5",
+    },
+    # Bedrock offers Sonnet 5.5 only through the global profile.
+    "claude-sonnet-5-5": {
+        "us": "global.anthropic.claude-sonnet-5-5",
+        "eu": "global.anthropic.claude-sonnet-5-5",
     },
     "claude-haiku-4-5": {
         "us": "us.anthropic.claude-haiku-4-5-20251001-v1:0",

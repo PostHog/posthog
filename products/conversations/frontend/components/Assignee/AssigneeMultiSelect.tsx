@@ -9,15 +9,13 @@ import { urls } from 'scenes/urls'
 import { clearFilterButtonProps } from '../../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
-import { Assignee, AssigneeFilterEntry, MAX_ASSIGNEE_FILTER_ENTRIES, toTicketAssignee } from './types'
-
-function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
-    // String tokens ('unassigned', 'me') only match the identical token.
-    if (typeof a === 'string' || typeof b === 'string') {
-        return a === b
-    }
-    return a.type === b.type && String(a.id) === String(b.id)
-}
+import {
+    Assignee,
+    AssigneeFilterEntry,
+    isSameAssigneeEntry,
+    MAX_ASSIGNEE_FILTER_ENTRIES,
+    toTicketAssignee,
+} from './types'
 
 export function AssigneeMultiSelect({
     value,
@@ -37,9 +35,12 @@ export function AssigneeMultiSelect({
         ensureAssigneeTypesLoaded()
     }, [ensureAssigneeTypesLoaded])
 
-    const isSelected = (entry: AssigneeFilterEntry): boolean => value.some((selected) => isSameEntry(selected, entry))
+    const isSelected = (entry: AssigneeFilterEntry): boolean =>
+        value.some((selected) => isSameAssigneeEntry(selected, entry))
     const toggleEntry = (entry: AssigneeFilterEntry): void => {
-        onChange(isSelected(entry) ? value.filter((selected) => !isSameEntry(selected, entry)) : [...value, entry])
+        onChange(
+            isSelected(entry) ? value.filter((selected) => !isSameAssigneeEntry(selected, entry)) : [...value, entry]
+        )
     }
     const selectionCapReason =
         value.length >= MAX_ASSIGNEE_FILTER_ENTRIES

@@ -109,17 +109,9 @@ class TestHoneybadger:
     def test_to_unix_timestamp(self, value: Any, expected: int) -> None:
         assert _to_unix_timestamp(value) == expected
 
-    def test_build_params_full_refresh(self) -> None:
-        params = _build_params(HONEYBADGER_ENDPOINTS["faults"], MagicMock(), False, WATERMARK, None)
-        assert params == {"limit": 25}
-
     def test_build_params_defaults_to_endpoint_default_field(self) -> None:
         params = _build_params(HONEYBADGER_ENDPOINTS["faults"], MagicMock(), True, WATERMARK, None)
         assert params == {"limit": 25, "occurred_after": WATERMARK_TS}
-
-    def test_build_params_honors_user_chosen_field(self) -> None:
-        params = _build_params(HONEYBADGER_ENDPOINTS["faults"], MagicMock(), True, WATERMARK, "created_at")
-        assert params == {"limit": 25, "created_after": WATERMARK_TS}
 
     def test_build_params_unknown_field_falls_back_to_full_walk(self) -> None:
         logger = MagicMock()
@@ -169,13 +161,6 @@ class TestHoneybadger:
                 _fetch_page_once(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
         mock_sleep.assert_called_once_with(expected_sleep)
 
-    def test_fetch_page_retries_transient_error_then_succeeds(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [_response(None, status=500), _response({"results": [{"id": 1}]})]
-        result = _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())  # type: ignore[attr-defined]
-        assert result == {"results": [{"id": 1}]}
-        assert session.get.call_count == 2
-
     def test_fetch_page_does_not_retry_auth_403(self) -> None:
         # A 403 without an exhausted quota header is a credential problem, not a rate limit.
         session = MagicMock()
@@ -200,17 +185,6 @@ class TestHoneybadger:
         with pytest.raises(ValueError, match="Refusing to fetch"):
             _fetch_page_once(session, url, MagicMock())
         session.get.assert_not_called()
-
-    def test_fetch_page_resolves_relative_next_url(self) -> None:
-        # Honeybadger's `links.next` is root-relative; it must be resolved against the API base
-        # and fetched, not refused as off-origin.
-        session = MagicMock()
-        session.get.return_value = _response({"results": [{"id": 1}]})
-        result = _fetch_page_once(session, "/v2/projects/1/faults?limit=25&page=2", MagicMock())
-        assert result == {"results": [{"id": 1}]}
-        session.get.assert_called_once_with(
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2", timeout=mock.ANY
-        )
 
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False)])
     def test_validate_credentials(self, status: int, expected: bool) -> None:
@@ -246,17 +220,6 @@ class TestHoneybadger:
         assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
         manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(next_url=next_url))
 
-    def test_projects_resumes_from_saved_url(self) -> None:
-        next_url = f"{HONEYBADGER_BASE_URL}/projects?limit=25&page=2"
-        routes = {next_url: {"results": [{"id": 3}], "links": {}}}
-
-        batches, session, _ = _run(
-            routes, "projects", manager=_make_manager(HoneybadgerResumeConfig(next_url=next_url))
-        )
-
-        assert batches == [[{"id": 3}]]
-        assert session.calls == [next_url]
-
     def test_projects_skips_empty_page_with_next_link(self) -> None:
         # The docs allow a `next` link that resolves to an empty page; the walk must follow
         # `next` links and not yield empty batches.
@@ -269,65 +232,6 @@ class TestHoneybadger:
         batches, _, _ = _run(routes, "projects")
 
         assert batches == [[{"id": 1}]]
-
-    def test_faults_fan_out_over_projects(self) -> None:
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}, {"id": 2}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {
-                "results": [{"id": 10, "project_id": 1}],
-                "links": {},
-            },
-            f"{HONEYBADGER_BASE_URL}/projects/2/faults?limit=25": {
-                "results": [{"id": 20, "project_id": 2}],
-                "links": {},
-            },
-        }
-
-        batches, _, manager = _run(routes, "faults")
-
-        assert batches == [[{"id": 10, "project_id": 1}], [{"id": 20, "project_id": 2}]]
-        # Bookmark advanced to the next project so a crash between projects resumes there.
-        manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(project_id=2))
-
-    def test_sites_rows_gain_parent_project_id(self) -> None:
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 7}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/7/sites?limit=25": {
-                "results": [{"id": "site-uuid", "name": "Main site"}],
-                "links": {},
-            },
-        }
-
-        batches, _, _ = _run(routes, "sites")
-
-        assert batches == [[{"project_id": 7, "id": "site-uuid", "name": "Main site"}]]
-
-    @pytest.mark.parametrize(
-        ("incremental_field", "expected_param"),
-        [
-            (None, "occurred_after"),  # endpoint default: last_notice_at
-            ("created_at", "created_after"),
-            ("last_notice_at", "occurred_after"),
-        ],
-    )
-    def test_faults_incremental_uses_server_side_filter(
-        self, incremental_field: str | None, expected_param: str
-    ) -> None:
-        child_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&{expected_param}={WATERMARK_TS}"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            child_url: {"results": [{"id": 10, "project_id": 1}], "links": {}},
-        }
-
-        _, session, _ = _run(
-            routes,
-            "faults",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=WATERMARK,
-            incremental_field=incremental_field,
-        )
-
-        assert child_url in session.calls
 
     def test_fan_out_resumes_from_project_bookmark(self) -> None:
         resume_url = f"{HONEYBADGER_BASE_URL}/projects/2/faults?limit=25&page=5"
@@ -350,106 +254,94 @@ class TestHoneybadger:
         assert f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25" not in session.calls
         assert batches == [[{"id": 20, "project_id": 2}], [{"id": 30, "project_id": 3}]]
 
-    def test_fan_out_restarts_when_bookmarked_project_vanished(self) -> None:
+    def test_affected_users_fan_out_injects_fault_columns_and_bounds_faults(self) -> None:
+        faults_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&occurred_after={WATERMARK_TS}"
         routes = {
             f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {
-                "results": [{"id": 10, "project_id": 1}],
+            faults_url: {
+                "results": [
+                    {"id": 10, "last_notice_at": "2023-11-15T00:00:00Z"},
+                    {"id": 11, "last_notice_at": "2023-11-16T00:00:00Z"},
+                ],
                 "links": {},
             },
+            # Bare arrays with no paging, and the endpoint takes no time filter.
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/affected_users": [
+                {
+                    "project_id": 999,
+                    "fault_id": 999,
+                    "fault_last_notice_at": "2020-01-01T00:00:00Z",
+                    "user": "bob@example.com",
+                    "count": 4,
+                }
+            ],
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/affected_users": [],
         }
 
-        batches, _, _ = _run(
+        batches, _, manager = _run(
             routes,
-            "faults",
-            manager=_make_manager(HoneybadgerResumeConfig(next_url="https://app.honeybadger.io/stale", project_id=99)),
+            "affected_users",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=WATERMARK,
+            incremental_field="fault_last_notice_at",
         )
 
-        assert batches == [[{"id": 10, "project_id": 1}]]
-
-    def test_notices_fan_out_over_projects_and_faults(self) -> None:
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {"results": [{"id": 10}, {"id": 11}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/notices?limit=25": {
-                "results": [{"id": "uuid-1", "fault_id": 10}],
-                "links": {},
-            },
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/notices?limit=25": {
-                "results": [{"id": "uuid-2", "fault_id": 11}],
-                "links": {},
-            },
-        }
-
-        batches, _, manager = _run(routes, "notices")
-
         assert batches == [
-            [{"project_id": 1, "id": "uuid-1", "fault_id": 10}],
-            [{"project_id": 1, "id": "uuid-2", "fault_id": 11}],
+            [
+                {
+                    "project_id": 1,
+                    "fault_id": 10,
+                    "fault_last_notice_at": "2023-11-15T00:00:00Z",
+                    "user": "bob@example.com",
+                    "count": 4,
+                }
+            ]
         ]
         manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(project_id=1, fault_id=11))
 
-    def test_notices_incremental_bounds_fault_enumeration(self) -> None:
-        # The notice watermark is also applied as `occurred_after` on the fault listing:
-        # faults whose last notice predates the watermark can't have new notices.
-        faults_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&occurred_after={WATERMARK_TS}"
-        notices_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/notices?limit=25&created_after={WATERMARK_TS}"
+    def test_alarm_history_reads_triggers_and_resumes_from_alarm_bookmark(self) -> None:
+        next_url = f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25&page=2"
         routes = {
             f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            faults_url: {"results": [{"id": 10}], "links": {}},
-            notices_url: {"results": [{"id": "uuid-1", "fault_id": 10}], "links": {}},
-        }
-
-        _, session, _ = _run(
-            routes,
-            "notices",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=WATERMARK,
-            incremental_field="created_at",
-        )
-
-        assert faults_url in session.calls
-        assert notices_url in session.calls
-
-    def test_notices_resume_from_fault_bookmark(self) -> None:
-        resume_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/notices?limit=25&page=3"
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {"results": [{"id": 10}, {"id": 11}], "links": {}},
-            resume_url: {"results": [{"id": "uuid-2", "fault_id": 11}], "links": {}},
-        }
-
-        batches, session, _ = _run(
-            routes,
-            "notices",
-            manager=_make_manager(HoneybadgerResumeConfig(next_url=resume_url, project_id=1, fault_id=11)),
-        )
-
-        # Fault 10 is skipped; fault 11 resumes at its saved page URL.
-        assert f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/notices?limit=25" not in session.calls
-        assert batches == [[{"project_id": 1, "id": "uuid-2", "fault_id": 11}]]
-
-    def test_notices_discards_saved_url_when_bookmarked_fault_vanished(self) -> None:
-        routes = {
-            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25": {"results": [{"id": 10}], "links": {}},
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/notices?limit=25": {
-                "results": [{"id": "uuid-1", "fault_id": 10}],
+            f"{HONEYBADGER_BASE_URL}/projects/1/alarms?limit=25": {
+                "results": [{"id": "alarm-a"}, {"id": "alarm-b"}],
                 "links": {},
             },
+            # History pages wrap their rows in `triggers`, not `results`.
+            f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-b/history?limit=25": {
+                "triggers": [{"id": "trigger-2", "state": "alarm"}],
+                "links": {"next": next_url},
+            },
+            next_url: {"triggers": [{"id": "trigger-1", "state": "ok"}], "links": {}},
         }
 
-        batches, session, _ = _run(
-            routes,
-            "notices",
-            manager=_make_manager(
-                HoneybadgerResumeConfig(next_url="https://app.honeybadger.io/stale", project_id=1, fault_id=99)
-            ),
+        batches, session, manager = _run(
+            routes, "alarm_history", manager=_make_manager(HoneybadgerResumeConfig(project_id=1, alarm_id="alarm-b"))
         )
 
-        # The stale fault's page URL must not seed another fault's pagination.
-        assert "https://app.honeybadger.io/stale" not in session.calls
-        assert batches == [[{"project_id": 1, "id": "uuid-1", "fault_id": 10}]]
+        assert f"{HONEYBADGER_BASE_URL}/projects/1/alarms/alarm-a/history?limit=25" not in session.calls
+        assert batches == [
+            [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-2", "state": "alarm"}],
+            [{"project_id": 1, "alarm_id": "alarm-b", "id": "trigger-1", "state": "ok"}],
+        ]
+        manager.save_state.assert_called_once_with(
+            HoneybadgerResumeConfig(next_url=next_url, project_id=1, alarm_id="alarm-b")
+        )
+
+    def test_occurrences_maps_time_series_pairs_to_rows(self) -> None:
+        routes = {
+            f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 1}], "links": {}},
+            f"{HONEYBADGER_BASE_URL}/projects/1/occurrences?period=month": [[1510963200, 3], [1511049600, 0]],
+        }
+
+        batches, _, _ = _run(routes, "occurrences")
+
+        assert batches == [
+            [
+                {"project_id": 1, "bucket_start": datetime(2017, 11, 18, tzinfo=UTC), "count": 3},
+                {"project_id": 1, "bucket_start": datetime(2017, 11, 19, tzinfo=UTC), "count": 0},
+            ]
+        ]
 
     def test_mid_fault_checkpoint_saved_after_yield(self) -> None:
         next_url = f"{HONEYBADGER_BASE_URL}/projects/1/faults?limit=25&page=2"

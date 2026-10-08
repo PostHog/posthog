@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
-  Spinner,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -29,6 +28,7 @@ import {
   useTaskFeedsStore,
 } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -212,7 +212,7 @@ export function TaskFeedModal({
               <span className="font-medium">Matches</span>
               <span className="ml-auto flex items-center gap-1.5 tabular-nums">
                 {counting ? (
-                  <Spinner className="size-3" />
+                  <Spinner size="sm" />
                 ) : preview.error && preview.canRetry ? (
                   <Button
                     variant="link-muted"

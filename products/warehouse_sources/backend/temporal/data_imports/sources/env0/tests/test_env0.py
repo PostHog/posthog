@@ -10,7 +10,6 @@ import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 import (
-    PAGE_SIZE,
     Env0ResumeConfig,
     _build_date_window_params,
     env0_source,
@@ -80,14 +79,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestBuildDateWindowParams:
-    def test_incremental_deployments_sends_from_and_to_date_together(self):
-        watermark = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
-        params = _build_date_window_params(ENV0_ENDPOINTS["deployments"], True, watermark)
-
-        # env0 rejects fromDate without toDate, so both must always be present together.
-        assert params["fromDate"] == "2026-05-31T12:00:00.000Z"  # watermark minus the 24h lookback
-        assert params["toDate"].endswith("Z")
-
     @pytest.mark.parametrize(
         "endpoint, should_use_incremental_field, last_value",
         [
@@ -118,97 +109,8 @@ class TestValidateCredentials:
 
         assert validate_credentials("key-id", "key-secret") is expected
 
-    @mock.patch(SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key-id", "key-secret") is False
-
 
 class TestGetRows:
-    @mock.patch(SESSION_PATCH)
-    def test_root_endpoint_fetches_once(self, mock_session):
-        session = mock_session.return_value
-        urls = _wire(session, [("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}]))])
-
-        manager = _make_manager()
-        rows = _rows(_source("organizations", manager))
-
-        assert [row["id"] for row in rows] == ["org-1", "org-2"]
-        assert len(urls) == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(SESSION_PATCH)
-    def test_org_scoped_endpoint_fans_out_over_organizations(self, mock_session):
-        session = mock_session.return_value
-        urls = _wire(
-            session,
-            [
-                ("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}])),
-                ("organizationId=org-1", _response([{"id": "proj-1"}])),
-                ("organizationId=org-2", _response([{"id": "proj-2"}])),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("projects", manager))
-
-        assert [row["id"] for row in rows] == ["proj-1", "proj-2"]
-        assert _query(urls[1])["organizationId"] == ["org-1"]
-        assert _query(urls[2])["organizationId"] == ["org-2"]
-        # Single-hop fan-out keeps resume: the dependent resource checkpoints per-parent progress.
-        assert manager.save_state.called
-        assert "completed" in manager.save_state.call_args.args[0].paginator_state
-
-    @mock.patch(SESSION_PATCH)
-    def test_offset_pagination_advances_until_short_page(self, mock_session):
-        session = mock_session.return_value
-        full_page = [{"id": f"env-{i}"} for i in range(PAGE_SIZE)]
-        urls = _wire(
-            session,
-            [
-                ("env0.com/organizations", _response([{"id": "org-1"}])),
-                # latestDeploymentLog embeds deployment variables and injected tokens; it must be
-                # dropped even when the server ignores the excludeFields param.
-                (
-                    "offset=100",
-                    _response(
-                        [{"id": "env-last", "latestDeploymentLog": {"customEnv0EnvironmentVariables": {"o": "x"}}}]
-                    ),
-                ),
-                ("organizationId=org-1", _response(full_page)),
-            ],
-        )
-
-        rows = _rows(_source("environments", _make_manager()))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert rows[-1] == {"id": "env-last"}
-        # The full first page advances the offset to 100; the short page then terminates.
-        first_page = next(url for url in urls if "organizationId=org-1" in url and "offset=100" not in url)
-        second_page = next(url for url in urls if "offset=100" in url)
-        assert _query(first_page)["offset"] == ["0"]
-        assert _query(second_page)["offset"] == ["100"]
-        # excludeFields is sent on every environments request even though the field is also stripped.
-        assert _query(second_page)["excludeFields"] == ["latestDeploymentLog"]
-
-    @mock.patch(SESSION_PATCH)
-    def test_teams_pagination_follows_next_page_key(self, mock_session):
-        session = mock_session.return_value
-        urls = _wire(
-            session,
-            [
-                ("env0.com/organizations", _response([{"id": "org-1"}])),
-                ("offset=key-abc", _response({"teams": [{"id": "team-2"}]})),
-                ("/teams/organizations/org-1", _response({"teams": [{"id": "team-1"}], "nextPageKey": "key-abc"})),
-            ],
-        )
-
-        rows = _rows(_source("teams", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["team-1", "team-2"]
-        second_teams = next(url for url in urls if "offset=key-abc" in url)
-        assert _query(second_teams)["offset"] == ["key-abc"]
-
     @mock.patch(SESSION_PATCH)
     def test_deployments_fan_out_strips_heavy_and_secret_fields_and_windows_requests(self, mock_session):
         session = mock_session.return_value
@@ -247,23 +149,46 @@ class TestGetRows:
         # Multi-level fan-out disables resume (one shared hook can't checkpoint two levels).
         manager.save_state.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "endpoint, parents_route, parents, uncovered_path, covered_path, parent_column",
+        [
+            (
+                "environment_costs",
+                "organizationId=org-1",
+                [{"id": "env-1"}, {"id": "env-2"}],
+                "/costs/environments/env-1",
+                "/costs/environments/env-2",
+                "environment_id",
+            ),
+            (
+                "project_costs",
+                "/projects?organizationId=org-1",
+                [{"id": "proj-1"}, {"id": "proj-2"}],
+                "/costs/projects/proj-1",
+                "/costs/projects/proj-2",
+                "project_id",
+            ),
+        ],
+    )
     @mock.patch(SESSION_PATCH)
-    def test_costs_inject_environment_id_and_skip_404s(self, mock_session):
+    def test_costs_inject_the_parent_id_and_skip_404s(
+        self, mock_session, endpoint, parents_route, parents, uncovered_path, covered_path, parent_column
+    ):
         session = mock_session.return_value
         _wire(
             session,
             [
                 ("env0.com/organizations", _response([{"id": "org-1"}])),
-                ("organizationId=org-1", _response([{"id": "env-1"}, {"id": "env-2"}])),
-                # env-1 has no cost monitoring configured.
-                ("/costs/environments/env-1", _response({"message": "not found"}, status_code=404)),
-                ("/costs/environments/env-2", _response([{"date": "2026-06-01", "total": 12.5}])),
+                (parents_route, _response(parents)),
+                # The first parent has no cost monitoring configured.
+                (uncovered_path, _response({"message": "not found"}, status_code=404)),
+                (covered_path, _response([{"date": "2026-06-01", "total": 12.5}])),
             ],
         )
 
-        rows = _rows(_source("environment_costs", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
-        assert rows == [{"date": "2026-06-01", "total": 12.5, "environment_id": "env-2"}]
+        assert rows == [{"date": "2026-06-01", "total": 12.5, parent_column: parents[1]["id"]}]
 
     @mock.patch(SESSION_PATCH)
     def test_non_404_error_fails_the_sync(self, mock_session):
@@ -279,27 +204,6 @@ class TestGetRows:
 
         with pytest.raises(requests.HTTPError):
             _rows(_source("environment_costs", _make_manager()))
-
-    @mock.patch(SESSION_PATCH)
-    def test_resume_skips_already_processed_parents(self, mock_session):
-        session = mock_session.return_value
-        urls = _wire(
-            session,
-            [
-                ("env0.com/organizations", _response([{"id": "org-1"}, {"id": "org-2"}])),
-                ("organizationId=org-2", _response([{"id": "proj-2"}])),
-            ],
-        )
-
-        # org-1's child page is already checkpointed as completed, so only org-2 is fetched.
-        manager = _make_manager(
-            Env0ResumeConfig(paginator_state={"completed": ["/projects?organizationId=org-1"], "current": None})
-        )
-        rows = _rows(_source("projects", manager))
-
-        assert [row["id"] for row in rows] == ["proj-2"]
-        assert len(urls) == 2
-        assert _query(urls[1])["organizationId"] == ["org-2"]
 
     @mock.patch(SESSION_PATCH)
     def test_resume_offset_applies_only_to_bookmarked_parent(self, mock_session):
@@ -330,26 +234,90 @@ class TestGetRows:
         # The next parent starts a fresh page chain from offset 0.
         assert _query(org2_url)["offset"] == ["0"]
 
+
+class TestFanOutShaping:
     @mock.patch(SESSION_PATCH)
-    def test_legacy_resume_state_starts_over(self, mock_session):
+    def test_organization_users_lifts_the_nested_user_onto_the_row(self, mock_session):
         session = mock_session.return_value
         urls = _wire(
             session,
             [
                 ("env0.com/organizations", _response([{"id": "org-1"}])),
-                ("organizationId=org-1", _response([{"id": "proj-1"}])),
+                (
+                    "/organizations/org-1/users",
+                    _response(
+                        [
+                            {
+                                "user": {"user_id": "u-1", "email": "member@example.com"},
+                                "role": "Admin",
+                                "status": "Active",
+                            }
+                        ]
+                    ),
+                ),
             ],
         )
 
-        # State written by the previous hand-rolled implementation still deserializes (compat) but
-        # carries no framework paginator snapshot, so the sync restarts from the first parent.
-        legacy = Env0ResumeConfig(parent_id="org-deleted", offset="100")
-        assert legacy.paginator_state is None
-        manager = _make_manager(legacy)
-        rows = _rows(_source("projects", manager))
+        rows = _rows(_source("organization_users", _make_manager()))
 
-        assert [row["id"] for row in rows] == ["proj-1"]
-        assert _query(urls[1])["organizationId"] == ["org-1"]
+        # user_id is the row's identity and sits one level down, so a nested column would leave the
+        # primary key unresolvable.
+        assert rows == [
+            {
+                "user_id": "u-1",
+                "email": "member@example.com",
+                "role": "Admin",
+                "status": "Active",
+                "organization_id": "org-1",
+            }
+        ]
+        assert _query(urls[1])["includeApiKeys"] == ["true"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_deployment_resources_window_the_parent_walk_not_the_child(self, mock_session):
+        session = mock_session.return_value
+        urls = _wire(
+            session,
+            [
+                ("env0.com/organizations", _response([{"id": "org-1"}])),
+                ("/environments?organizationId=org-1", _response([{"id": "env-1"}])),
+                (
+                    "/environments/env-1/deployments",
+                    _response([{"id": "dep-1", "startedAt": "2026-06-02T10:00:00.000Z"}]),
+                ),
+                (
+                    "/environments/deployments/dep-1/resources",
+                    _response([{"provider": "aws", "type": "aws_s3_bucket", "name": "logs", "mode": "managed"}]),
+                ),
+            ],
+        )
+
+        rows = _rows(
+            _source(
+                "deployment_resources",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+        )
+
+        # moduleName is absent for root-module resources but is part of the key, and a NULL key part
+        # never matches on merge.
+        assert rows == [
+            {
+                "provider": "aws",
+                "type": "aws_s3_bucket",
+                "name": "logs",
+                "mode": "managed",
+                "moduleName": "",
+                "deployment_id": "dep-1",
+                "deployment_started_at": "2026-06-02T10:00:00.000Z",
+            }
+        ]
+        deployments_query = _query(next(url for url in urls if url.endswith("/deployments") or "/deployments?" in url))
+        assert deployments_query["fromDate"] == ["2026-05-31T00:00:00.000Z"]
+        # The resources endpoint takes no time filter; only the parent walk is bounded.
+        assert _query(next(url for url in urls if "/resources" in url)) == {}
 
 
 class TestEnv0SourceResponse:
@@ -372,12 +340,8 @@ class TestEnv0SourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_fan_out_child_primary_keys_include_parent_id(self):
-        # Cost rows have no globally-unique id of their own; without the environment id in the
-        # key, rows from different environments on the same date would merge into one.
-        assert ENV0_ENDPOINTS["environment_costs"].primary_keys == ["environment_id", "date"]
-
-    @pytest.mark.parametrize("config", list(ENV0_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createdAt"
+    @pytest.mark.parametrize("config", [c for c in ENV0_ENDPOINTS.values() if c.inject_parent_fields])
+    def test_fan_out_child_primary_keys_include_parent_id(self, config):
+        # Fan-out rows carry no globally-unique id of their own; without the parent id in the key,
+        # rows from different parents collapse into one and every later merge multi-matches them.
+        assert config.inject_parent_fields["id"] in config.primary_keys

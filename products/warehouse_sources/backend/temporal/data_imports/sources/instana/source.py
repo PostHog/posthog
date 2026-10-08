@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     INCREMENTAL_FIELDS,
     INSTANA_ENDPOINTS,
+    METRICS_DEFAULT_LOOKBACK_DAYS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -55,7 +54,7 @@ class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INSTANA,
+            name=ExternalDataSourceType.INSTANA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="IBM Instana Observability",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -118,18 +117,22 @@ Your base URL is the address you use to open the Instana UI, e.g. `https://unit-
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = INSTANA_ENDPOINTS[endpoint]
+            description: str | None = None
+            if endpoint_config.is_events:
+                description = f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
+            elif endpoint_config.metrics_entity is not None:
+                description = (
+                    f"Daily metrics. Only syncs the last {METRICS_DEFAULT_LOOKBACK_DAYS} full days on initial sync"
+                )
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
                 # Events mutate after creation (`state` and `end` change while an issue is open),
-                # so append mode would materialize each update as a duplicate row — merge only.
+                # and incremental metrics re-fetch the last day, so append mode would materialize
+                # each re-fetch as a duplicate row — merge only.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=(
-                    f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
-                    if endpoint == "events"
-                    else None
-                ),
+                description=description,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

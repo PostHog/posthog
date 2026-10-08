@@ -93,4 +93,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "avatarUrl": "URL of the space's avatar image.",
         },
     },
+    "project_dependencies": {
+        "description": "A dependency between two Wrike projects, listed once per project it links.",
+        "docs_url": "https://developers.wrike.com/reference/getfolderssingledependencies",
+        "columns": {
+            "id": "Unique identifier for the dependency.",
+            "projectId": "ID of the project this row was listed under (the predecessor or the successor).",
+            "predecessorId": "ID of the predecessor project.",
+            "successorId": "ID of the successor project.",
+            "relationType": "Dependency type: FinishToStart, StartToStart, FinishToFinish, or StartToFinish.",
+            "lagTime": "Lag time in minutes, in whole work days of 480 minutes. A negative value is lead time.",
+        },
+    },
 }

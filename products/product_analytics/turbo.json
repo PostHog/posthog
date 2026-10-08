@@ -7,7 +7,11 @@
                 "backend/presentation/**",
                 "backend/routes.py",
                 "backend/models/**",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/temporal/**",
+                "!backend/temporal/tests/**",
+                "backend/hogql_queries/trends/**",
+                "!backend/hogql_queries/trends/test/**"
             ],
             "outputs": [],
             "cache": true

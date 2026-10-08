@@ -36,6 +36,7 @@ vi.mock("@/lib/posthogApiClient", () => ({
 
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { runTaskInCloud } from "../api";
+import { playCompletionSound } from "../utils/sounds";
 import { useMessageQueueStore } from "./messageQueueStore";
 import {
   mapTerminalStatus,
@@ -381,6 +382,51 @@ describe("_resumeCloudRun", () => {
         initialPermissionMode: "auto",
       }),
     );
+  });
+});
+
+describe("completion ping from the log stream", () => {
+  beforeEach(() => {
+    useTaskSessionStore.setState({ sessions: {} });
+    usePreferencesStore.setState({ pingsEnabled: true });
+    vi.mocked(playCompletionSound).mockClear();
+  });
+
+  function turnCompleteEntry(stopReason: string): StoredLogEntry {
+    return {
+      type: "notification",
+      notification: {
+        method: "_posthog/turn_complete",
+        params: { sessionId: "s1", stopReason },
+      },
+    };
+  }
+
+  function logsUpdate(entries: StoredLogEntry[]): CloudTaskUpdatePayload {
+    return {
+      kind: "logs",
+      taskId: "t1",
+      runId: "run-1",
+      newEntries: entries,
+      totalEntryCount: entries.length,
+    };
+  }
+
+  it("stays silent on an idle resume, then pings when the real turn ends", () => {
+    seedSession({ awaitingPing: true });
+    const store = useTaskSessionStore.getState();
+
+    store._handleCloudUpdate(
+      "run-1",
+      logsUpdate([turnCompleteEntry("idle_resume")]),
+    );
+    expect(playCompletionSound).not.toHaveBeenCalled();
+
+    store._handleCloudUpdate(
+      "run-1",
+      logsUpdate([turnCompleteEntry("end_turn")]),
+    );
+    expect(playCompletionSound).toHaveBeenCalledTimes(1);
   });
 });
 

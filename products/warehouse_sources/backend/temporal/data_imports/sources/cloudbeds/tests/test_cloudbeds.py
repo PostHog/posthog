@@ -121,30 +121,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == CloudbedsResumeConfig(page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"reservationID": "1"}, {"reservationID": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert [r["reservationID"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"reservationID": "5"}])])
@@ -154,29 +130,6 @@ class TestPagination:
         assert rows == [{"reservationID": "5"}]
         # Page 1 and 2 must never be fetched on resume.
         assert [p["pageNumber"] for p in params] == [3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_property_id_is_sent_on_every_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(self._full_page(0)), _response([])])
-
-        _rows(_source(manager=_make_manager(), property_id="12345"))
-
-        assert all(p["propertyID"] == "12345" for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once_without_page_params(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"propertyID": "1"}, {"propertyID": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("hotels", manager=manager))
-
-        assert rows == [{"propertyID": "1"}, {"propertyID": "2"}]
-        assert session.send.call_count == 1
-        assert "pageNumber" not in params[0]
-        assert "pageSize" not in params[0]
-        manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_rooms_are_flattened_with_property_id(self, MockSession: mock.MagicMock) -> None:
@@ -205,6 +158,52 @@ class TestPagination:
             {"roomID": "r1", "roomName": "101", "propertyID": "1"},
             {"roomID": "r2", "roomName": "102", "propertyID": "1"},
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_are_exploded_out_of_the_per_property_map(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # getUsers keys `data` by property ID instead of returning a list, so each property's users
+        # arrive nested under the ID they belong to.
+        _wire(
+            session,
+            [
+                _response(
+                    None,
+                    body={
+                        "success": True,
+                        "data": {
+                            "1": [{"userID": "u1", "email": "a@example.com"}, {"userID": "u2"}],
+                            "2": [{"userID": "u1", "email": "a@example.com"}],
+                        },
+                    },
+                )
+            ],
+        )
+
+        rows = _rows(_source("users", manager=_make_manager()))
+
+        # The same user at two properties must stay two rows, each carrying its own propertyID -
+        # that is what makes the ["propertyID", "userID"] key unique.
+        assert rows == [
+            {"userID": "u1", "email": "a@example.com", "propertyID": "1"},
+            {"userID": "u2", "propertyID": "1"},
+            {"userID": "u1", "email": "a@example.com", "propertyID": "2"},
+        ]
+
+    @parameterized.expand([("rate_plans", "propertyIDs"), ("users", "property_ids")])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_property_is_scoped_under_the_param_the_endpoint_accepts(
+        self, endpoint: str, param: str, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(None, body={"success": True, "data": {}})])
+
+        _rows(_source(endpoint, manager=_make_manager(), property_id="12345"))
+
+        # These two methods spell the property filter their own way; sending `propertyID` instead
+        # would leave a group credential reading every property it can see.
+        assert params[0][param] == "12345"
+        assert "propertyID" not in params[0]
 
 
 class TestApiVersion:

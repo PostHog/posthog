@@ -1,15 +1,18 @@
+from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -42,6 +45,10 @@ class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConf
     supported_versions = (API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01)
     default_version = API_VERSION_2026_07_01
     api_docs_url = "https://apidoc.factorialhr.com/docs/api-versioning"
+    # Factorial serves each quarterly version for one year, then silently serves the oldest
+    # supported schema instead of rejecting the request — so `2025-04-01` stopped being honored on
+    # 2026-04-01 with no failed sync to surface it.
+    deprecated_versions = (VersionDeprecation(version=API_VERSION_2025_04_01, sunset_at=date(2026, 4, 1)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -50,7 +57,7 @@ class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FACTORIAL,
+            name=ExternalDataSourceType.FACTORIAL,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Factorial",
             releaseStatus=ReleaseStatus.ALPHA,

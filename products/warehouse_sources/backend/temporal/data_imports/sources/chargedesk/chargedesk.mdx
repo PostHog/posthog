@@ -13,7 +13,7 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 <AlphaRelease />
 
-[ChargeDesk](https://chargedesk.com) is a billing-support tool that layers customer support workflows on top of payment gateways like Stripe, Braintree, and PayPal. Linking ChargeDesk as a source syncs your charges, customers, subscriptions, and products into the PostHog data warehouse, where you can join them with product analytics, build revenue insights, and power SQL queries.
+[ChargeDesk](https://chargedesk.com) is a billing-support tool that layers customer support workflows on top of payment gateways like Stripe, Braintree, and PayPal. Linking ChargeDesk as a source syncs your charges, charge line items, customers, subscriptions, products, subscription cancellations, and account activity into the PostHog data warehouse, where you can join them with product analytics, build revenue insights, and power SQL queries.
 
 ## Prerequisites
 
@@ -35,7 +35,11 @@ When prompted, enter your ChargeDesk **secret API key**. That's the only credent
 
 <SyncModes />
 
-Charges, customers, and subscriptions support incremental sync using ChargeDesk's server-side time-range filters, so ongoing syncs only fetch new records. Products are small and mutable, so they are full-refreshed on every sync.
+Every table except products supports incremental sync using ChargeDesk's server-side time-range filters, so ongoing syncs only fetch new records. Products are small and mutable, so they are full-refreshed on every sync.
+
+Charge items are not selected by default. ChargeDesk returns line items one charge at a time and allows 60 API requests a minute, so the first sync of an account with a lot of charges is slow. Select the table when you need the per-item breakdown of your charges.
+
+The activity log and subscription cancellations tables carry no identifier of their own, so each row is keyed by `log_id`, a hash of the row's contents.
 
 ## Configuration
 

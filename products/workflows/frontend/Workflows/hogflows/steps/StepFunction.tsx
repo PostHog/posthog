@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { workflowLogic } from '../../workflowLogic'
+import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompare'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { StepFunctionNode } from './hogFunctionStepLogic'
@@ -17,6 +18,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     return (
         <>
             <StepSchemaErrors />
+            {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
             <HogFlowFunctionConfiguration
                 // Remount per node: the input renderer snapshots its values on mount, so switching to
                 // another step of the same template must remount to show the newly selected node's inputs.
