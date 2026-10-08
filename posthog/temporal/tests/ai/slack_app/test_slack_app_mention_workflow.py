@@ -366,8 +366,6 @@ async def test_queued_messages_process_serially_in_arrival_order():
 
 @pytest.mark.asyncio
 async def test_model_override_reaches_task_creation():
-    """A mention that names a model steers only its own task, and the router's pick steers
-    a mention that names none. The router sees the mention's override and the repository."""
     rec = _Recorder()
     plain, steered = _message("1.1"), _message("1.2", text="use fable for this one")
     override = SlackAppModelOverride(model="claude-fable-5", reasoning_effort="high")

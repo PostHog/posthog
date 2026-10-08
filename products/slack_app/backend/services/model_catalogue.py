@@ -24,6 +24,7 @@ from products.tasks.backend.facade.model_catalogue import (
     filter_unsupported_effort,
     group_by_runtime,
     label_for,
+    normalize_model_id,
     offered_model_choices,
     runtime_adapter_for,
 )
@@ -66,5 +67,6 @@ __all__ = [
     "display_name_for_model",
     "group_by_runtime",
     "label_for",
+    "normalize_model_id",
     "runtime_adapter_for",
 ]

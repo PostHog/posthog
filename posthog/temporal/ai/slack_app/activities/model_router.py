@@ -39,6 +39,7 @@ def classify_slack_app_model_router(
     event_text: str,
     options: tuple[ModelRouterOption, ...],
     *,
+    team_id: int,
     repository: str | None,
     distinct_id: str | None,
     trace_id: str | None = None,
@@ -52,6 +53,7 @@ def classify_slack_app_model_router(
     client = build_system_one_client(
         model=MODEL_ROUTER_DECISION_MODEL,
         ai_product="slack_app_routing",
+        team_id=team_id,
         distinct_id=distinct_id,
         trace_id=trace_id,
         properties={CLASSIFIER_PROPERTY: "slack_model_router"},
@@ -96,11 +98,13 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
     if user is None or not is_slack_app_model_router_enabled(integration, distinct_id=user.distinct_id):
         return override
 
-    options = model_router_options(team_id=integration.team_id, user_id=user.id, distinct_id=user.distinct_id)
+    options: tuple[ModelRouterOption, ...] = ()
     try:
+        options = model_router_options(team_id=integration.team_id, user_id=user.id, distinct_id=user.distinct_id)
         picked = classify_slack_app_model_router(
             input.event_text,
             options,
+            team_id=integration.team_id,
             repository=input.repository,
             distinct_id=user.distinct_id,
             trace_id=_thread_trace_id(input.slack_team_id, input.thread_ts),

@@ -11,6 +11,7 @@ in the instructions.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 
 from posthog.llm.system_one import JsonValue
 
@@ -23,6 +24,7 @@ from products.slack_app.backend.services.model_catalogue import (
     display_name_for_model,
     filter_unsupported_effort,
     label_for,
+    normalize_model_id,
     offered_model_choices,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, find_model_choice
@@ -122,7 +124,8 @@ def _stored_default(
     """`None` when no Slack run can use the preference, because Slack runs only on ACP."""
     if preferences.get("runtime") not in (None, "", "acp"):
         return None
-    choice = find_model_choice(preferences.get("model"), choices)
+    model = preferences.get("model")
+    choice = find_model_choice(normalize_model_id(model) if model else None, choices)
     if choice is None:
         return None
     return choice, filter_unsupported_effort(choice.runtime_adapter, choice.model, preferences.get("reasoning_effort"))
@@ -167,6 +170,10 @@ def model_router_options(
     catalog = available_model_choices()
     offered = offered_model_choices()
 
+    @cache
+    def allowed(model: str) -> bool:
+        return get_model_access_error(model, distinct_id=distinct_id) is None
+
     candidates: dict[str, _Candidate] = {}
 
     def add(
@@ -183,12 +190,12 @@ def model_router_options(
     # A stored default may name a retired model. The person chose it, so it stays an option.
     if user_id is not None:
         personal = _stored_default(ai_run_defaults.get_user_ai_run_preferences(team_id, user_id), catalog)
-        if personal is not None:
+        if personal is not None and allowed(personal[0].model):
             add(*personal, note=PERSONAL_DEFAULT_NOTE)
     project = _stored_default(ai_run_defaults.get_team_ai_run_preferences(team_id), catalog)
-    if project is not None:
+    if project is not None and allowed(project[0].model):
         add(*project, note=PROJECT_DEFAULT_NOTE)
-    # Without a stored default the run falls to Slack's own, and the tie-break needs to see it.
+    # Without a usable stored default the run falls to Slack's own, and the tie-break needs to see it.
     if not candidates and (slack_default := find_model_choice(SLACK_DEFAULT_MODEL, catalog)) is not None:
         add(slack_default, None, note=SLACK_DEFAULT_NOTE)
 
@@ -209,7 +216,7 @@ def model_router_options(
     return tuple(
         ModelRouterOption(model=c.choice.model, reasoning_effort=c.reasoning_effort, description=_describe(c))
         for c in candidates.values()
-        if get_model_access_error(c.choice.model, distinct_id=distinct_id) is None
+        if allowed(c.choice.model)
     )
 
 

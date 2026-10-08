@@ -915,7 +915,7 @@ AUTO_MODEL_CHOICE_VALUE = "on"
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     option = {
         "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
-        # Slack caps an option description at 150 characters and rejects the whole
+        # Slack caps an option description at 75 characters and rejects the whole
         # `views.publish` call over it, so the caveats go in the context line below.
         "description": {
             "type": "mrkdwn",

@@ -499,7 +499,7 @@ class TestRenderHomeView:
         oversized = [
             (option["value"], field, len(option[field]["text"]))
             for option in _option_objects(view)
-            for field, limit in (("text", 75), ("description", 150))
+            for field, limit in (("text", 75), ("description", 75))
             if field in option and len(option[field]["text"]) > limit
         ]
         assert oversized == []

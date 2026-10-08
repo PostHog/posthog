@@ -24,7 +24,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
     offered_model_choices,
     runtime_adapter_for,
 )
-from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER
+from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER, normalize_model_id
 
 __all__ = [
     "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
@@ -41,6 +41,7 @@ __all__ = [
     "filter_unsupported_effort",
     "group_by_runtime",
     "label_for",
+    "normalize_model_id",
     "offered_model_choices",
     "runtime_adapter_for",
 ]

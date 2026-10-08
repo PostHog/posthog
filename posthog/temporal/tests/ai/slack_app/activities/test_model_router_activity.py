@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import pytest
@@ -152,14 +153,21 @@ class TestRouteSlackAppModelActivity:
 
         assert result == expected
 
-    def test_router_failure_keeps_the_mention_on_its_default(self, integration, user):
+    @pytest.mark.parametrize("failing", ["decision_model", "option_building"])
+    def test_router_failure_keeps_the_mention_on_its_default(self, integration, user, failing):
         _opt_in(integration)
         client = MagicMock()
         client.decide.side_effect = TimeoutError()
+        broken_options = (
+            patch(f"{MODULE}.model_router_options", side_effect=RuntimeError())
+            if failing == "option_building"
+            else nullcontext()
+        )
         with (
             patch(FLAG, return_value=True),
             patch(f"{MODULE}.build_system_one_client", return_value=client),
             patch(f"{MODULE}.capture_slack_event"),
+            broken_options,
         ):
             result = classify_slack_app_model_router_activity(_input(integration, user))
 
