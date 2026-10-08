@@ -182,6 +182,13 @@ class TestParseNetworkPayload:
         )
         assert captured_but_clean.captured
         assert captured_but_clean.requests == []
+        assert not captured_but_clean.unknown_outcomes
+
+        hidden_status = parse_network_payload(
+            [_line(_rrweb_event(1000, {"name": "https://embed.test/", "responseStatus": 0, "duration": 5}))]
+        )
+        assert hidden_status.requests == []
+        assert hidden_status.unknown_outcomes
 
     def test_an_unrecognized_array_is_ignored_not_misread(self) -> None:
         # A two-event list matches a [window_id, event] pair by length. Reading it as one would keep the
