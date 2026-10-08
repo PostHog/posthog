@@ -65,8 +65,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // A bare alias was just built: only an outer-tier operator (AND, OR,
             // ternary `?`, or a chained AS) may wrap it. Any value-tier operator
             // terminates the expression here, matching cpp's two-tier grammar
-            // (`1 AS x AND y` is `(1 AS x) AND y`; `1 AS x + 2` rejects).
+            // (`1 AS x AND y` is `(1 AS x) AND y`; `1 AS x + 2` rejects). Named
+            // function arguments opt into value-tier continuation below, matching
+            // ClickHouse's `if(1 AS x > 0, …)` behavior.
             if std::mem::take(&mut self.after_bare_alias)
+                && !self.allow_value_ops_after_bare_alias
                 && !matches!(
                     kind,
                     TokenKind::Keyword(Kw::And)
@@ -4547,7 +4550,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // instead, which DOES suppress so the ORDER BY surfaces on the
         // outer `Call.order_by` per cpp's `ColumnExprFunction`
         // preference.
-        self.parse_call_argument_with(false)
+        self.parse_call_argument_with(false, false)
     }
 
     /// Call-argument parse used by `parse_function_args_inner` — the
@@ -4557,12 +4560,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// SELECT belongs to the outer `Call.order_by`, not the inner
     /// SetStmt wrapper.
     fn parse_call_argument_for_function(&mut self) -> Result<E::Value, ParseError> {
-        self.parse_call_argument_with(true)
+        self.parse_call_argument_with(true, true)
     }
 
     fn parse_call_argument_with(
         &mut self,
         suppress_inner_trailing_order_by: bool,
+        allow_value_ops_after_bare_alias: bool,
     ) -> Result<E::Value, ParseError> {
         // cpp's `ColumnExprNamedArg: identifier COLONEQUALS columnExpr`
         // admits the full `identifier` rule — IDENT / QUOTED_IDENTIFIER /
@@ -4605,7 +4609,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // or a real Placeholder `{name}`).
         self.try_alt(&[
             &|p| p.parse_call_argument_select(suppress_inner_trailing_order_by),
-            &|p| p.parse_expr_bp(0),
+            &|p| {
+                let previous = std::mem::replace(
+                    &mut p.allow_value_ops_after_bare_alias,
+                    allow_value_ops_after_bare_alias,
+                );
+                let result = p.parse_expr_bp(0);
+                p.allow_value_ops_after_bare_alias = previous;
+                result
+            },
         ])
     }
 
@@ -4669,6 +4681,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     // ---- Postfix --------------------------------------------------------
 
+    /// Parse a nested array or slice operand without inheriting the relaxed
+    /// bare-alias rule from an enclosing function argument.
+    fn parse_nested_index_expr(&mut self) -> Result<E::Value, ParseError> {
+        let previous = std::mem::replace(&mut self.allow_value_ops_after_bare_alias, false);
+        let result = self.parse_expr_bp(0);
+        self.allow_value_ops_after_bare_alias = previous;
+        result
+    }
+
     fn parse_postfix(&mut self, kind: TokenKind, lhs: E::Value) -> Result<E::Value, ParseError> {
         match kind {
             TokenKind::LParen => {
@@ -4687,17 +4708,17 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     let end = if self.peek() == TokenKind::RBracket {
                         None
                     } else {
-                        Some(self.parse_expr_bp(0)?)
+                        Some(self.parse_nested_index_expr()?)
                     };
                     self.expect(TokenKind::RBracket, "]")?;
                     return Ok(self.emit.array_slice(lhs, None, end));
                 }
-                let first = self.parse_expr_bp(0)?;
+                let first = self.parse_nested_index_expr()?;
                 if self.eat(TokenKind::Colon)? {
                     let end = if self.peek() == TokenKind::RBracket {
                         None
                     } else {
-                        Some(self.parse_expr_bp(0)?)
+                        Some(self.parse_nested_index_expr()?)
                     };
                     self.expect(TokenKind::RBracket, "]")?;
                     return Ok(self.emit.array_slice(lhs, Some(first), end));
@@ -4802,7 +4823,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // `?.[expr]` is the bracketed nullish form.
                 if self.peek() == TokenKind::LBracket {
                     self.bump()?;
-                    let property = self.parse_expr_bp(0)?;
+                    let property = self.parse_nested_index_expr()?;
                     self.expect(TokenKind::RBracket, "]")?;
                     return Ok(self.emit.array_access(lhs, property, true));
                 }
@@ -5270,9 +5291,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 *lhs = self.emit.alias(prev, &name);
                 // `AS`/aliases sit in the loosest (boolean) grammar tier, so only an
                 // outer-tier operator may bind to a bare alias — `AND`, `OR`, ternary
-                // (`?`), or a chained `AS` wrap it, while a value-tier operator (`+`,
-                // `[`, `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
-                // expression (cpp rejects `1 AS x + 2`; parenthesise as `(1 AS x) + 2`).
+                // (`?`), or a chained `AS` wrap it. Value-tier operators (`+`, `[`,
+                // `::`, `BETWEEN`, `IS`, a call `()`, …) normally terminate here
+                // (cpp rejects `1 AS x + 2`), except in named function arguments where
+                // ClickHouse accepts the operator on the aliased value.
                 // The Pratt loop's next iteration reads this flag and stops before
                 // folding a value-tier op onto the alias.
                 self.after_bare_alias = true;

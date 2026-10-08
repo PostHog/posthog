@@ -199,6 +199,10 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// an outer-tier operator (`AND`/`OR`/ternary/chained `AS`) may bind to it; a
     /// value-tier operator terminates the expression. Guards `1 AS x + 2` etc.
     pub(crate) after_bare_alias: bool,
+    /// Set only while parsing a named function-call argument. ClickHouse allows
+    /// value-tier operators to continue from a bare alias in this context (for
+    /// example, `if(1 AS x > 0, 2, 3)`), while the same shape at top level rejects.
+    pub(crate) allow_value_ops_after_bare_alias: bool,
     /// When set, `parse_trailing_set_decorators` skips a trailing
     /// `ORDER BY` at the selectSetStmt-wrapper level. Used by
     /// `parse_call_argument_select` so that for inputs like
@@ -347,6 +351,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             last_consumed_end: pos,
             cast_as_stop: None,
             after_bare_alias: false,
+            allow_value_ops_after_bare_alias: false,
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
             suppress_unvisited_clause_checks: false,
@@ -599,6 +604,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             last_consumed_end: self.last_consumed_end,
             cast_as_stop: self.cast_as_stop,
             after_bare_alias: self.after_bare_alias,
+            allow_value_ops_after_bare_alias: self.allow_value_ops_after_bare_alias,
         }
     }
 
@@ -609,6 +615,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.last_consumed_end = c.last_consumed_end;
         self.cast_as_stop = c.cast_as_stop;
         self.after_bare_alias = c.after_bare_alias;
+        self.allow_value_ops_after_bare_alias = c.allow_value_ops_after_bare_alias;
         Ok(())
     }
 
@@ -729,6 +736,7 @@ pub(crate) struct Checkpoint {
     last_consumed_end: usize,
     cast_as_stop: Option<usize>,
     after_bare_alias: bool,
+    allow_value_ops_after_bare_alias: bool,
 }
 
 // Per-section method bodies live in the submodules:

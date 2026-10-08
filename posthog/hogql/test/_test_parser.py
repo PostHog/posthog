@@ -7877,6 +7877,39 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
 
+        def test_bare_alias_can_continue_with_operator_in_function_argument(self):
+            # ClickHouse allows value-tier operators to continue from an alias
+            # inside a function argument, while the same expression at top level
+            # is rejected. Keep the parser relaxation scoped to this context.
+            for src in (
+                "if(1 as x > 0, 2, 3)",
+                "sum(1 as x > 0)",
+                "if(1 as x + 1 > 1, 2, 3)",
+                "if(1 as x is not null, 2, 3)",
+                "if(1 as x between 0 and 2, 2, 3)",
+                "if([1] as x[1] = 1, 2, 3)",
+            ):
+                expected = parse_expr(src, backend="cpp-json")
+                actual = parse_expr(src, backend=backend)
+                self.assertEqual(
+                    pretty_dataclasses(actual), pretty_dataclasses(expected), msg=src
+                )
+            for src in ("select 1 as x > 0", "select 1 as x + 1"):
+                with self.assertRaises(BaseHogQLError, msg=src):
+                    parse_select(src, backend=backend)
+
+        def test_function_argument_alias_operators_do_not_leak_into_array_indexes(self):
+            # The function argument may continue from an alias, but nested array
+            # and slice operands keep cpp-json's stricter alias boundary.
+            for src in (
+                "f(a[1 as x > 0])",
+                "f(a[1 as x > 0:])",
+                "f(a[:1 as x > 0])",
+            ):
+                for parser_backend in ("cpp-json", backend):
+                    with self.assertRaises(BaseHogQLError, msg=f"{parser_backend}: {src}"):
+                        parse_expr(src, backend=parser_backend)
+
         def test_empty_fstring_constant_spans_whole_token(self):
             # An empty f-string `f''` has no interior text, so cpp spans its Constant
             # over the whole `f''` token, not the zero-width gap between the quotes.
