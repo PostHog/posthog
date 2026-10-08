@@ -173,14 +173,16 @@ export interface AiTaskPromptChange {
     stagedPrompt: string
 }
 
+// Both helpers also read version snapshots, which are loose JSON, so every level is optional.
 export function isAiTaskStep(action: HogFlowAction): boolean {
-    return action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+    return action.type === 'function' && action.config?.template_id === 'template-posthog-create-task'
 }
 
 export function getAiTaskPrompt(action: HogFlowAction): string {
-    return action.type === 'function' && typeof action.config.inputs?.prompt?.value === 'string'
-        ? action.config.inputs.prompt.value
-        : ''
+    const value = action.type === 'function' ? action.config?.inputs?.prompt?.value : undefined
+    // A prompt written through the API can use CRLF line endings, and the editor saves LF. The diff
+    // cannot show that difference, so it must not count as a change.
+    return typeof value === 'string' ? value.replace(/\r\n?/g, '\n') : ''
 }
 
 /**

@@ -79,6 +79,12 @@ describe('workflowLogic publish', () => {
                 [{ actionId: 'a', stepName: 'Step a', livePrompt: '', stagedPrompt: 'New' }],
             ],
             [
+                'skips a change to line endings only',
+                [functionStep('a', 'One\r\nTwo')],
+                [functionStep('a', 'One\nTwo')],
+                [],
+            ],
+            [
                 'skips a function step from another template',
                 [functionStep('a', 'Old', 'template-webhook')],
                 [functionStep('a', 'New', 'template-webhook')],
