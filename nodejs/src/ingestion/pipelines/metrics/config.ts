@@ -29,7 +29,7 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
     METRICS_INGESTION_CONSUMER_DLQ_TOPIC: string
     METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
-    /** Runs the framework pipeline consumer; `false` falls back to the pre-framework consumer. */
+    /** Opt-in: `true` runs the framework pipeline consumer; the default `false` runs the pre-framework consumer. */
     METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: boolean
     METRICS_REDIS_HOST: string
     METRICS_REDIS_PORT: number
@@ -54,7 +54,7 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
         METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_METRICS_INGESTION,
         METRICS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_METRICS_INGESTION_DLQ,
         METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_METRICS_CLICKHOUSE,
-        METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: true,
+        METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: false,
         METRICS_REDIS_HOST: '127.0.0.1',
         METRICS_REDIS_PORT: 6379,
         METRICS_REDIS_PASSWORD: '',

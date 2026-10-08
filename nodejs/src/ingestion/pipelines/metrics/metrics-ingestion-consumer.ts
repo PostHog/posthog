@@ -43,9 +43,9 @@ export interface MetricsIngestionConsumerDeps {
 }
 
 /**
- * Pre-framework metrics consumer, kept for rollback: the server runs it when
- * `METRICS_INGESTION_USE_PIPELINE_FRAMEWORK` is false. See
- * `metrics-pipeline-consumer.ts` for the current implementation.
+ * Pre-framework metrics consumer. The server runs it unless
+ * `METRICS_INGESTION_USE_PIPELINE_FRAMEWORK` is true, which selects
+ * `metrics-pipeline-consumer.ts` instead.
  */
 export class MetricsIngestionConsumer {
     protected name = 'MetricsIngestionConsumer'
