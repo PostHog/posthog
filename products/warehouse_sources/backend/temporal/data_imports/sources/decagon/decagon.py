@@ -267,15 +267,16 @@ def _resolve_rows(
     # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one
-    # candidate is a guess, so it fails instead.
-    for shortlist in (same_key, inferred):
-        if len(shortlist) == 1:
-            found = shortlist[0]
-            logger.warning(
-                f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
-                f"'{found.path}' instead (response shape: {_describe_shape(data)})"
-            )
-            return found
+    # candidate is a guess, so it fails instead. Two lists with the configured name are
+    # already a guess, so the primary keys must not pick one of them.
+    shortlist = same_key or inferred
+    if len(shortlist) == 1:
+        found = shortlist[0]
+        logger.warning(
+            f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
+            f"'{found.path}' instead (response shape: {_describe_shape(data)})"
+        )
+        return found
 
     if candidates:
         reason = _unreadable_reason(config, same_key, row_like)
@@ -300,7 +301,20 @@ def _resolve_rows(
         f"Decagon: {endpoint} response carries no '{config.data_key}' list and no list to read it from "
         f"(response shape: {_describe_shape(data)})"
     )
-    return _ListCandidate(path=config.data_key, items=[], parent=data)
+    return _ListCandidate(path=config.data_key, items=[], parent=_total_holder(data, config))
+
+
+def _total_holder(data: dict[str, Any], config: DecagonEndpointConfig) -> dict[str, Any]:
+    """The object that carries the reported total when the response has no row list.
+
+    A wrapper can take the total one object down. Reading only the top level then loses
+    a positive total, and the contract check lets an empty full refresh complete. Two
+    nested totals give no single answer, so the walk keeps the top level.
+    """
+    if config.total_key is None or config.total_key in data:
+        return data
+    holders = [value for value in data.values() if isinstance(value, dict) and config.total_key in value]
+    return holders[0] if len(holders) == 1 else data
 
 
 def _next_cursor(data: dict[str, Any], cursor_keys: tuple[str, ...]) -> Optional[str]:
