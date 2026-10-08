@@ -145,7 +145,7 @@ def test_error_classification(
 ) -> None:
     send.return_value = response([], status=status)
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client._stop_after_client_attempts",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client._stop_after_attempts_or_budget",
         return_value=True,
     ):
         result = sevenshifts_source(config, "users", "2026-01-01", 1, "test-job", manager, False, None)
