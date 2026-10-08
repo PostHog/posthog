@@ -69,7 +69,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // function arguments opt into value-tier continuation below, matching
             // ClickHouse's `if(1 AS x > 0, …)` behavior.
             if std::mem::take(&mut self.after_bare_alias)
-                && !self.allow_value_ops_after_bare_alias
+                && self.allow_value_ops_after_bare_alias_at_depth != Some(self.recursion_depth)
                 && !matches!(
                     kind,
                     TokenKind::Keyword(Kw::And)
@@ -4610,12 +4610,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.try_alt(&[
             &|p| p.parse_call_argument_select(suppress_inner_trailing_order_by),
             &|p| {
-                let previous = std::mem::replace(
-                    &mut p.allow_value_ops_after_bare_alias,
-                    allow_value_ops_after_bare_alias,
-                );
+                let previous = p.allow_value_ops_after_bare_alias_at_depth;
+                p.allow_value_ops_after_bare_alias_at_depth = if allow_value_ops_after_bare_alias {
+                    Some(p.recursion_depth + 1)
+                } else {
+                    None
+                };
                 let result = p.parse_expr_bp(0);
-                p.allow_value_ops_after_bare_alias = previous;
+                p.allow_value_ops_after_bare_alias_at_depth = previous;
                 result
             },
         ])
@@ -4684,9 +4686,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Parse a nested array or slice operand without inheriting the relaxed
     /// bare-alias rule from an enclosing function argument.
     fn parse_nested_index_expr(&mut self) -> Result<E::Value, ParseError> {
-        let previous = std::mem::replace(&mut self.allow_value_ops_after_bare_alias, false);
+        let previous = self.allow_value_ops_after_bare_alias_at_depth;
+        self.allow_value_ops_after_bare_alias_at_depth = None;
         let result = self.parse_expr_bp(0);
-        self.allow_value_ops_after_bare_alias = previous;
+        self.allow_value_ops_after_bare_alias_at_depth = previous;
         result
     }
 

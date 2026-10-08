@@ -7888,6 +7888,7 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 "if(1 as x is not null, 2, 3)",
                 "if(1 as x between 0 and 2, 2, 3)",
                 "if([1] as x[1] = 1, 2, 3)",
+                "f(a[1] as x > 0)",
             ):
                 expected = parse_expr(src, backend="cpp-json")
                 actual = parse_expr(src, backend=backend)
@@ -7905,6 +7906,8 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 "f(a[1 as x > 0])",
                 "f(a[1 as x > 0:])",
                 "f(a[:1 as x > 0])",
+                "f([1 as x + 2])",
+                "f((1 as x + 2))",
             ):
                 for parser_backend in ("cpp-json", backend):
                     with self.assertRaises(BaseHogQLError, msg=f"{parser_backend}: {src}"):
