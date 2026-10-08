@@ -745,6 +745,12 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
+    # TODO: messaging presentation wave — the recipient preferences page moved out of posthog/views.py
+    # unchanged, so it still reads messaging models and services directly. Route each read through
+    # the facade and delete each entry. Only delete entries here: a new import goes through the facade.
+    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_category",
+    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_preferences",
+    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.services.customerio_sync_service",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

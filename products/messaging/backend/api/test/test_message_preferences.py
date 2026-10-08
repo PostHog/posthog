@@ -57,7 +57,7 @@ class TestMessagePreferencesViews(BaseTest):
         self._token_patch.stop()
         super().tearDown()
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_valid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
@@ -79,7 +79,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(categories[2]["name"], "All marketing communications")
         self.assertEqual(categories[2]["id"], ALL_MESSAGE_PREFERENCE_CATEGORY_ID)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_one_click_unsubscribe_get(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
@@ -99,7 +99,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_one_click_unsubscribe_post(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
@@ -118,14 +118,14 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_invalid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
         response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
         self.assertEqual(response.status_code, 400)
         self.assertTemplateUsed(response, "message_preferences/error.html")
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
         mock_validate_messaging_preferences_token.return_value = mock_response(
@@ -141,7 +141,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[str(self.category.id)], PreferenceStatus.OPTED_IN)
         self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_all_opted_out_adds_all(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:false", f"{self.category2.id}:false"]}
         mock_validate_messaging_preferences_token.return_value = mock_response(
@@ -171,7 +171,7 @@ class TestMessagePreferencesViews(BaseTest):
             ("invalid-token", mock_response(200, {"valid": False})),
         ]
     )
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_invalid_token(
         self, token, mock_response_value, mock_validate_messaging_preferences_token
     ):
@@ -182,7 +182,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertIn("error", json.loads(response.content))
 
     @parameterized.expand(["invalid", "TRUE", "", "1"])
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_invalid_preference_format(
         self, invalid_value, mock_validate_messaging_preferences_token
     ):
@@ -199,8 +199,8 @@ class TestMessagePreferencesViews(BaseTest):
         config.capture_workflows_engagement_events = True
         config.save()
 
-    @patch("posthog.views.capture_internal")
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_one_click_unsubscribe_emits_unsubscribed_event(
         self, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
@@ -236,8 +236,8 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, 200)
         mock_capture_internal.assert_not_called()
 
-    @patch("posthog.views.capture_internal")
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_emits_only_for_newly_opted_out(
         self, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
@@ -272,8 +272,8 @@ class TestMessagePreferencesViews(BaseTest):
             self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
 
     @parameterized.expand(["one_click", "preferences_form"])
-    @patch("posthog.views.capture_internal")
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_no_unsubscribed_event_when_flag_off(
         self, code_path, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
@@ -310,7 +310,7 @@ class TestMessagePreferencesViews(BaseTest):
             ("opt_in", PreferenceStatus.OPTED_IN, True, True),
         ]
     )
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_tracking_section_per_mode(
         self, mode, stored_preference, section_shown, toggle_checked, mock_validate_messaging_preferences_token
     ):
@@ -332,7 +332,7 @@ class TestMessagePreferencesViews(BaseTest):
         else:
             self.assertNotContains(response, "Open and click tracking")
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_opt_out_alone_does_not_unsubscribe(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
@@ -349,7 +349,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
         self.assertNotIn(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, prefs)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_only_save_preserves_stored_all_opt_out(self, mock_validate_messaging_preferences_token):
         # A tracking-only payload (no category toggles rendered) must not rebuild
         # subscription state and silently resubscribe a one-click-unsubscribed recipient
@@ -370,7 +370,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
         self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
 
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_opt_in_does_not_block_all_unsubscribe(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
@@ -395,7 +395,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_IN)
 
     @parameterized.expand(["one_click", "preferences_form"])
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_stored_tracking_consent_survives_writes_that_omit_it(
         self, code_path, mock_validate_messaging_preferences_token
     ):
@@ -422,8 +422,8 @@ class TestMessagePreferencesViews(BaseTest):
         self.recipient.refresh_from_db()
         self.assertEqual(self.recipient.get_all_preferences()[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
 
-    @patch("posthog.views.capture_internal")
-    @patch("posthog.views.validate_messaging_preferences_token")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_consent_change_emits_event_only_on_transition(
         self, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
