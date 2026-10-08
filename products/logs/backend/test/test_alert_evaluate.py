@@ -344,19 +344,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         queried = {check.id for call in query.call_args_list for check in call.kwargs["alerts"]}
         assert queried == {healthy.id}
         with team_scope(self.team.id):
-            alert = platform_testing.alert_for(configuration.id)
-            assert alert is not None
-        assert alert.state == AlertState.BROKEN
+            assert platform_testing.configuration(configuration.id).check_status == AlertState.BROKEN
         assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
 
     @parameterized.expand(
         [
-            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "not_firing"),
+            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "ok"),
             ("an_invalid_query_escalates", ExposedHogQLError("unknown field"), 5, "broken"),
         ]
     )
     def test_a_failed_query_advances_the_schedule_instead_of_leaving_the_check_due(
-        self, _name: str, error: Exception, expected_failures: int, expected_state: str
+        self, _name: str, error: Exception, expected_failures: int, expected_status: str
     ) -> None:
         configuration = self._configuration(consecutive_failures=4)
 
@@ -365,10 +363,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
         with team_scope(self.team.id):
-            alert = platform_testing.alert_for(configuration.id)
-            assert alert is not None
+            # A failed check fails every group, so it writes the configuration and no instance.
+            assert platform_testing.alert_for(configuration.id) is None
             configuration = platform_testing.configuration(configuration.id)
-        assert alert.state == expected_state
+        assert configuration.check_status == expected_status
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
