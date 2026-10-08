@@ -42,6 +42,7 @@ EXPECTED = ScorerTrialStats(
     pass_all=0.5,
     pass_any=1.0,
     flaky_cases=1,
+    short_cases=0,
 )
 
 
@@ -57,8 +58,18 @@ EXPECTED = ScorerTrialStats(
         pytest.param(
             [*_trials({"full": [1, 1, 1], "short": [0]}), _errored("short"), _result("short", None)],
             3,
-            replace(EXPECTED, mean=0.75, complete_cases=1, pass_all=1.0, pass_any=1.0, flaky_cases=0),
+            replace(EXPECTED, mean=0.75, complete_cases=1, pass_all=1.0, pass_any=1.0, flaky_cases=0, short_cases=1),
             id="mean_pools_trials_like_the_engine_and_pass_k_skips_short_cases",
+        ),
+        pytest.param(
+            [
+                *_trials({"full": [1, 1, 1], "other": [0, 0, 0]}),
+                *[_errored("crashed") for _ in range(3)],
+                *[_result("not_applicable", None) for _ in range(3)],
+            ],
+            3,
+            replace(EXPECTED, mean=0.5, pass_all=0.5, pass_any=0.5, flaky_cases=0, short_cases=1),
+            id="an_all_errored_case_is_short_but_a_skipped_case_is_not",
         ),
         pytest.param(
             _trials({f"case{i}": [1.0 if i < 7 else 0.0] for i in range(10)}),

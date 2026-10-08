@@ -46,6 +46,9 @@ class ScorerTrialStats:
     """pass@k: share of complete cases where at least one trial passed. ``None`` for single-trial runs."""
     flaky_cases: int
     """Complete cases where some trials passed and others did not."""
+    short_cases: int
+    """Cases with fewer than ``trials`` scored trials, including cases whose every trial errored.
+    A case the scorer skipped (returned ``None``) does not apply to it and is not short."""
 
 
 def trial_stats(results: Sequence[CaseResult], *, trials: int) -> list[ScorerTrialStats]:
@@ -53,18 +56,33 @@ def trial_stats(results: Sequence[CaseResult], *, trials: int) -> list[ScorerTri
 
     Errored results (infra failures) and ``None`` scores (skipped scorers) are ignored.
     """
+    case_names = {result.input["name"] for result in results}
     scores_by_scorer: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    skipped_by_scorer: dict[str, set[str]] = defaultdict(set)
     for result in results:
         if result.error is not None:
             continue
         case_name = result.input["name"]
         for scorer, score in result.scores.items():
-            if score is not None:
+            if score is None:
+                skipped_by_scorer[scorer].add(case_name)
+            else:
                 scores_by_scorer[scorer][case_name].append(score)
-    return [_scorer_stats(name, list(by_case.values()), trials) for name, by_case in scores_by_scorer.items()]
+    return [
+        _scorer_stats(
+            name,
+            list(by_case.values()),
+            trials,
+            short_cases=sum(
+                len(by_case.get(case, [])) < trials and not (case not in by_case and case in skipped_by_scorer[name])
+                for case in case_names
+            ),
+        )
+        for name, by_case in scores_by_scorer.items()
+    ]
 
 
-def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int) -> ScorerTrialStats:
+def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int, *, short_cases: int) -> ScorerTrialStats:
     total = sum(len(scores) for scores in scores_by_case)
     mean = sum(sum(scores) for scores in scores_by_case) / total
     ci_low, ci_high = _clustered_interval(scores_by_case, mean, total)
@@ -83,6 +101,7 @@ def _scorer_stats(name: str, scores_by_case: list[list[float]], trials: int) -> 
         pass_all=sum(n == len(s) for n, s in zip(passes, complete)) / len(complete) if multi_trial else None,
         pass_any=sum(n > 0 for n in passes) / len(complete) if multi_trial else None,
         flaky_cases=sum(0 < n < len(s) for n, s in zip(passes, complete)),
+        short_cases=short_cases,
     )
 
 

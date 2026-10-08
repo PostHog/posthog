@@ -272,8 +272,7 @@ def _score_lines(name: str, score: float, stats: ScorerTrialStats | None) -> lis
     lines = [f"    {name}: {score * 100:.1f}%{interval}"]
     if stats.trials > 1:
         k = stats.trials
-        short = stats.cases - stats.complete_cases
-        shortfall = f" | {short} cases short of {k} trials" if short else ""
+        shortfall = f" | {stats.short_cases} cases short of {k} trials" if stats.short_cases else ""
         lines.append(
             f"      pass^{k} {_percent(stats.pass_all)} | pass@{k} {_percent(stats.pass_any)} "
             f"| {stats.flaky_cases}/{stats.complete_cases} cases flaky{shortfall}"
