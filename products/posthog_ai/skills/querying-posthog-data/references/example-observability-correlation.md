@@ -8,7 +8,7 @@ The three observability tables — `posthog.metrics`, `posthog.trace_spans`, `lo
 
 **`trace_id` format:** All three tables store `trace_id` as base64-encoded 16 bytes. Joins are direct equality (no decoding needed). Use `hex(tryBase64Decode(trace_id))` to display in hex.
 
-> **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. An empty result from the query below means no spans or logs matched the chosen trace (the trace may not be exported or retained); it does not prove the metric has no exemplars. Count `trace_id != ''` rows in `posthog.metrics` for the same metric and window first, and use the span-anchored alternative further down when that count is zero.
+> **Exemplars are sparse.** Only metric points whose SDK attached an exemplar carry a `trace_id`. An empty result from the query below means no spans or logs matched the chosen trace (the trace may not be exported or retained); it does not prove the metric has no exemplars. Count `trace_id != ''` rows in `posthog.metrics` for the same metric and window first. Use the span-anchored alternative further down when that count is zero, or when the exemplar traces have no retained spans or logs. In the second case, try the next exemplar from the variant query below before you fall back.
 
 ## Pattern
 
@@ -64,7 +64,7 @@ ORDER BY timestamp
 
 ## Fallback: span-anchored correlation
 
-When the metric has no exemplar points in the window, anchor on a span instead. Find an interesting trace (slowest error, longest duration, specific service), then pull its logs.
+When the metric has no exemplar points in the window, or none of its exemplar traces has retained spans or logs, anchor on a span instead. Find an interesting trace (slowest error, longest duration, specific service), then pull its logs.
 
 ```sql
 WITH slow_error_trace AS (
