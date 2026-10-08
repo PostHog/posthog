@@ -36,7 +36,7 @@ module = Extension(
 
 setup(
     name="hogql_parser",
-    version="1.3.85",
+    version="1.3.86",
     url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
     description="HogQL parser for internal PostHog use",
     author="PostHog Inc.",
