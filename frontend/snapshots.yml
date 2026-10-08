@@ -192,6 +192,14 @@ snapshots:
         hash: v1.k794b7964.086485b762cfc1047f790eb9be1bf2d32411d88a9abb0aaa65eb9832d4460803.5sMKoH-Saf_fJOsoEBC62DjNoqB6-Pbp3yWlkrJe9wI
     ai-observability-scorers--offline-disabled--light:
         hash: v1.k794b7964.2180bcbde737821240afcedee37c293417955b45ef6f03d990c8f5aa51933010.vALi9Nmw5uF4a15geZgWDSMnFrMnrx-01cJaq6zCuJ8
+    charts-heatmap--cell-labels--dark:
+        hash: v1.k794b7964.19b11a43aa9280e0b85498c1e87397d128cb1a1c9f1451419ab32de324783441.xEjoCIC6MhETYkz5iStffBD3Oc77sUugobUIKzq3EME
+    charts-heatmap--cell-labels--light:
+        hash: v1.k794b7964.2cc87c7069cfc6f370663f581b6866d795754e5a3604bf5c9827ca81a605f2d0.QBtjIUNJc3gvAOkojmyfhJUQwB1HB0zUkm3rdoUr3D0
+    charts-heatmap--cell-labels-dropped-when-cells-are-small--dark:
+        hash: v1.k794b7964.8f0bf7a9fc58c93f4dc73333e7debc16ac9e8beb1397753f8bf7876528c6be5e.l9lHu-Urnd94-CElJYYehON5QJ85IHWjuWrcd6QzZAg
+    charts-heatmap--cell-labels-dropped-when-cells-are-small--light:
+        hash: v1.k794b7964.3b470c279042363847a1ef329ab3726a284e8c0643ea9bab4801e087b7ada7d3.scHqOq42sVvvqNf8ClWcXX0dcA-06KfNxTbZv1oUmgc
     charts-heatmap--clickable-cells--dark:
         hash: v1.k794b7964.8f0bf7a9fc58c93f4dc73333e7debc16ac9e8beb1397753f8bf7876528c6be5e.vBhKsdEGwMCxSig2mqm7qome1H7ed0LuGFexudABJmo
     charts-heatmap--clickable-cells--light:
