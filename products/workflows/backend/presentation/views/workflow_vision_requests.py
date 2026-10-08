@@ -1,6 +1,8 @@
 import uuid
 from typing import Any, cast
 
+from django.db import models
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -79,6 +81,11 @@ class WorkflowVisionRequestCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class WorkflowVisionRequestStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+
+
 class WorkflowVisionSessionResultSerializer(serializers.Serializer):
     session_id = serializers.CharField(help_text="The session recording this answer is for.")
     state = serializers.CharField(help_text="Where the session ended up, for example 'succeeded' or 'skipped'.")
@@ -90,7 +97,7 @@ class WorkflowVisionSessionResultSerializer(serializers.Serializer):
 class WorkflowVisionRequestResponseSerializer(serializers.Serializer):
     request_id = serializers.UUIDField(help_text="The Replay vision scan request this step started.")
     status = serializers.ChoiceField(
-        choices=[("running", "Running"), ("completed", "Completed")],
+        choices=WorkflowVisionRequestStatus.choices,
         help_text="'completed' when every session already settled, so there is nothing to wait for.",
     )
     sessions = WorkflowVisionSessionResultSerializer(
