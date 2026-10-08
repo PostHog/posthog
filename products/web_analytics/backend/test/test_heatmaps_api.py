@@ -748,6 +748,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand(
         [
+            ("total_count", "total_count", 3, ["session_3", "session_2", "session_1"]),
+            ("unique_visitors", "unique_visitors", 2, ["session_3", "session_2"]),
+        ]
+    )
+    @time_machine.travel("2025-03-31", tick=False)
+    def test_drill_down_honors_aggregation(
+        self, _name: str, aggregation: str, expected_total: int, expected_sessions: list[str]
+    ) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T09:00:00", x=5, y=10, distinct_id="12345")
+        self._create_heatmap_event("session_2", "click", "2023-03-08T10:00:00", x=5, y=10, distinct_id="12345")
+        self._create_heatmap_event("session_3", "click", "2023-03-08T11:00:00", x=5, y=10, distinct_id="54321")
+
+        points = quote(dumps([{"x": 0.0, "y": 16, "target_fixed": True}]), safe="")
+        response = self.client.get(
+            f"/api/heatmap/events/?date_from=2023-03-08&points={points}&aggregation={aggregation}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert response.data["total_count"] == expected_total
+        assert [result["session_id"] for result in response.data["results"]] == expected_sessions
+
+    @parameterized.expand(
+        [
             ("boolean_true_is_valid", True, status.HTTP_200_OK),
             ("boolean_false_is_valid", False, status.HTTP_200_OK),
             ("none_is_invalid", None, status.HTTP_400_BAD_REQUEST),

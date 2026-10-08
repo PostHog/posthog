@@ -1590,7 +1590,7 @@ export const HeatmapsListAggregation = {
 
 export type HeatmapsEventsRetrieveParams = {
     /**
-     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+     * 'total_count' (default) returns every interaction and counts them all. 'unique_visitors' returns only the most recent interaction for each person and counts distinct people.
      *
      * * `unique_visitors` - unique_visitors
      * * `total_count` - total_count

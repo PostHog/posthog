@@ -218,6 +218,24 @@ LIMIT {limit}
 OFFSET {offset}
 """
 
+# One row per person: their most recent interaction at the selected points.
+UNIQUE_VISITORS_EVENTS_QUERY = """
+SELECT
+    session_id,
+    distinct_id,
+    timestamp,
+    round((x / viewport_width), 2) as pointer_relative_x,
+    y * scale_factor as pointer_y,
+    current_url,
+    type
+FROM heatmaps
+WHERE {predicates}
+ORDER BY timestamp DESC, distinct_id
+LIMIT 1 BY distinct_id
+LIMIT {limit}
+OFFSET {offset}
+"""
+
 # Above/below-the-fold summary for positional (non-scrolldepth) interactions. Fixed-position
 # elements move with the viewport so they're never "below the fold" — excluded from both the
 # numerator and the denominator. `y` and `viewport_height` are stored in the same scaled units,
@@ -551,6 +569,13 @@ class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
         "Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned "
         "by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. "
         "Returns the individual session interactions behind those spots.",
+    )
+    aggregation = serializers.ChoiceField(
+        required=False,
+        choices=["unique_visitors", "total_count"],
+        help_text="'total_count' (default) returns every interaction and counts them all. 'unique_visitors' "
+        "returns only the most recent interaction for each person and counts distinct people.",
+        default="total_count",
     )
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=100, help_text="Maximum interactions to return (1-100)."
@@ -1089,7 +1114,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = validated_data.pop("limit")
         offset = validated_data.pop("offset")
         points = validated_data.pop("points")
-        validated_data.pop("aggregation", None)
+        unique_visitors = validated_data.pop("aggregation") == "unique_visitors"
         validated_data.pop("hide_zero_coordinates", None)
         if validated_data.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
             cast(User, request.user), self.team
@@ -1133,8 +1158,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # First get total count
         count_stmt = parse_select(
-            "SELECT count() FROM heatmaps WHERE {predicates}",
-            {"predicates": ast.And(exprs=exprs)},
+            "SELECT {count} FROM heatmaps WHERE {predicates}",
+            {
+                "count": parse_expr("count(distinct distinct_id)" if unique_visitors else "count()"),
+                "predicates": ast.And(exprs=exprs),
+            },
         )
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
@@ -1145,7 +1173,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Then get events with limit and offset
         stmt = parse_select(
-            EVENTS_QUERY,
+            UNIQUE_VISITORS_EVENTS_QUERY if unique_visitors else EVENTS_QUERY,
             {"predicates": ast.And(exprs=exprs), "limit": Constant(value=limit), "offset": Constant(value=offset)},
         )
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)

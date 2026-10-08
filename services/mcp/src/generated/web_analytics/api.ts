@@ -147,7 +147,7 @@ export const HeatmapsEventsRetrieveQueryParams = () => zod.object({
         .enum(['unique_visitors', 'total_count'])
         .default(heatmapsEventsRetrieveQueryAggregationDefault)
         .describe(
-            "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n\* `unique_visitors` - unique_visitors\n\* `total_count` - total_count"
+            "'total_count' (default) returns every interaction and counts them all. 'unique_visitors' returns only the most recent interaction for each person and counts distinct people.\n\n\* `unique_visitors` - unique_visitors\n\* `total_count` - total_count"
         ),
     cohort_ids: zod
         .string()
