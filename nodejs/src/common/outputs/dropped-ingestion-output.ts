@@ -4,7 +4,7 @@ import { IngestionOutput } from './ingestion-output'
 import { ingestionOutputsDroppedMessages } from './metrics'
 import { IngestionOutputMessage } from './types'
 
-/** Discards every message, for a lane that runs alongside production and must not write to any topic. */
+/** Discards every message; health and topic checks always pass. */
 export class DroppedIngestionOutput implements IngestionOutput {
     constructor(readonly outputName: string) {}
 
