@@ -1482,12 +1482,12 @@ export interface HeatmapSettings {
 }
 
 export interface PieChartSettings {
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: 'labels' | 'values' | 'none'
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when
      *  `sliceContent` is `values`. */
     valueDisplay?: 'absolute' | 'percentage'
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean
 }
 

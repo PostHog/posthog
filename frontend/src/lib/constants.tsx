@@ -232,7 +232,6 @@ export const FEATURE_FLAGS = {
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     METRIC_INSIGHT: 'metric-insight', // owner: @sampennington #team-product-analytics
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
-    PROPORTION_BAR_CHART: 'proportion-bar-chart', // owner: @pauldambra, gates the proportion bar in the insight and SQL chart pickers
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
     REPLAY_BROWSER_SCROLL_BUG: 'replay-browser-scroll-bug', // owner: #team-replay, temporary: gates the rendered-scroll diagnostic
     REPLAY_CONSOLIDATED_CONTROLS: 'replay-consolidated-controls', // owner: #team-replay, gates the single player header bar and the list View menu
@@ -638,6 +637,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
+    WORKFLOWS_NEW_NAVIGATION: 'workflows-new-navigation', // owner: #team-workflows, groups the workflows tabs into Workflows, Templates and Messaging
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
