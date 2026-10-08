@@ -6,7 +6,9 @@ description: >
   put several metrics/charts together on one page, assemble a dashboard for a topic (product analytics,
   retention, revenue, activation, etc.), or add/remove/replace insights on a dashboard they already have.
   Covers deciding create vs update, reusing existing insights vs creating new ones, and using PostHog's
-  vetted dashboard templates as reference for what a strong dashboard on a topic looks like.
+  vetted dashboard templates as reference for what a strong dashboard on a topic looks like. Includes
+  design guidelines (headline numbers, sections, grid layout, tile naming) and a blueprint for a product
+  overview, product health, or KPI dashboard.
 ---
 
 # Building a dashboard
@@ -14,8 +16,8 @@ description: >
 A dashboard is a collection of insight tiles on one page. Your job is to figure out which insights belong on it,
 reuse what already exists, create what's missing, and lay them out sensibly — not to blindly generate charts.
 
-When the dashboard needs explanatory text, keep user copy and agent context separate. Use the
-`writing-user-facing-copy` skill for text that people read. Use `agent_context` for information that an agent needs to
+When the dashboard needs explanatory text, keep user copy and agent context separate. Write text that people read
+in plain language and sentence case. Use `agent_context` for information that an agent needs to
 maintain the dashboard.
 
 PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there. Never use `agent_context` as
@@ -31,10 +33,27 @@ First work out whether you're creating a new dashboard or changing an existing o
 - If the request is ambiguous — "get my financial metrics together" could mean build new or add to an existing one —
   ask a short clarifying question rather than guessing.
 
+## Design the dashboard
+
+Read [references/design-guidelines.md](./references/design-guidelines.md) before you choose tiles for a new dashboard.
+It covers the question a dashboard answers, the headline row, sections, the grid, and how to finish each tile.
+
+A blueprint lists the sections and tiles for one type of dashboard.
+If the request is about the whole product (health, KPIs, an overview, a weekly pulse), read
+[references/blueprint-product-overview.md](./references/blueprint-product-overview.md) and build from it.
+A blueprint is a starting shape. Map every tile to the user's own events, and drop a tile or section the project has no data for.
+
+A blueprint replaces the dashboard templates on its topic.
+When a blueprint covers the request, do not consult templates, and create the dashboard with `use_template` only when the user says they want the template.
+A framework name such as "AARRR" is a request for those sections, not for the template of the same name.
+
 ## Use templates as reference
 
-PostHog ships vetted dashboard templates for common topics, and orgs can share their own. Consult them before you
-build — they're a strong signal of which insights pair well on a topic.
+Use this section only when no blueprint covers the request.
+
+PostHog ships dashboard templates for common topics, and orgs can share their own. They show which insights pair
+well on a topic. A template gives you candidate insights. The design guidelines still decide the structure: the
+headline row, the sections, the grid, and how each tile is named and described.
 
 1. `dashboard-templates-list` — browse templates (use `search` for a topic, `scope` to narrow to global / team /
    organization). This returns names, descriptions, and tags only.
@@ -87,10 +106,11 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.
-- Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
+- Layout: each `insight-create` response lists the new tile under `dashboard_tiles`, and `dashboard-create-tile`
+  returns its tile's ID. Call `dashboard-get` only for tiles you did not create. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
-  tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
-  8 plus 4 or 6 plus 6 can show that hierarchy.
+  tile's minimum size. For a new dashboard, use the row patterns in the design guidelines. When you edit an existing
+  dashboard, keep the pattern it already has.
 - Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
   same size. Include every tile ID from `dashboard-get`; omitted tiles keep their positions and can overlap moved tiles.
   Its layout modes give every listed tile a uniform box. For mixed widths or heights, use `dashboard-update`.
@@ -105,8 +125,8 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 
 Use `dashboard-create-tile` with `type: text` when a dashboard needs a heading, explanation, definition, or caveat.
 
-- Write `body` for the dashboard viewer. Keep it concise, use plain language, and follow the `writing-user-facing-copy`
-  skill. Do not put tool instructions, query notes, or maintenance details in this field.
+- Write `body` for the dashboard viewer. Keep it concise, and use plain language and sentence case.
+  Do not put tool instructions, query notes, or maintenance details in this field.
 - Write `agent_context` for agents. Put Data Catalog metric names, event and property names, data sources,
   tile-specific query assumptions, caveats, and editing guidance here. Do not put metric definitions or formulas in
   this field. Shared and exported dashboards omit it.
