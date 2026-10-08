@@ -2,9 +2,7 @@
 
 A dashboard is read top to bottom by someone who did not build it.
 These rules make it answer one question fast, then let the reader dig.
-Apply them to every dashboard, with or without a blueprint.
-
-[tile-recipes.md](./tile-recipes.md) has the query JSON for every tile type named here.
+Use them when you build a dashboard from a blueprint.
 
 ## Start from one question
 

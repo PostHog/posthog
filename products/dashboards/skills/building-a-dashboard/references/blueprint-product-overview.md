@@ -4,10 +4,9 @@
 
 Use for "product health", "KPI dashboard", "key metrics", "overview", "main dashboard", "weekly metrics", or a founder, exec, or PM pulse.
 Use it too when the user names a growth framework such as AARRR: keep the tiles and rules below and name the sections after the framework's stages.
-Do not use it for one feature or one flow. Those requests need only the design guidelines.
+Do not use it for one feature or one flow. Those requests have no blueprint yet, so build them with the rest of the skill.
 
 Read [design-guidelines.md](./design-guidelines.md) first. This file says which tiles to build.
-[tile-recipes.md](./tile-recipes.md) has the query JSON for each tile, so you do not need to read each query tool's schema.
 
 ## Settle the definitions before you build
 
@@ -18,25 +17,37 @@ Three definitions decide every number on this dashboard. A guessed definition of
 - **Activated.** The first milestone that shows a new signup got value. It must be something a real share of signups do not reach.
 - **Paid,** only if the product charges: the event that marks a first payment, not a plan selection or a card on file.
 
-Look for an existing definition in this order, and stop at the first source that has one:
+### Reuse a definition the team already has
 
-1. What the user said in the request.
-2. An approved Data Catalog metric for active users, activation, or paying customers (`posthog:metric-list`). Use its events and filters in your tiles.
-3. The project's own configuration: `posthog:project-get` returns the signup, activity, and payment events when the team has set them. Check that each one still receives events.
-4. An action or saved insight that the team already uses for "active" or "activated". Search `system.actions` and `system.insights` with `posthog:execute-sql`.
-5. The events list from `posthog:read-data-schema`.
+Most projects have defined these somewhere already. Look in this order, and skip a source whose tool you do not have:
+
+1. **What the user said** in the request.
+2. **Saved metrics.** An approved Data Catalog metric for active users, activation, or paying customers (`posthog:metric-list`, then `posthog:metric-describe`). Use its events and filters in your tiles.
+3. **Saved insights and actions.** Search `system.insights` and `system.actions` with `posthog:execute-sql` for names such as "activation", "activated", "active users", "WAU", or "retention". Open the best match with `posthog:insight-get` and copy its definition: the events, the filters, and the conversion window.
+4. **Project configuration.** `posthog:project-get` returns the signup, activity, and payment events when the team has set them. Check that each one still receives events.
+5. **The events list** from `posthog:read-data-schema`, when nothing above exists.
+
+A project often has more than one definition, for example an activation rate for each team or product. When you find several, prefer them in this order:
+
+- One that the person asking created or last edited. `posthog:user-get` gives their ID. Compare it with `created_by_id` and `last_modified_by_id`.
+- One that belongs to the product area the request is about. Judge by its name, its description, and the dashboard it sits on.
+- The one edited most recently.
+
+If two candidates still count different things and you cannot tell which the user means, ask. Name each candidate and say what it counts.
 
 The core action can be an action that combines several events. Lifecycle, stickiness, and retention accept one event or one action, so a product with several core events needs an action. If none exists, use the single most representative event for those three tiles and say so.
 
-Test each choice with one query before you build on it:
+### Check a definition before you build on it
 
-- **Activation is not automatic.** If most signups do it within a day, it does not measure anything. Pick a later milestone.
-- **The steps share an actor.** A signup-to-activation funnel that converts 0% means the two events are not recorded for the same person. Aggregate the funnel by the account group, or choose another event.
+Run one query for each check.
+
+- **Activation is not automatic.** If most signups reach the milestone within a day, check whether the event fires by itself, for example during signup. When you chose the definition, pick a later milestone. When the user or the team chose it, keep it and tell the user what you found.
+- **The steps share an actor.** If a signup-to-activation funnel converts 0% while both events have volume in the date range, check who each event is recorded for. When they are recorded for different people in the same account, aggregate the funnel by the account group, or choose another event.
 - **The query finishes.** Run the activation funnel and the active-users trend once. If either times out or runs out of memory, do not retry it unchanged: shorten the range or use a lighter event.
 
-**Ask when the project does not answer.** If the project has several live definitions of active or activated, or none, ask the user before you build. Send one message with at most three questions: what counts as active, what counts as activated, and whether to count people or accounts. Offer the candidates you found. If you cannot ask, choose, and put your choices first in your summary and in the dashboard description.
+**Ask when the project does not answer.** If you find no definition, ask the user before you build. Send one message with at most three questions: what counts as active, what counts as activated, and whether to count people or accounts. If you cannot ask, choose, and put your choices first in your summary and in the dashboard description.
 
-**Count one thing.** Choose people or accounts for the whole dashboard. For a B2B product (`posthog:project-get` shows the business model and the account group), count accounts in the funnel and in retention, and make the signup tile count new accounts, so that the headline number equals the funnel's first step.
+**Count one thing.** Choose people or accounts for the whole dashboard, and count that unit in every tile. For a B2B product (`posthog:project-get` shows the business model and the account group), count accounts.
 
 ## Rhythm
 
@@ -56,22 +67,24 @@ Box is `w` x `h` on the 12-column grid. Rows follow the order of the table.
 
 | Section    | Tile                    | Insight                                                                                                                                       | Box    |
 | ---------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| Headline   | Active users            | Trends, core action, unique users per period, Metric with `latest`                                                                            | 3 x 3  |
-| Headline   | New signups             | Trends, signup event, counted in the funnel's unit, Metric with `latest`                                                                      | 3 x 3  |
-| Headline   | Newly activated         | Trends, activation event, unique users per period, Metric with `latest`                                                                       | 3 x 3  |
-| Headline   | New paying customers    | Trends, paid event, unique users per period, Metric with `latest`. Without a paid event, leave this tile out and make the other three `4 x 3` | 3 x 3  |
-| Growth     | Active users            | Trends, core action, unique users per period, line                                                                                            | 6 x 5  |
-| Growth     | New signups             | Trends, signup event, counted in the funnel's unit, line                                                                                      | 6 x 5  |
+| Headline   | Active users            | Trends, core action, unique count per period, Metric with `latest`                                                                            | 3 x 3  |
+| Headline   | New signups             | Trends, signup event, unique count per period, Metric with `latest`                                                                           | 3 x 3  |
+| Headline   | Newly activated         | Trends, activation event, unique count per period, Metric with `latest`                                                                       | 3 x 3  |
+| Headline   | New paying customers    | Trends, paid event, unique count per period, Metric with `latest`. Without a paid event, leave this tile out and make the other three `4 x 3` | 3 x 3  |
+| Growth     | Active users            | Trends, core action, unique count per period, line                                                                                            | 6 x 5  |
+| Growth     | New signups             | Trends, signup event, unique count per period, line                                                                                           | 6 x 5  |
 | Growth     | New, returning, dormant | Lifecycle on the core action                                                                                                                  | 12 x 5 |
 | Activation | Signup to activated     | Funnel, steps: signup, 0-2 steps between, activation                                                                                          | 6 x 5  |
 | Activation | Activation rate         | The same funnel with `funnelVizType: "trends"` and incomplete periods hidden                                                                  | 6 x 5  |
-| Engagement | What people do          | Trends, 5-8 main actions as series, unique users, `ActionsBarValue`                                                                           | 6 x 5  |
+| Engagement | What people do          | Trends, 5-8 main actions as series, unique count, `ActionsBarValue`                                                                           | 6 x 5  |
 | Engagement | Periods active          | Stickiness on the core action, at the rhythm's interval                                                                                       | 6 x 5  |
 | Retention  | Signup cohort retention | Retention: start event signup, return event core action, first-time, one row per period                                                       | 12 x 5 |
 
 Headline tile names are about 20 characters at most. A longer name is cut off at three columns wide.
 
-"Counted in the funnel's unit" means `total` when the dashboard counts people and `unique_group` when it counts accounts. The headline signup number must equal the funnel's first step for the same period.
+"Unique count" means unique users (`math: "dau"`) when the dashboard counts people, and unique accounts (`math: "unique_group"` with the group type index) when it counts accounts.
+For accounts, also aggregate the funnel, lifecycle, and retention tiles by the account group.
+The headline signup number must equal the funnel's first step for the same period.
 
 **The headline row holds counts, not rates.** Activation, conversion, and retention rates belong to a cohort: the people who signed up in a period and what they did later. A trends formula cannot follow a cohort. It divides this week's activations by this week's signups, which can read twice the true rate. The exact rate is in the "Activation rate" tile.
 
@@ -82,7 +95,7 @@ For "What people do", choose the actions from the core action's own events or fr
 
 ## Adapt
 
-- **Daily.** Use the daily row of the rhythm table. Make lifecycle and retention weekly anyway: daily cohorts mostly show weekends.
+- **Daily.** Use the daily row of the rhythm table. Leave out the lifecycle and retention tiles. They need whole weeks, and a daily range cuts the first and last week short.
 - **Revenue.** If a paid event exists and the user asked about money or runs the business, add a "Revenue" section: new paying customers per period, and a signup-to-paid funnel with a window long enough for the sale.
   Revenue amounts need a numeric property or a warehouse source. Never estimate an amount from event counts.
 - **A named framework.** For AARRR and similar, name the sections after the stages and keep the headline row as it is. A stage the project has no clean event for (often referral) gets no section. Say so in your summary instead of relabeling something else.
