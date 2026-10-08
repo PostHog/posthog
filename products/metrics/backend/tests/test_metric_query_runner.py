@@ -391,6 +391,23 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(all(series["points"] == [] for series in response.json()["results"]))
         self.assertIn("metric-names-list", response.json()["hint"])
 
+    @parameterized.expand([("relative", {"dateFrom": "-1h"}), ("omitted", {})])
+    def test_query_accepts_relative_or_omitted_date_from(self, _name: str, date_params: dict[str, str]):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(timezone.now().replace(microsecond=0) - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 4.0)
+
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(

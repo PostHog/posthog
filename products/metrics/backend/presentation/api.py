@@ -4,14 +4,17 @@ Mirrors the shape of `products/logs/backend/api.py` so the two surfaces stay
 recognizable.
 """
 
+import re
 import datetime as dt
 from dataclasses import asdict
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from django.db import models
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied
@@ -25,6 +28,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
@@ -154,6 +158,18 @@ class MetricQueryInterval(models.TextChoices):
     WEEK = "week", "week"
 
 
+_RELATIVE_DATE_RE = re.compile(r"^-\d+[hdwmy]$")
+_DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+
+
+@extend_schema_field(OpenApiTypes.STR)
+class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
+    def to_internal_value(self, value: dt.datetime | str) -> dt.datetime:
+        if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
+            return relative_date_parse(value.strip(), ZoneInfo("UTC"))
+        return super().to_internal_value(value)
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -209,15 +225,18 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         max_length=512,
         help_text="Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
     )
-    dateFrom = serializers.DateTimeField(
-        help_text="Lower bound (inclusive) for the query range. ISO 8601.",
-    )
-    dateTo = serializers.DateTimeField(
+    dateFrom = _RelativeOrIsoDateTimeField(
         required=False,
-        help_text="Upper bound (exclusive) for the query range. Defaults to now if omitted.",
+        help_text="Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo.",
+    )
+    dateTo = _RelativeOrIsoDateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("dateFrom") is None:
+            attrs["dateFrom"] = (attrs.get("dateTo") or timezone.now()) - _DEFAULT_QUERY_LOOKBACK
         has_single = bool(attrs.get("metricName"))
         has_clauses = bool(attrs.get("clauses"))
         if has_single == has_clauses:
