@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -26,9 +27,14 @@ type PropertyRestrictions struct {
 	GroupProperties map[string]map[string]struct{}
 }
 
-// The geo stream derives its coordinates and country from the event's IP, so it stays
-// hidden while any of the properties that would carry those values is.
-var geoSourceProperties = []string{"$ip", "$geoip_latitude", "$geoip_longitude", "$geoip_country_code"}
+// The geo stream derives its coordinates and country from the event's IP, the same lookup
+// that fills every $geoip_* property, so it stays hidden while any of those is.
+const (
+	ipProperty          = "$ip"
+	geoipPropertyPrefix = "$geoip_"
+	// Group restrictions the authorize endpoint could not attribute to a group type apply to every type.
+	AnyGroupType = "*"
+)
 
 func (r *PropertyRestrictions) RestrictsEventProperty(key string) bool {
 	if r == nil {
@@ -60,6 +66,9 @@ func (r *PropertyRestrictions) RestrictsGroupProperty(groupType, key string) boo
 	if r == nil {
 		return false
 	}
+	if _, restricted := r.GroupProperties[AnyGroupType][key]; restricted {
+		return true
+	}
 	if groupType != "" {
 		_, restricted := r.GroupProperties[groupType][key]
 		return restricted
@@ -73,8 +82,11 @@ func (r *PropertyRestrictions) RestrictsGroupProperty(groupType, key string) boo
 }
 
 func (r *PropertyRestrictions) RestrictsGeo() bool {
-	for _, key := range geoSourceProperties {
-		if r.RestrictsEventProperty(key) {
+	if r == nil {
+		return false
+	}
+	for key := range r.EventProperties {
+		if key == ipProperty || strings.HasPrefix(key, geoipPropertyPrefix) {
 			return true
 		}
 	}

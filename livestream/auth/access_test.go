@@ -84,3 +84,23 @@ func TestCheckAccessBeforeRollout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, restrictions)
 }
+
+func TestRestrictsGeo(t *testing.T) {
+	for key, want := range map[string]bool{"$ip": true, "$geoip_city_name": true, "$browser": false} {
+		restrictions := &PropertyRestrictions{EventProperties: map[string]struct{}{key: {}}}
+		assert.Equal(t, want, restrictions.RestrictsGeo(), key)
+	}
+	var none *PropertyRestrictions
+	assert.False(t, none.RestrictsGeo())
+}
+
+func TestRestrictsGroupPropertyForAnyType(t *testing.T) {
+	restrictions := &PropertyRestrictions{GroupProperties: map[string]map[string]struct{}{
+		AnyGroupType:   {"email": {}},
+		"organization": {"plan": {}},
+	}}
+	assert.True(t, restrictions.RestrictsGroupProperty("organization", "email"))
+	assert.True(t, restrictions.RestrictsGroupProperty("project", "email"))
+	assert.True(t, restrictions.RestrictsGroupProperty("organization", "plan"))
+	assert.False(t, restrictions.RestrictsGroupProperty("project", "plan"))
+}

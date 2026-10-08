@@ -17,13 +17,16 @@ from posthog.auth import refuse_blocked_account
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
-from posthog.models.group_type_mapping import get_group_types_for_team
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
+
+# Mirrors AnyGroupType in the livestream service.
+ANY_GROUP_TYPE = "*"
 
 
 class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
@@ -79,7 +82,7 @@ class LivestreamAuthorizationSerializer(serializers.Serializer):
     )
     restricted_group_properties = serializers.DictField(
         child=serializers.ListField(child=serializers.CharField()),
-        help_text="Group property names to remove from $group_set, keyed by the group type name $group_type carries.",
+        help_text="Group property names to remove from $group_set, keyed by the group type name $group_type carries, or by * for every type.",
     )
 
 
@@ -122,8 +125,13 @@ class LivestreamAuthorizationView(APIView):
                 by_index.setdefault(p.group_type_index, []).append(p.name)
         if not by_index:
             return {}
-        return {
-            mapping["group_type"]: sorted(by_index[mapping["group_type_index"]])
-            for mapping in get_group_types_for_team(team.id, caller_tag="livestream_authorize")
+        by_name = {
+            mapping["group_type"]: sorted(by_index.pop(mapping["group_type_index"]))
+            for mapping in get_group_types_for_project(team.project_id, caller_tag="livestream_authorize")
             if mapping["group_type_index"] in by_index
         }
+        if by_index:
+            # The lookup failed or the type is gone, so these names cannot be attributed to a type.
+            # Fail closed: the service hides them on every group type rather than on none.
+            by_name[ANY_GROUP_TYPE] = sorted({name for names in by_index.values() for name in names})
+        return by_name

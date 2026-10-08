@@ -137,6 +137,15 @@ class TestLivestreamAuthorization(APIBaseTest):
             },
         )
 
+        # When the group types cannot be loaded the rule still applies, to every type.
+        with patch("posthog.api.livestream.get_group_types_for_project", return_value=[]):
+            response = self.client.get(
+                "/api/livestream/authorize/",
+                HTTP_AUTHORIZATION=f"Bearer {self._token()}",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(response.json()["restricted_group_properties"], {"*": ["email"]})
+
     def test_refuses_an_account_an_access_rule_blocks(self) -> None:
         with patch("posthog.auth.security_access_refused", return_value=True):
             response = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=f"Bearer {self._token()}")
