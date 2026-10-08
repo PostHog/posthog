@@ -995,6 +995,11 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # Action verbs that write other products as the viewer, each through that product's facade.
+    "products.feature_flags",
+    "products.cohorts",
+    "products.error_tracking",
+    "products.surveys",
 ]
 layer = "modules"
 

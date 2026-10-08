@@ -335,7 +335,10 @@ export class CanvasDataBridge {
             throw new Error('Unknown canvas action')
         }
         const payload = (input.payload as Record<string, unknown> | undefined) ?? {}
-        if (!(await this.prompts.confirmAction({ action, payload }))) {
+        // Only a verb that disables, deletes, or spends paid compute needs the viewer's confirmation; the
+        // host already requires a user gesture for every invoke, as PostHog Desktop does.
+        const needsConfirmation = action.destructive || action.starts_cloud_run
+        if (needsConfirmation && !(await this.prompts.confirmAction({ action, payload }))) {
             throw new Error('Canvas action canceled')
         }
         return canvasesActionsInvoke(projectId, canvasId, {
