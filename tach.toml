@@ -998,6 +998,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # Object access checks on canvases served as contracts (via the access_control facade).
+    "products.access_control",
 ]
 layer = "modules"
 
