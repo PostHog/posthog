@@ -83,6 +83,7 @@ export function createPushSubscriptionsHandler(service: PushSubscriptionsService
                 contentType: header(req, 'content-type'),
                 contentEncoding: header(req, 'content-encoding'),
                 query,
+                mirrored: header(req, 'host')?.endsWith('-shadow') ?? false,
             })
         } catch (error) {
             // The server answers a throw with a 500, and the error-rate alert reads this histogram.
