@@ -1,4 +1,8 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -97,6 +101,80 @@ describe('canvasSceneLogic', () => {
         expect(logic.values.visibility).toEqual(visibility)
         expect(logic.values.visibilityChanging).toBe(false)
         expect(logic.values.makePublicOpen).toBe(false)
+    })
+
+    it('Make private moves the chats its creator started there first, and leaves a teammate’s chat alone', async () => {
+        const order: string[] = []
+        const tasksPatched: Record<string, unknown> = {}
+        const me = { id: 1, uuid: MOCK_USER_UUID }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/canvases/:id/view/': {
+                    canvas: {
+                        id: CANVAS_ID,
+                        name: 'Weekly active users',
+                        kind: 'freeform',
+                        channel: 'space-team',
+                        generation_task_id: 'task-authoring',
+                        created_by: me,
+                    },
+                    published_build: null,
+                    current_version_id: null,
+                    has_active_build: false,
+                    source: null,
+                    layout: null,
+                    sandbox_document_url: null,
+                },
+                '/api/projects/:team_id/tasks/:id/': ({ params }) => [
+                    200,
+                    { id: params.id, title: 'Weekly active users', latest_run: null, created_by: me },
+                ],
+                '/api/projects/:team_id/canvases/:id/versions/': {
+                    next: null,
+                    results: [
+                        { id: 'version-2', task_id: 'task-follow-up', created_by: me },
+                        { id: 'version-3', task_id: 'task-teammate', created_by: { id: 2, uuid: 'teammate-uuid' } },
+                    ],
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/tasks/:id/': async ({ params, request }) => {
+                    order.push(`task:${params.id}`)
+                    tasksPatched[params.id as string] = await request.json()
+                    return [200, { id: params.id }]
+                },
+                '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
+                    order.push('canvas')
+                    patchedBody = (await request.json()) as Record<string, unknown>
+                    return [
+                        200,
+                        {
+                            id: CANVAS_ID,
+                            name: 'Weekly active users',
+                            kind: 'freeform',
+                            channel: patchedBody.channel_id,
+                            created_by: me,
+                        },
+                    ]
+                },
+            },
+        })
+        userLogic.mount()
+        await expectLogic(userLogic).toDispatchActions(['loadUserSuccess'])
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+        expect(logic.values.visibility).toEqual('public')
+
+        logic.actions.setCanvasVisibility('private')
+        await expectLogic(logic).toDispatchActions(['canvasVisibilityChanged'])
+
+        expect(tasksPatched).toEqual({
+            'task-follow-up': { channel: 'space-1' },
+            'task-authoring': { channel: 'space-1' },
+        })
+        expect(order[order.length - 1]).toEqual('canvas')
+        expect(patchedBody).toEqual({ channel_id: 'space-1' })
     })
 
     it('keeps the composer on screen while a run starts and after it fails to start', async () => {

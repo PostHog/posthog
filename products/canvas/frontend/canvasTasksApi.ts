@@ -3,11 +3,15 @@ import {
     taskChannelsProvisionDefaultsCreate,
     taskChannelsRetrieve,
     tasksCreate,
+    tasksPartialUpdate,
     tasksRetrieve,
     tasksRunCreate,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import { canvasesVersionsRetrieve } from './generated/api'
+import type { CanvasApi } from './generated/api.schemas'
 
 export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role' | 'channel_type'>
 export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
@@ -90,6 +94,40 @@ export async function createCanvasGenerationTask(
 
 export async function loadCanvasGenerationTask(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
     return toCanvasTask(await tasksRetrieve(projectId, taskId))
+}
+
+const VERSION_PAGE_SIZE = 100
+
+/** The chat tasks this person started on the canvas: its authoring task and the runs behind the versions they made. */
+export async function ownCanvasTaskIds(
+    projectId: string,
+    canvas: Pick<CanvasApi, 'id' | 'generation_task_id'>,
+    userUuid: string
+): Promise<string[]> {
+    const ids = new Set<string>()
+    for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
+        const page = await canvasesVersionsRetrieve(projectId, canvas.id, { limit: VERSION_PAGE_SIZE, offset })
+        for (const version of page.results) {
+            if (version.task_id && version.created_by?.uuid === userUuid) {
+                ids.add(version.task_id)
+            }
+        }
+        if (!page.next) {
+            break
+        }
+    }
+    if (canvas.generation_task_id && !ids.has(canvas.generation_task_id)) {
+        const task = await loadCanvasGenerationTask(projectId, canvas.generation_task_id)
+        if (task.created_by?.uuid === userUuid) {
+            ids.add(task.id)
+        }
+    }
+    return [...ids]
+}
+
+/** Files tasks in a space, so their chats are only as visible as that space. */
+export async function fileCanvasTasks(projectId: string, taskIds: string[], spaceId: string): Promise<void> {
+    await Promise.all(taskIds.map((id) => tasksPartialUpdate(projectId, id, { channel: spaceId })))
 }
 
 export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {

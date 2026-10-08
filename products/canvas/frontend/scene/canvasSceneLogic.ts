@@ -41,6 +41,8 @@ import {
     loadCanvasGenerationTask,
     loadCanvasSpace,
     loadCanvasSpaces,
+    fileCanvasTasks,
+    ownCanvasTaskIds,
 } from '../canvasTasksApi'
 import { CanvasVisibility, canvasVisibility, visibilitySpace } from '../canvasVisibility'
 import {
@@ -315,8 +317,10 @@ export interface canvasSceneLogicActions {
     }
     moveCanvasToSpace: (
         spaceId: string,
-        visibility: 'private' | 'public' | null
+        visibility: 'private' | 'public' | null,
+        restricted: boolean
     ) => {
+        restricted: boolean
         spaceId: string
         visibility: 'private' | 'public' | null
     }
@@ -379,7 +383,7 @@ export interface canvasSceneLogicMeta {
         busy: (isGenerating: boolean, buildStatus: CanvasBuildStatus) => boolean
         canvas: (view: CanvasViewResponseApi | null) => CanvasApi | null
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
-        isCreator: (canvas: CanvasApi | null, user: any) => boolean
+        isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
@@ -460,8 +464,15 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         openMakePublic: true,
         closeMakePublic: true,
         setCanvasVisibility: (visibility: 'private' | 'public') => ({ visibility }),
-        /** Moves the canvas to a space. `visibility` is null when the move undoes the one before. */
-        moveCanvasToSpace: (spaceId: string, visibility: 'private' | 'public' | null) => ({ spaceId, visibility }),
+        /**
+         * Moves the canvas to a space. `visibility` is null when the move undoes the one before.
+         * `restricted` says the space is not the team's, so the creator's chats on the canvas move there first.
+         */
+        moveCanvasToSpace: (spaceId: string, visibility: 'private' | 'public' | null, restricted: boolean) => ({
+            spaceId,
+            visibility,
+            restricted,
+        }),
         canvasVisibilityChanged: true,
         setInstruction: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
         generateCanvas: (
@@ -979,7 +990,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 if (!space) {
                     throw new Error('This project has no team space yet.')
                 }
-                actions.moveCanvasToSpace(space.id, visibility)
+                actions.moveCanvasToSpace(space.id, visibility, visibility === 'private')
             } catch (error) {
                 toast.error({
                     title:
@@ -991,16 +1002,26 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.canvasVisibilityChanged()
             }
         },
-        moveCanvasToSpace: async ({ spaceId, visibility }) => {
+        moveCanvasToSpace: async ({ spaceId, visibility, restricted }) => {
             const canvas = values.canvas
             if (!values.currentProjectId || !canvas) {
                 actions.canvasVisibilityChanged()
                 return
             }
+            const projectId = String(values.currentProjectId)
             const previousSpaceId = canvas.channel
+            const previousRestricted = values.visibility !== 'public'
             const properties = { dashboard_id: canvas.id, ...(visibility ? { visibility } : {}), undo: !visibility }
             try {
-                const updated = await canvasesPartialUpdate(String(values.currentProjectId), props.id, {
+                // Chats first: a task's logs are as visible as its own space, whatever the canvas says.
+                if (restricted && values.user) {
+                    await fileCanvasTasks(
+                        projectId,
+                        await ownCanvasTaskIds(projectId, canvas, values.user.uuid),
+                        spaceId
+                    )
+                }
+                const updated = await canvasesPartialUpdate(projectId, props.id, {
                     channel_id: spaceId,
                 })
                 actions.canvasUpdated(updated)
@@ -1014,7 +1035,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                                   visibility === 'public' ? 'This canvas is now public' : 'This canvas is now private',
                               action: {
                                   label: 'Undo',
-                                  onClick: () => actions.moveCanvasToSpace(previousSpaceId, null),
+                                  onClick: () => actions.moveCanvasToSpace(previousSpaceId, null, previousRestricted),
                               },
                           }
                         : { title: 'Change undone' }
