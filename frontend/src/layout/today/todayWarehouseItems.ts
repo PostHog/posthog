@@ -19,7 +19,6 @@ export type WarehouseItemKey =
     | 'managed_viewsets'
     | 'warehouse_destinations'
     | 'destinations'
-    | 'endpoints'
     | 'data_catalog'
     | 'definitions'
     | 'actions'
@@ -141,14 +140,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         sceneKey: 'Destinations',
         group: 'export',
         extraPaths: ['/pipeline/batch-exports'],
-    },
-    {
-        key: 'endpoints',
-        label: 'Endpoints',
-        href: urls.endpoints(),
-        iconType: 'endpoints',
-        sceneKey: 'EndpointsScene',
-        group: 'export',
     },
     {
         key: 'data_catalog',

@@ -13,7 +13,7 @@ describe('todayWarehouseItems', () => {
         ['/data-management/events', 'definitions'],
         ['/pipeline/batch-exports/abc', 'destinations'],
         ['/data-management/ingestion-warnings-v2', 'ingestion_warnings'],
-        ['/endpoints/my-endpoint', 'endpoints'],
+        ['/endpoints/my-endpoint', null],
         ['/bi', null],
         ['/data-management/annotations', null],
     ])('marks %s as %s', (path, key) => {

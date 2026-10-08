@@ -49,7 +49,7 @@ describe('todayShellLogic', () => {
         ['/project/1/dashboard/12', 'views', true],
         ['/project/1/airplane', null, true],
         ['/project/1/homework', null, true],
-        ['/project/1/endpoints/my-endpoint', 'warehouse', true],
+        ['/project/1/endpoints/my-endpoint', 'products', true],
         ['/project/1/data-management/properties', 'warehouse', true],
         ['/project/1/pipeline/batch-exports/abc', 'warehouse', true],
         ['/project/1/bi', 'products', true],
