@@ -164,10 +164,21 @@ _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
 
 @extend_schema_field(OpenApiTypes.STR)
 class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
-    def to_internal_value(self, value: dt.datetime | str) -> dt.datetime:
+    # Relative offsets stay strings so the body serializer resolves both bounds against one "now";
+    # two separate clock reads would push a maximum-span lookback past the runner's limit.
+    def to_internal_value(self, value: dt.datetime | str) -> dt.datetime | str:  # type: ignore[override]
         if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
-            return relative_date_parse(value.strip(), ZoneInfo("UTC"))
+            return value.strip()
         return super().to_internal_value(value)
+
+
+def _resolve_query_bound(value: dt.datetime | str | None, *, now: dt.datetime, field: str) -> dt.datetime | None:
+    if not isinstance(value, str):
+        return value
+    try:
+        return relative_date_parse(value, ZoneInfo("UTC"), now=now)
+    except (ValueError, OverflowError):
+        raise serializers.ValidationError({field: f"'{value}' is too far back to be a valid date."})
 
 
 class _MetricQueryBodySerializer(serializers.Serializer):
@@ -235,8 +246,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("dateFrom") is None:
-            attrs["dateFrom"] = (attrs.get("dateTo") or timezone.now()) - _DEFAULT_QUERY_LOOKBACK
+        now = timezone.now()
+        date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
+        attrs["dateFrom"] = (
+            _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom") or date_to - _DEFAULT_QUERY_LOOKBACK
+        )
+        attrs["dateTo"] = date_to
         has_single = bool(attrs.get("metricName"))
         has_clauses = bool(attrs.get("clauses"))
         if has_single == has_clauses:
