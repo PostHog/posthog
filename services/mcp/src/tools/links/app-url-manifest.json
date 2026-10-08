@@ -549,11 +549,6 @@
         "params": ["templateId"],
         "scope": "project"
     },
-    "dashboardTemplates": {
-        "template": "/dashboard",
-        "params": [],
-        "scope": "project"
-    },
     "dashboardTile": {
         "template": "/dashboard/{id}/tiles/{tileId}",
         "params": ["id", "tileId"],
