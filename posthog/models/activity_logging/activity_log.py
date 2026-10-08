@@ -5,7 +5,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
-from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
@@ -1195,73 +1194,12 @@ def changes_between(
     Note that this method only really works for models that have a single instance
     and not for models that have a many-to-many relationship with another model.
     """
-    changes: list[Change] = []
+    if previous is None or current is None:
+        return []
 
-    if previous is None and current is None:
-        # There are no changes between two things that don't exist.
-        return changes
+    from posthog.models.activity_logging.snapshot import diff_instances  # noqa: PLC0415 — breaks a circular import
 
-    if previous is not None:
-        fields = current._meta.get_fields() if current is not None else []
-        # get_fields() lists a GenericRelation last, as a private field, but lists the reverse
-        # foreign key it replaced first. Keep the old position so the diff order does not change.
-        fields = sorted(fields, key=lambda f: not isinstance(f, GenericRelation))
-        excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
-        masked_fields = field_with_masked_contents.get(model_type, [])
-        filtered_fields = [f for f in fields if f.name not in excluded_fields]
-        filtered_field_names = [f.name for f in filtered_fields]
-
-        for field in filtered_fields:
-            field_name = field.name
-            left = safely_get_field_value(previous, field_name)
-            right = safely_get_field_value(current, field_name)
-
-            if field_name == "tagged_items":
-                field_name = "tags"  # Or the UI needs to be coupled to this internal backend naming.
-
-            if field_name == "dashboards" and "dashboard_tiles" in filtered_field_names:
-                # Only process dashboard_tiles when it is present. It supersedes dashboards.
-                continue
-
-            if model_type == "Insight" and field_name == "dashboard_tiles":
-                # The API exposes this as dashboards and that's what the activity describers expect.
-                field_name = "dashboards"
-
-            # if is a django model field, check the empty_values list
-            # A reverse foreign key has no empty_values, so an empty list counts as a value. A
-            # GenericRelation inherits them from Field, and keeps the reverse foreign key behavior.
-            empty_values = None if isinstance(field, GenericRelation) else getattr(field, "empty_values", None)
-            left_is_none = left is None or (empty_values is not None and left in empty_values)
-            right_is_none = right is None or (empty_values is not None and right in empty_values)
-
-            change_values = (
-                mask_change_values(model_type, field_name, left, right)
-                if field_name in masked_fields
-                else MaskedChange(before=left, after=right)
-            )
-            left_value = change_values.before
-            right_value = change_values.after
-
-            # Use the override name if it exists
-            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
-            if left_is_none and right_is_none:
-                pass  # could be {} vs None
-            elif left_is_none and not right_is_none:
-                changes.append(Change(type=model_type, field=display_name, action="created", after=right_value))
-            elif right_is_none and not left_is_none:
-                changes.append(Change(type=model_type, field=display_name, action="deleted", before=left_value))
-            elif left != right:
-                changes.append(
-                    Change(
-                        type=model_type,
-                        field=display_name,
-                        action="changed",
-                        before=left_value,
-                        after=right_value,
-                    )
-                )
-
-    return changes
+    return diff_instances(model_type, previous=previous, current=current)
 
 
 def dict_changes_between(
