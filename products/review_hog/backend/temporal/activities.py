@@ -1896,6 +1896,7 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "reason": decision.reason,
             "system_one_probability": decision.probability,
             "system_one_model": decision.model,
+            "system_one_status_code": decision.status_code,
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
         },

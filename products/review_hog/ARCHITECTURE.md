@@ -848,7 +848,8 @@ An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first ru
 Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
 Each rule has a `SKIP_*` switch. `no_new_commits` and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
-Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability and model.
+System One is the gateway's decision shape; the gate asks OpenAI's `gpt-6-luna` through it (`PUSH_GATE_MODEL`).
+Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability, model, and HTTP status of a failed request.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
 
 **Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
