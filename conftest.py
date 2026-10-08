@@ -237,30 +237,33 @@ def _check_authentication_principals() -> None:
     # posthog/test/repo_invariants/test_authentication_credential_types.py reads each authenticate()
     # annotation to find the classes that resolve a real User. mypy cannot check those annotations,
     # because User lookups are typed Any, so every request that a test authenticates checks one.
-    from rest_framework.views import APIView  # noqa: PLC0415 — deferred until pytest_configure
+    # The check runs where DRF stores the result, because a view can replace request.user later.
+    from rest_framework.authentication import BaseAuthentication  # noqa: PLC0415 — deferred until pytest_configure
+    from rest_framework.request import Request  # noqa: PLC0415 — deferred until pytest_configure
 
     from posthog.test.authentication_principals import (  # noqa: PLC0415 — deferred until pytest_configure
         is_concrete,
         principal_types,
     )
 
-    perform_authentication = APIView.perform_authentication
+    authenticate = Request._authenticate
     cached_principal_types = cache(principal_types)
 
-    def checked_perform_authentication(self, request):
-        perform_authentication(self, request)
-        authenticator = request.successful_authenticator
-        if authenticator is None:
+    def checked_authenticate(self):
+        authenticate(self)
+        authenticator = self.successful_authenticator
+        # DRF's force_authenticate() uses ForcedAuthentication, which is not a BaseAuthentication.
+        if not isinstance(authenticator, BaseAuthentication):
             return
         authentication_class = type(authenticator)
         principals = cached_principal_types(authentication_class)
-        if is_concrete(principals) and not isinstance(request.user, tuple(principals)):
+        if is_concrete(principals) and not isinstance(self.user, tuple(principals)):
             raise AssertionError(
-                f"{authentication_class.__qualname__}.authenticate() returned a {type(request.user).__name__}, "
+                f"{authentication_class.__qualname__}.authenticate() returned a {type(self.user).__name__}, "
                 f"but its return annotation allows only {sorted(t.__name__ for t in principals)}."
             )
 
-    APIView.perform_authentication = checked_perform_authentication  # type: ignore[method-assign]
+    Request._authenticate = checked_authenticate  # type: ignore[method-assign]
 
 
 def pytest_configure(config) -> None:
