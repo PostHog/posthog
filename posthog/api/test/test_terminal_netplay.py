@@ -18,8 +18,8 @@ from posthog.token_bucket import BucketUnavailable
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
-OFFER = {"type": "offer", "sdp": "v=0 offer"}
-ANSWER = {"type": "answer", "sdp": "v=0 answer"}
+OFFER = {"type": "offer", "sdp": "v=0\r\ns=offer\r\n"}
+ANSWER = {"type": "answer", "sdp": "v=0\r\ns=answer\r\n"}
 
 
 class TestTerminalNetplay(APIBaseTest):
