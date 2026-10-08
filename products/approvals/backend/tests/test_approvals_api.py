@@ -652,6 +652,81 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert "do not exist" in str(response.json())
 
 
+# TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
+class TestExperimentPoliciesOnceScopedByOwner(APIBaseTest):
+    """An organization that evaluates policies by flag owner owns its experiment policies.
+
+    Until then they are hidden mirrors that the sync overwrites, so showing or accepting one
+    would offer an edit that the next run reverts. The rollout flag is what separates the two,
+    and it is read in both the viewset and the serializer, so both are checked here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": "approvals"},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "role based access"},
+        ]
+        self.organization.save()
+        self.organization_membership.level = 8
+        self.organization_membership.save()
+
+    def _rolled_out(self):
+        return (
+            patch("products.approvals.backend.api.scope_by_owner_enabled", return_value=True),
+            patch("products.approvals.backend.serializers.scope_by_owner_enabled", return_value=True),
+        )
+
+    def test_an_experiment_policy_is_listed(self):
+        policy = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(policy.id)]
+
+    def test_an_experiment_policy_can_be_created(self):
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/approval_policies/",
+                {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["action_key"] == "experiment.launch"
+
+    def test_a_second_policy_for_the_same_experiment_action_is_refused(self):
+        """The duplicate check must see the mirrors once they are the organization's own rows."""
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        viewset_patch, serializer_patch = self._rolled_out()
+        with viewset_patch, serializer_patch:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/approval_policies/",
+                {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in response.json()["detail"]
+
+
 class TestFeatureFlagApprovalIntegration(APIBaseTest):
     """
     End-to-end tests: policy exists → API call blocked → change request created

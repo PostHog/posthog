@@ -37,9 +37,11 @@ class ExperimentHoldoutActionBase(BaseAction):
     """
 
     resource_type = "experiment_holdout"
-    # TODO(experiment-approval-policies): until experiment-owned flags leave `feature_flag.*`
-    # scope, an organization's flag policy still gates the flag writes a holdout change makes.
-    fallback_policy_action_keys = ("feature_flag.update",)
+    # TODO(experiment-approval-policies): the policy that gates the flag writes a holdout change
+    # makes, which is the experiment policy once the organization evaluates policies by flag owner
+    # and the flag policy before that. The flag policy stays second because an organization that
+    # the sync has not reached yet has no experiment policy to find.
+    fallback_policy_action_keys = ("experiment.update", "feature_flag.update")
 
     @classmethod
     def _holdout(cls, view, *args, **kwargs):
