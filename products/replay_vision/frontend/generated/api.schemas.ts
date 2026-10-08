@@ -2821,6 +2821,11 @@ export interface WatchFeedResponseApi {
      * * `weighted-score` - weighted-score
      * * `jev` - jev */
     ranker: RankerEnumApi
+    /**
+     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+     * @nullable
+     */
+    ranker_variant: string | null
 }
 
 export type VisionAlertsListParams = {
