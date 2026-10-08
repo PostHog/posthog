@@ -128,6 +128,24 @@ def _invoice_discount_allocation_fields() -> list[ast.Expr]:
                 """
             ),
         ),
+        ast.Alias(
+            alias="line_total_discount_amounts",
+            expr=parse_expr(
+                """
+                arrayMap(
+                    (line_discount, discountable, cumulative) -> line_discount + if(
+                        invoice_discountable_amount > 0,
+                        _toInt64(round(unallocated_discount_amount * cumulative / invoice_discountable_amount))
+                            - _toInt64(round(unallocated_discount_amount * (cumulative - discountable) / invoice_discountable_amount)),
+                        0
+                    ),
+                    line_discount_amounts,
+                    line_discountable_amounts,
+                    cumulative_discountable_amounts
+                )
+                """
+            ),
+        ),
     ]
 
 
@@ -344,33 +362,16 @@ def build(handle: SourceHandle) -> BuiltQuery:
                             ),
                         ),
                         *_invoice_discount_allocation_fields(),
-                        # Explode the `lines.data` field into an individual row per item
+                        # Explode the `lines.data` field into an individual row per item, paired with its discount
                         ast.Alias(
-                            alias="data",
-                            expr=ast.Call(name="arrayJoin", args=[ast.Field(chain=["lines_data"])]),
+                            alias="line_with_discount",
+                            expr=parse_expr("arrayJoin(arrayZip(lines_data, line_total_discount_amounts))"),
                         ),
-                        ast.Alias(
-                            alias="line_index",
-                            expr=ast.Call(
-                                name="indexOf", args=[ast.Field(chain=["lines_data"]), ast.Field(chain=["data"])]
-                            ),
-                        ),
+                        ast.Alias(alias="data", expr=parse_expr("tupleElement(line_with_discount, 1)")),
                         ast.Alias(alias="invoice_item_id", expr=extract_json_string("data", "id")),
                         # Make sure we're considering discounts here
                         ast.Alias(alias="amount_before_discount", expr=extract_json_uint("data", "amount")),
-                        ast.Alias(
-                            alias="discount_amount",
-                            expr=parse_expr(
-                                """
-                                line_discount_amounts[line_index] + if(
-                                    invoice_discountable_amount > 0,
-                                    _toInt64(round(unallocated_discount_amount * cumulative_discountable_amounts[line_index] / invoice_discountable_amount))
-                                        - _toInt64(round(unallocated_discount_amount * (cumulative_discountable_amounts[line_index] - line_discountable_amounts[line_index]) / invoice_discountable_amount)),
-                                    0
-                                )
-                                """
-                            ),
-                        ),
+                        ast.Alias(alias="discount_amount", expr=parse_expr("tupleElement(line_with_discount, 2)")),
                         ast.Alias(
                             alias="amount_captured",
                             expr=ast.Call(
