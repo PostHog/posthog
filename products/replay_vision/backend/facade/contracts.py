@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-RejectionKind = Literal["not_found", "consent", "invalid", "disabled"]
+RejectionKind = Literal["not_found", "consent", "invalid"]
 
 
 @dataclass(frozen=True, kw_only=True)

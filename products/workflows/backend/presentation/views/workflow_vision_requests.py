@@ -21,7 +21,6 @@ logger = structlog.get_logger(__name__)
 # A misconfigured step fails loudly on any of these; none is backpressure the step should skip on.
 _REJECTION_STATUS: dict[RejectionKind, int] = {
     "not_found": status.HTTP_404_NOT_FOUND,
-    "disabled": status.HTTP_404_NOT_FOUND,
     "consent": status.HTTP_400_BAD_REQUEST,
     "invalid": status.HTTP_400_BAD_REQUEST,
 }
@@ -109,7 +108,7 @@ class WorkflowVisionRequestViewSet(viewsets.GenericViewSet):
             ),
             404: OpenApiResponse(
                 response=WorkflowVisionRequestRejectedSerializer,
-                description="The scanner doesn't exist, or scans from workflows aren't available",
+                description="The scanner doesn't exist in this project",
             ),
             422: OpenApiResponse(
                 response=WorkflowVisionRequestRejectedSerializer, description="The workflow no longer exists"

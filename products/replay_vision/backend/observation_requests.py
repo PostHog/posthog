@@ -16,7 +16,6 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.cdp.workflow_step_resume import emit_workflow_step_resume
@@ -44,7 +43,6 @@ logger = structlog.get_logger(__name__)
 
 COMPLETED_EVENT = "$replay_vision_request_completed"
 
-OBSERVATION_REQUESTS_FLAG = "replay-vision-observation-requests"
 
 _SWEEP_PAGE_SIZE = 500
 
@@ -118,18 +116,6 @@ class RequestProgress:
     @property
     def settled(self) -> bool:
         return all(s.state not in _UNSETTLED_STATES for s in self.sessions)
-
-
-def observation_requests_enabled(team: Team, distinct_id: str) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            OBSERVATION_REQUESTS_FLAG,
-            distinct_id,
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def create_observation_request(

@@ -419,18 +419,16 @@ export function HogFlowEditorPanelBuild({
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
-                {featureFlags[FEATURE_FLAGS.REPLAY_VISION_OBSERVATION_REQUESTS] && (
-                    <HogFlowEditorToolbarNode
-                        key="analyze-sessions"
-                        action={ANALYZE_SESSIONS_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {ANALYZE_SESSIONS_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
-                )}
+                <HogFlowEditorToolbarNode
+                    key="analyze-sessions"
+                    action={ANALYZE_SESSIONS_ACTION_NODE}
+                    onActionSelect={onActionSelect}
+                >
+                    <span className="inline-flex items-center gap-1.5">
+                        {ANALYZE_SESSIONS_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 

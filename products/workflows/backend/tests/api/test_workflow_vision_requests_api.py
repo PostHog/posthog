@@ -68,7 +68,6 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("not_found", status.HTTP_404_NOT_FOUND),
-            ("disabled", status.HTTP_404_NOT_FOUND),
             ("consent", status.HTTP_400_BAD_REQUEST),
             ("invalid", status.HTTP_400_BAD_REQUEST),
         ]

@@ -105,9 +105,6 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
             patcher = patch(f"products.replay_vision.backend.{target}")
             self.addCleanup(patcher.stop)
             patcher.start()
-        flag = patch("products.replay_vision.backend.observation_requests.posthoganalytics")
-        self.addCleanup(flag.stop)
-        flag.start().feature_enabled.return_value = True
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 

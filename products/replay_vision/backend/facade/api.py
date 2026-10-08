@@ -118,15 +118,12 @@ def start_workflow_observation_request(
     from products.replay_vision.backend.observation_requests import (  # noqa: PLC0415
         InlineScanSpec,
         create_observation_request,
-        observation_requests_enabled,
         request_progress,
     )
     from products.replay_vision.backend.scanner_config import scanner_config_error  # noqa: PLC0415
     from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN  # noqa: PLC0415
 
     team = TeamModel.objects.select_related("organization").get(id=team_id)
-    if not observation_requests_enabled(team, f"team-{team.id}"):
-        raise ObservationRequestRejected("Replay vision scans from workflows aren't available yet.", "disabled")
     if not team.organization.is_ai_data_processing_approved:
         raise ObservationRequestRejected(
             "Your organization needs to allow AI analysis before a workflow can run a Replay vision scan.", "consent"
