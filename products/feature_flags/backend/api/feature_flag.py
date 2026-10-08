@@ -4073,6 +4073,7 @@ class FeatureFlagViewSet(
             )
 
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+            # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
                 team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
@@ -4873,6 +4874,7 @@ class FeatureFlagViewSet(
         # Exclude internal flags (survey targeting and product tour internal flags)
         # These are auto-generated and not user-editable, same as the main flags list
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
@@ -5025,6 +5027,7 @@ class FeatureFlagViewSet(
 
         # Exclude internal flags (same as list endpoint)
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
@@ -5127,6 +5130,7 @@ class FeatureFlagViewSet(
         # The stale-flags health check mirrors this guard's reference checks in
         # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)

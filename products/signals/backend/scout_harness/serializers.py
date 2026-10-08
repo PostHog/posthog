@@ -2943,6 +2943,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         raise RuntimeError("Scout config output destination validation requires project_id in its context")
 
     integration_id = slack["integration_id"]
+    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
     integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,

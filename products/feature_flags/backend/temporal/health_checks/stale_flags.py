@@ -364,6 +364,7 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     excluded: set[int] = set()
     excluded |= Survey.get_internal_flag_ids(team_ids=team_ids)
     excluded |= set(
+        # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
         ProductTour.all_objects.filter(
             team__project_id__in=project_ids, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
