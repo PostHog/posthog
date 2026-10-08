@@ -691,10 +691,16 @@ class TestStaleFlagsDetect(BaseTest):
             patch("posthoganalytics.disabled", sdk["disabled"]),
             patch("posthoganalytics.feature_flag_definitions", return_value=definitions),
             patch(LIVE_GATE_TARGET) as flag_read,
+            capture_logs() as logs,
         ):
             assert StaleFeatureFlagsCheck.eligible_team_ids([self.team.id]) == []
 
         flag_read.assert_not_called()
+        # A batch skipped here never reaches the framework's logging, so this warning is the only
+        # trace of a worker that lost its definitions.
+        assert [log["event"] for log in logs if log["log_level"] == "warning"] == [
+            "stale_feature_flags_live_gate_unreadable"
+        ]
 
     @patch("posthog.temporal.health_checks.processing.emit_health_check_alert")
     def test_a_team_the_gate_drops_keeps_its_open_issues(self, _mock_alert) -> None:

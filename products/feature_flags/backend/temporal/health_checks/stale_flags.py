@@ -144,12 +144,22 @@ class StaleFeatureFlagsCheck(HealthCheck):
         Every other answer drops the team from the run, which leaves whatever issues it already
         holds untouched. That covers a deliberate `False`, a flag that does not exist, an
         archived or switched-off gate, an unreadable definition set, and an SDK that is off by
-        configuration. None of them can resolve an issue, so none of them needs a guard.
+        configuration. None of them can resolve an issue.
 
         Turning the gate off for a team therefore stops new issues without closing open ones.
         Closing those is a deliberate act, not a side effect of a flag flip.
         """
+        # The read below already answers non-True when the SDK is off or holds no definitions,
+        # so this guard is about cost and visibility, not safety. While definitions are not
+        # loaded, every flag read retries the definitions load, so checking once here stops a
+        # batch from making one load attempt per team. The warning is the only record of why a
+        # whole batch was skipped, because the caller returns before it logs anything.
         if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
+            logger.warning(
+                "stale_feature_flags_live_gate_unreadable",
+                team_count=len(team_ids),
+                sdk_disabled=posthoganalytics.disabled,
+            )
             return []
         enabled = [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
         logger.info("stale_feature_flags_live_gate_evaluated", team_count=len(team_ids), enabled_count=len(enabled))
