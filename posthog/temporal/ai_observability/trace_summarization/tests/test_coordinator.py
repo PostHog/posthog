@@ -38,7 +38,6 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
     BatchSummarizationResult,
     CoordinatorResult,
 )
-from posthog.temporal.ai_observability.trace_summarization.sampling import TeamsWithEventsInWindowInput
 
 from products.ai_observability.backend.summarization.models import SummarizationMode
 
@@ -46,8 +45,7 @@ SLOW_TEAM_ID = 1
 DISCOVERED_TEAM_IDS = [SLOW_TEAM_ID, 2, 3, 4, 5]
 
 child_runs: list[dict[str, Any]] = []
-teams_without_events: set[int] = set()
-filter_fails = False
+discovery_inputs: list[TeamDiscoveryInput | None] = []
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -75,6 +73,7 @@ class FakeTeamSummarizationWorkflow:
 
 @activity.defn(name="get_team_ids_for_llm_analytics")
 async def fake_team_discovery(inputs: TeamDiscoveryInput | None = None) -> list[int]:
+    discovery_inputs.append(inputs)
     return DISCOVERED_TEAM_IDS
 
 
@@ -88,13 +87,6 @@ async def fake_fetch_filters(inputs: FetchAllClusteringFiltersInput) -> dict[int
     return {}
 
 
-@activity.defn(name="filter_teams_with_events_in_window_activity")
-async def fake_filter_teams(inputs: TeamsWithEventsInWindowInput) -> list[int]:
-    if filter_fails:
-        raise ApplicationError("query failed", non_retryable=True)
-    return [team_id for team_id in inputs.team_ids if team_id not in teams_without_events]
-
-
 async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -102,7 +94,7 @@ async def _run_coordinator(inputs: BatchTraceSummarizationCoordinatorInputs) -> 
             env.client,
             task_queue=task_queue,
             workflows=[BatchTraceSummarizationCoordinatorWorkflow, FakeTeamSummarizationWorkflow],
-            activities=[fake_team_discovery, fake_fetch_jobs, fake_fetch_filters, fake_filter_teams],
+            activities=[fake_team_discovery, fake_fetch_jobs, fake_fetch_filters],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -284,6 +276,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_sliding_window_does_not_hold_teams_behind_a_slow_team(self):
         child_runs.clear()
+        discovery_inputs.clear()
         result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
 
         runs_by_team = {run["team_id"]: run for run in child_runs}
@@ -295,6 +288,8 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         windows = {run["window"] for run in child_runs}
         assert len(windows) == 1
         assert None not in next(iter(windows))
+        window_start, window_end = next(iter(windows))
+        assert discovery_inputs == [TeamDiscoveryInput(window_start=window_start, window_end=window_end)]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -321,23 +316,6 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         windows = {run["window"] for run in child_runs}
         assert len(windows) == 1
         assert None not in next(iter(windows))
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "fails,expected_team_ids",
-        [
-            pytest.param(False, [SLOW_TEAM_ID, 2, 4], id="dispatches_only_teams_with_events"),
-            pytest.param(True, DISCOVERED_TEAM_IDS, id="dispatches_all_teams_when_filter_fails"),
-        ],
-    )
-    async def test_filters_teams_without_events_in_window(self, monkeypatch, fails, expected_team_ids):
-        child_runs.clear()
-        monkeypatch.setattr(f"{__name__}.teams_without_events", {3, 5})
-        monkeypatch.setattr(f"{__name__}.filter_fails", fails)
-        result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
-
-        assert sorted(run["team_id"] for run in child_runs) == sorted(expected_team_ids)
-        assert result.teams_processed == len(expected_team_ids)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("max_concurrent_teams", [0, -1])

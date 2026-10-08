@@ -94,7 +94,6 @@ from posthog.temporal.ai_observability.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
     fetch_and_format_activity,
-    filter_teams_with_events_in_window_activity,
     sample_items_in_window_activity,
     summarize_and_save_activity,
 )
@@ -166,7 +165,6 @@ ACTIVITIES = [
     # Team discovery
     get_team_ids_for_ai_observability,
     # Summarization activities
-    filter_teams_with_events_in_window_activity,
     sample_items_in_window_activity,
     fetch_and_format_activity,
     summarize_and_save_activity,

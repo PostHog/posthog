@@ -30,9 +30,6 @@ from temporalio.workflow import ChildWorkflowHandle
 
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
-    ACTIVE_TEAMS_FILTER_PATCH_ID,
-    ACTIVE_TEAMS_FILTER_RETRY_POLICY,
-    ACTIVE_TEAMS_FILTER_START_TO_CLOSE_TIMEOUT,
     CHILD_WORKFLOW_ID_PREFIX,
     CONTINUE_AS_NEW_HISTORY_LENGTH,
     CONTINUE_AS_NEW_HISTORY_SIZE_BYTES,
@@ -82,10 +79,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
         GUARANTEED_TEAM_IDS,
         TeamDiscoveryInput,
         get_team_ids_for_ai_observability,
-    )
-    from posthog.temporal.ai_observability.trace_summarization.sampling import (
-        TeamsWithEventsInWindowInput,
-        filter_teams_with_events_in_window_activity,
     )
 
 logger = structlog.get_logger(__name__)
@@ -192,10 +185,17 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 window_minutes=inputs.window_minutes,
             )
 
+            # Discover only teams with AI events in the window the children summarize, because the
+            # discovery lookback is days and most of those teams have nothing in this window.
+            window = (
+                inputs
+                if inputs.window_start and inputs.window_end
+                else _with_summarization_window(inputs, temporalio.workflow.info().workflow_start_time)
+            )
             try:
                 team_ids = await temporalio.workflow.execute_activity(
                     get_team_ids_for_ai_observability,
-                    TeamDiscoveryInput(),
+                    TeamDiscoveryInput(window_start=window.window_start, window_end=window.window_end),
                     start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
                     retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
                 )
@@ -251,8 +251,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                 # workflow_start_time, not start_time: a worker can pick the run up late, for
                 # example during a deploy, and that must not shift the hour the run covers.
                 inputs = _with_summarization_window(inputs, temporalio.workflow.info().workflow_start_time)
-            if inputs.remaining_team_ids is None and temporalio.workflow.patched(ACTIVE_TEAMS_FILTER_PATCH_ID):
-                team_ids = await self._teams_with_events_in_window(inputs, team_ids)
             await self._dispatch_sliding_window(
                 inputs, team_ids, per_team_jobs, per_team_filters, results_so_far, child_id_prefix
             )
@@ -279,32 +277,6 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             total_items=results_so_far["total_items"],
             total_summaries=results_so_far["total_summaries"],
         )
-
-    @staticmethod
-    async def _teams_with_events_in_window(
-        inputs: BatchTraceSummarizationCoordinatorInputs, team_ids: list[int]
-    ) -> list[int]:
-        """Drop the teams with no AI events in the window, so that no child starts only to sample nothing."""
-        assert inputs.window_start and inputs.window_end
-        try:
-            teams_with_events = await temporalio.workflow.execute_activity(
-                filter_teams_with_events_in_window_activity,
-                TeamsWithEventsInWindowInput(
-                    team_ids=team_ids, window_start=inputs.window_start, window_end=inputs.window_end
-                ),
-                start_to_close_timeout=ACTIVE_TEAMS_FILTER_START_TO_CLOSE_TIMEOUT,
-                retry_policy=ACTIVE_TEAMS_FILTER_RETRY_POLICY,
-            )
-        except Exception:
-            # Without the filter the run is slower, but it does not skip a team that has events.
-            logger.warning("Failed to filter teams by AI events in window, dispatching all teams", exc_info=True)
-            return team_ids
-        logger.info(
-            "Filtered teams to those with AI events in window",
-            teams_discovered=len(team_ids),
-            teams_with_events=len(teams_with_events),
-        )
-        return teams_with_events
 
     async def _dispatch_sliding_window(
         self,
