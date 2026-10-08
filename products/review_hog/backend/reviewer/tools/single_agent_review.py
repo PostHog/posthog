@@ -29,7 +29,13 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
+    DroppedIssue,
+    Issue,
+    IssuePriority,
+    LineRange,
+)
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import Duplicate, deduplicate_issues
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
@@ -217,6 +223,8 @@ class FlashSelection:
     # The turn's finding cap, which must-fix findings can exceed, and the lens part count it grew with.
     cap: int
     lens_part_count: int
+    # A dedup call failed and fell back to the positional pre-filter alone.
+    dedup_fell_back: bool = False
 
 
 def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> FlashSelection:
@@ -268,6 +276,8 @@ class FlashTurnStats:
     # Per disposition: the findings dedup and the cap dropped.
     dropped: dict[str, int]
     kept: int
+    # A dedup call failed and fell back to the positional pre-filter alone.
+    dedup_fell_back: bool
 
 
 def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
@@ -293,30 +303,40 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         after_dedup=len(selection.kept) + cut,
         dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
         kept=len(selection.kept),
+        dedup_fell_back=selection.dedup_fell_back,
     )
 
 
 def _dropped_duplicate(
-    duplicate: Duplicate, *, turn_issues: dict[str, Issue], prior_keys: set[str], comment_ids: set[str]
+    duplicate: Duplicate,
+    *,
+    dedup_fallback: bool,
+    turn_issues: dict[str, Issue],
+    prior_keys: set[str],
+    comment_ids: set[str],
 ) -> DroppedIssue:
     """Record a dedup drop with what it repeats, from the id the dedup named."""
     named = duplicate.duplicate_of
     target = turn_issues.get(named) if named is not None and named != duplicate.issue.id else None
+    disposition: DropDisposition
+    duplicate_of: Issue | str | None = named
     if target is not None:
         repeats_anchor = (
             target.source_perspective == SINGLE_AGENT_SOURCE
             and duplicate.issue.source_perspective != SINGLE_AGENT_SOURCE
         )
-        return DroppedIssue(
-            issue=duplicate.issue,
-            disposition="dedup_anchor" if repeats_anchor else "dedup_sibling",
-            duplicate_of=target,
-        )
-    if named in prior_keys:
-        return DroppedIssue(issue=duplicate.issue, disposition="dedup_prior", duplicate_of=named)
-    if named in comment_ids:
-        return DroppedIssue(issue=duplicate.issue, disposition="dedup_comment", duplicate_of=f"comment:{named}")
-    return DroppedIssue(issue=duplicate.issue, disposition="dedup_unmatched", duplicate_of=named)
+        disposition = "dedup_anchor" if repeats_anchor else "dedup_sibling"
+        duplicate_of = target
+    elif named in prior_keys:
+        disposition = "dedup_prior"
+    elif named in comment_ids:
+        disposition = "dedup_comment"
+        duplicate_of = f"comment:{named}"
+    else:
+        disposition = "dedup_unmatched"
+    return DroppedIssue(
+        issue=duplicate.issue, disposition=disposition, duplicate_of=duplicate_of, dedup_fallback=dedup_fallback
+    )
 
 
 def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> None:
@@ -350,13 +370,15 @@ async def dedupe_flash_findings(
     repository: str,
     lens_part_count: int,
     workflow_id_prefix: str | None = None,
+    fall_back_on_any_error: bool = False,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
     Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
     The lens findings dedup against those too and against the main findings as anchors, so a lens
     finding can lose to a main finding but never the other way around. A finding that survives takes
-    the priority of the most severe duplicate removed in its favor.
+    the priority of the most severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
+    call fall back to the positional pre-filter on any failure, for the activity's last attempt.
     """
     main = [issue for issue in issues if issue.source_perspective == SINGLE_AGENT_SOURCE]
     lens = [issue for issue in issues if issue.source_perspective != SINGLE_AGENT_SOURCE]
@@ -372,6 +394,7 @@ async def dedupe_flash_findings(
             repository=repository,
             workflow_id_prefix=workflow_id_prefix,
             for_flash=True,
+            fall_back_on_any_error=fall_back_on_any_error,
         ),
         deduplicate_issues(
             team_id=team_id,
@@ -385,6 +408,7 @@ async def dedupe_flash_findings(
             workflow_id_prefix=workflow_id_prefix,
             anchors=main,
             for_flash=True,
+            fall_back_on_any_error=fall_back_on_any_error,
         ),
     )
     duplicates = [*main_outcome.duplicates, *lens_outcome.duplicates]
@@ -394,8 +418,15 @@ async def dedupe_flash_findings(
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
     comment_ids = {str(comment.id) for comment in pr_comments if comment.id is not None}
     dedup_drops = [
-        _dropped_duplicate(duplicate, turn_issues=turn_issues, prior_keys=prior_keys, comment_ids=comment_ids)
-        for duplicate in duplicates
+        _dropped_duplicate(
+            duplicate,
+            dedup_fallback=outcome.fell_back,
+            turn_issues=turn_issues,
+            prior_keys=prior_keys,
+            comment_ids=comment_ids,
+        )
+        for outcome in (main_outcome, lens_outcome)
+        for duplicate in outcome.duplicates
     ]
     logger.info(
         "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
@@ -403,4 +434,8 @@ async def dedupe_flash_findings(
         len(main_outcome.kept),
         len(lens_outcome.kept),
     )
-    return replace(composed, dropped=[*dedup_drops, *composed.dropped])
+    return replace(
+        composed,
+        dropped=[*dedup_drops, *composed.dropped],
+        dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
+    )

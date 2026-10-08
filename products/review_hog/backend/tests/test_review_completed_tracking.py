@@ -200,8 +200,8 @@ class TestTrackReviewCompleted(BaseTest):
 
     def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
         # The cap, the dedup calls, and the lens sessions are only measurable through these
-        # properties, and the must-fix share is how priority inflation shows up before the
-        # must-fix ceiling starts cutting.
+        # properties, the must-fix share is how priority inflation shows up before the must-fix
+        # ceiling starts cutting, and a dedup fallback marks a turn whose drops were positional only.
         report_id = self._review_report()
         turn = FlashTurnStats(
             cap=6,
@@ -212,6 +212,7 @@ class TestTrackReviewCompleted(BaseTest):
             after_dedup=5,
             dropped={"dedup_anchor": 2, "cap": 1},
             kept=4,
+            dedup_fell_back=True,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -230,6 +231,7 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_after_dedup": 5,
             "flash_dropped": {"dedup_anchor": 2, "cap": 1},
             "flash_kept": 4,
+            "flash_dedup_fallback": True,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,

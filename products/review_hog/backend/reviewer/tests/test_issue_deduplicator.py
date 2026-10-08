@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from temporalio.exceptions import ApplicationError
+
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
@@ -21,6 +23,7 @@ from products.review_hog.backend.reviewer.models.issue_deduplicator import (
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
+    DedupOutcome,
     _comment_range,
     _select_dedup_candidates,
     deduplicate_issues,
@@ -359,3 +362,60 @@ async def test_deduplicate_propagates_llm_failure(pr_metadata: PRMetadata) -> No
             branch="test-branch",
             repository="test/repo",
         )
+
+
+_REPEAT = _issue("2000-1-1", "src/auth.py", 45, 50)
+_SAME_LINES = [_issue("2000-1-2", "src/db.py", 5, 6), _issue("2000-1-3", "src/db.py", 5, 6)]
+_PRIOR = _prior_finding("src/auth.py", 46, 48, dismissed=False)
+
+
+async def _dedupe_with_a_failing_flash_call(
+    pr_metadata: PRMetadata, *, non_retryable: bool, final_attempt: bool
+) -> DedupOutcome:
+    failing_call = AsyncMock(side_effect=ApplicationError("gateway rejected the model", non_retryable=non_retryable))
+    with patch(f"{_MODULE}.run_oneshot_openai_review", failing_call):
+        return await deduplicate_issues(
+            team_id=1,
+            user_id=1,
+            issues=[_REPEAT, *_SAME_LINES],
+            pr_metadata=pr_metadata,
+            pr_comments=[],
+            prior_findings=[_PRIOR],
+            branch="test-branch",
+            repository="test/repo",
+            for_flash=True,
+            fall_back_on_any_error=final_attempt,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "non_retryable,final_attempt",
+    [
+        pytest.param(True, False, id="client_error_falls_back_at_once"),
+        pytest.param(False, True, id="transient_error_on_the_last_attempt"),
+    ],
+)
+async def test_flash_dedup_failure_falls_back_to_the_positional_pre_filter(
+    pr_metadata: PRMetadata, non_retryable: bool, final_attempt: bool
+) -> None:
+    # The review sessions already ran and paid for their findings, so a gateway that rejects the
+    # dedup model must not fail the turn. Without the LLM, only a repeat of earlier coverage drops;
+    # two findings of this turn on the same lines may raise different problems, so both stay.
+    outcome = await _dedupe_with_a_failing_flash_call(
+        pr_metadata, non_retryable=non_retryable, final_attempt=final_attempt
+    )
+
+    assert outcome.fell_back
+    assert [issue.id for issue in outcome.kept] == ["2000-1-2", "2000-1-3"]
+    assert [(duplicate.issue.id, duplicate.duplicate_of) for duplicate in outcome.duplicates] == [
+        ("2000-1-1", _PRIOR[0].issue_key)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_flash_dedup_transient_failure_retries_before_the_last_attempt(pr_metadata: PRMetadata) -> None:
+    # A transient gateway error usually clears on the activity's next attempt, which keeps the LLM
+    # dedup; falling back at once would trade it for the coarser positional one.
+    with pytest.raises(ApplicationError):
+        await _dedupe_with_a_failing_flash_call(pr_metadata, non_retryable=False, final_attempt=False)

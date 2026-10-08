@@ -1333,6 +1333,13 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
 
 
+def _is_final_attempt() -> bool:
+    """Whether Temporal gives up on this activity if the current attempt fails."""
+    info = activity.info()
+    retry = info.retry_policy
+    return retry is not None and 0 < retry.maximum_attempts <= info.attempt
+
+
 def _combine_and_clean(team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm) -> list[Issue]:
     perspective_results = load_perspective_results(
         team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm
@@ -1395,6 +1402,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 repository=input.repository,
                 lens_part_count=len(lens_plan.chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
+                fall_back_on_any_error=_is_final_attempt(),
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -1756,6 +1764,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_after_dedup": turn.after_dedup,
                 "flash_dropped": turn.dropped,
                 "flash_kept": turn.kept,
+                "flash_dedup_fallback": turn.dedup_fell_back,
             }
         )
     if sessions is not None:

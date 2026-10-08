@@ -289,6 +289,10 @@ the same plus the main findings as anchors, so a lens finding can lose to a main
 The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate repeats (`duplicate_of`: the finding kept
 in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
+A Flash dedup call that fails non-retryably (the gateway rejects the model), or fails on the activity's last attempt,
+falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding or a PR comment
+drops as its repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
+`dedup_fallback`, and reports `flash_dedup_fallback`, so a dedup failure never fails a turn whose sessions succeeded.
 `compose_flash_findings` then ranks the findings highest priority first, the main session first on ties, before
 anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per

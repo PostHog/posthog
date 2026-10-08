@@ -89,6 +89,7 @@ _FLASH_TURN_STATS = FlashTurnStats(
     after_dedup=2,
     dropped={},
     kept=2,
+    dedup_fell_back=False,
 )
 
 

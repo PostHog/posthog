@@ -621,6 +621,7 @@ def replace_dropped_findings(
                     if isinstance(duplicate_of, Issue)
                     else duplicate_of,
                     rank=drop.rank,
+                    dedup_fallback=drop.dedup_fallback,
                     cap=cap,
                     lens_part_count=lens_part_count,
                 )

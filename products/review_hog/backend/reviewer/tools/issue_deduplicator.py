@@ -2,6 +2,8 @@ import json
 import logging
 from collections.abc import Sequence
 
+from temporalio.exceptions import ApplicationError
+
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
@@ -37,6 +39,8 @@ class Duplicate:
 class DedupOutcome:
     kept: list[Issue]
     duplicates: list[Duplicate]
+    # The Flash LLM call failed, so the positional pre-filter alone decided the duplicates.
+    fell_back: bool = False
 
 
 def _ranges_overlap(a: list[LineRange], b: list[LineRange]) -> bool:
@@ -88,6 +92,32 @@ def _select_dedup_candidates(
         )
         (candidates if collides_with_issue or collides_with_prior else unique).append(issue)
     return candidates, unique
+
+
+def _positional_duplicates(
+    candidates: list[Issue],
+    pr_comments: list[PRComment],
+    prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> dict[str, str | None]:
+    """Without the LLM, a candidate on the lines of an earlier turn's finding or a PR comment repeats it.
+
+    Findings of this turn never drop each other here: two findings on the same lines can raise different
+    problems, and only the LLM can tell. Returns each dropped id mapped to the issue key or comment id.
+    """
+    earlier = [
+        (finding.issue_key, finding.file, line_range) for finding, _ in prior_findings for line_range in finding.lines
+    ]
+    for comment in pr_comments:
+        position = _comment_range(comment)
+        if position is not None:
+            earlier.append((str(comment.id), *position))
+    named: dict[str, str | None] = {}
+    for issue in candidates:
+        for reference, path, line_range in earlier:
+            if path == issue.file and _ranges_overlap(issue.lines, [line_range]):
+                named[issue.id] = reference
+                break
+    return named
 
 
 def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None, *, with_id: bool) -> dict:
@@ -186,6 +216,7 @@ async def deduplicate_issues(
     workflow_id_prefix: str | None = None,
     anchors: Sequence[Issue] = (),
     for_flash: bool = False,
+    fall_back_on_any_error: bool = False,
 ) -> DedupOutcome:
     """Deduplicate the in-scope issues into the survivors (the canonical post-dedup set) and the duplicates.
 
@@ -201,7 +232,10 @@ async def deduplicate_issues(
     `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
     an issue that restates one is dropped, and they are never dropped or returned themselves.
     `for_flash` runs the LLM call on the Flash dedup pins instead of the pipeline's, and asks it to name
-    what each duplicate repeats (`Duplicate.duplicate_of`).
+    what each duplicate repeats (`Duplicate.duplicate_of`). A Flash call that fails non-retryably, or
+    fails at all when `fall_back_on_any_error` says no retry follows, falls back to the positional
+    pre-filter alone (`_positional_duplicates`), because the review sessions already ran and a dedup
+    failure must not cost the turn.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
@@ -240,20 +274,30 @@ async def deduplicate_issues(
         ),
     )
 
-    # Each removed id, mapped to what the LLM says it repeats.
+    # Each removed id, mapped to what it repeats when the dedup names it.
     named_duplicates: dict[str, str | None]
+    fell_back = False
     if for_flash:
-        flash_result = await run_oneshot_openai_review(
-            team_id=team_id,
-            user_id=user_id,
-            prompt=prompt,
-            system_prompt=DEDUP_SYSTEM_PROMPT,
-            model_to_validate=FlashIssueDeduplication,
-            step_name="dedup",
-            model=FLASH_DEDUP_MODEL,
-            reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
-        )
-        named_duplicates = {dup.id: dup.duplicate_of for dup in flash_result.duplicates}
+        try:
+            flash_result = await run_oneshot_openai_review(
+                team_id=team_id,
+                user_id=user_id,
+                prompt=prompt,
+                system_prompt=DEDUP_SYSTEM_PROMPT,
+                model_to_validate=FlashIssueDeduplication,
+                step_name="dedup",
+                model=FLASH_DEDUP_MODEL,
+                reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
+            )
+        except Exception as error:
+            retryable = not (isinstance(error, ApplicationError) and error.non_retryable)
+            if retryable and not fall_back_on_any_error:
+                raise
+            logger.exception("Flash dedup call failed; falling back to the positional pre-filter alone")
+            named_duplicates = _positional_duplicates(candidates, pr_comments, prior_findings)
+            fell_back = True
+        else:
+            named_duplicates = {dup.id: dup.duplicate_of for dup in flash_result.duplicates}
     else:
         deduplication_result = await _run_pipeline_dedup(
             team_id=team_id,
@@ -278,4 +322,5 @@ async def deduplicate_issues(
             for issue in candidates
             if issue.id in named_duplicates
         ],
+        fell_back=fell_back,
     )

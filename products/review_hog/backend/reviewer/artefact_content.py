@@ -112,6 +112,10 @@ class DroppedFindingArtefact(BaseModel):
     rank: int | None = Field(
         default=None, description="For a finding the cap cut, its 1-based position in the turn's ranked findings."
     )
+    dedup_fallback: bool = Field(
+        default=False,
+        description="The dedup LLM call failed, so the positional pre-filter alone decided this drop.",
+    )
     cap: int = Field(description="The turn's finding cap, which must-fix findings can exceed.")
     lens_part_count: int = Field(description="How many parts the lens sessions split the PR into.")
 

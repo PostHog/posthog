@@ -101,6 +101,8 @@ class DroppedIssue:
     duplicate_of: Issue | str | None = None
     # The 1-based position in the turn's ranked findings, for a finding the cap cut.
     rank: int | None = None
+    # The dedup LLM call failed, so the positional pre-filter alone decided this drop.
+    dedup_fallback: bool = False
 
 
 class IssuesReview(BaseModel):

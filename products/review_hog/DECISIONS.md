@@ -234,6 +234,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   takes the highest priority of the duplicates removed in its favor, anchors and siblings alike. Prior findings carry
   their issue key as `id` in the Flash prompt so the dedup can name them. The pipeline's dedup output is unchanged.
   `reported_priority` stays the reviewer's own P level, so a raised finding reads `must_fix` with its original P3.
+- **Dedup fallback.** The Flash dedup depends on one model through the LLM gateway. A non-retryable error there (the
+  gateway rejects the model, a 4xx) used to fail the turn after every review session had already run and paid. A
+  failed call now falls back to the positional pre-filter alone, right away for a non-retryable error and on the
+  activity's last attempt for a transient one: a finding on the lines of an earlier turn's finding or a PR comment
+  drops as its repeat, and findings of the turn itself all stay, because only the LLM can tell two problems on the
+  same lines apart. The turn logs the failure, marks those drops `dedup_fallback`, and reports
+  `flash_dedup_fallback` on the completed event.
 - **Cap rule.** Must-fix (P0/P1) findings always post, outside the cap, so the cap never hides a
   finding that blocks the merge. A hard ceiling of `FLASH_MUST_FIX_CAP_MULTIPLIER` (2) times the cap still bounds
   them, because a lens prompt maps its skill's "Must fix" onto P1 and a session that marks everything must-fix would
@@ -267,7 +274,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   `ReviewIssueFinding`) keeps the reviewer's P0-P3, so a later analysis can still tell P0 from P1. The cap holds per turn, so a later push can post more.
   The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
   measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
-  serving ReviewHog allows it before rollout.
+  serving ReviewHog allows it before rollout; until it does, every Flash dedup runs on the positional fallback.
 
 ### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
 
