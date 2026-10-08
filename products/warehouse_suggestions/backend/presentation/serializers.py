@@ -1,5 +1,7 @@
 """DRF serializers for warehouse_suggestions."""
 
+from datetime import timedelta
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -22,6 +24,8 @@ from ..facade.enums import (
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
+
+MAX_REFRESH_INTERVAL_SECONDS = int(timedelta(days=30).total_seconds())
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -200,5 +204,6 @@ class AcceptWarehouseSuggestionSerializer(serializers.Serializer):
     refresh_interval_seconds = serializers.IntegerField(
         required=False,
         min_value=1,
+        max_value=MAX_REFRESH_INTERVAL_SECONDS,
         help_text="Materialize only: refresh interval to use instead of the proposed one, in seconds.",
     )

@@ -236,6 +236,7 @@ export interface AcceptWarehouseSuggestionApi {
     /**
      * Materialize only: refresh interval to use instead of the proposed one, in seconds.
      * @minimum 1
+     * @maximum 2592000
      */
     refresh_interval_seconds?: number
 }

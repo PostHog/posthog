@@ -138,10 +138,13 @@ class TestAcceptSuggestion(APIBaseTest):
             12 * 60 * 60,
         )
 
-    def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(self) -> None:
+    @parameterized.expand([("not_a_schedulable_interval", 7), ("past_the_largest_interval", 10**14)])
+    def test_a_refused_interval_is_a_field_error_and_keeps_the_suggestion_open(
+        self, _name: str, refresh_interval_seconds: int
+    ) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)
 
-        refused = self._accept(suggestion.id, {"refresh_interval_seconds": 7})
+        refused = self._accept(suggestion.id, {"refresh_interval_seconds": refresh_interval_seconds})
 
         suggestion.refresh_from_db()
         assert (refused["http_status"], refused["attr"]) == (status.HTTP_400_BAD_REQUEST, "refresh_interval_seconds")
