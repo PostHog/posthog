@@ -385,6 +385,58 @@ describe('accountsLogic', () => {
         ])
     })
 
+    it.each([0, 1])('duplicates group %i into an independent OR branch', (index) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.loadCustomPropertyDefinitionsSuccess([buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })])
+        const first = structuredClone(ACCOUNT_FILTERS)
+        const second = [
+            {
+                type: PropertyFilterType.Account as const,
+                key: 'name',
+                operator: PropertyOperator.Exact,
+                value: ['Example account'],
+            },
+        ]
+        logic.actions.setAccountFilters(first)
+        logic.actions.setAccountFilterGroups([second])
+        const source = [first, second][index]
+
+        logic.actions.duplicateAccountFilterGroup(index)
+
+        expect(logic.values.accountFilters).toEqual(first)
+        expect(logic.values.accountFilterGroups).toEqual([second, source])
+        expect(logic.values.viewState.filters.filterGroups).toEqual([second, source])
+        expect(logic.values.accountsQuerySource?.filterGroups).toHaveLength(3)
+        expect(capture).toHaveBeenCalledWith(
+            AccountsEvents.FilterChanged,
+            expect.objectContaining({ filter_type: 'or_group', group_count: 3 })
+        )
+        const duplicate = logic.values.accountFilterGroups[1]
+        const duplicateWithArray = duplicate.find((filter) => Array.isArray(filter.value))!
+        const sourceWithArray = source.find((filter) => Array.isArray(filter.value))!
+        expect(duplicateWithArray.value).toEqual(sourceWithArray.value)
+        expect(duplicateWithArray.value).not.toBe(sourceWithArray.value)
+        logic.actions.updateAccountFilterGroup(1, [second[0]])
+        expect(logic.values.accountFilters).toEqual(first)
+        expect(logic.values.accountFilterGroups[0]).toEqual(second)
+    })
+
+    it.each([
+        { groupCount: 10, index: 0 },
+        { groupCount: 2, index: 1 },
+        { groupCount: 1, index: 2 },
+    ])('does not duplicate an empty, missing, or eleventh group (%j)', ({ groupCount, index }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        const groups = Array.from({ length: groupCount - 1 }, () => [])
+        logic.actions.setAccountFilterGroups(groups)
+
+        logic.actions.duplicateAccountFilterGroup(index)
+
+        expect(logic.values.accountFilterGroups).toEqual(groups)
+        expect(capture).not.toHaveBeenCalledWith(AccountsEvents.FilterChanged, expect.anything())
+    })
+
     it('setTagsFilter updates the reducer', () => {
         logic.actions.setTagsFilter(['enterprise'])
         expect(logic.values.tagsFilter).toEqual(['enterprise'])

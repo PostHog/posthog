@@ -1239,6 +1239,16 @@ export const FilterGroupsExpanded: Story = {
     },
 }
 
+export const FilterGroupsDuplicated: Story = {
+    ...FilterGroupsExpanded,
+    play: async (context) => {
+        await FilterGroupsExpanded.play?.(context)
+        const canvas = within(context.canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Duplicate group A'))
+        await canvas.findByLabelText('Remove group C')
+    },
+}
+
 export const FilterGroupsNarrow: Story = {
     ...FilterGroupsExpanded,
     decorators: [
