@@ -11,12 +11,13 @@ Activities import from here.
 """
 
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
+from itertools import chain, groupby, islice
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from posthog.models import OrganizationMembership, Team
 from posthog.tasks.usage_report import (
@@ -30,8 +31,15 @@ from posthog.tasks.usage_report import (
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
-from posthog.temporal.usage_report.storage import bucket, read_json
-from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.storage import (
+    bucket,
+    chunk_key,
+    manifest_key,
+    read_json,
+    write_json,
+    write_jsonl_chunk_gzip,
+)
+from posthog.temporal.usage_report.types import AggregateResult, Manifest, RunQueryToS3Result, WorkflowContext
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
@@ -220,3 +228,76 @@ def _add_team_report_to_org_reports(
                     field.name,
                     getattr(org_report, field.name) + getattr(team_report, field.name),
                 )
+
+
+def iter_org_reports(
+    all_data: dict[str, dict[int, int]],
+    ctx: WorkflowContext,
+    org_user_counts: dict[str, int],
+) -> Iterator[OrgReport]:
+    # Match the legacy team selection, but keep only one organization's reports in memory.
+    teams = (
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+        .order_by("organization_id", "id")
+        .iterator(chunk_size=2_000)
+    )
+    wanted = set(ctx.organization_ids) if ctx.organization_ids else None
+    for organization_id, org_teams in groupby(teams, key=lambda team: team.organization_id):
+        org_id = str(organization_id)
+        if wanted is not None and org_id not in wanted:
+            continue
+        org_reports: dict[str, OrgReport] = {}
+        for team in org_teams:
+            team_report = _get_team_report(all_data, team)
+            _add_team_report_to_org_reports(org_reports, team, team_report, ctx.period_start, org_user_counts)
+        yield org_reports[org_id]
+
+
+def write_org_report_chunks(
+    ctx: WorkflowContext,
+    org_reports: Iterable[OrgReport],
+    instance_metadata: InstanceMetadata,
+    *,
+    chunk_size: int,
+    version: int,
+    region: str,
+    check_cancelled: Callable[[], None],
+) -> AggregateResult:
+    total_orgs = 0
+    total_orgs_with_usage = 0
+
+    def reports_with_usage() -> Iterator[OrgReport]:
+        nonlocal total_orgs, total_orgs_with_usage
+        for report in org_reports:
+            check_cancelled()
+            total_orgs += 1
+            if has_non_zero_usage(report):
+                total_orgs_with_usage += 1
+                yield report
+
+    lines = iter_chunk_lines(reports_with_usage(), instance_metadata)
+    chunk_keys: list[str] = []
+    while (first_line := next(lines, None)) is not None:
+        key = chunk_key(ctx, len(chunk_keys))
+        write_jsonl_chunk_gzip(key, chain((first_line,), islice(lines, chunk_size - 1)))
+        chunk_keys.append(key)
+
+    check_cancelled()
+    manifest = build_manifest(
+        ctx,
+        chunk_keys=chunk_keys,
+        total_orgs=total_orgs,
+        total_orgs_with_usage=total_orgs_with_usage,
+        region=region,
+        version=version,
+    )
+    m_key = manifest_key(ctx)
+    write_json(m_key, manifest.model_dump(mode="json"))
+    return AggregateResult(
+        chunk_keys=chunk_keys,
+        manifest_key=m_key,
+        total_orgs=total_orgs,
+        total_orgs_with_usage=total_orgs_with_usage,
+    )

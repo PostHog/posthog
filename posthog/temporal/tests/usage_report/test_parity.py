@@ -190,12 +190,16 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     org_a = Organization.objects.create(name="E2E Parity A")
     org_b = Organization.objects.create(name="E2E Parity B")
     team_a1 = Team.objects.create(organization=org_a, name="A1")
-    team_a2 = Team.objects.create(organization=org_a, name="A2")
     team_b = Team.objects.create(organization=org_b, name="B")
+    team_a2 = Team.objects.create(organization=org_a, name="A2")
+    demo_team = Team.objects.create(organization=org_b, name="Demo", is_demo=True)
+    internal_org = Organization.objects.create(name="Internal", for_internal_metrics=True)
+    internal_team = Team.objects.create(organization=internal_org, name="Internal")
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
+    seeded["teams_with_event_count_in_period"].update({demo_team.id: 999, internal_team.id: 999})
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)
@@ -234,6 +238,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         )
     )
     temporal_per_org = _decode_temporal_chunks(s3, result.chunk_keys)
+    assert temporal_per_org.keys() == celery_per_org.keys()
 
     # Both of our test orgs should have non-zero usage, so Celery should
     # have queued them. Sanity-check that before comparing, otherwise a
