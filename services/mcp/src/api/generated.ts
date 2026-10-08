@@ -61743,7 +61743,7 @@ export namespace Schemas {
       /** Readings of the request, best first. Can be empty. */
       candidates: _LogsNaturalLanguageCandidate[];
       /**
-         * The decision model's confidence in the first candidate. Null when it did not rank them.
+         * The first candidate's probability from the decision model. Null when it did not rank them.
          * @nullable
          */
       confidence: number | null;

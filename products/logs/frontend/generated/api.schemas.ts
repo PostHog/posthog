@@ -2117,7 +2117,7 @@ export interface LogsNaturalLanguageQueryResponseApi {
     /** Readings of the request, best first. Can be empty. */
     candidates: _LogsNaturalLanguageCandidateApi[]
     /**
-     * The decision model's confidence in the first candidate. Null when it did not rank them.
+     * The first candidate's probability from the decision model. Null when it did not rank them.
      * @nullable
      */
     confidence: number | null
