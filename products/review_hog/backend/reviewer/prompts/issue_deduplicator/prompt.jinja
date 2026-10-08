@@ -75,7 +75,7 @@ Generate your deduplication analysis as a JSON object that conforms to the provi
 
 IMPORTANT:
 - Include all required fields as specified in the schema
-- The "duplicates" list must contain only the ids of the findings to remove
+{% if NAMES_DUPLICATE_OF %}- Each "duplicates" entry gives the `id` of a finding to remove and, in `duplicate_of`, the id of what already raises the same problem: the finding you keep in its place (never a finding you also remove), a prior finding, or a prior comment{% else %}- The "duplicates" list must contain only the ids of the findings to remove{% endif %}
 - Return ONLY the final JSON output (without any additional text or markdown formatting)
 
 JSON Schema:

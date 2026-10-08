@@ -277,6 +277,7 @@ async def deduplicate_issues(
         DEDUPLICATION_SCHEMA=(
             json.dumps(FlashIssueDeduplication.model_json_schema(), indent=2) if for_flash else schema.strip()
         ),
+        NAMES_DUPLICATE_OF=for_flash,
     )
 
     # Each removed id, mapped to what it repeats when the dedup names it.

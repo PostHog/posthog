@@ -331,6 +331,8 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
     assert len(result.kept) == issue_count
     routes = {"oneshot": mock_oneshot, "sandbox": mock_sandbox, "openai": mock_openai}
     assert [name for name, mock in routes.items() if mock.called] == [expected_route]
+    instructions = routes[expected_route].call_args.kwargs["prompt"].split("JSON Schema:")[0]
+    assert ("`duplicate_of`" in instructions) == for_flash
     if expected_route == "sandbox":
         # The pin kwargs default to None, so dropping them at this call site would silently fall
         # back to the sandbox default model — same contract as the chunking and review pin tests.
