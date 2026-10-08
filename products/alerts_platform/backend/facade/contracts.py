@@ -349,6 +349,22 @@ class GroupOutcome:
 
 
 @frozen
+class CheckFailure:
+    """What the shared machine decided for a check that could not evaluate.
+
+    It belongs to the check, not to a group, because a failed query returns no groups to attribute
+    the failure to. `new_state` is the machine's verdict, which stays the prior state under a
+    policy that rides through errors and becomes ERRORED or BROKEN under one that does not.
+    """
+
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    muted_notification: str = ""
+
+
+@frozen
 class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows.
 
@@ -356,13 +372,16 @@ class PlatformAlertOutcome:
     leaves its due time where it was, so discovery finds the same work every tick.
 
     The fields here describe the check, and each of `groups` describes one group's verdict. A failed
-    query fails every group at once, so the failure count and `disable` belong to the check.
+    query fails every group at once, so the failure count, `disable` and `failure` belong to the
+    check, and a failed check carries no groups. A successful check of an ungrouped source carries
+    exactly one group with the empty key; a grouped source's may carry none when nothing is open.
     """
 
     configuration_id: UUID
     evaluation_key: str
     consecutive_failures: int
-    groups: tuple[GroupOutcome, ...]
+    groups: tuple[GroupOutcome, ...] = ()
+    failure: CheckFailure | None = None
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
@@ -370,10 +389,8 @@ class PlatformAlertOutcome:
     disable: bool = False
 
     def __post_init__(self) -> None:
-        # A check's ERRORED or BROKEN arrives as a group's verdict, so an outcome with no group
-        # would record a check that wrote no status and no history.
-        if not self.groups:
-            raise ValueError("an outcome needs at least one group")
+        if self.failure is not None and self.groups:
+            raise ValueError("a failed check reports no groups")
         keys = [group.grouping_key for group in self.groups]
         if len(set(keys)) != len(keys):
             raise ValueError("an outcome names each group once")
@@ -507,6 +524,7 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    check_status: str
 
 
 @frozen

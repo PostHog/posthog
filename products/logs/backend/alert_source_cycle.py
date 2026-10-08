@@ -32,6 +32,7 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    CheckFailure,
     GroupOutcome,
     MuteReason,
     PlatformAlertCheckInput,
@@ -313,25 +314,42 @@ def _recorded(
     query_duration_ms: int | None = None,
     muted_notification: str = "",
     disable: bool = False,
+    failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so every path states the firing the same way."""
-    return PlatformAlertOutcome(
-        configuration_id=check.id,
-        evaluation_key=evaluation_key,
-        consecutive_failures=outcome.consecutive_failures,
-        groups=(
+    firing_episode = decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY)
+    failure = (
+        CheckFailure(
+            kind=kind,
+            new_state=outcome.new_state.value,
+            notified=notified,
+            firing_episode=firing_episode,
+            muted_notification=muted_notification,
+        )
+        if failed
+        else None
+    )
+    groups = (
+        ()
+        if failed
+        else (
             GroupOutcome(
                 grouping_key="",
                 kind=kind,
                 new_state=outcome.new_state.value,
                 notified=notified,
-                firing_episode=decide_firing_episode(
-                    _snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY
-                ),
+                firing_episode=firing_episode,
                 value=value,
                 muted_notification=muted_notification,
             ),
-        ),
+        )
+    )
+    return PlatformAlertOutcome(
+        configuration_id=check.id,
+        evaluation_key=evaluation_key,
+        consecutive_failures=outcome.consecutive_failures,
+        groups=groups,
+        failure=failure,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
@@ -346,6 +364,7 @@ def _delivery(
     now: datetime,
     value: float | None = None,
     query_duration_ms: int | None = None,
+    failed: bool = False,
 ) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
@@ -362,6 +381,7 @@ def _delivery(
             "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
         ),
         disable=outcome.disable,
+        failed=failed,
     )
     return recorded, _request(check, recorded, outcome, sends_messages=outcome.notification != NotificationAction.NONE)
 
@@ -480,6 +500,7 @@ def _held(
         notified=False,
         now=now,
         error_message=error_message,
+        failed=True,
     )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
@@ -522,7 +543,13 @@ def _evaluate_cohort(
         # batch would advance every other check's schedule and leave this one due with its failure
         # counter unmoved, never reaching the escalation that stops it.
         return [
-            _delivery(check, _failed(check, error, now=now, muted=check.id in muted_ids), window_end=date_to, now=now)
+            _delivery(
+                check,
+                _failed(check, error, now=now, muted=check.id in muted_ids),
+                window_end=date_to,
+                now=now,
+                failed=True,
+            )
             for check in checks
         ]
 
@@ -534,17 +561,26 @@ def _evaluate_cohort(
         value: float | None = float(buckets[-1].count) if buckets else 0.0
         # One query serves the cohort, so every check in it records the same duration.
         duration_ms: int | None = result.query_duration_ms
+        failed = False
         try:
             outcome = _evaluate_one(check, buckets, now=now, muted=muted)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             outcome = _failed(check, error, now=now, muted=muted)
             # A check that reached no verdict measured nothing.
-            value, duration_ms = None, None
+            value, duration_ms, failed = None, None, True
         # Outside the block above on purpose. Resolving a destination reads the database, and a
         # failure there is not this check's failure.
         decided.append(
-            _delivery(check, outcome, window_end=date_to, now=now, value=value, query_duration_ms=duration_ms)
+            _delivery(
+                check,
+                outcome,
+                window_end=date_to,
+                now=now,
+                value=value,
+                query_duration_ms=duration_ms,
+                failed=failed,
+            )
         )
     return decided
 

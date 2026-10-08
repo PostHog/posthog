@@ -283,7 +283,9 @@ a batch key spends the manifest bound on work its own evaluation then drops.
 
 `check_status` lives on the configuration, not on an instance, for grouped and ungrouped configurations alike,
 because a failed check returns no group to attribute the failure to.
-`record_outcomes` moves an ERRORED or BROKEN group verdict onto it and leaves the instance's firing state alone.
+A check that could not evaluate reports its failure on the outcome as a `CheckFailure`, with no groups, for every source.
+`record_outcomes` writes the machine's ERRORED or BROKEN onto `check_status`, leaves every instance alone, and writes one history row with the empty grouping key and the nil UUID as `alert_id`, which stands in for "no instance" because the sort key rejects Nullable.
+So a failed grouped check posts one error message, not one per group.
 The check input hands the shared machine the configuration's status in place of each instance's state while it is not OK,
 so the machine reads what it read when both shared one field.
 
