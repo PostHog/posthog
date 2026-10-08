@@ -4989,10 +4989,10 @@ Today (6): `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, 
 
 Diffed against: <https://api.smith.langchain.com/openapi.json>
 
-- [ ] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high)
-- [ ] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high)
-- [ ] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high)
-- [ ] `GET /v2/datasets/{dataset_id}/experiment-runs` — experiment results per dataset, the core evaluation output (high)
+- [x] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high) — synced as `threads`; the query already returns each thread's stats, so the per-thread stats call is not used
+- [x] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high) — synced as `workspaces`; `/tenants` returns the same list and can create a personal workspace when called, so it is not used
+- [x] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high) — synced as `annotation_queue_runs`
+- ~~`GET /v2/datasets/{dataset_id}/experiment-runs`~~ — not a separate table: it is a POST that needs the experiment ids up front and returns each dataset example with its experiment runs nested inside. Experiments are tracing projects, so their runs already land in `runs` (with `session_id` and `reference_example_id`) and their examples in `examples`; this endpoint only joins the two (high)
 - [ ] `GET /api/v1/model-price-map` — lookup mapping model names on runs to token prices, so run cost can be recomputed (medium)
 - [ ] `GET /api/v1/datasets/{dataset_id}/versions and /splits` — dataset version history and split assignment, needed to compare experiments fairly (medium)
 - [ ] `GET /api/v1/orgs/current/members and /api/v1/workspaces/current/members` — membership tables resolving the user ids that appear on feedback and annotations (medium)
