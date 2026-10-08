@@ -122,8 +122,8 @@ class PipelineRowsStatsResponseSerializer(serializers.Serializer):
     billable_rows_by_source = serializers.DictField(
         child=serializers.IntegerField(),
         help_text=(
-            "Billable rows synced in the billing period, keyed by source id. "
-            "Excludes free syncs, such as the free historical sync of a new source."
+            "Rows each source bills on the synced rows meter in the billing period, keyed by source id. "
+            "Excludes a new source's free first week, non-billable runs and runs that did not complete."
         ),
     )
 

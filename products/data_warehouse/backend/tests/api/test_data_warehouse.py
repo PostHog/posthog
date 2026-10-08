@@ -99,6 +99,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         source = ExternalDataSource.objects.create(
             source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
         )
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_at=datetime(2023, 7, 1, tzinfo=UTC))
         schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
 
         job = ExternalDataJob.objects.create(
@@ -107,6 +108,8 @@ class TestDataWarehouseAPI(APIBaseTest):
             team=self.team,
             rows_synced=150,
             billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at=datetime(2023, 8, 15, tzinfo=UTC),
         )
         free_job = ExternalDataJob.objects.create(
             pipeline_id=source.pk,
@@ -114,6 +117,8 @@ class TestDataWarehouseAPI(APIBaseTest):
             team=self.team,
             rows_synced=1000,
             billable=False,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at=datetime(2023, 8, 15, tzinfo=UTC),
         )
         ExternalDataJob.objects.filter(pk__in=[job.pk, free_job.pk]).update(
             created_at=datetime(2023, 8, 15, tzinfo=UTC)

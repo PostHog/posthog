@@ -10,7 +10,9 @@ All three read the rules from here, and `tests/test_billing.py` runs the period 
 and the per-job classifier over the same jobs to check they still agree.
 """
 
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.db.models import F, Q, QuerySet, Sum
 
@@ -85,3 +87,35 @@ def get_free_historical_rows_synced_by_team(begin: datetime, end: datetime) -> l
     if not (FREE_PERIOD_START <= begin < FREE_PERIOD_END):
         jobs = jobs.filter(pipeline__created_at__gte=end - FREE_HISTORICAL_WINDOW)
     return _by_team(jobs)
+
+
+def get_rows_synced_by_source(
+    team_id: int, source_ids: Collection[UUID], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Rows each source synced in runs created in the period, billed or not."""
+    totals = (
+        ExternalDataJob.objects.filter(
+            team_id=team_id, pipeline_id__in=source_ids, created_at__gte=begin, created_at__lt=end
+        )
+        .values("pipeline_id")
+        .annotate(total=Sum("rows_synced"))
+    )
+    return {str(row["pipeline_id"]): row["total"] or 0 for row in totals}
+
+
+def get_billed_rows_synced_by_source(
+    team_id: int, source_ids: Collection[UUID], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Rows each source bills on the `rows_synced` meter in the period.
+
+    Classifies each job by its own finish time, like `billed_usage_for_job`, so a source's
+    first week stays free for the whole week even when the period ends later.
+    """
+    jobs = (
+        _completed_billable_jobs(begin, end)
+        .filter(team_id=team_id, pipeline_id__in=source_ids)
+        .exclude(finished_at__gte=FREE_PERIOD_START, finished_at__lt=FREE_PERIOD_END)
+        .exclude(pipeline__created_at__gte=F("finished_at") - FREE_HISTORICAL_WINDOW)
+    )
+    totals = jobs.values("pipeline_id").annotate(total=Sum(F("rows_synced") * billable_destination_multiplier()))
+    return {str(row["pipeline_id"]): row["total"] or 0 for row in totals}

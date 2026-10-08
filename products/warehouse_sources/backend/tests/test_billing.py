@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.billing import (
     FREE_PERIOD_START,
     ROWS_SYNCED_USAGE_KEY,
     billed_usage_for_job,
+    get_billed_rows_synced_by_source,
     get_free_historical_rows_synced_by_team,
     get_rows_synced_by_team,
 )
@@ -74,6 +75,19 @@ class TestWarehouseRowsBilling(BaseTest):
             totals[(job.team_id, usage_key)] = totals.get((job.team_id, usage_key), 0) + rows
         return totals
 
+    def _collector_billed_by_source(self) -> dict[str, int]:
+        totals: dict[str, int] = {}
+        for job in ExternalDataJob.objects.select_related("pipeline").filter(team_id=self.team.pk):
+            billed = billed_usage_for_job(job)
+            if billed is not None and billed[0] == ROWS_SYNCED_USAGE_KEY:
+                totals[str(job.pipeline_id)] = totals.get(str(job.pipeline_id), 0) + billed[1]
+        return totals
+
+    def _billed_by_source(self, begin: datetime = PERIOD_BEGIN, end: datetime = PERIOD_END) -> dict[str, int]:
+        source_ids = list(ExternalDataSource.objects.filter(team_id=self.team.pk).values_list("id", flat=True))
+        billed = get_billed_rows_synced_by_source(self.team.pk, source_ids, begin, end)
+        return {source_id: rows for source_id, rows in billed.items() if rows}
+
     def test_collector_and_report_bill_the_same_jobs(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._job(source_created_at=PERIOD_END - timedelta(days=30), rows=100, destination_ids=["one", "two"])
@@ -93,6 +107,8 @@ class TestWarehouseRowsBilling(BaseTest):
         }
         assert self._report_totals() == expected
         assert self._collector_totals() == expected
+        assert self._billed_by_source() == self._collector_billed_by_source()
+        assert sum(self._billed_by_source().values()) == 400
 
     def test_collector_and_report_agree_during_the_free_period(self) -> None:
         begin = FREE_PERIOD_START
@@ -102,6 +118,7 @@ class TestWarehouseRowsBilling(BaseTest):
         expected = {(self.team.pk, FREE_HISTORICAL_ROWS_SYNCED_USAGE_KEY): 100}
         assert self._report_totals(begin, end) == expected
         assert self._collector_totals() == expected
+        assert self._billed_by_source(begin, end) == {}
 
     def test_a_job_outside_the_period_bills_nothing_in_the_report(self) -> None:
         self._job(

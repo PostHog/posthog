@@ -36,20 +36,13 @@ const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
 ]
 
 export function ManagedSourcesTable(): JSX.Element {
-    const {
-        filteredManagedSources,
-        managedSources,
-        dataWarehouseSourcesLoading,
-        sourceReloadingById,
-        managedSearchTerm,
-    } = useValues(sourceManagementLogic)
+    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
+        useValues(sourceManagementLogic)
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
-    // Reading the flag sends the experiment exposure, so only read it once there is a source to show.
-    const showUsageColumns = managedSources.length > 0 && featureFlags[FEATURE_FLAGS.DWH_SOURCE_COST_COLUMNS] === 'test'
-    const { sourceUsageById, showSourceCost, rowsStats } = useValues(sourceUsageLogic)
+    const { showUsageColumns, sourceUsageById, showSourceCost, rowsStats } = useValues(sourceUsageLogic)
     const billingPeriodStart = rowsStats?.billing_period_start
         ? dayjs(rowsStats.billing_period_start).format('MMM D')
         : null

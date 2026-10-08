@@ -67,6 +67,10 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.billing import (
+    get_billed_rows_synced_by_source,
+    get_rows_synced_by_source,
+)
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import (
@@ -461,22 +465,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Computed fresh on every request (never cached) because it is scoped to the caller's own
         # readable sources, which differ from one caller to the next on the same team.
         source_ids = list(self._readable_sources().filter(deleted=False).values_list("id", flat=True))
-        breakdown: dict[str, int] = {str(source_id): 0 for source_id in source_ids}
-        billable: dict[str, int] = {str(source_id): 0 for source_id in source_ids}
-        totals = (
-            ExternalDataJob.objects.filter(
-                team_id=self.team_id,
-                pipeline_id__in=source_ids,
-                created_at__gte=billing_period_start,
-                created_at__lt=billing_period_end,
-            )
-            .values("pipeline_id")
-            .annotate(total=Sum("rows_synced"), billable_total=Sum("rows_synced", filter=Q(billable=True)))
+        no_rows = dict.fromkeys((str(source_id) for source_id in source_ids), 0)
+        all_rows = get_rows_synced_by_source(self.team_id, source_ids, billing_period_start, billing_period_end)
+        billed_rows = get_billed_rows_synced_by_source(
+            self.team_id, source_ids, billing_period_start, billing_period_end
         )
-        for row in totals:
-            breakdown[str(row["pipeline_id"])] = row["total"] or 0
-            billable[str(row["pipeline_id"])] = row["billable_total"] or 0
-        return _RowsBySource(all_rows=breakdown, billable_rows=billable)
+        return _RowsBySource(all_rows={**no_rows, **all_rows}, billable_rows={**no_rows, **billed_rows})
 
     @extend_schema(
         parameters=[RunningActivityQuerySerializer],
