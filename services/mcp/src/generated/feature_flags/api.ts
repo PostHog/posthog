@@ -971,7 +971,8 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
  */
 export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -1139,7 +1140,8 @@ export const FeatureFlagsTestEvaluationCreateBody = () => zod.object({
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),

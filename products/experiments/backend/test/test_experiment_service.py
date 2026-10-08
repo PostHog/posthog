@@ -3131,18 +3131,23 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
         assert experiment.feature_flag_auto_archived is False
 
-    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
-        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
-        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
-        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+    @parameterized.expand([("no_feature_flag_write_scope",), ("flag_targets_deleted_cohort",)])
+    def test_unarchive_experiment_leaves_flag_archived_when_flag_cannot_be_unarchived(self, reason: str):
+        # The bookkeeping stays so that a later unarchive can bring the flag back.
+        experiment = self._create_ended_experiment(name="Unarchive Blocked", feature_flag_key="unarchive-blocked")
         experiment.feature_flag.active = False
         experiment.feature_flag.save()
         service = self._service()
         service.archive_experiment(experiment)
         experiment.refresh_from_db()
         assert experiment.feature_flag_auto_archived is True
+        if reason == "flag_targets_deleted_cohort":
+            cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+            FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+                filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]}
+            )
 
-        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+        service.unarchive_experiment(experiment, can_write_feature_flag=reason != "no_feature_flag_write_scope")
 
         experiment.refresh_from_db()
         assert experiment.archived is False

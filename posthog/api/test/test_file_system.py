@@ -772,6 +772,33 @@ class TestFileSystemDeletion(APIBaseTest):
         assert restored.deleted is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
+    def test_undo_delete_refuses_feature_flag_targeting_deleted_cohort(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="undo-cohort-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}], "rollout_percentage": 100}
+                ]
+            },
+        )
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+        delete_response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        undo_response = self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.id)}]},
+        )
+
+        assert undo_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert undo_response.json()["detail"] == (
+            f"Cohort 'Retired cohort' (ID {cohort.id}) has been deleted. Choose another cohort or remove this condition."
+        )
+        assert FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk).deleted is True
+
     def test_undo_delete_restores_original_path(self) -> None:
         flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)
         flag._create_in_folder = "Restored/Flags"

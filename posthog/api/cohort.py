@@ -120,6 +120,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -1485,13 +1486,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             if deleted_state:
-                flags_with_cohort = get_active_flags_using_cohort(cohort)
+                flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
                     flag_names = [flag.name or flag.key for flag in flags_with_cohort]
-                    raise ValidationError(
-                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
-                        "Please remove the cohort from these feature flags before deleting it."
+                    message = (
+                        f"This cohort is used in {len(flags_with_cohort)} feature flag(s): {', '.join(flag_names)}. "
+                        "Remove the cohort from these flags, or archive the flags, before deleting it."
                     )
+                    # Resuming a survey enables its targeting flag. That save fails once the flag is archived.
+                    survey_flag_ids = Survey.get_internal_flag_ids(project_id=cohort.team.project_id)
+                    if any(flag.id in survey_flag_ids for flag in flags_with_cohort):
+                        message += " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
+                    raise ValidationError(message)
 
                 # Check if cohort is used in test_account_filters
                 teams_with_cohort = Team.objects.filter(
@@ -1659,7 +1665,7 @@ def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     """Cohort ids each flag references directly, the ones ``FeatureFlag.get_cohort_ids`` starts from.
 
     Used to bulk-load those cohorts so the expansion doesn't point-query them one at a time.
-    An id that is not an integer is left to the expansion, which rejects it in v1 and skips it in v2.
+    An id that is not an integer is left to the expansion, which skips it.
     """
     return {cohort_id for flag in flags for cohort_id in references(decode_config(flag.filters)).cohort_ids}
 
@@ -1692,17 +1698,24 @@ def _filter_flags_referencing_cohort(
         in flag.get_cohort_ids(
             seen_cohorts_cache=seen_cohorts_cache,
             stop_traversal_at_static=stop_traversal_at_static,
+            # A non-integer id cannot reach this cohort. Raising on it would fail the whole lookup.
+            invalid_cohort_ids="skip",
         )
     ]
 
 
-def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
-    """Return active, non-deleted feature flags that reference this cohort.
+def get_flags_blocking_cohort_deletion(cohort: Cohort) -> list[FeatureFlag]:
+    """Return non-deleted, non-archived feature flags that reference this cohort.
 
-    Used by deletion protection: only live flags should block cohort deletion.
+    The flag evaluator skips deleted cohorts. A flag that still references one fails every
+    evaluation. A disabled flag blocks deletion because some writers enable a flag without the
+    flag API's validation. For example, starting a survey enables its targeting flag directly.
+    A deleted or archived flag does not block deletion. A database constraint keeps an archived
+    flag disabled. The flag API rejects a restore or unarchive of a flag that targets a deleted
+    cohort.
     """
     return _filter_flags_referencing_cohort(
-        _flags_with_cohort_filters(cohort).filter(active=True),
+        _flags_with_cohort_filters(cohort).filter(archived=False),
         cohort,
         stop_traversal_at_static=True,
     )
