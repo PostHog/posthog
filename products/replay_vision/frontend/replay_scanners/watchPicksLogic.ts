@@ -53,6 +53,7 @@ export interface watchPicksLogicValues {
     picks: WatchFeedItemApi[] | null
     picksFailed: boolean
     picksLoading: boolean
+    preferredListMode: WatchPicksListMode | null
     topPicks: WatchFeedItemApi[]
     unwatchedCount: number
 }
@@ -106,6 +107,7 @@ export interface watchPicksLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveListMode: (
             listMode: WatchPicksListMode | null,
+            preferredListMode: WatchPicksListMode | null,
             picks: WatchFeedItemApi[] | null,
             picksFailed: boolean
         ) => WatchPicksListMode
@@ -179,6 +181,13 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 setListMode: (_, { mode }) => mode,
             },
         ],
+        preferredListMode: [
+            null as WatchPicksListMode | null,
+            { persist: true, storageKey: 'replay-vision.watch-picks-list-mode' },
+            {
+                setListMode: (_, { mode }) => mode,
+            },
+        ],
         picksFailed: [
             false,
             {
@@ -196,13 +205,15 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
 
     selectors({
         effectiveListMode: [
-            (s) => [s.listMode, s.picks, s.picksFailed],
+            (s) => [s.listMode, s.preferredListMode, s.picks, s.picksFailed],
             (
                 listMode: WatchPicksListMode | null,
+                preferredListMode: WatchPicksListMode | null,
                 picks: WatchFeedItemApi[] | null,
                 picksFailed: boolean
             ): WatchPicksListMode =>
-                listMode ?? (picksFailed || (picks !== null && picks.length === 0) ? 'recordings' : 'picks'),
+                listMode ??
+                (picksFailed || (picks !== null && picks.length === 0) ? 'recordings' : (preferredListMode ?? 'picks')),
         ],
         topPicks: [
             (s) => [s.picks],

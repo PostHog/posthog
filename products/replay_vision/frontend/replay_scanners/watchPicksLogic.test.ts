@@ -37,6 +37,7 @@ describe('watchPicksLogic', () => {
             get: { '/api/projects/:team/vision/scanners/watch_feed/': feedSpy },
             post: { '/api/projects/:team/vision/observations/:id/viewed/': viewedSpy },
         })
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -89,6 +90,16 @@ describe('watchPicksLogic', () => {
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
             expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3 }])
+        })
+
+        it('remembers the last choice across mounts', async () => {
+            logic.actions.setListMode('recordings')
+            logic.unmount()
+            playlistLogic.unmount()
+            await mountList()
+            expect(logic.values.effectiveListMode).toBe('recordings')
+            logic.actions.setListMode('picks')
+            expect(logic.values.effectiveListMode).toBe('picks')
         })
 
         it.each([
