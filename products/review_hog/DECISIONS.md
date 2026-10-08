@@ -213,8 +213,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   every design. A single-agent turn now fetches them (`PRFilter(review_tests_and_text=True)`), with their PR comments
   so dedup sees the comments on every reviewed file; the pipeline keeps the old filter. Lockfiles, minified assets,
   snapshots, `*.schema.py`, build dirs, and images stay out for both. The fetch activity therefore picks the design
-  before it fetches. A full and a Flash turn at the same head each persist their own `pr_snapshot`, latest wins, so
-  two such turns that overlap in time can read each other's file set.
+  before it fetches. A full and a Flash turn at the same head each persist their own `pr_snapshot`, tagged with the
+  design, and the review and dedup stages read only their own design's snapshot. Body build and publish still read
+  the newest snapshot at the head, so when a full turn fetches the same head after Flash, a Flash finding on a test
+  file can land in the body's "Other findings" instead of inline.
 - **Lens parts.** `plan_lens_chunks` counts reviewable lines only: everything except lockfiles, snapshots, generated
   code, binary and image assets, and `max_migration.txt`. Markdown, JSON, tests, docs, CI config, and `tools/` count,
   because a general reviewer cannot assume what a repository's other files are: Markdown can be the product (prompt
@@ -309,8 +311,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Prompt.** Three files in `prompts/single_agent_review/`, so prompt iterations edit no code: `core.md` (the DevEx-owned
   rubric, adapted from OpenAI's Apache-2.0 Codex review rubric with attribution, sent as the system prompt),
   `prompt.jinja` (the PR, earlier findings, the finding format), and the generated `schema.json`.
-  No team slot: Flash v2 runs only the DevEx-owned core rubric, so every team gets the same review and the fingerprint
-  changes only with a DevEx prompt edit.
+  No team slot: Flash v2 runs only the DevEx-owned core rubric, so every team gets the same review and no team's
+  skill edit changes its fingerprint. A prompt edit, a model pin, or a Flash limit still does.
 - **Finding format.** Title (at most 80 characters, imperative), priority P0-P3, file and line range, one body
   paragraph that names trigger, consequence, and anchor, and an optional `suggestion_code`. Storage maps P0/P1 to
   `must_fix`, P2 to `should_fix`, P3 to `consider`. The finding's `suggestion` is empty; `suggestion_code` posts as a
