@@ -913,7 +913,6 @@ AUTO_MODEL_CHOICE_VALUE = "on"
 
 
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
-    """One checkbox that lets PostHog pick the model for each new task. Off by default."""
     option = {
         "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
         "description": {
@@ -2398,10 +2397,7 @@ def _resolve_run_defaults_state(
 
 
 def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
-    """Whether the `slack-app-model-router` flag is on for the PostHog user behind this Slack user.
-
-    Keyed on that person, the same identity the router checks when a task starts.
-    """
+    """Keyed on the PostHog user, the same identity the router checks when a task starts."""
     home_user = _resolve_home_user(integration, slack_user_id)
     if home_user is None:
         return False

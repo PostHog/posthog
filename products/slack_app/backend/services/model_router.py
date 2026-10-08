@@ -1,16 +1,9 @@
 """The options the automatic model choice picks from for a new Slack task.
 
-Each option is one model at one reasoning effort. The catalog's capability ladder supplies
-the spine: a curated Faster → Smarter list per runtime, where each rung is worth its extra
-cost over the one below. Every pair of model and effort the catalog allows would not fit,
-because a System One choice question takes at most 16 options on the gateway. The viewer's
-personal default and the project default join the ladder, so the router can always keep
-the run where it would go without it.
-
-Options carry a plain description because the decision model reads only that text. It
-knows nothing about a model id beyond what the description says. So each option says what
-its model and its effort are good for. The decision model scores each option against its
-own text, so the notes sit in the option and not once in the instructions.
+The options are the capability ladder plus the stored defaults, and not every model and
+effort pair, because a System One choice question takes at most 16 options on the gateway.
+The decision model reads only the option text and scores each option against its own text,
+so the model and effort notes sit in each option and not once in the instructions.
 """
 
 from __future__ import annotations
@@ -128,7 +121,6 @@ class ModelRouterOption:
 
     @property
     def key(self) -> str:
-        """The option name the decision model answers with. Unique per (model, effort)."""
         return f"{self.model} @ {self.reasoning_effort}" if self.reasoning_effort else self.model
 
 
@@ -143,10 +135,7 @@ class _Candidate:
 def _stored_default(
     preferences: dict[str, str], choices: tuple[ModelChoice, ...]
 ) -> tuple[ModelChoice, str | None] | None:
-    """A stored preference as a (model, effort) pair, or `None` when no Slack run can use it.
-
-    A Pi preference has no runtime adapter, and Slack runs only on ACP.
-    """
+    """`None` when no Slack run can use the preference, because Slack runs only on ACP."""
     if preferences.get("runtime") not in (None, "", "acp"):
         return None
     choice = find_model_choice(preferences.get("model"), choices)
@@ -187,11 +176,7 @@ def model_router_options(
     user_id: int | None,
     distinct_id: str | None,
 ) -> tuple[ModelRouterOption, ...]:
-    """The options for one new task, defaults first and then each runtime's ladder.
-
-    An option drops out when the viewer may not use its model, so the router can never
-    pick a run that task creation would refuse.
-    """
+    """Leaves out models the viewer may not use, so task creation never refuses the pick."""
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
         ai_run_defaults,
     )

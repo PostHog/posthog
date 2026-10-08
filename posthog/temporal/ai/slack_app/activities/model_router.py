@@ -1,9 +1,7 @@
 """Automatic model choice for a new Slack task.
 
-A System One decision model (Jev) reads the request and picks one option: a model at a
-reasoning effort, from the capability ladder plus the user's and the project's defaults.
-It runs only for the first message of a thread. A follow-up joins a sandbox that already
-runs, and that sandbox cannot change its runtime.
+It runs only for the first message of a thread, because a follow-up joins a sandbox that
+already runs and cannot change its runtime.
 """
 
 import structlog
@@ -45,11 +43,7 @@ def route_slack_app_model(
     distinct_id: str | None,
     trace_id: str | None = None,
 ) -> ModelRouterOption | None:
-    """The option the decision model picked, or `None` when there is nothing to pick between.
-
-    A gateway failure raises. The activity turns it into the fallback, so a caller that
-    measures the router can tell a failure from a clean answer.
-    """
+    """`None` when there is nothing to pick between, or the answer is not one of the options."""
     options = options[:GATEWAY_MAX_CHOICE_OPTIONS]
     if len(options) < 2:
         return None
@@ -84,17 +78,13 @@ def route_slack_app_model(
 @activity.defn
 @close_db_connections
 def route_slack_app_model_activity(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
-    """The model a new task runs on: the router's pick, or ``input.model_override`` unchanged.
-
-    A model named in the mention always wins, because the author asked for it. An effort
-    named alone still applies, on top of the model the router picks. The router runs only
-    when the person turned on the automatic model choice and the flag is on for them.
+    """A model named in the mention always wins, because the author asked for it. An effort
+    named alone still applies on top of the model the router picks.
     """
     override = input.model_override
     if (override is not None and override.model) or not input.event_text.strip():
         return override
-    # The settings row is one query and answers for almost everyone, so it goes before the
-    # flag check, which is a network call.
+    # The settings row is a cheap query, so it goes before the flag check, which is a network call.
     if not resolve_auto_model_choice(input.slack_team_id, input.slack_user_id):
         return override
 
@@ -117,7 +107,6 @@ def route_slack_app_model_activity(input: SlackAppModelRouterInput) -> SlackAppM
             trace_id=_thread_trace_id(input.slack_team_id, input.thread_ts),
         )
     except Exception:
-        # The fallback boundary: the run keeps the default it would have had without the router.
         logger.exception("slack_app_model_router_failed")
         picked = None
 

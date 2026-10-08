@@ -98,8 +98,6 @@ def set_channel_welcome_mode(slack_workspace_id: str, mode: ChannelWelcomeMode) 
 
 
 def resolve_auto_model_choice(slack_workspace_id: str, slack_user_id: str | None) -> bool:
-    """Whether this Slack user turned on the automatic model choice. Off until they do."""
-
     if not slack_user_id:
         return False
 

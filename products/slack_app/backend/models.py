@@ -190,7 +190,7 @@ class SlackSettings(UUIDModel):
         choices=ChannelWelcomeMode.choices,
         help_text="Where the greeting goes when someone adds the app to a channel in this workspace.",
     )
-    # Only read on a personal row, and only while the `slack-app-model-router` flag is on.
+    # Only read on a personal row.
     auto_model_choice = models.BooleanField(
         default=False,
         db_default=False,

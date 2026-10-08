@@ -434,7 +434,6 @@ async def test_model_override_reaches_a_followup_without_creating_a_task():
 
     assert rec.forwarded_with_override == {"1.1": override}
     assert rec.created == []
-    # The router picks a model for a new task only. A follow-up joins a running sandbox.
     assert rec.router_inputs == []
 
 

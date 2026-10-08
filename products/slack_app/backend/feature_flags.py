@@ -139,11 +139,7 @@ def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: s
 
 
 def is_slack_app_model_router_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for the automatic model choice on a new Slack task.
-
-    The gate only offers the App Home toggle. The router runs only for a person who also
-    turned that toggle on, so an open gate alone changes no run.
-    """
+    """Gate for the App Home "Use auto model choice" toggle. The router also needs the toggle on."""
     return _workspace_flag_enabled(
         SLACK_APP_MODEL_ROUTER_FLAG,
         integration,

@@ -101,7 +101,6 @@ class TestRouteSlackAppModelActivity:
     @pytest.mark.parametrize(
         "opted_in,flag_enabled,override",
         [
-            # The author named a model, so the router has nothing to decide.
             (True, True, SlackAppModelOverride(model="gpt-6-sol", reasoning_effort=None)),
             (False, True, None),
             (True, False, None),
@@ -129,7 +128,6 @@ class TestRouteSlackAppModelActivity:
         "override,expected_effort",
         [
             (None, "high"),
-            # An effort the author named still wins over the router's effort.
             (SlackAppModelOverride(model=None, reasoning_effort="low"), "low"),
         ],
         ids=["no_override", "effort_named_in_mention"],
@@ -162,9 +160,7 @@ class TestRouteSlackAppModelActivity:
         assert result is None
 
     def test_request_to_the_decision_model_matches_snapshot(self, integration, user, snapshot):
-        # The decision model reads only this text, so a reworded note, a dropped part of an
-        # option, or a label change in the shared catalog shows up here as a reviewable diff.
-        # Run with `--snapshot-update` after checking the diff.
+        # Update with `--snapshot-update` after checking the diff.
         _opt_in(integration)
         update_user_ai_run_preferences(
             integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"

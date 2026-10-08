@@ -46,7 +46,6 @@ _PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER = "slack-app-followup-model-classifier-v1"
 _PATCH_ID_PROJECT_ROUTE_CLASSIFIER = "slack-app-project-route-classifier-v1"
 _PATCH_ID_PROJECT_ROUTE_QUOTA = "slack-app-project-route-quota-v1"
 _PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION = "slack-untagged-followup-confirmation-v1"
-# Live gate: executions started before this deploy skip the model router.
 _PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
 
 
@@ -310,10 +309,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             return
                         repository = self._selected_repo
 
-            # Only a message that opens a thread reaches here, so the router never sees a
-            # follow-up. It runs after repo selection so the repository can inform the pick.
-            # Eligibility (setting, flag, a model named in the mention) is decided inside the
-            # activity, which returns the mention's own override whenever it does not route.
+            # After repo selection, so the repository can inform the pick. The activity returns
+            # the mention's own override whenever it does not route.
             if workflow.patched(_PATCH_ID_MODEL_ROUTER):
                 model_override = await _execute_posthog_code_activity(
                     route_slack_app_model_activity,
