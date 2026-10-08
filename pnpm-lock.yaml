@@ -1757,8 +1757,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.54.1
-        version: 5.54.1(rxjs@7.8.1)
+        specifier: 5.55.0
+        version: 5.55.0(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -5607,7 +5607,7 @@ importers:
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.22.2
-        version: '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
+        version: '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -5645,8 +5645,8 @@ importers:
         specifier: 4.12.1
         version: 4.12.1
       posthog-node:
-        specifier: ^5.54.1
-        version: 5.54.1(rxjs@7.8.1)
+        specifier: ^5.55.0
+        version: 5.55.0(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -10846,9 +10846,6 @@ packages:
   '@posthog/core@1.51.2':
     resolution: {integrity: sha512-z3fPR/RdOgTYWdHQnZZm81CCgljDxsrMsSz72Jpd2vJAtycsRYKOlMXdP8+55yM3WYeVU1wOyF9BldWsIABr+A==}
 
-  '@posthog/core@1.55.2':
-    resolution: {integrity: sha512-2mYxGbDmTLUs096VbcZqSWo0lrI48/BrX65r54NynxxFq409BOx9w73HxOAtOKZ1vblkdV6/GxQTe7KDcIQidg==}
-
   '@posthog/core@1.57.0':
     resolution: {integrity: sha512-ZpIWCSkog0v4whufAXetagBsVLqE1Zjl5DsHC2squTy8nS/vqZ9W5JvWkJFgHK8hk5x1gdwMoXY7FK2S0YRT1Q==}
 
@@ -10908,9 +10905,6 @@ packages:
 
   '@posthog/types@1.412.4':
     resolution: {integrity: sha512-Q7lV9O9TbLngjOYw1ucm3bS3tn48xb1B4ZQdDy8gv7yfKe99hCTeWYG4xZ36nJM80VxpTF9TriiJt5hngDOkBg==}
-
-  '@posthog/types@1.413.0':
-    resolution: {integrity: sha512-tYAVzNojWckuG/wxBB0fwE70sFruQQq4xbhkci7eH2ARU3mMfUTkvpN1HwBMpm0AtbxidLiH0IFvagmdJ8opPw==}
 
   '@posthog/types@1.415.1':
     resolution: {integrity: sha512-7Qs2wcqipl8KcFpIkIKE1Wcj1djX4dEB3cfq907HrNpKK7/xKh3U4N4bkOD6h9+8j3SxWWrj9JNpE8CZXsE35w==}
@@ -20478,8 +20472,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.54.1:
-    resolution: {integrity: sha512-3+tg86gLKRaR+MjQOdALGUJQDAXHWVyDUJI2h3EJa0c4GWTQu3+R62C3t49dz1T3QWyJq1msq5Qa+B55/ZEHxg==}
+  posthog-node@5.55.0:
+    resolution: {integrity: sha512-8dFtlDTqs0CKGZ8t4mUnk4NdShAgzru3B9D0MfM/NTBzlRyAjctivzWINLtMLRQxYjvgBohxy7RTwiQf4mPycQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -30417,10 +30411,6 @@ snapshots:
     dependencies:
       '@posthog/types': 1.412.4
 
-  '@posthog/core@1.55.2':
-    dependencies:
-      '@posthog/types': 1.413.0
-
   '@posthog/core@1.57.0':
     dependencies:
       '@posthog/types': 1.415.1
@@ -30456,10 +30446,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
+  '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.57.2
-      posthog-node: 5.54.1(rxjs@7.8.1)
+      posthog-node: 5.55.0(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
@@ -30473,8 +30463,6 @@ snapshots:
   '@posthog/siphash@1.1.1': {}
 
   '@posthog/types@1.412.4': {}
-
-  '@posthog/types@1.413.0': {}
 
   '@posthog/types@1.415.1': {}
 
@@ -42713,9 +42701,9 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.54.1(rxjs@7.8.1):
+  posthog-node@5.55.0(rxjs@7.8.1):
     dependencies:
-      '@posthog/core': 1.55.2
+      '@posthog/core': 1.57.2
     optionalDependencies:
       rxjs: 7.8.1
 
