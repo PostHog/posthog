@@ -223,6 +223,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 8,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -263,6 +264,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -282,6 +284,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -301,6 +304,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 4,
                         "end": 12,
                         "fix": None,
+                        "url": None,
                     }
                 ],
             },
@@ -1032,30 +1036,35 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 16,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
                         "fix": f"'{cohort.name}'",
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
+                        "url": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1088,12 +1097,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1151,12 +1162,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "url": None,
                     },
                     {
                         "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "url": None,
                     },
                 ],
             },
@@ -1231,7 +1244,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "notices": [],
                 "warnings": [],
-                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+                "errors": [
+                    {
+                        "end": 15,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 9,
+                        "url": None,
+                    }
+                ],
             },
         )
 
@@ -1243,8 +1264,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
-                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6, "url": None}],
+                "warnings": [
+                    {"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13, "url": None}
+                ],
                 "errors": [],
             },
         )
@@ -1267,7 +1290,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
+                "errors": [
+                    {
+                        "end": 17,
+                        "fix": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 11,
+                        "url": None,
+                    }
+                ],
             },
         )
 
