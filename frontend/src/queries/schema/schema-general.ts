@@ -5789,7 +5789,7 @@ export interface ExperimentApiGroupBreakdown {
     property: string
     type: 'group'
     /** Which group type the property belongs to. */
-    group_type_index: integer
+    group_type_index: 0 | 1 | 2 | 3 | 4
 }
 
 /** Slim breakdown entry for experiment API payloads. Narrower than the full

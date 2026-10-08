@@ -1356,6 +1356,14 @@ class Kind2(StrEnum):
     ACTIONS_NODE = "ActionsNode"
 
 
+class GroupTypeIndex(float, Enum):
+    NUMBER_0 = 0
+    NUMBER_1 = 1
+    NUMBER_2 = 2
+    NUMBER_3 = 3
+    NUMBER_4 = 4
+
+
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"

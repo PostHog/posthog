@@ -43008,9 +43008,20 @@ export namespace Schemas {
       type?: ExperimentApiPropertyBreakdownType | null;
     }
 
+    export type GroupTypeIndex = typeof GroupTypeIndex[keyof typeof GroupTypeIndex];
+
+
+    export const GroupTypeIndex = {
+      Number0: 0,
+      Number1: 1,
+      Number2: 2,
+      Number3: 3,
+      Number4: 4,
+    } as const;
+
     export interface ExperimentApiGroupBreakdown {
       /** Which group type the property belongs to. */
-      group_type_index: number;
+      group_type_index: GroupTypeIndex;
       /** Property name to break down by. */
       property: string;
       type?: 'group';

@@ -4649,7 +4649,13 @@ export const ExperimentsCreateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),
@@ -5758,7 +5764,13 @@ export const ExperimentsCreateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),
@@ -10762,7 +10774,13 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),
@@ -11871,7 +11889,13 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),
@@ -16854,7 +16878,13 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),
@@ -17963,7 +17993,13 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                             }),
                                                             zod.object({
                                                                 group_type_index: zod
-                                                                    .number()
+                                                                    .union([
+                                                                        zod.literal(0),
+                                                                        zod.literal(1),
+                                                                        zod.literal(2),
+                                                                        zod.literal(3),
+                                                                        zod.literal(4),
+                                                                    ])
                                                                     .describe(
                                                                         'Which group type the property belongs to.'
                                                                     ),

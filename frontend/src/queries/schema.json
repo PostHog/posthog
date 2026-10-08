@@ -25439,8 +25439,9 @@
             "description": "Breakdown by a group property.",
             "properties": {
                 "group_type_index": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Which group type the property belongs to."
+                    "description": "Which group type the property belongs to.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
                 },
                 "property": {
                     "description": "Property name to break down by.",

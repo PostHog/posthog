@@ -2119,9 +2119,19 @@ export interface ExperimentApiPropertyBreakdownApi {
     type?: ExperimentApiPropertyBreakdownTypeApi | null
 }
 
+export type GroupTypeIndexApi = (typeof GroupTypeIndexApi)[keyof typeof GroupTypeIndexApi]
+
+export const GroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
 export interface ExperimentApiGroupBreakdownApi {
     /** Which group type the property belongs to. */
-    group_type_index: number
+    group_type_index: GroupTypeIndexApi
     /** Property name to break down by. */
     property: string
     type?: 'group'

@@ -143,6 +143,7 @@ from posthog.schema_enums import (
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
     GroupMathType as GroupMathType,
+    GroupTypeIndex as GroupTypeIndex,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -1478,6 +1479,15 @@ class EventsQueryPersonColumn(BaseModel):
     distinct_id: str
     properties: Properties
     uuid: str
+
+
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: GroupTypeIndex = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
 
 
 class ExperimentExposureEstimateConfig(BaseModel):
@@ -5569,15 +5579,6 @@ class ExperimentApiEventSource(BaseModel):
         default=None,
         description="Event property filters to narrow which events are counted.",
     )
-
-
-class ExperimentApiGroupBreakdown(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    group_type_index: int = Field(..., description="Which group type the property belongs to.")
-    property: str = Field(..., description="Property name to break down by.")
-    type: Literal["group"] = "group"
 
 
 class ExperimentApiPropertyBreakdown(BaseModel):
