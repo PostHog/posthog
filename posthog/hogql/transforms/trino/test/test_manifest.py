@@ -199,7 +199,7 @@ def test_manifest_relation_can_share_the_internal_unnest_function_name() -> None
         ),
         (
             "SELECT event FROM events",
-            {"modifiers": HogQLQueryModifiers.model_construct(personsOnEventsMode="disabled")},
+            {"modifiers": HogQLQueryModifiers.model_construct(personsOnEventsMode="disabled")},  # type: ignore[arg-type]  # team modifiers can hold a raw string
             "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
         ),
     ],
