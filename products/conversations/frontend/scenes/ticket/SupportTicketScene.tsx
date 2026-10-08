@@ -30,7 +30,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
-import type { SimplifiedRepliesProps } from '../../components/Chat/ReplySendMenu'
+import type { SimplifiedRepliesProps } from '../../components/ComposerHeader/ComposerHeader'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'

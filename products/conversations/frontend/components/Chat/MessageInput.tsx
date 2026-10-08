@@ -9,8 +9,9 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
+import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
-import { ComposerHeader, SendMenu, SimplifiedRepliesProps } from './ReplySendMenu'
+import { SendMenu } from '../SendMenu/SendMenu'
 
 export interface MessageInputProps {
     onSendMessage: (

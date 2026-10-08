@@ -13,9 +13,9 @@ import type {
     TicketChannel,
     TicketStatus,
 } from '../../types'
+import type { SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
-import type { SimplifiedRepliesProps } from './ReplySendMenu'
 
 export interface ChatViewProps {
     messages: ChatMessage[]
