@@ -577,7 +577,7 @@ describe('materializationJobsLogic', () => {
             logic = materializationJobsLogic({ viewId: 'view-1' })
             logic.mount()
             await jest.advanceTimersByTimeAsync(0)
-            const interval = status === 'Running' ? 10000 : 60000
+            const interval = status === 'Running' ? 5000 : 60000
             await jest.advanceTimersByTimeAsync(interval - 1)
             expect(jobsCalls).toBe(1)
             fail = true
@@ -628,6 +628,37 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.savedQuery?.is_materialized).toBe(false)
         expect(logic.values.savedQueryError).toBe(false)
     })
+    it('keeps a started run pending until its job appears, then reloads on tab return', async () => {
+        let jobs = [{ id: 'run-1', status: 'Completed' }]
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [200, { count: jobs.length, results: jobs }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess']).toFinishAllListeners()
+
+        logic.actions.setStartingMaterialization(true)
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.startingMaterialization).toBe(true)
+
+        jobs = [{ id: 'run-2', status: 'Running' }, ...jobs]
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.startingMaterialization).toBe(false)
+
+        jobs = [
+            { id: 'run-2', status: 'Completed' },
+            { id: 'run-1', status: 'Completed' },
+        ]
+        await expectLogic(logic, () => {
+            document.dispatchEvent(new Event('visibilitychange'))
+        }).toDispatchActions(['loadDataModelingJobsSuccess'])
+        expect(logic.values.dataModelingJobs?.results[0].status).toBe('Completed')
+    })
+
     it('ignores a saved query response started before a materialization action', async () => {
         useMocks(apiMocks({ isMaterialized: true }))
         logic = materializationJobsLogic({ viewId: 'view-1' })
