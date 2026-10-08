@@ -14,6 +14,7 @@ import {
     TRIGGER_VOLUME_DAYS,
     countAiTaskSteps,
     countScoutSteps,
+    countVisionScanSteps,
     eventTriggerVolumeFilters,
     exceedsAiTaskLimit,
 } from '../triggerVolume'
@@ -35,6 +36,7 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
 
     const taskSteps = countAiTaskSteps(workflow)
     const scoutSteps = countScoutSteps(workflow)
+    const visionScanSteps = countVisionScanSteps(workflow)
     const overAiLimit = volume != null && exceedsAiTaskLimit(volume.peakPerDay, taskSteps)
     const perRunCopy =
         taskSteps > 1 ? `Each run can start up to ${taskSteps} AI tasks` : 'Each run can start an AI task'
@@ -81,6 +83,13 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                     ) : scoutSteps > 0 ? (
                         <p className="mb-0 text-secondary">
                             Each run can start a scout run, which counts toward your AI usage.
+                        </p>
+                    ) : null}
+                    {visionScanSteps > 0 ? (
+                        <p className="mb-0 text-secondary">
+                            Each run can scan its session with Replay vision, about{' '}
+                            <span translate="no">{humanFriendlyNumber(volume.perDay * visionScanSteps)}</span> scans a
+                            day at this volume. Every scan spends Replay vision credits.
                         </p>
                     ) : null}
                 </>

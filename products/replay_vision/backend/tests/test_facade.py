@@ -1,14 +1,24 @@
+import uuid
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.replay_vision.backend.facade.api import fetch_page_session_observations
+from products.replay_vision.backend.facade.api import (
+    fetch_page_session_observations,
+    start_workflow_observation_request,
+)
+from products.replay_vision.backend.facade.contracts import ObservationRequestRejected
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -86,3 +96,51 @@ class TestFetchPageSessionObservations(APIBaseTest):
         assert block is not None
         assert "readable summary" in block
         assert "restricted summary" not in block
+
+
+class TestStartWorkflowObservationRequest(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for target in ("api.trigger.async_to_sync", "api.trigger.sync_connect"):
+            patcher = patch(f"products.replay_vision.backend.{target}")
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        flag = patch("products.replay_vision.backend.observation_requests.posthoganalytics")
+        self.addCleanup(flag.stop)
+        flag.start().feature_enabled.return_value = True
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def _start(self, **overrides: Any):
+        kwargs: dict[str, Any] = {
+            "team_id": self.team.id,
+            "session_ids": ["s1", "s1"],
+            "scanner_id": None,
+            "prompt": "did they rage click?",
+            "idempotency_key": "run:step:1",
+            **overrides,
+        }
+        return start_workflow_observation_request(**kwargs)
+
+    def test_starts_an_inline_scan_owned_by_no_user(self) -> None:
+        started = self._start()
+
+        assert (started.status, started.created) == ("running", True)
+        assert self._start().request_id == started.request_id
+
+    @parameterized.expand(
+        [
+            ("no_ai_consent", {}, "consent"),
+            ("unknown_scanner", {"scanner_id": uuid.uuid4()}, "not_found"),
+            ("no_session", {"session_ids": [""]}, "invalid"),
+        ]
+    )
+    def test_refuses(self, name: str, overrides: dict[str, Any], kind: str) -> None:
+        if name == "no_ai_consent":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+
+        with pytest.raises(ObservationRequestRejected) as error:
+            self._start(**overrides)
+
+        assert error.value.kind == kind

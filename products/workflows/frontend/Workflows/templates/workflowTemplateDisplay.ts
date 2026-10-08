@@ -39,7 +39,11 @@ export function getTemplateScopeLabel(scope: HogFlowTemplate['scope']): string |
 }
 
 // Hog function templates for the steps that hand work to an AI agent.
-const AI_STEP_TEMPLATE_IDS = new Set(['template-posthog-create-task', 'template-posthog-run-scout'])
+const AI_STEP_TEMPLATE_IDS = new Set([
+    'template-posthog-create-task',
+    'template-posthog-run-scout',
+    'template-posthog-replay-vision-analyze-sessions',
+])
 
 const AI_TAG = 'ai'
 

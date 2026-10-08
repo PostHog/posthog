@@ -1,10 +1,15 @@
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.db.models import Case, When
 
+from posthog.models.team.team import Team as TeamModel
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.replay_vision.backend.facade.contracts import ObservationRequestRejected, StartedObservationRequest
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_observation_request import ObservationRequestSource
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
 
@@ -94,3 +99,71 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
     signals tables alone. See `SignalSourceConfig.is_source_enabled`.
     """
     return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()
+
+
+def start_workflow_observation_request(
+    *,
+    team_id: int,
+    session_ids: list[str],
+    scanner_id: UUID | None,
+    prompt: str | None,
+    idempotency_key: str,
+) -> StartedObservationRequest:
+    """Scan sessions for a workflow step, with a saved scanner or a plain-language question.
+
+    No user stands behind the call, so access is the workflow's: the step can only name sessions and
+    scanners in its own project. Raises `ObservationRequestRejected` when the scan can't be requested.
+    """
+    # Deferred: these reach the temporal package, whose activities import them back while it loads.
+    from products.replay_vision.backend.observation_requests import (  # noqa: PLC0415
+        InlineScanSpec,
+        create_observation_request,
+        observation_requests_enabled,
+        request_progress,
+    )
+    from products.replay_vision.backend.scanner_config import scanner_config_error  # noqa: PLC0415
+    from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN  # noqa: PLC0415
+
+    team = TeamModel.objects.select_related("organization").get(id=team_id)
+    if not observation_requests_enabled(team, f"team-{team.id}"):
+        raise ObservationRequestRejected("Replay vision scans from workflows aren't available yet.", "disabled")
+    if not team.organization.is_ai_data_processing_approved:
+        raise ObservationRequestRejected(
+            "Your organization needs to allow AI analysis before a workflow can run a Replay vision scan.", "consent"
+        )
+    sessions = list(dict.fromkeys(s for s in session_ids if s))
+    if not sessions:
+        raise ObservationRequestRejected("No session to scan. The triggering event has no session id.", "invalid")
+    if len(sessions) > MAX_SESSIONS_PER_SCAN:
+        raise ObservationRequestRejected(f"At most {MAX_SESSIONS_PER_SCAN} sessions can be scanned at once.", "invalid")
+
+    scanner: ReplayScanner | None = None
+    inline: InlineScanSpec | None = None
+    if scanner_id is not None:
+        scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
+        if scanner is None:
+            raise ObservationRequestRejected("No scanner with this id exists in this project.", "not_found")
+    else:
+        config = {"prompt": (prompt or "").strip()}
+        error = scanner_config_error(ScannerType.MONITOR, config)
+        if error is not None:
+            raise ObservationRequestRejected(error, "invalid")
+        inline = InlineScanSpec(
+            scanner_type=ScannerType.MONITOR, scanner_config=config, model=ScannerModel.GEMINI_3_FLASH_PREVIEW
+        )
+
+    request, created = create_observation_request(
+        team=team,
+        user=None,
+        source=ObservationRequestSource.WORKFLOW,
+        session_ids=sessions,
+        scanner=scanner,
+        inline=inline,
+        idempotency_key=idempotency_key,
+        reference="",
+    )
+    return StartedObservationRequest(
+        request_id=request.id,
+        status="completed" if request_progress(request).settled else "running",
+        created=created,
+    )

@@ -16,8 +16,10 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
+from posthog.cdp.workflow_step_resume import emit_workflow_step_resume
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.organization import OrganizationMembership
@@ -42,6 +44,8 @@ logger = structlog.get_logger(__name__)
 
 COMPLETED_EVENT = "$replay_vision_request_completed"
 
+OBSERVATION_REQUESTS_FLAG = "replay-vision-observation-requests"
+
 _SWEEP_PAGE_SIZE = 500
 
 # The longest a request waits for its sessions to end before scanning what has been recorded so far.
@@ -57,6 +61,10 @@ MAX_CHECKS_PER_TICK = 200
 # start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
+
+# Matches the `max_wait` the workflow step parks with (posthog-analyze-sessions.template.ts): the
+# longest wait for the sessions to end plus the scan itself.
+WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 
@@ -110,6 +118,18 @@ class RequestProgress:
     @property
     def settled(self) -> bool:
         return all(s.state not in _UNSETTLED_STATES for s in self.sessions)
+
+
+def observation_requests_enabled(team: Team, distinct_id: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            OBSERVATION_REQUESTS_FLAG,
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def create_observation_request(
@@ -431,6 +451,9 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
         except Exception:
             logger.warning("replay_vision.observation_request.completion_event_undelivered", request_id=str(request.id))
             continue
+        if request.source == ObservationRequestSource.WORKFLOW and request.idempotency_key:
+            if not _wake_workflow_step(request, progress[request.id], now):
+                continue
         delivered.append(request.id)
     return (
         # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the page read above
@@ -440,10 +463,57 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
     )
 
 
+def step_result(request: ReplayObservationRequest, progress: RequestProgress) -> dict[str, Any]:
+    # Unlike the internal event, this stays inside the project's own workflow, so it carries the answers.
+    return {
+        "request_id": str(request.id),
+        **_state_counts(progress),
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                "state": s.state.value,
+                "output": (s.observation.scanner_result or {}).get("model_output")
+                if s.observation is not None and s.state == RequestSessionState.SUCCEEDED
+                else None,
+            }
+            for s in progress.sessions
+        ],
+    }
+
+
+def _state_counts(progress: RequestProgress) -> dict[str, int]:
+    states = [s.state for s in progress.sessions]
+    return {
+        "session_count": len(states),
+        **{
+            f"{state.value}_count": states.count(state)
+            for state in RequestSessionState
+            if state not in _UNSETTLED_STATES
+        },
+    }
+
+
+def _wake_workflow_step(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> bool:
+    """Wake the workflow step waiting on this request. False leaves the request open for the next tick."""
+    try:
+        woken = emit_workflow_step_resume(
+            team_id=request.team_id,
+            origin_key=request.idempotency_key or "",
+            status="completed",
+            result=step_result(request, progress),
+            raise_on_error=True,
+        )
+    except Exception:
+        logger.exception("replay_vision.observation_request.step_resume_failed", request_id=str(request.id))
+        return False
+    # Not parked yet means the scans settled before the step finished parking; it parks within moments,
+    # so retry until the step's own wait would have run out.
+    return woken or now - request.created_at > WORKFLOW_STEP_MAX_WAIT
+
+
 def _completed_event(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> InternalEventEvent:
     # Counts only: anyone who can add a destination receives this, so session ids and answers stay
     # behind the recording access that `GET /vision/requests/{id}/` enforces.
-    states = [s.state for s in progress.sessions]
     return InternalEventEvent(
         event=COMPLETED_EVENT,
         distinct_id=replay_vision_distinct_id(request.team_id),
@@ -455,11 +525,6 @@ def _completed_event(request: ReplayObservationRequest, progress: RequestProgres
             # The caller writes `reference`, so Slack gets it escaped and can't be made to ping a channel.
             "label_mrkdwn": escape_slack_mrkdwn(request.reference or str(request.id)),
             "scanner_id": str(request.scanner_id) if request.scanner_id else None,
-            "session_count": len(progress.sessions),
-            **{
-                f"{state.value}_count": states.count(state)
-                for state in RequestSessionState
-                if state not in _UNSETTLED_STATES
-            },
+            **_state_counts(progress),
         },
     )

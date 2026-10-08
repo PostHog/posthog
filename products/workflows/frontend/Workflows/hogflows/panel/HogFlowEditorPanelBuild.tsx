@@ -93,6 +93,14 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
+const ANALYZE_SESSIONS_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Analyze session with Replay vision',
+    description: "Ask a question about the triggering event's session recording and wait for the answer.",
+    config: { template_id: 'template-posthog-replay-vision-analyze-sessions', inputs: {} },
+    output_variable: { key: 'vision_scan', result_path: null, label: 'Replay vision scan' },
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
@@ -411,6 +419,18 @@ export function HogFlowEditorPanelBuild({
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
+                {featureFlags[FEATURE_FLAGS.REPLAY_VISION_OBSERVATION_REQUESTS] && (
+                    <HogFlowEditorToolbarNode
+                        key="analyze-sessions"
+                        action={ANALYZE_SESSIONS_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            {ANALYZE_SESSIONS_ACTION_NODE.name}
+                            <LemonTag type="completion">Beta</LemonTag>
+                        </span>
+                    </HogFlowEditorToolbarNode>
+                )}
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 
