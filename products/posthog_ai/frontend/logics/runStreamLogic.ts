@@ -2,11 +2,13 @@ import { type EventSourceMessage, createParser } from 'eventsource-parser'
 import { MakeLogicType, getContext, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { agentConversationEventToAcpNotification } from '@posthog/agent-contracts/acp-conversation'
+import type { AgentConversationEvent } from '@posthog/agent-contracts/agent-conversation'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -77,13 +79,6 @@ import {
     isTaskRunStateFrame,
     parseAvailableCommands,
 } from '../types/wireTypes'
-import {
-    buildPiPermissionCommand,
-    isPiWireEntry,
-    readPiExtensionUiMeta,
-    translatePiWireEntry,
-    withPiMcpOptions,
-} from '../utils/piWire'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
@@ -491,12 +486,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const LEGACY_PI_ENTRY_TYPES = new Set([
+    'pi_event',
+    'pi_run_started',
+    'pi_extension_event',
+    'extension_ui_request',
+    'extension_ui_response',
+    'extension_error',
+])
+
+function isLegacyPiEntry(entry: unknown): entry is Record<string, unknown> {
+    return isRecord(entry) && LEGACY_PI_ENTRY_TYPES.has(String(entry.type))
+}
+
+function readLegacyPiEntry(entry: Record<string, unknown>): StoredLogEntry | null {
+    const notification =
+        entry.type === 'pi_event' && isRecord(entry.event)
+            ? agentConversationEventToAcpNotification(entry.event as unknown as AgentConversationEvent)
+            : entry.type === 'pi_run_started'
+              ? { method: '_posthog/run_started', params: { runId: entry.runId, taskId: entry.taskId } }
+              : null
+    if (!notification) {
+        return null
+    }
+    const update = notification.params.update
+    if (isRecord(update) && update.title === update.name) {
+        delete update.title
+    }
+    const coveredEventIds = Array.isArray(entry.covered_event_ids)
+        ? entry.covered_event_ids.filter((id): id is string => typeof id === 'string' && id !== '')
+        : []
+    return {
+        type: 'notification',
+        ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
+        ...(typeof entry.event_id === 'string' && entry.event_id ? { event_id: entry.event_id } : {}),
+        ...(typeof entry.source_run_id === 'string' ? { source_run_id: entry.source_run_id } : {}),
+        ...(coveredEventIds.length > 0 ? { covered_event_ids: coveredEventIds } : {}),
+        notification: notification as StoredLogEntry['notification'],
+    }
+}
+
 function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     if (isNotificationFrame(entry)) {
         return entry
     }
-    if (isPiWireEntry(entry)) {
-        return translatePiWireEntry(entry)
+    if (isLegacyPiEntry(entry)) {
+        return readLegacyPiEntry(entry)
     }
 
     // Older append_log callers wrote `{ notification }` directly, without the stream envelope.
@@ -613,30 +648,6 @@ export function foldUsageNotification(existing: ContextUsage | null, params: Pos
     const cost = normalizeUsageCost(params.cost)
     if (cost !== undefined) {
         next.cost = cost
-    }
-    return next
-}
-
-const PI_USAGE_TOKEN_FIELDS = ['inputTokens', 'outputTokens', 'cachedReadTokens', 'cachedWriteTokens'] as const
-
-export function foldPiTurnUsage(
-    existing: ContextUsage | null,
-    turns: Record<string, unknown>[],
-    latest: Record<string, unknown>
-): ContextUsage {
-    const tokens: NonNullable<ContextUsage['tokens']> = {}
-    for (const field of PI_USAGE_TOKEN_FIELDS) {
-        const values = turns.map((turn) => turn[field]).filter((value): value is number => typeof value === 'number')
-        if (values.length > 0) {
-            tokens[field] = values.reduce((sum, value) => sum + value, 0)
-        }
-    }
-    const next: ContextUsage = { ...existing, tokens }
-    if (typeof latest.contextTokens === 'number') {
-        next.used = latest.contextTokens
-    }
-    if (typeof latest.contextWindow === 'number') {
-        next.size = latest.contextWindow
     }
     return next
 }
@@ -2544,9 +2555,6 @@ export interface runStreamLogicActions {
     markPermissionRequestSeen: (requestId: string) => {
         requestId: string
     }
-    markPiRuntime: () => {
-        value: true
-    }
     markRunStarted: () => {
         value: true
     }
@@ -2860,7 +2868,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             retainedMessage?: string
             taskRuntime?: string | null
         }) => payload,
-        markPiRuntime: true,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
         /**
          * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
@@ -3195,7 +3202,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 bootstrapRun: (state, { taskRuntime }) =>
                     taskRuntime === undefined ? state : taskRuntime === TaskRuntimeEnumApi.Pi,
-                markPiRuntime: () => true,
                 reset: () => false,
             },
         ],
@@ -3764,13 +3770,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => {
-        const parseRunPermissionRequest = (
-            frame: PermissionRequestFrame | PosthogPermissionRequestParams,
-            sourceRunId: string | undefined
-        ): PermissionRequestRecord | null => {
-            const record = parsePermissionRequestFrame(frame, sourceRunId)
-            return record && values.piRuntime ? withPiMcpOptions(record) : record
-        }
         const sessionNow = (): RunStreamRecovery | undefined => cache.recoverySession
         const endedKey = (projectId: number, taskId: string, runId: string): string => `${projectId}:${taskId}:${runId}`
         const hasEnded = (session: RunStreamRecovery): boolean =>
@@ -3903,9 +3902,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
             )
             session.check()
-            if (!values.piRuntime && entries.some(isPiWireEntry)) {
-                actions.markPiRuntime()
-            }
             // Django log-N cursors index the same object entries, including non-notification records.
             entries.filter(isRecord).forEach((raw, index) => {
                 const entry = normalizeNotificationEntry(raw)
@@ -3935,7 +3931,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.rebuildingHistory = true
             cache.rebuildingLog = log
             cache.trackedToolInvocations = undefined
-            cache.piTurnUsage = undefined
             try {
                 let reachedSuccessor = false
                 for (const stored of log.entries) {
@@ -4220,11 +4215,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     } catch {
                         return
                     }
-                    if (isPiWireEntry(parsed)) {
-                        if (!values.piRuntime) {
-                            actions.markPiRuntime()
-                        }
-                        parsed = translatePiWireEntry(parsed)
+                    if (isLegacyPiEntry(parsed)) {
+                        parsed = readLegacyPiEntry(parsed)
                     }
                     if (isNotificationFrame(parsed)) {
                         const marker =
@@ -4274,7 +4266,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             })
                             return
                         }
-                        const record = parseRunPermissionRequest(parsed, runId)
+                        const record = parsePermissionRequestFrame(parsed, runId)
                         if (
                             record &&
                             !values.seenPermissionRequestIds.has(record.requestId) &&
@@ -4610,26 +4602,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     key,
                     { pauseOnPageHidden: false }
                 )
-                const piCommand =
-                    values.piRuntime || readPiExtensionUiMeta(record.rawToolCall.meta) !== null
-                        ? buildPiPermissionCommand(
-                              { requestId: record.requestId, meta: record.rawToolCall.meta, options: record.options },
-                              { optionId, customInput, answers },
-                              uuid()
-                          )
-                        : null
-                const body: TaskRunCommandRequestApi = piCommand
-                    ? { jsonrpc: '2.0', method: 'pi/rpc', id: piCommand.id, params: { command: piCommand } }
-                    : {
-                          jsonrpc: '2.0',
-                          method: 'permission_response',
-                          params: {
-                              requestId: record.requestId,
-                              optionId,
-                              customInput,
-                              answers: answers ? { ...answers } : undefined,
-                          },
-                      }
+                const body: TaskRunCommandRequestApi = {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: {
+                        requestId: record.requestId,
+                        optionId,
+                        customInput,
+                        answers: answers ? { ...answers } : undefined,
+                    },
+                }
                 try {
                     await deliverPermissionResponse(
                         (signal) =>
@@ -4819,7 +4801,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.turnSuggestionLedgerTaskId = null
                 cache.disposables.dispose('turnSuggestionLedgerRetry')
                 cache.disposables.dispose('turnSuggestionLedgerRefresh')
-                cache.piTurnUsage = undefined
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -5063,12 +5044,6 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                     }
                     actions.markTurnComplete(isReplay)
-                    const turnUsage = notification.params?.usage
-                    if (isRecord(turnUsage)) {
-                        const turns: Map<string, Record<string, unknown>> = (cache.piTurnUsage ??= new Map())
-                        turns.set(entry.event_id ?? `turn-${turns.size}`, turnUsage)
-                        actions.setContextUsage(foldPiTurnUsage(values.contextUsage, [...turns.values()], turnUsage))
-                    }
                     return
                 }
                 if (method === '_posthog/progress') {
@@ -5090,7 +5065,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
                 // the agent stays blocked), and a resolution observed here clears the local card.
                 if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                    const record = parseRunPermissionRequest(notification.params ?? {}, entry.source_run_id)
+                    const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
                     if (
                         record &&
                         !values.seenPermissionRequestIds.has(record.requestId) &&

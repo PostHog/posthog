@@ -879,6 +879,8 @@ class TestModalSandboxAgentServer:
             ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
             ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
             ({}, "POSTHOG_BENJAMIN=0"),
+            ({"pi_acp_conversation": True}, "POSTHOG_PI_CONVERSATION_FORMAT=acp"),
+            ({}, "POSTHOG_PI_CONVERSATION_FORMAT=pi"),
         ],
     )
     def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):
