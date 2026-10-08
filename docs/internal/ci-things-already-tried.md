@@ -338,17 +338,27 @@ Measure the test phase, not the job wall time.
 
 _Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core ratio, is Depot CI a fair comparison
 
-### Make mypy fit on the 8 GB code-quality runner
+### Tune mypy so a run with no cache fits on the code-quality runner
 
-**Verdict: rejected** · Oct 2026 · [#113893](https://github.com/PostHog/posthog/pull/113893)
+**Verdict: superseded** · Oct 2026 · [#113893](https://github.com/PostHog/posthog/pull/113893)
 
-A mypy run with no cache needs more memory than an 8 GB runner has, so the job moved to a 16 GB runner.
+A mypy run with no cache needs more memory than the 8 GB runner has.
 The kernel killed mypy and the runner died with "lost communication with the server" and no logs.
+
+The fix removes most runs with no cache.
+The cache key hashes `uv.lock` and every `pyproject.toml`, and the restore had no fallback past that hash.
+The hash changed 67 times on master in 18 days. 34 of those changes touched neither the dependencies nor the mypy config.
+After each change, every pull request ran with no cache until the hourly master run saved a new one.
+The restore now falls back to the newest cache from any dependency set, which is the model in the [mypy remote cache guide](https://mypy.readthedocs.io/en/stable/additional_features.html#using-a-remote-cache-to-speed-up-mypy-runs).
 
 None of the tested settings leaves enough room.
 Peak memory with no cache: 10.3 GB with 2 workers, 8.3 GB with 1 worker, 14.0 GB with 4 workers.
 Without `--cache-fine-grained` the 2-worker run needs 9.35 GB, and the 1-worker run needs 7.1 GB and takes 354 s instead of 217 s.
-A cache from an older dependency set does not help: the run still needs 8.0 GB.
+
+The fallback does not cover every run.
+A new mypy or Python version changes the key prefix, so runs have no cache until master saves one.
+A cache from before a Django upgrade still needs 8.0 GB on the tree after it.
+If those runs kill runners, a 16 GB runner is the next step: the 2-worker run passes under an 11 GB limit.
 
 The memory follows the size of the program, not one module.
 mypy parses every module before it checks one, and that costs 6.0 GB of an 8.4 GB single-process run.
@@ -360,7 +370,7 @@ ty has no Django support, so `pyproject.toml` turns off its argument and attribu
 
 The PR holds the method. Every number is from one dev box with 2 CPUs and a memory cgroup.
 
-_Also asked as:_ mypy OOM, mypy out of memory, runner lost communication, MYPY_NUM_WORKERS, fewer mypy workers, drop cache-fine-grained, mypy cache restore-keys fallback, replace mypy with ty, smaller code quality runner
+_Also asked as:_ mypy OOM, mypy out of memory, runner lost communication, MYPY_NUM_WORKERS, fewer mypy workers, drop cache-fine-grained, mypy cache key, restore-keys fallback, replace mypy with ty, bigger code quality runner
 
 ## Docker and image builds
 

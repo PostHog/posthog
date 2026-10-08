@@ -216,8 +216,8 @@ jobs:
         if: needs.changes.outputs.python == 'true' && github.event_name != 'push'
         timeout-minutes: 30
 
-        name: Python code quality (depot-ubuntu-24.04-4)
-        runs-on: depot-ubuntu-24.04-4
+        name: Python code quality (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -297,7 +297,9 @@ jobs:
               run: |
                   python_version=$(python -c 'import platform; print(platform.python_version())')
                   mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
-                  echo "prefix=mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+                  toolchain_prefix="mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}"
+                  echo "toolchain_prefix=${toolchain_prefix}" >> "$GITHUB_OUTPUT"
+                  echo "prefix=${toolchain_prefix}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
 
             - name: Restore mypy cache
               id: mypy-cache
@@ -305,14 +307,17 @@ jobs:
               with:
                   path: .mypy_cache
                   key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
-                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
+                  # The second key takes the newest cache from any dependency set. mypy checks
+                  # every cache entry against the module it describes, so a cache from other
+                  # dependencies is safe, and mypy rechecks only the modules that differ.
+                  # Without it, each change to a hashed file makes every run start with no cache.
+                  restore-keys: |
+                      ${{ steps.mypy-cache-key.outputs.prefix }}-
+                      ${{ steps.mypy-cache-key.outputs.toolchain_prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  # Each mypy worker holds its own copy of the modules it checks, so memory
-                  # grows with the worker count. A run with no cache and one worker per vCPU
-                  # needs more memory than this runner has.
                   MYPY_NUM_WORKERS: 2
               run: mypy --version && mypy --cache-fine-grained .
 
