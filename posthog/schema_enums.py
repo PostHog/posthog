@@ -1346,13 +1346,6 @@ class ExperimentApiBreakdownAttributionType(StrEnum):
     STEP = "step"
 
 
-class ExperimentApiBreakdownType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    SESSION = "session"
-    GROUP = "group"
-
-
 class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
@@ -1366,6 +1359,12 @@ class Kind2(StrEnum):
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
+
+
+class ExperimentApiPropertyBreakdownType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
 
 
 class Kind3(StrEnum):

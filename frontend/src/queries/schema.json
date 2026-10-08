@@ -25306,24 +25306,15 @@
             "type": "object"
         },
         "ExperimentApiBreakdown": {
-            "additionalProperties": false,
-            "description": "Slim breakdown entry for experiment API payloads. Narrower than the full Breakdown type: the experiment query only resolves event, person, session and group properties, so the other breakdown types are not accepted here.",
-            "properties": {
-                "group_type_index": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Group type index. Required when type is 'group'."
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdown"
                 },
-                "property": {
-                    "description": "Property name to break down by.",
-                    "type": "string"
-                },
-                "type": {
-                    "$ref": "#/definitions/ExperimentApiBreakdownType",
-                    "description": "Where the property lives. Defaults to 'event'."
+                {
+                    "$ref": "#/definitions/ExperimentApiGroupBreakdown"
                 }
-            },
-            "required": ["property"],
-            "type": "object"
+            ],
+            "description": "Slim breakdown entry for experiment API payloads. Narrower than the full Breakdown type: the experiment query only resolves event, person, session and group properties, so the other breakdown types are not accepted here."
         },
         "ExperimentApiBreakdownAttributionType": {
             "description": "'all_events' is excluded: the experiment funnel query rejects it.",
@@ -25339,18 +25330,15 @@
                     "description": "Maximum number of breakdown values to compute results for."
                 },
                 "breakdowns": {
-                    "description": "Properties to break the metric results down by, at most 3.",
+                    "description": "Properties to break the metric results down by.",
                     "items": {
                         "$ref": "#/definitions/ExperimentApiBreakdown"
                     },
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
             "type": "object"
-        },
-        "ExperimentApiBreakdownType": {
-            "enum": ["event", "person", "session", "group"],
-            "type": "string"
         },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
@@ -25444,6 +25432,26 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "ExperimentApiGroupBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by a group property.",
+            "properties": {
+                "group_type_index": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Which group type the property belongs to."
+                },
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type", "group_type_index"],
             "type": "object"
         },
         "ExperimentApiMetric": {
@@ -25564,6 +25572,26 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiPropertyBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by an event, person or session property.",
+            "properties": {
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdownType",
+                    "description": "Where the property lives. Defaults to 'event'."
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
+        "ExperimentApiPropertyBreakdownType": {
+            "enum": ["event", "person", "session"],
+            "type": "string"
         },
         "ExperimentApiRetentionStart": {
             "additionalProperties": false,

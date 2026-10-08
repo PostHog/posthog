@@ -878,6 +878,9 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -908,6 +911,9 @@ export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOp
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -4624,30 +4630,47 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -5716,30 +5739,47 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -6953,6 +6993,9 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -6983,6 +7026,9 @@ export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOn
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -10697,30 +10743,47 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -11789,30 +11852,47 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -13107,6 +13187,9 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFourTypeDefault = `feature`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourEventFiltersOneItemFiveTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwofourTypeDefault = `behavioral`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax = 3
+
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -13137,6 +13220,9 @@ export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOneProperties
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault = `group`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax = 3
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
@@ -16749,30 +16835,47 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -17841,30 +17944,47 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Maximum number of breakdown values to compute results for.'),
                                         breakdowns: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        group_type_index: zod
-                                                            .union([zod.number(), zod.null()])
-                                                            .optional()
-                                                            .describe(
-                                                                "Group type index. Required when type is 'group'."
-                                                            ),
-                                                        property: zod
-                                                            .string()
-                                                            .describe('Property name to break down by.'),
-                                                        type: zod
-                                                            .union([
-                                                                zod.enum(['event', 'person', 'session', 'group']),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional()
-                                                            .describe("Where the property lives. Defaults to 'event'."),
-                                                    })
-                                                ),
+                                                zod
+                                                    .array(
+                                                        zod.union([
+                                                            zod.object({
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .union([
+                                                                        zod.enum(['event', 'person', 'session']),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        "Where the property lives. Defaults to 'event'."
+                                                                    ),
+                                                            }),
+                                                            zod.object({
+                                                                group_type_index: zod
+                                                                    .number()
+                                                                    .describe(
+                                                                        'Which group type the property belongs to.'
+                                                                    ),
+                                                                property: zod
+                                                                    .string()
+                                                                    .describe('Property name to break down by.'),
+                                                                type: zod
+                                                                    .literal('group')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneItemTwoTypeDefault
+                                                                    ),
+                                                            }),
+                                                        ])
+                                                    )
+                                                    .max(
+                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemBreakdownFilterOneBreakdownsOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe('Properties to break the metric results down by, at most 3.'),
+                                            .describe('Properties to break the metric results down by.'),
                                     }),
                                     zod.null(),
                                 ])

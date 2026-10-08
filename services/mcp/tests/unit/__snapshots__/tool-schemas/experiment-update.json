@@ -5926,50 +5926,62 @@
                                                 "anyOf": [
                                                     {
                                                         "items": {
-                                                            "properties": {
-                                                                "group_type_index": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ],
-                                                                    "description": "Group type index. Required when type is 'group'."
-                                                                },
-                                                                "property": {
-                                                                    "description": "Property name to break down by.",
-                                                                    "type": "string"
-                                                                },
-                                                                "type": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "event",
-                                                                                "person",
-                                                                                "session",
-                                                                                "group"
-                                                                            ],
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
                                                                             "type": "string"
                                                                         },
-                                                                        {
-                                                                            "type": "null"
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
                                                                         }
-                                                                    ],
-                                                                    "description": "Where the property lives. Defaults to 'event'."
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "description": "Which group type the property belongs to.",
+                                                                            "type": "number"
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
                                                                 }
-                                                            },
-                                                            "required": ["property"],
-                                                            "type": "object"
+                                                            ]
                                                         },
+                                                        "maxItems": 3,
                                                         "type": "array"
                                                     },
                                                     {
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Properties to break the metric results down by, at most 3."
+                                                "description": "Properties to break the metric results down by."
                                             }
                                         },
                                         "type": "object"
@@ -7720,50 +7732,62 @@
                                                 "anyOf": [
                                                     {
                                                         "items": {
-                                                            "properties": {
-                                                                "group_type_index": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ],
-                                                                    "description": "Group type index. Required when type is 'group'."
-                                                                },
-                                                                "property": {
-                                                                    "description": "Property name to break down by.",
-                                                                    "type": "string"
-                                                                },
-                                                                "type": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "event",
-                                                                                "person",
-                                                                                "session",
-                                                                                "group"
-                                                                            ],
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
                                                                             "type": "string"
                                                                         },
-                                                                        {
-                                                                            "type": "null"
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
                                                                         }
-                                                                    ],
-                                                                    "description": "Where the property lives. Defaults to 'event'."
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "description": "Which group type the property belongs to.",
+                                                                            "type": "number"
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
                                                                 }
-                                                            },
-                                                            "required": ["property"],
-                                                            "type": "object"
+                                                            ]
                                                         },
+                                                        "maxItems": 3,
                                                         "type": "array"
                                                     },
                                                     {
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Properties to break the metric results down by, at most 3."
+                                                "description": "Properties to break the metric results down by."
                                             }
                                         },
                                         "type": "object"

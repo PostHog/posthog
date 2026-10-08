@@ -119,7 +119,7 @@ from posthog.schema_enums import (
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
-    ExperimentApiBreakdownType as ExperimentApiBreakdownType,
+    ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -5529,31 +5529,6 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
-class ExperimentApiBreakdown(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    group_type_index: int | None = Field(default=None, description="Group type index. Required when type is 'group'.")
-    property: str = Field(..., description="Property name to break down by.")
-    type: ExperimentApiBreakdownType | None = Field(
-        default=None, description="Where the property lives. Defaults to 'event'."
-    )
-
-
-class ExperimentApiBreakdownFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_limit: int | None = Field(
-        default=None,
-        description="Maximum number of breakdown values to compute results for.",
-    )
-    breakdowns: list[ExperimentApiBreakdown] | None = Field(
-        default=None,
-        description="Properties to break the metric results down by, at most 3.",
-    )
-
-
 class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5593,6 +5568,25 @@ class ExperimentApiEventSource(BaseModel):
     properties: list[EventPropertyFilter] | None = Field(
         default=None,
         description="Event property filters to narrow which events are counted.",
+    )
+
+
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
+
+
+class ExperimentApiPropertyBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiPropertyBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
     )
 
 
@@ -18325,6 +18319,21 @@ class EventsQueryResponse(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
+    )
+
+
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown] | None = Field(
+        default=None,
+        description="Properties to break the metric results down by.",
+        max_length=3,
     )
 
 

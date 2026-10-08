@@ -2103,30 +2103,35 @@ export const ExperimentApiBreakdownAttributionTypeApi = {
     Step: 'step',
 } as const
 
-export type ExperimentApiBreakdownTypeApi =
-    (typeof ExperimentApiBreakdownTypeApi)[keyof typeof ExperimentApiBreakdownTypeApi]
+export type ExperimentApiPropertyBreakdownTypeApi =
+    (typeof ExperimentApiPropertyBreakdownTypeApi)[keyof typeof ExperimentApiPropertyBreakdownTypeApi]
 
-export const ExperimentApiBreakdownTypeApi = {
+export const ExperimentApiPropertyBreakdownTypeApi = {
     Event: 'event',
     Person: 'person',
     Session: 'session',
-    Group: 'group',
 } as const
 
-export interface ExperimentApiBreakdownApi {
-    /** Group type index. Required when type is 'group'. */
-    group_type_index?: number | null
+export interface ExperimentApiPropertyBreakdownApi {
     /** Property name to break down by. */
     property: string
     /** Where the property lives. Defaults to 'event'. */
-    type?: ExperimentApiBreakdownTypeApi | null
+    type?: ExperimentApiPropertyBreakdownTypeApi | null
+}
+
+export interface ExperimentApiGroupBreakdownApi {
+    /** Which group type the property belongs to. */
+    group_type_index: number
+    /** Property name to break down by. */
+    property: string
+    type?: 'group'
 }
 
 export interface ExperimentApiBreakdownFilterApi {
     /** Maximum number of breakdown values to compute results for. */
     breakdown_limit?: number | null
-    /** Properties to break the metric results down by, at most 3. */
-    breakdowns?: ExperimentApiBreakdownApi[] | null
+    /** Properties to break the metric results down by. */
+    breakdowns?: (ExperimentApiPropertyBreakdownApi | ExperimentApiGroupBreakdownApi)[] | null
 }
 
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]

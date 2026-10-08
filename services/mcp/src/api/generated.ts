@@ -42992,30 +42992,35 @@ export namespace Schemas {
       Step: 'step',
     } as const;
 
-    export type ExperimentApiBreakdownType = typeof ExperimentApiBreakdownType[keyof typeof ExperimentApiBreakdownType];
+    export type ExperimentApiPropertyBreakdownType = typeof ExperimentApiPropertyBreakdownType[keyof typeof ExperimentApiPropertyBreakdownType];
 
 
-    export const ExperimentApiBreakdownType = {
+    export const ExperimentApiPropertyBreakdownType = {
       Event: 'event',
       Person: 'person',
       Session: 'session',
-      Group: 'group',
     } as const;
 
-    export interface ExperimentApiBreakdown {
-      /** Group type index. Required when type is 'group'. */
-      group_type_index?: number | null;
+    export interface ExperimentApiPropertyBreakdown {
       /** Property name to break down by. */
       property: string;
       /** Where the property lives. Defaults to 'event'. */
-      type?: ExperimentApiBreakdownType | null;
+      type?: ExperimentApiPropertyBreakdownType | null;
+    }
+
+    export interface ExperimentApiGroupBreakdown {
+      /** Which group type the property belongs to. */
+      group_type_index: number;
+      /** Property name to break down by. */
+      property: string;
+      type?: 'group';
     }
 
     export interface ExperimentApiBreakdownFilter {
       /** Maximum number of breakdown values to compute results for. */
       breakdown_limit?: number | null;
-      /** Properties to break the metric results down by, at most 3. */
-      breakdowns?: ExperimentApiBreakdown[] | null;
+      /** Properties to break the metric results down by. */
+      breakdowns?: (ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown)[] | null;
     }
 
     export type Kind1 = typeof Kind1[keyof typeof Kind1];

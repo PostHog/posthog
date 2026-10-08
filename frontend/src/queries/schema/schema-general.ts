@@ -5770,29 +5770,40 @@ export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSour
     kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
 }
 
-export type ExperimentApiBreakdownType = 'event' | 'person' | 'session' | 'group'
-
 /** 'all_events' is excluded: the experiment funnel query rejects it. */
 export type ExperimentApiBreakdownAttributionType = 'first_touch' | 'last_touch' | 'step'
+
+export type ExperimentApiPropertyBreakdownType = 'event' | 'person' | 'session'
+
+/** Breakdown by an event, person or session property. */
+export interface ExperimentApiPropertyBreakdown {
+    /** Property name to break down by. */
+    property: string
+    /** Where the property lives. Defaults to 'event'. */
+    type?: ExperimentApiPropertyBreakdownType
+}
+
+/** Breakdown by a group property. */
+export interface ExperimentApiGroupBreakdown {
+    /** Property name to break down by. */
+    property: string
+    type: 'group'
+    /** Which group type the property belongs to. */
+    group_type_index: integer
+}
 
 /** Slim breakdown entry for experiment API payloads. Narrower than the full
  *  Breakdown type: the experiment query only resolves event, person, session
  *  and group properties, so the other breakdown types are not accepted here. */
-export interface ExperimentApiBreakdown {
-    /** Property name to break down by. */
-    property: string
-    /** Where the property lives. Defaults to 'event'. */
-    type?: ExperimentApiBreakdownType
-    /** Group type index. Required when type is 'group'. */
-    group_type_index?: integer
-}
+export type ExperimentApiBreakdown = ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown
 
 /** Slim breakdown config for experiment API payloads. Only the fields the
  *  experiment query runner reads; the full BreakdownFilter's other knobs
  *  (breakdown, breakdown_type, attribution, …) are ignored for experiment
  *  metrics, so exposing them would only invite no-op input. */
 export interface ExperimentApiBreakdownFilter {
-    /** Properties to break the metric results down by, at most 3. */
+    /** Properties to break the metric results down by.
+     *  @maxItems 3 */
     breakdowns?: ExperimentApiBreakdown[]
     /** Maximum number of breakdown values to compute results for. */
     breakdown_limit?: integer
