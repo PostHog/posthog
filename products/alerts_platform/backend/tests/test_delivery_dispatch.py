@@ -75,6 +75,23 @@ class FakeTransport:
         return self.handle
 
 
+class EditingTransport(FakeTransport):
+    """A transport that can edit its opening message, like Slack."""
+
+    def __init__(self, handle: MessageHandle | None = None, edit_error: Exception | None = None) -> None:
+        super().__init__(handle=handle)
+        self.edit_error = edit_error
+        self.edits: list[tuple[MessageHandle, str]] = []
+
+    def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
+        self.edits.append((root, state_line))
+        if self.edit_error:
+            raise self.edit_error
+
+
+OPENING = MessageHandle(external_ref={"ts": "morning"}, root_content={"blocks": [], "text": "API errors is firing"})
+
+
 class RecordingThreadStore(NullThreadStore):
     """Keeps what a real store would keep, so the key dispatch builds is observable."""
 
@@ -160,6 +177,32 @@ class TestDeliveryDispatch(SimpleTestCase):
 
         assert [handle for _, handle in resolve.sends] == [MessageHandle(external_ref={"ts": "morning"})]
         assert [handle for _, handle in second.sends] == [None]
+
+    def test_a_reply_brings_the_opening_message_up_to_the_current_state(self) -> None:
+        store = RecordingThreadStore()
+        transport = EditingTransport(handle=OPENING)
+
+        with patch(
+            "products.alerts_platform.backend.delivery.dispatch.current_state_line", return_value="Resolved"
+        ) as state:
+            self._deliver(transport, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING), "eval-1")
+            assert transport.edits == []
+            self._deliver(transport, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING), "eval-2")
+
+        assert transport.edits == [(OPENING, "Resolved")]
+        assert state.call_args.kwargs["episode_started_at"] == FIRST_FIRING
+
+    def test_a_failed_edit_does_not_fail_the_reply_that_landed(self) -> None:
+        store = RecordingThreadStore()
+        transport = EditingTransport(handle=OPENING, edit_error=DeliveryError("message_not_found"))
+
+        with patch("products.alerts_platform.backend.delivery.dispatch.current_state_line", return_value="Resolved"):
+            self._deliver(transport, store, _announcement(AlertEventKind.FIRING, FIRST_FIRING), "eval-1")
+            self._deliver(transport, store, _announcement(AlertEventKind.RESOLVED, FIRST_FIRING), "eval-2")
+
+        assert len(transport.sends) == 2
+        assert len(transport.edits) == 1
+        assert list(store.delivered_keys.values()) == [["eval-1", "eval-2"]]
 
     def test_two_groups_firing_together_do_not_share_a_thread(self) -> None:
         store = RecordingThreadStore()
