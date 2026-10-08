@@ -33,8 +33,8 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use super::{
-    plan_checkpoint, CheckpointExporter, CheckpointMetadata, DurabilityConfig, OffsetManifest,
-    STORE_PARTITION, STORE_TOPIC,
+    plan_checkpoint, CheckpointExporter, CheckpointMetadata, CheckpointOwner, DurabilityConfig,
+    OffsetManifest,
 };
 use crate::consumers::EventDispatcher;
 use crate::observability::metrics::{
@@ -106,9 +106,9 @@ impl CheckpointSweeper {
     }
 
     fn attempt_parent(&self) -> PathBuf {
-        self.checkpoint_local_dir
-            .join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
+        self.config
+            .identity()
+            .local_attempt_parent(&self.checkpoint_local_dir)
     }
 
     async fn checkpoint_once(&self) {
@@ -139,13 +139,19 @@ impl CheckpointSweeper {
         }
 
         // 2. Capture committed offsets (not committable/processed) for all owned partitions.
-        let owned = self.dispatcher.owned_partitions();
+        let mut owned = self.dispatcher.owned_partitions();
+        owned.sort_unstable();
         let tracker_refs: Vec<(&str, &OffsetTracker)> = self
             .trackers
             .iter()
             .map(|(topic, tracker)| (topic.as_str(), tracker.as_ref()))
             .collect();
-        let manifest = OffsetManifest::capture(&owned, &tracker_refs);
+        let owner = CheckpointOwner {
+            pod_count: self.config.pod_count,
+            ordinal: self.config.ordinal,
+            owned_partitions: owned.clone(),
+        };
+        let manifest = OffsetManifest::capture(&owned, &tracker_refs).with_owner(owner.clone());
 
         // 3. Take a whole-DB RocksDB checkpoint (sync I/O → spawn_blocking). The attempt dir must
         //    not be a child of store_path; SST hard-links require the same filesystem.
@@ -201,6 +207,7 @@ impl CheckpointSweeper {
             self.config.s3_key_prefix.clone(),
             attempt_timestamp,
             tick,
+            owner,
             baseline.as_ref(),
             None,
         ) {

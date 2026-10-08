@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use super::StoreIdentity;
+
 /// Default maximum age (seconds) of a local checkpoint before the local store is considered stale and
 /// the service falls back to S3 import. 2 hours.
 pub const DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS: u64 = 7200;
@@ -75,6 +77,31 @@ pub struct DurabilityConfig {
     /// local staleness must be tighter because if a pod was down for longer than this, another pod
     /// likely consumed the partition and local data is behind.
     pub local_checkpoint_max_staleness: Duration,
+
+    /// The pod count `N` recorded in each checkpoint.
+    pub pod_count: u32,
+
+    /// This pod's StatefulSet ordinal. It selects the S3 prefix the pod uploads to.
+    pub ordinal: u32,
+
+    /// One-time restore source: the ordinal of another pod whose checkpoint this pod may restore
+    /// during a split. `None` restores only from the pod's own prefix.
+    pub restore_source_ordinal: Option<u32>,
+}
+
+impl DurabilityConfig {
+    /// The lineage this pod uploads to and restores from first.
+    pub fn identity(&self) -> StoreIdentity {
+        StoreIdentity::for_ordinal(self.ordinal)
+    }
+
+    /// The other pod's lineage to fall back to on restore, if a restore source is set and differs
+    /// from this pod's own ordinal.
+    pub fn restore_source_identity(&self) -> Option<StoreIdentity> {
+        self.restore_source_ordinal
+            .filter(|&source| source != self.ordinal)
+            .map(StoreIdentity::for_ordinal)
+    }
 }
 
 impl Default for DurabilityConfig {
@@ -100,6 +127,9 @@ impl Default for DurabilityConfig {
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
             ),
+            pod_count: 1,
+            ordinal: 0,
+            restore_source_ordinal: None,
         }
     }
 }

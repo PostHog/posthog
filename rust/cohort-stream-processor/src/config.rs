@@ -336,6 +336,15 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
+    /// This pod's StatefulSet ordinal, from the `apps.kubernetes.io/pod-index` label through the
+    /// downward API. Absent means ordinal 0. Required when `COHORT_POD_COUNT` is above 1.
+    #[envconfig(from = "POD_INDEX")]
+    pub pod_index: Option<u32>,
+
+    /// The number of processor pods `N`. Each checkpoint records it with the pod's ordinal.
+    #[envconfig(default = "1")]
+    pub cohort_pod_count: u32,
+
     /// The output topic for membership changes. Defaulting to the shadow topic keeps the cut-over
     /// a config-only change, so no code deploy can redirect production output.
     #[envconfig(default = "cohort_membership_changed_shadow")]
@@ -595,6 +604,13 @@ pub struct Config {
     /// Kept under `max.poll.interval.ms` so a long restore does not get the consumer kicked.
     #[envconfig(default = "240")]
     pub checkpoint_import_timeout_secs: u64,
+
+    /// One-time restore source for a split: the ordinal of the pod whose S3 checkpoint this pod
+    /// restores when it has no local store and no S3 checkpoint of its own. Only checkpoints taken
+    /// under a different pod count are accepted from it, so the source pod's checkpoints after the
+    /// split are never restored. Remove the setting once the split is complete.
+    #[envconfig(from = "CHECKPOINT_RESTORE_SOURCE_ORDINAL")]
+    pub checkpoint_restore_source_ordinal: Option<u32>,
 }
 
 /// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
@@ -801,6 +817,9 @@ impl Config {
             max_upload_buffers: self.checkpoint_max_upload_buffers,
             checkpoint_import_timeout: Duration::from_secs(self.checkpoint_import_timeout_secs),
             local_checkpoint_max_staleness: self.checkpoint_local_max_staleness(),
+            pod_count: self.cohort_pod_count,
+            ordinal: self.pod_ordinal(),
+            restore_source_ordinal: self.checkpoint_restore_source_ordinal,
         }
     }
 
@@ -895,6 +914,30 @@ impl Config {
                  that stored truth before producing also require reconcile.",
             );
         }
+
+        // Two pods on one ordinal share one S3 prefix and restore each other's stores.
+        ensure!(
+            self.cohort_pod_count > 0,
+            "COHORT_POD_COUNT must be greater than zero.",
+        );
+        ensure!(
+            self.cohort_pod_count == 1 || self.pod_index.is_some(),
+            "COHORT_POD_COUNT above 1 requires POD_INDEX (the StatefulSet ordinal).",
+        );
+        ensure!(
+            self.pod_ordinal() < self.cohort_pod_count,
+            "POD_INDEX ({}) must be below COHORT_POD_COUNT ({}).",
+            self.pod_ordinal(),
+            self.cohort_pod_count,
+        );
+        ensure!(
+            self.checkpoint_restore_source_ordinal.is_none() || self.checkpoint_enabled,
+            "CHECKPOINT_RESTORE_SOURCE_ORDINAL requires CHECKPOINT_ENABLED.",
+        );
+        ensure!(
+            self.checkpoint_restore_source_ordinal != Some(self.pod_ordinal()),
+            "CHECKPOINT_RESTORE_SOURCE_ORDINAL must name another pod, not this pod's own ordinal.",
+        );
 
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
@@ -994,6 +1037,11 @@ impl Config {
             .into_iter()
             .flatten()
             .find(|id| !id.is_empty())
+    }
+
+    /// This pod's StatefulSet ordinal; 0 when `POD_INDEX` is unset.
+    pub fn pod_ordinal(&self) -> u32 {
+        self.pod_index.unwrap_or(0)
     }
 
     /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
@@ -1180,6 +1228,8 @@ mod tests {
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
+            pod_index: None,
+            cohort_pod_count: 1,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
             reconcile_marker_message_timeout_ms: 1000,
@@ -1231,6 +1281,7 @@ mod tests {
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 240,
+            checkpoint_restore_source_ordinal: None,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
@@ -1364,6 +1415,49 @@ mod tests {
         config.partition_intake_max_seeds = 1;
         assert!(config.validate_startup().is_ok());
         assert_eq!(config.seed_run_budget().seeds.get(), 1);
+    }
+
+    #[test]
+    fn startup_refuses_a_pod_identity_that_shares_or_misnames_a_checkpoint_prefix() {
+        let cases: [(&str, fn(&mut Config)); 4] = [
+            ("requires POD_INDEX", |config| {
+                config.cohort_pod_count = 2;
+            }),
+            ("must be below COHORT_POD_COUNT", |config| {
+                config.cohort_pod_count = 2;
+                config.pod_index = Some(2);
+            }),
+            ("requires CHECKPOINT_ENABLED", |config| {
+                config.checkpoint_restore_source_ordinal = Some(1);
+            }),
+            ("must name another pod", |config| {
+                config.checkpoint_enabled = true;
+                config.durable_restore_enabled = true;
+                config.cohort_pod_count = 2;
+                config.pod_index = Some(1);
+                config.checkpoint_restore_source_ordinal = Some(1);
+            }),
+        ];
+        for (expected, mutate) in cases {
+            let mut config = test_config();
+            mutate(&mut config);
+            let err = config.validate_startup().unwrap_err().to_string();
+            assert!(err.contains(expected), "expected {expected:?} in {err:?}");
+        }
+
+        let mut split_child = test_config();
+        split_child.checkpoint_enabled = true;
+        split_child.durable_restore_enabled = true;
+        split_child.cohort_pod_count = 2;
+        split_child.pod_index = Some(1);
+        split_child.checkpoint_restore_source_ordinal = Some(0);
+        assert!(split_child.validate_startup().is_ok());
+        let durability = split_child.durability_config();
+        assert_eq!(durability.identity().ordinal(), 1);
+        assert_eq!(
+            durability.restore_source_identity().map(|id| id.ordinal()),
+            Some(0)
+        );
     }
 
     #[test]

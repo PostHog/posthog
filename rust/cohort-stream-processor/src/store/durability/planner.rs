@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    store_hash_prefix, CheckpointFile, CheckpointInfo, CheckpointMetadata, PlanningCancelledError,
-    STORE_PARTITION, STORE_TOPIC,
+    CheckpointFile, CheckpointInfo, CheckpointMetadata, CheckpointOwner, PlanningCancelledError,
+    StoreIdentity, STORE_TOPIC,
 };
 use crate::observability::metrics::CHECKPOINT_PLAN_FILES_TOTAL;
 
@@ -21,6 +21,9 @@ pub struct CheckpointPlan {
 
 /// Build a checkpoint plan: new metadata plus the files to upload.
 ///
+/// The plan keys every new file under the S3 prefix of `owner.ordinal` and records `owner` in the
+/// metadata.
+///
 /// Incremental dedup keyed on filename: SST files (immutable) are reused from the previous attempt;
 /// mutable files are re-uploaded only on checksum change. The cancellation token, if given, is
 /// checked during the directory walk and before hashing non-SST files.
@@ -29,20 +32,26 @@ pub fn plan_checkpoint(
     remote_bucket_namespace: String,
     attempt_timestamp: DateTime<Utc>,
     sequence: u64,
+    owner: CheckpointOwner,
     previous_metadata: Option<&CheckpointMetadata>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<CheckpointPlan> {
     ensure_not_cancelled(cancel_token, "before planning start")?;
-    let metadata = CheckpointMetadata::new(
+    let identity = StoreIdentity::for_ordinal(owner.ordinal);
+    let mut metadata = CheckpointMetadata::new(
         STORE_TOPIC.to_string(),
-        STORE_PARTITION,
+        identity.partition(),
         attempt_timestamp,
         sequence,
         0,
         0,
     );
-    let hash = store_hash_prefix().to_string();
-    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace, Some(hash));
+    metadata.owner = Some(owner);
+    let mut info = CheckpointInfo::new(
+        metadata,
+        remote_bucket_namespace,
+        Some(identity.hash_prefix()),
+    );
     let mut files_to_upload: Vec<LocalCheckpointFile> = Vec::new();
 
     let local_files = collect_local_files(local_checkpoint_attempt_dir, cancel_token)?;
@@ -249,10 +258,58 @@ mod tests {
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
+    const STORE_PARTITION: i32 = 0;
+
+    fn single_pod_owner() -> CheckpointOwner {
+        CheckpointOwner {
+            pod_count: 1,
+            ordinal: 0,
+            owned_partitions: (0..64).collect(),
+        }
+    }
+
     fn attempt_dir(base: &Path, checkpoint_id: &str) -> PathBuf {
-        base.join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
+        StoreIdentity::for_ordinal(0)
+            .local_attempt_parent(base)
             .join(checkpoint_id)
+    }
+
+    #[test]
+    fn plan_checkpoint_keys_files_under_the_owner_ordinal() {
+        let temp_dir = TempDir::new().unwrap();
+        let attempt_timestamp = Utc::now();
+        let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
+        let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
+        std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("file1.sst"), b"data1").unwrap();
+
+        let owner = CheckpointOwner {
+            pod_count: 2,
+            ordinal: 1,
+            owned_partitions: vec![1, 3, 5],
+        };
+        let plan = plan_checkpoint(
+            &local_checkpoint_attempt_dir,
+            "checkpoints".to_string(),
+            attempt_timestamp,
+            1,
+            owner.clone(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let hash = StoreIdentity::for_ordinal(1).hash_prefix();
+        assert_ne!(hash, StoreIdentity::for_ordinal(0).hash_prefix());
+        assert_eq!(
+            plan.info.get_metadata_key(),
+            format!("{hash}/checkpoints/{STORE_TOPIC}/1/{checkpoint_id}/metadata.json"),
+        );
+        assert_eq!(
+            plan.info.metadata.files[0].remote_filepath,
+            format!("{hash}/checkpoints/{STORE_TOPIC}/1/{checkpoint_id}/file1.sst"),
+        );
+        assert_eq!(plan.info.metadata.owner, Some(owner));
     }
 
     #[test]
@@ -273,6 +330,7 @@ mod tests {
             remote_bucket_namespace.to_string(),
             attempt_timestamp,
             sequence,
+            single_pod_owner(),
             None,
             None,
         )
@@ -298,7 +356,7 @@ mod tests {
         assert_eq!(got_sst2, &expected_sst2);
 
         assert_eq!(plan.info.metadata.files.len(), 2);
-        let hash = store_hash_prefix();
+        let hash = StoreIdentity::for_ordinal(0).hash_prefix();
         let expected_remote_path = format!(
             "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
         );
@@ -321,7 +379,7 @@ mod tests {
             .iter()
             .any(|f| f.remote_filepath.ends_with("file2.sst")));
         let meta_key = plan.info.get_metadata_key();
-        assert!(meta_key.contains(hash));
+        assert!(meta_key.contains(&hash));
         assert_eq!(
             meta_key,
             format!(
@@ -391,6 +449,7 @@ mod tests {
             remote_bucket_namespace.to_string(),
             attempt_timestamp,
             sequence,
+            single_pod_owner(),
             Some(&prev_metadata),
             None,
         )
@@ -406,7 +465,7 @@ mod tests {
 
         assert_eq!(plan.info.metadata.files.len(), 3);
 
-        let hash = store_hash_prefix();
+        let hash = StoreIdentity::for_ordinal(0).hash_prefix();
         let current_attempt_remote_path = format!(
             "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
         );
@@ -510,6 +569,7 @@ mod tests {
             remote_bucket_namespace.to_string(),
             attempt_timestamp,
             sequence,
+            single_pod_owner(),
             Some(&prev_metadata),
             None,
         )
@@ -651,6 +711,7 @@ mod tests {
             remote_bucket_namespace.to_string(),
             attempt_timestamp,
             sequence,
+            single_pod_owner(),
             Some(&prev_metadata),
             None,
         )
@@ -670,7 +731,7 @@ mod tests {
         assert_eq!(plan.info.metadata.files.len(), 7);
 
         // New files (sst3, CURRENT, log) use the hashed path; retained files keep the previous path.
-        let hash = store_hash_prefix();
+        let hash = StoreIdentity::for_ordinal(0).hash_prefix();
         let current_attempt_remote_path = format!(
             "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
         );
@@ -744,6 +805,7 @@ mod tests {
             "checkpoints".to_string(),
             attempt_timestamp,
             1000,
+            single_pod_owner(),
             None,
             Some(&cancel_token),
         )
