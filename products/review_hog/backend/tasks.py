@@ -13,9 +13,19 @@ from products.review_hog.backend.automatic_reviews import AuthoredPRReview
     retry_backoff_max=300,
     retry_jitter=True,
 )
-def process_authored_pr_event(*, installation_id: str, author_login: str, pr_number: int, head_sha: str) -> None:
+def process_authored_pr_event(
+    *,
+    installation_id: str,
+    author_login: str,
+    pr_number: int,
+    head_sha: str,
+    # Messages queued before this argument existed came only from the one repository the handler
+    # accepted then.
+    repository: str = "PostHog/posthog",
+) -> None:
     AuthoredPRReview(
         installation_id=installation_id,
+        repository=repository,
         author_login=author_login,
         pr_number=pr_number,
         head_sha=head_sha,

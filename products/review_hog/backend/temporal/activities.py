@@ -33,7 +33,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -267,6 +267,9 @@ class ResolveActingUserInput:
     # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
     trigger_source: str = TRIGGER_MANUAL
     default_user_id: int | None = None
+    # `owner/name` of the PR, for the automatic trigger's re-check of the repository rules. None in
+    # payloads serialized before the field existed, which fails that re-check closed.
+    repository: str | None = None
 
 
 @dataclass(frozen=False)
@@ -290,6 +293,8 @@ class ResolveActingUserResult:
     # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
     # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
     celebrate_clean_reviews: bool = True
+    # Whether the repository rules allow this automatic review. False for every other trigger. The
+    # name predates the rules and stays, because recorded workflow histories carry it.
     review_authored_prs: bool = False
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
@@ -825,9 +830,18 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         # the trigger already resolved. Other triggers keep the author-only contract and skip.
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
-    if input.trigger_source == TRIGGER_AUTOMATIC and (
-        acting_user_id is None or not authored_reviews_enabled(team_id=input.team_id, user_id=acting_user_id)
-    ):
+    automatic_allowed = (
+        input.trigger_source == TRIGGER_AUTOMATIC
+        and acting_user_id is not None
+        and input.repository is not None
+        and automatic_flash_allowed(
+            team_id=input.team_id,
+            repository=input.repository,
+            user_id=acting_user_id,
+            author_login=input.author_login,
+        )
+    )
+    if input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed:
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
@@ -877,7 +891,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
                 else True
             )
         ),
-        review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
+        review_authored_prs=automatic_allowed,
         flash_reasoning_effort=(
             str(settings.flash_reasoning_effort)
             if resolved_from in ("author", "override")

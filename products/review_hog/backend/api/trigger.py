@@ -13,6 +13,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.review_hog.backend.automatic_review_rules import find_repository
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
 from products.review_hog.backend.temporal.client import (
     start_resolution_workflow,
@@ -23,12 +24,11 @@ from products.review_hog.backend.temporal.types import TRIGGER_LABEL, resolve_pr
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_REPOS = {"posthog/posthog", "posthog/ai-gateway"}
-
 
 class ReviewHogTriggerRequestSerializer(serializers.Serializer):
     repo = serializers.CharField(
-        help_text="GitHub repository to review, in 'owner/name' form; must be on the allowlist (e.g. 'PostHog/posthog').",
+        help_text="GitHub repository to review, in 'owner/name' form (e.g. 'PostHog/posthog'). The repository must "
+        "be added to PostHog Review in the trigger team.",
     )
     pr_number = serializers.IntegerField(
         min_value=1,
@@ -43,7 +43,8 @@ class ReviewHogTriggerRequestSerializer(serializers.Serializer):
 
 class ReviewHogResolveRequestSerializer(serializers.Serializer):
     repo = serializers.CharField(
-        help_text="GitHub repository, in 'owner/name' form; must be on the allowlist (e.g. 'PostHog/posthog').",
+        help_text="GitHub repository, in 'owner/name' form (e.g. 'PostHog/posthog'). The repository must be added "
+        "to PostHog Review in the trigger team.",
     )
     pr_number = serializers.IntegerField(
         min_value=1,
@@ -129,18 +130,20 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         return None
 
     def _run_gates(self, repo: str) -> tuple[int, int] | Response:
-        """The shared trigger gates: repo allowlist → configured team → authorized run user.
+        """The shared trigger gates: configured team → added repository → authorized run user.
 
         Returns `(team_id, user_id)` when every gate passes, else the error `Response` to return.
         (Shared-secret auth runs before body validation in each action, so it is not part of this.)
         """
-        if repo.lower() not in ALLOWED_REPOS:
-            return Response({"error": f"Repository {repo} is not allowed"}, status=status.HTTP_403_FORBIDDEN)
-
         # First configured team = the one label-triggered runs execute and publish under.
         team_id = settings.REVIEWHOG_TEAM_IDS[0] if settings.REVIEWHOG_TEAM_IDS else None
         if not team_id:
             return Response({"error": "ReviewHog team is not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if find_repository(team_id, repo) is None:
+            return Response(
+                {"error": f"Repository {repo} is not added to PostHog Review"}, status=status.HTTP_403_FORBIDDEN
+            )
 
         user_id = settings.REVIEWHOG_RUN_USER_ID or _resolve_run_user_id(team_id)
         if not user_id:
@@ -172,7 +175,8 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
                 response=ReviewHogTriggerErrorSerializer, description="Invalid body or unresolved run user"
             ),
             403: OpenApiResponse(
-                response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
+                response=ReviewHogTriggerErrorSerializer,
+                description="Missing/invalid token or a repository that is not added",
             ),
             409: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,
@@ -257,7 +261,8 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
                 response=ReviewHogTriggerErrorSerializer, description="Invalid body or unresolved run user"
             ),
             403: OpenApiResponse(
-                response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
+                response=ReviewHogTriggerErrorSerializer,
+                description="Missing/invalid token or a repository that is not added",
             ),
             409: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer,

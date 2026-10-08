@@ -3,7 +3,7 @@ from products.review_hog.backend.management.toggle_command import SettingsToggle
 
 class Command(SettingsToggleCommand):
     help = (
-        "Turn off automatic Flash reviews of authored PRs (review_authored_prs) for every active member of the "
+        "Turn off automatic Flash reviews of authored PRs (default_review_mode 'follow') for every active member of the "
         "organization that owns the given team, or for the given user ids. Preserves Flash reasoning effort."
     )
     field = "review_authored_prs"

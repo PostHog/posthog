@@ -11,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewRepository
 
 TRIGGER_URL = "/api/review_hog/trigger/"
 RESOLVE_URL = "/api/review_hog/resolve/"
@@ -34,6 +34,10 @@ class TestReviewHogTriggerApi(APIBaseTest):
             REVIEWHOG_RUN_USER_ID=self.run_user.id,
         )
         self._settings_ctx.enable()
+        for team in (self.trigger_team, self.team):
+            for full_name in ("PostHog/posthog", "PostHog/ai-gateway"):
+                ReviewRepository.objects.for_team(team.id).create(team=team, full_name=full_name)
+        ReviewRepository.objects.for_team(self.team.id).create(team=self.team, full_name="PostHog/posthog-js")
         # The busy-guard probes Temporal on every trigger; tests must never open real connections.
         busy_patcher = patch(_BUSY, return_value=False)
         self.mock_busy = busy_patcher.start()
@@ -93,12 +97,13 @@ class TestReviewHogTriggerApi(APIBaseTest):
     @parameterized.expand(
         [
             ("other_org", "evil/repo"),
-            ("allowlisted_name_other_org", "evil/ai-gateway"),
-            ("allowlisted_prefix", "PostHog/ai-gateway-fork"),
+            ("added_name_other_owner", "evil/ai-gateway"),
+            ("added_name_prefix", "PostHog/ai-gateway-fork"),
+            ("added_only_to_another_team", "PostHog/posthog-js"),
         ]
     )
     @patch(_START, return_value="wf-1")
-    def test_disallowed_repo_rejected(self, _name, repo, mock_start):
+    def test_repository_not_added_to_the_trigger_team_rejected(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": repo, "pr_number": 1},
@@ -116,7 +121,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         ]
     )
     @patch(_START, return_value="wf-1")
-    def test_allowlisted_repo_accepted(self, _name, repo, mock_start):
+    def test_added_repository_accepted(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": repo, "pr_number": 7},

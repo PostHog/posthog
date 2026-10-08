@@ -526,6 +526,7 @@ class ReviewPRWorkflow:
                 report_id=report_id,
                 trigger_source=inputs.trigger_source,
                 default_user_id=inputs.user_id,
+                repository=repository,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
