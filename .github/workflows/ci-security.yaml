@@ -192,6 +192,7 @@ jobs:
                       --include /products
                       --include /services/llm-gateway
                       --include /services/stripe-mock
+                      --include /services/terminal-relay
                       --include /tools
                       --exclude products/desktop
                       --jobs 4

@@ -23,21 +23,34 @@ const configurationSchema = z
 
 export const NETPLAY_HELP = `ph netplay: configure a game relay for Doom
 
-ph netplay configure --json @/tmp/relay.json   Read relay settings from a file
-ph netplay configure --json -                 Read the same JSON from stdin
-ph netplay status                             Show whether a relay is configured
-ph netplay clear                              Restore direct peer-to-peer connections
+Read settings from a file:
+  ph netplay configure --json @/tmp/relay.json
+Or from stdin (finish with Ctrl+D):
+  ph netplay configure --json -
+Check the mode without showing credentials:
+  ph netplay status
+Restore direct connections for the next game:
+  ph netplay clear
 
 JSON format:
-  {"url":"wss://relay.example.com/netplay","token":"temporary-access-token"}
+  {
+    "url": "wss://relay.example.com/netplay",
+    "token": "temporary-access-token"
+  }
 
-Ask the relay operator for a temporary token. Never enter the relay's signing key.
-Both players need tokens for the same group and must configure the same relay before
-starting Doom. One runs doom -server -deathmatch; others run doom -connect <code>.
-The host must stay connected. The relay only forwards game packets.
-Your PostHog administrator must allow the relay URL with TERMINAL_NETPLAY_RELAY_URL.
-Settings apply to the next game and clear when this terminal stops or the page reloads.
-Keep credential files in /tmp, then delete them. Avoid tokens in shell history.
+Ask the relay operator for a temporary token.
+Never enter the relay's signing key.
+Both players configure the same relay first,
+using tokens for the same group.
+Host: doom -server -deathmatch
+Join: doom -connect <code>
+The host must stay connected.
+
+Ask your PostHog admin to allow the relay URL.
+Settings apply to the next game and clear when
+this terminal stops or the page reloads.
+Keep credential files in /tmp, then delete them.
+Avoid tokens in shell history.
 `
 
 export class TerminalRelay {
@@ -77,7 +90,7 @@ export class TerminalRelay {
         }
         if (action === 'status' && !rest.length) {
             return this.configuration
-                ? 'Game relay configured. Applies to the next game in this terminal session.'
+                ? 'Game relay configured. Applies to the next game.'
                 : 'No game relay configured. Using direct peer-to-peer connections.'
         }
         if (action === 'clear' && !rest.length) {
