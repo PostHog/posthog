@@ -1947,12 +1947,17 @@ class FeatureFlagSerializer(
         becomes `filters__rules__0__value`, as for nested serializer errors), so the response's
         `attr` is that path and its `detail` the bare message, with the validator's code. The
         handler renders the first key, which is the validator's first error. The details never echo
-        config values, seeds or metadata; an unknown field's path does carry its rejected name.
+        config values, seeds or metadata. An unknown field's path ends in the client's key name, which
+        can itself read as a real field's path, so that error is keyed by `filters` and its path goes
+        in the detail.
         """
         errors: dict[str, list[ErrorDetail]] = {}
         for error in exc.errors:
-            attr = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__")
-            errors.setdefault(attr, []).append(ErrorDetail(error.detail, code=error.code))
+            if error.code == "unknown_field":
+                attr, detail = "filters", f"{error.attr}: {error.detail}"
+            else:
+                attr, detail = re.sub(r"\[(\d+)\]", r"__\1", error.attr).replace(".", "__"), error.detail
+            errors.setdefault(attr, []).append(ErrorDetail(detail, code=error.code))
         return serializers.ValidationError(errors)
 
     def _apply_v2_update(self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int) -> None:

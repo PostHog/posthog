@@ -141,6 +141,11 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'At most 100 rules are allowed.',
             ],
             [
+                { attr: 'filters', detail: 'filters.rules__0__value: Unknown field.' },
+                null,
+                'filters.rules__0__value: Unknown field.',
+            ],
+            [
                 { attr: 'tags', detail: 'Add at least one tag. This project requires new feature flags to be tagged.' },
                 'tags',
                 'Add at least one tag. This project requires new feature flags to be tagged.',

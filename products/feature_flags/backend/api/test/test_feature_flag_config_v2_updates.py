@@ -990,3 +990,13 @@ class TestV2ValidationErrors(AdmittedV2TestCase):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"type": "validation_error", "code": code, "detail": detail, "attr": attr}
+
+    def test_an_unknown_field_keeps_its_name_out_of_attr(self) -> None:
+        response = self.patch_flag(self.flag(), {"version": 3, "filters": config(rollout(), rules__0__value=True)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unknown_field",
+            "detail": "filters.rules__0__value: Unknown field.",
+            "attr": "filters",
+        }
