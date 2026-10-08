@@ -30,7 +30,7 @@ DEFAULT_PROBE_PATH = "/feed/users"
 STRUCTURES_PAGE_SIZE = 100  # Documented maximum for Search structures.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SafetyCultureResumeConfig:
     # The next page to fetch, resolved from the API's `metadata.next_page` (the docs forbid
     # constructing it yourself). It embeds every filter — including `modified_after` on an
@@ -89,8 +89,8 @@ class SafetyCultureStructuresPaginator(BasePaginator):
 
     Every search is scoped to one type, and the page token sits inside the JSON body at
     `params.page.page_token`. When a type's `next_page_token` runs out, the paginator moves on to
-    the next type with a fresh first-page request. An empty page also ends a type, so a lingering
-    token can never loop forever.
+    the next type with a fresh first-page request. An empty page or a repeated token also ends a
+    type, so a lingering token can never loop forever.
     """
 
     def __init__(self, structure_types: tuple[str, ...]) -> None:
@@ -106,7 +106,7 @@ class SafetyCultureStructuresPaginator(BasePaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         body = response.json()
         token = body.get("next_page_token") if isinstance(body, dict) else None
-        if data and token:
+        if data and token and token != self._page_token:
             self._page_token = token
             return
         self._page_token = None

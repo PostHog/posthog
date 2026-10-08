@@ -299,6 +299,25 @@ class TestStructures:
         ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_repeated_page_token_ends_the_structure_type(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        bodies: list[Any] = []
+        _wire(
+            session,
+            [
+                _structures_response([{"structure_uuid": "s1"}], next_page_token="tok-1"),
+                _structures_response([{"structure_uuid": "s2"}], next_page_token="tok-1"),
+                _structures_response([{"structure_uuid": "g1"}]),
+            ],
+            bodies,
+        )
+
+        rows = _rows(_source("structures", _make_manager()))
+
+        assert rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}, {"structure_uuid": "g1"}]
+        assert bodies[2] == _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_structure_type_and_token(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         bodies: list[Any] = []

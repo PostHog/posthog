@@ -17,7 +17,7 @@ def _modified_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SafetyCultureEndpointConfig:
     name: str
     path: str  # Path under https://api.safetyculture.io, e.g. "/feed/inspections"
