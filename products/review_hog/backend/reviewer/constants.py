@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Final
 
 from posthog.dataclasses import frozen
 
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, ReportedPriority
 from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_REASON_DEFAULT,
@@ -445,6 +445,51 @@ PRIORITY_LABELS = {
     IssuePriority.SHOULD_FIX: "should fix",
     IssuePriority.CONSIDER: "consider",
 }
+
+
+STORED_PRIORITY_BY_REPORTED: dict[ReportedPriority, IssuePriority] = {
+    "P0": IssuePriority.MUST_FIX,
+    "P1": IssuePriority.MUST_FIX,
+    "P2": IssuePriority.SHOULD_FIX,
+    "P3": IssuePriority.CONSIDER,
+}
+
+_DISPLAY_LEVEL_BY_PRIORITY: dict[IssuePriority, ReportedPriority] = {
+    IssuePriority.MUST_FIX: "P1",
+    IssuePriority.SHOULD_FIX: "P2",
+    IssuePriority.CONSIDER: "P3",
+}
+
+# Most severe first. Storage folds P0 and P1 into `must_fix`, so only the reported level ranks them apart.
+REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
+
+
+def display_level(priority: IssuePriority, reported: ReportedPriority | None) -> ReportedPriority:
+    """The P0-P3 level a published finding leads with, for its effective `priority`.
+
+    The reviewer's own level applies only while it still folds into `priority`. A validator override
+    or a dedup survivor that absorbed a more severe duplicate changes the priority, and then the
+    reported level would show a severity that the finding no longer has.
+    """
+    if reported is not None and STORED_PRIORITY_BY_REPORTED[reported] == priority:
+        return reported
+    return _DISPLAY_LEVEL_BY_PRIORITY[priority]
+
+
+def finding_heading(title: str, level: ReportedPriority) -> str:
+    """The first line of a published finding.
+
+    The outcome sweep (`find_finding_comment`) matches a finding to its inline comment by this line.
+    """
+    return f"**{level} · {title}**"
+
+
+def finding_text(body: str, suggestion: str) -> str:
+    """The issue and its fix as one paragraph. A single-agent finding has no suggestion text, because its
+    body already ends with the fix."""
+    if not suggestion.strip():
+        return body.strip()
+    return f"{body.strip()} {suggestion.strip()}"
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
