@@ -72,6 +72,11 @@ def test_summary_excerpt_truncates_first_line_at_600_chars() -> None:
     assert _summary_excerpt(long_line).endswith("...")
 
 
+def test_summary_excerpt_keeps_links_out_of_the_cut() -> None:
+    sql_link = "[the query](https://us.posthog.com/project/2/sql?open_query=" + "SELECT%201%20" * 60 + ")"
+    assert _summary_excerpt(f"Errors rose, see {sql_link} for details.") == "Errors rose, see the query for details."
+
+
 def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     """Every plain_text string in the message — mentions here would render as raw `<@…>`."""
     texts: list[str] = []

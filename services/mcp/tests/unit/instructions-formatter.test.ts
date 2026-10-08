@@ -207,17 +207,39 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### PostHog knowledge sources')
         })
 
-        it('loads skills before checking business knowledge and docs', () => {
+        it('loads skills before checking business knowledge, repositories, and docs', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription({
                 skillsEnabled: true,
                 docsSearchEnabled: true,
                 businessKnowledgeSearchEnabled: true,
+                businessKnowledgeRepoSearchEnabled: true,
             })
 
             expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
-            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(result.indexOf('docs-search'))
+            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(
+                result.indexOf('`call business-knowledge-repositories-search <json_input>`')
+            )
+            expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
+                result.indexOf('`call docs-search')
+            )
             expect(result.length).toBeLessThanOrEqual(2048)
+        })
+    })
+
+    describe('repository search guidance', () => {
+        it.each([
+            { name: 'repo search without knowledge search', bk: false, repo: true, expected: false },
+            { name: 'knowledge search without repo search', bk: true, repo: false, expected: false },
+            { name: 'both', bk: true, repo: true, expected: true },
+        ])('names repository search only when both tools are advertised: $name', ({ bk, repo, expected }) => {
+            const tools = [
+                { name: 'docs-search', category: 'Docs' },
+                ...(bk ? [{ name: 'business-knowledge-documents-search', category: 'Business knowledge' }] : []),
+                ...(repo ? [{ name: 'business-knowledge-repositories-search', category: 'Business knowledge' }] : []),
+            ]
+            const result = new InstructionsFormatter().buildToolsInstructions({ ...fullCtx, tools })
+            expect(result.includes('`business-knowledge-repositories-search`')).toBe(expected)
         })
     })
 

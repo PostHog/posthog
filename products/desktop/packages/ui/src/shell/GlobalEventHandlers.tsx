@@ -18,7 +18,6 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -98,7 +97,6 @@ function useGlobalEventHandlers({
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const inboxAvailable = useInboxAvailable();
   const channelsLayout = useChannelsLayout();
   const spacesTabs = useSpacesTabs();
   const browserTabStripMounted = channelsLayout ? spacesTabs : true;
@@ -242,10 +240,7 @@ function useGlobalEventHandlers({
     onToggleShortcutsSheet,
     GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...GLOBAL_HOTKEY_OPTIONS,
-    enabled: inboxAvailable,
-  });
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, GLOBAL_HOTKEY_OPTIONS);
   useHotkeys(
     SHORTCUTS.COMMAND_CENTER,
     navigateToCommandCenter,

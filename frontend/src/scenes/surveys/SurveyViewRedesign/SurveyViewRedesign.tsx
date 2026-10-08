@@ -24,6 +24,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyFollowUpWorkflowButton } from 'scenes/surveys/components/SurveyFollowUpWorkflowButton'
 import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
@@ -345,6 +346,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             Copy to another project
                         </ButtonPrimitive>
                     )}
+                    {surveyIdForTransfer && <SurveyFollowUpWorkflowButton surveyId={surveyIdForTransfer} />}
                     {!isDraft && (
                         <ButtonPrimitive menuItem onClick={() => setSqlHelperOpen(true)}>
                             <IconCode />

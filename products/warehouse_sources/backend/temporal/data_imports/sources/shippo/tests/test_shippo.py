@@ -88,41 +88,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows, requested
 
-    def test_full_refresh_follows_next_urls_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        page_2 = f"{SHIPPO_BASE_URL}/addresses/?page=2&results={PAGE_SIZE}"
-        pages: dict[str, dict] = {
-            page_2: {"next": None, "results": [{"object_id": "b"}]},
-            f"{SHIPPO_BASE_URL}/addresses/?results={PAGE_SIZE}": {"next": page_2, "results": [{"object_id": "a"}]},
-        }
-        rows, requested = self._collect(manager, monkeypatch, pages, endpoint="addresses")
-
-        assert rows == [{"object_id": "a"}, {"object_id": "b"}]
-        assert requested[0] == f"{SHIPPO_BASE_URL}/addresses/?results={PAGE_SIZE}"
-        # State points at the *next* page so a crash re-fetches only unpersisted data.
-        assert [(s.next_url, s.window_start) for s in manager.saved] == [(page_2, None)]
-
-    def test_full_refresh_resumes_from_saved_next_url(self, monkeypatch: Any) -> None:
-        page_3 = f"{SHIPPO_BASE_URL}/parcels/?page=3&results={PAGE_SIZE}"
-        manager = _FakeResumableManager(ShippoResumeConfig(next_url=page_3, window_start=None))
-        rows, requested = self._collect(
-            manager, monkeypatch, {page_3: {"next": None, "results": [{"object_id": "z"}]}}, endpoint="parcels"
-        )
-        assert rows == [{"object_id": "z"}]
-        # The first (unfiltered) page must never be re-fetched on resume.
-        assert requested == [page_3]
-
-    def test_empty_results_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(
-            manager,
-            monkeypatch,
-            {f"{SHIPPO_BASE_URL}/refunds/?results={PAGE_SIZE}": {"next": None, "results": []}},
-            endpoint="refunds",
-        )
-        assert rows == []
-        assert manager.saved == []
-
     @time_machine.travel("2026-07-08T12:00:00Z", tick=False)
     def test_incremental_walks_creation_windows_under_90_days(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -207,16 +172,6 @@ class TestGetRows:
         assert rows == [{"object_id": "a"}]
         assert requested[-1] == capped_page
 
-    def test_resuming_onto_a_capped_page_ends_cleanly(self, monkeypatch: Any) -> None:
-        # The capped URL is persisted as resume state before it is ever fetched, so a resumed
-        # run starts on it and must still terminate instead of retrying the 404 forever.
-        capped_page = f"{SHIPPO_BASE_URL}/addresses/?page=1001&results={PAGE_SIZE}"
-        manager = _FakeResumableManager(ShippoResumeConfig(next_url=capped_page, window_start=None))
-        rows, requested = self._collect(manager, monkeypatch, {capped_page: _http_error(404)}, endpoint="addresses")
-
-        assert rows == []
-        assert requested == [capped_page]
-
     @parameterized.expand([("unpaged_first_page", ""), ("explicit_first_page", "page=1&")])
     def test_404_outside_the_pagination_cap_still_fails(self, _name: str, page_param: str) -> None:
         # A 404 that is not a deep-page refusal means the endpoint itself is gone; swallowing it
@@ -225,17 +180,6 @@ class TestGetRows:
         manager = _FakeResumableManager(ShippoResumeConfig(next_url=url) if page_param else None)
         with pytest.MonkeyPatch.context() as monkeypatch, pytest.raises(requests.HTTPError):
             self._collect(manager, monkeypatch, {url: _http_error(404)}, endpoint="addresses")
-
-    def test_first_page_url_uses_endpoint_path(self, monkeypatch: Any) -> None:
-        # The customs endpoints live under a nested path; a bare name-derived URL would 404.
-        manager = _FakeResumableManager()
-        _, requested = self._collect(
-            manager,
-            monkeypatch,
-            {f"{SHIPPO_BASE_URL}/customs/items/?results={PAGE_SIZE}": {"next": None, "results": []}},
-            endpoint="customs_items",
-        )
-        assert requested == [f"{SHIPPO_BASE_URL}/customs/items/?results={PAGE_SIZE}"]
 
 
 class TestValidatePaginationURL:

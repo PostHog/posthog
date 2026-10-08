@@ -4,15 +4,14 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
@@ -47,37 +46,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-
-WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
-
-
-def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WAREHOUSE_PIPELINES_V3_FLAG,
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id), "source_type": source_type},
-                    "project": {"id": str(team.id), "source_type": source_type},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
-
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
+    billing_limit_reached,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -102,6 +75,14 @@ class V3PipelineLockLostError(NonReportableError):
     holder whose Temporal workflow already looks terminal, so a resumed run landing here is
     the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
     it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
+
+
+class V2PipelineRemovedError(NonReportableError):
+    """A workflow history recorded before every run moved to V3 asked for a V2 job.
+
+    Only a replay of such a history can send ``is_v3=False``. The V2 pipeline no longer exists,
+    so the run fails before it creates a job and the next scheduled run starts on V3.
     """
 
 
@@ -160,17 +141,16 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
-# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
-# Copying them onto every job row was most of the snapshot's storage cost.
-_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
+# `schema_metadata` is the source table's column list, not configuration. Copying it onto every
+# job row would be most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     """The schema as it was when this job started, for debugging a run after the fact.
 
-    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
-    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
     `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
     """
     sync_type_config = {
@@ -230,7 +210,8 @@ class CreateExternalDataJobModelActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
-    is_v3: bool = False
+    # Always True for new runs. Only a pre-patch workflow history can still send False.
+    is_v3: bool = True
     # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
     started_by_schedule: bool = False
 
@@ -330,6 +311,25 @@ class CreateExternalDataJobModelActivityOutputs:
     # True when the pre-extraction repartition activity has a rewrite, swap or on-disk measurement to
     # do. Defaults True so a payload from a worker that predates the field still schedules it.
     repartition_needed: bool = True
+    # True when this activity already answered the billing-limit question, so the workflow reads
+    # `hit_billing_limit` instead of scheduling the separate check. Defaults False so a payload
+    # recorded before the field existed still replays the check activity it recorded.
+    billing_limit_checked: bool = False
+    hit_billing_limit: bool = False
+    # True when the post-import source-templates activity has anything to create: only a Stripe
+    # source's first completed sync does. Defaults True so a payload that predates the field still
+    # schedules the activity its history recorded.
+    source_templates_needed: bool = True
+    # True when the workflow runs the import again itself after a worker hand-off, so the hand-off
+    # uses no retry attempt. Read from settings here because a workflow must not: the value is
+    # recorded with this activity's result, so a replay takes the same branch. Defaults False so a
+    # payload that predates the field keeps the single import execution its history recorded.
+    import_handoffs_are_free: bool = False
+    # Runs of this schema that failed since its last completed run, this one excluded. The workflow
+    # turns it into the import's retry cap (`retry_limits.import_retry_budget`). Read here because a
+    # workflow must not read the DB, and recorded with this activity's result so a replay picks the
+    # same cap. Defaults to 0 so a payload that predates the field keeps the full cap.
+    failed_runs_in_a_row: int = 0
 
 
 @activity.defn
@@ -350,21 +350,18 @@ def create_external_data_job_model_activity(
         logger.info("Source or schema no longer exists, deleted the sync schedule")
         raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
 
+    if not inputs.is_v3:
+        raise V2PipelineRemovedError("The V2 import pipeline was removed. The next scheduled run uses V3.")
+
     try:
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
 
         source: ExternalDataSource = schema.source
 
-        pipeline_version = ExternalDataJob.PipelineVersion.V2
-        if inputs.is_v3:
-            pipeline_version = ExternalDataJob.PipelineVersion.V3
-            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
+        _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
-        if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
-            inputs.team_id, source.source_type
-        ):
+        if is_multi_destination_enabled(inputs.team_id, source.source_type):
             destination_ids = destination_ids_for_run(schema)
         # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
         # the import. A refresh while the import is held never wipes the table or restarts the clock,
@@ -385,7 +382,7 @@ def create_external_data_job_model_activity(
                 team_id=inputs.team_id,
                 source_id=inputs.source_id,
                 schema_id=inputs.schema_id,
-                pipeline_version=pipeline_version,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=inputs.billable,
                 schema_snapshot=schema_snapshot,
                 destination_ids=destination_ids,
@@ -422,13 +419,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
@@ -451,6 +443,21 @@ def create_external_data_job_model_activity(
         # scheduling it at all, which for most syncs is its whole cost.
         repartition_needed = repartition_activity_has_work(schema)
 
+        # Answered here, after the job row exists, in the order the separate activity ran it. A
+        # transient app-DB failure is retried in place: this activity has one Temporal attempt.
+        hit_billing_limit = retry_internal_db_operation(
+            lambda: billing_limit_reached(job, source, inputs.team_id, logger)
+        )
+
+        # Read before this run's own outcome can move it, so it is not counted against itself.
+        failed_runs_in_a_row = schema.failed_runs_in_a_row
+
+        source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
+            ExternalDataJob.objects.filter(
+                team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
+            ).exists()
+        )
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -466,6 +473,11 @@ def create_external_data_job_model_activity(
             fast_return_eligible=fast_return_eligible,
             scheduled_full_refresh=scheduled_full_refresh,
             repartition_needed=repartition_needed,
+            billing_limit_checked=True,
+            hit_billing_limit=hit_billing_limit,
+            source_templates_needed=source_templates_needed,
+            import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,
+            failed_runs_in_a_row=failed_runs_in_a_row,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's

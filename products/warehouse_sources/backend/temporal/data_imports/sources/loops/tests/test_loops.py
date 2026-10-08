@@ -49,11 +49,17 @@ class TestLoopsSource:
         of ``request.params`` captured at send-time — the Request object is mutated
         in-place by the paginator between pages.
         """
-        sent_params: list[dict[str, Any]] = []
+        rows, sent = self._drive_requests(endpoint, manager, responses)
+        return rows, [params for _, params in sent]
+
+    def _drive_requests(
+        self, endpoint: str, manager: MagicMock, responses: list[Response]
+    ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
+        sent: list[tuple[str, dict[str, Any]]] = []
         response_iter = iter(responses)
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
+            sent.append((request.url, dict(request.params or {})))
             return next(response_iter)
 
         with patch(
@@ -76,7 +82,7 @@ class TestLoopsSource:
                 for item in cast(Iterable[Any], source_response.items())
                 for row in (item if isinstance(item, list) else [item])
             ]
-            return rows, sent_params
+            return rows, sent
 
     def test_fresh_run_pages_through_cursors_and_saves_state(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -114,50 +120,47 @@ class TestLoopsSource:
         assert [p.get("cursor") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_page([{"id": "only"}], next_cursor=None)),
-        ]
-        self._drive("campaigns", manager, responses)
-
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
-
     @pytest.mark.parametrize(
-        ("endpoint", "body", "expected_ids", "expected_params"),
+        ("endpoint", "parent_path", "child_path", "id_column", "unavailable_status"),
         [
+            # A campaign that has not been sent yet answers 400.
+            ("campaign_metrics", "/v1/campaigns", "/v1/campaigns/{}/metrics", "campaignId", 400),
             (
-                "mailing_lists",
-                [{"id": "list-1", "name": "Beta"}, {"id": "list-2", "name": "Launch"}],
-                ["list-1", "list-2"],
-                {},
-            ),
-            (
-                "contact_properties",
-                [{"key": "firstName", "label": "First Name", "type": "string"}],
-                ["firstName"],
-                {"list": "all"},
+                "transactional_email_metrics",
+                "/v1/transactional-emails",
+                "/v1/transactional-emails/{}/metrics",
+                "transactionalId",
+                404,
             ),
         ],
     )
-    def test_unpaginated_endpoints_yield_bare_array_in_one_request(
-        self,
-        endpoint: str,
-        body: list[dict[str, Any]],
-        expected_ids: list[str],
-        expected_params: dict[str, str],
+    def test_metrics_fan_out_over_parent_and_skip_unavailable(
+        self, endpoint: str, parent_path: str, child_path: str, id_column: str, unavailable_status: int
     ) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
-        rows, sent_params = self._drive(endpoint, manager, [_make_http_response(body)])
+        responses = [
+            _make_http_response(_page([{"id": "a"}, {"id": "b"}], next_cursor="cursor-1")),
+            _make_http_response({"sends": 10, "hardBounces": 1}),
+            _make_http_response({"message": "unavailable"}, status_code=unavailable_status),
+            _make_http_response(_page([{"id": "c"}], next_cursor=None)),
+            _make_http_response({"sends": 3, "hardBounces": 0}),
+        ]
+        rows, sent = self._drive_requests(endpoint, manager, responses)
 
-        id_field = LOOPS_ENDPOINTS[endpoint].primary_key
-        assert [row[id_field] for row in rows] == expected_ids
-        assert sent_params == [expected_params]
+        assert rows == [
+            {"sends": 10, "hardBounces": 1, id_column: "a"},
+            {"sends": 3, "hardBounces": 0, id_column: "c"},
+        ]
+        base = "https://app.loops.so/api"
+        assert sent == [
+            (f"{base}{parent_path}", {"perPage": 50}),
+            (f"{base}{child_path.format('a')}", {}),
+            (f"{base}{child_path.format('b')}", {}),
+            (f"{base}{parent_path}", {"perPage": 50, "cursor": "cursor-1"}),
+            (f"{base}{child_path.format('c')}", {}),
+        ]
         manager.save_state.assert_not_called()
 
     @pytest.mark.parametrize("endpoint", list(LOOPS_ENDPOINTS.keys()))

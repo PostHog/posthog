@@ -361,6 +361,25 @@ describe('Hog Inputs', () => {
             )
         })
 
+        it('drops the editor design from a liquid email instead of rendering it', async () => {
+            const tag = '{% if event.event == "test" %}Hi{% endif %}'
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}' },
+                        html: `<p>${tag}</p>`,
+                        design: { body: { rows: [{ values: { textJson: JSON.stringify({ text: tag }) } }] } },
+                    },
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.email.html).toEqual('<p>Hi</p>')
+            expect(inputs.email.design).toBeUndefined()
+        })
+
         it('resolves push subscription inputs without a valid integration', async () => {
             const hogFunction = createHogFunction({
                 id: 'hog-function-1',

@@ -34,30 +34,14 @@ exactly as it is today.
 """
 
 import os
-import time
-from functools import lru_cache
 from urllib.parse import urlparse
 
 from django.conf import settings
-
-import posthoganalytics
-
-from posthog.utils import get_instance_region, get_machine_id
 
 # Read at call time rather than reconstructed: the URL can carry per-process auth that whatever
 # injected it has already expanded.
 _PROXY_ENV_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
 _NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
-
-WAREHOUSE_S3_PROXY_BYPASS_FLAG = "data-warehouse-s3-proxy-bypass"
-
-# Evaluated per process, not per team: which route a pod's S3 packets take is a property of where the
-# pod runs. The flag is keyed on the machine id so a percentage rollout ramps whole pods at a time,
-# which is also what makes a canary meaningful, because half a pod's requests taking each route would
-# tell us nothing. Re-read on this interval so the flag stays a live kill switch: storage options are
-# rebuilt constantly, but warehouse activities can run for hours, so caching for the process lifetime
-# would mean a flip only lands on the next restart.
-_FLAG_CACHE_SECONDS = 60
 
 
 def _proxy_url() -> str | None:
@@ -89,39 +73,9 @@ def warehouse_bucket_host() -> str | None:
     return f"{bucket}.s3.{region}.amazonaws.com"
 
 
-@lru_cache(maxsize=4)
-def _flag_enabled(_interval: int) -> bool:
-    """Evaluate the rollout flag, keyed on a time bucket so the cache expires on its own.
-
-    Any evaluation failure returns False (fail closed): a flags
-    -service blip leaves traffic on the proxy rather than silently rerouting it.
-    """
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WAREHOUSE_S3_PROXY_BYPASS_FLAG,
-                get_machine_id(),
-                # Surfaced so release conditions can scope the flag to the warehouse workers in a
-                # given cloud region, rather than every pod that shares this project token (web,
-                # celery, and self-hosted installs all evaluate the same flag). Both values are the
-                # ones posthog/apps.py already stamps onto super_properties.
-                person_properties={
-                    "region": get_instance_region() or "",
-                    "service": settings.OTEL_SERVICE_NAME or "",
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
 def _bypass_enabled() -> bool:
     # Local dev and tests talk to MinIO/SeaweedFS over an explicit endpoint with no proxy in front.
-    if settings.USE_LOCAL_SETUP:
-        return False
-    return _flag_enabled(int(time.monotonic() // _FLAG_CACHE_SECONDS))
+    return not settings.USE_LOCAL_SETUP
 
 
 def delta_proxy_storage_options() -> dict[str, str]:

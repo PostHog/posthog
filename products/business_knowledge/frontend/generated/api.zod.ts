@@ -53,6 +53,27 @@ export const BusinessKnowledgePlaygroundChatsAskCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Stores the installation for this environment. Switching installations clears the selected repositories.
+ * @summary Connect a GitHub installation to business knowledge
+ */
+export const BusinessKnowledgeRepositoriesConnectCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of a GitHub integration on this environment.'),
+})
+
+/**
+ * Every name must be a repository the connected installation can see. Names are stored lowercased.
+ * @summary Replace the repositories business knowledge can read
+ */
+export const businessKnowledgeRepositoriesSelectionCreateBodyReposMax = 100
+
+export const BusinessKnowledgeRepositoriesSelectionCreateBody = /* @__PURE__ */ zod.object({
+    repos: zod
+        .array(zod.string())
+        .max(businessKnowledgeRepositoriesSelectionCreateBodyReposMax)
+        .describe('owner\/repo names to allow. At most 100. Replaces the current list.'),
+})
+
+/**
  * Start a sandbox agent that can search only this project's business knowledge. Returns immediately.
  * @summary Ask a business knowledge sandbox question
  */

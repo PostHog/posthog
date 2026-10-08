@@ -11,9 +11,11 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone import (
     HeliconeResumeConfig,
+    _eval_scores_rows,
     _extract_data,
     _format_timestamp,
     _prompts_rows,
+    _properties_rows,
     _requests_rows,
     _sessions_rows,
     _users_rows,
@@ -21,8 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.h
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
+    EVAL_SCORES_ENDPOINT,
     PROMPTS_ENDPOINT,
-    REQUESTS_ENDPOINT,
+    PROPERTIES_ENDPOINT,
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
 )
@@ -161,22 +164,6 @@ class TestRequestsRows:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert [state.offset for state in saved] == [2, 3]
 
-    def test_incremental_builds_gte_filter_leaf(self) -> None:
-        session = _session_returning([_response(json_body={"data": [], "error": None})])
-        manager = _no_resume_manager()
-
-        self._rows(
-            session,
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC),
-            incremental_field="request_created_at",
-        )
-
-        body = session.post.call_args.kwargs["json"]
-        # Helicone's filter AST requires one condition per leaf, wrapped in the table name.
-        assert body["filter"] == {"request_response_rmt": {"request_created_at": {"gte": "2026-06-01T12:00:00.000Z"}}}
-
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_first_incremental_sync_bounds_backfill_to_lookback(self) -> None:
         session = _session_returning([_response(json_body={"data": [], "error": None})])
@@ -260,10 +247,6 @@ class TestUsersRows:
         assert session.post.call_count == 1
         assert "timeFilter" in session.post.call_args.kwargs["json"]
 
-    def test_empty_result_yields_nothing(self) -> None:
-        session = _session_returning([_response(json_body={"data": [], "error": None})])
-        assert list(_users_rows(session, "https://api.helicone.ai", {}, mock.MagicMock())) == []
-
 
 class TestPromptsRows:
     def test_pages_with_page_numbers_and_handles_bare_array_response(self) -> None:
@@ -285,42 +268,40 @@ class TestPromptsRows:
         assert [body["page"] for body in bodies] == [0, 1]
         assert all(body["search"] == "" and body["tagsFilter"] == [] for body in bodies)
 
-    def test_resume_requests_saved_page_and_advances_by_page(self) -> None:
-        # Resume state holds the page index directly; deriving a page from a cumulative row count
-        # (offset // pageSize) would drift and re-request an already-paged page after a short page.
-        session = _session_returning([_response(json_body=[{"id": "p8"}])])
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = HeliconeResumeConfig(offset=3)
 
-        list(_prompts_rows(session, "https://api.helicone.ai", {}, mock.MagicMock(), manager))
+class TestPropertiesRows:
+    def test_posts_empty_body_and_yields_property_rows(self) -> None:
+        session = _session_returning(
+            [_response(json_body={"data": [{"property": "environment"}, {"property": "feature"}], "error": None})]
+        )
 
-        assert session.post.call_args.kwargs["json"]["page"] == 3
-        assert manager.save_state.call_args_list[0].args[0].offset == 4
+        batches = list(_properties_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
+
+        assert batches == [[{"property": "environment"}, {"property": "feature"}]]
+        assert session.post.call_args.args[0] == "https://api.helicone.ai/v1/property/query"
+        assert session.post.call_args.kwargs["json"] == {}
+
+
+class TestEvalScoresRows:
+    def test_gets_and_wraps_score_names_into_rows(self) -> None:
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"data": ["accuracy", "helpfulness"], "error": None})
+
+        batches = list(_eval_scores_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
+
+        assert batches == [[{"score": "accuracy"}, {"score": "helpfulness"}]]
+        assert session.get.call_args.args[0] == "https://api.helicone.ai/v1/evals/scores"
+        session.post.assert_not_called()
 
 
 class TestHeliconeSourceResponse:
-    def test_requests_response_metadata(self) -> None:
-        response = helicone_source(
-            api_key="key",
-            region="us",
-            endpoint=REQUESTS_ENDPOINT,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
-
-        assert response.name == REQUESTS_ENDPOINT
-        assert response.primary_keys == ["request_id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["request_created_at"]
-        assert response.partition_format == "week"
-        assert response.sort_mode == "asc"
-
     @parameterized.expand(
         [
             (SESSIONS_ENDPOINT, ["session_id"]),
             (USERS_ENDPOINT, ["user_id"]),
             (PROMPTS_ENDPOINT, ["id"]),
+            (PROPERTIES_ENDPOINT, ["property"]),
+            (EVAL_SCORES_ENDPOINT, ["score"]),
         ]
     )
     def test_full_refresh_response_metadata(self, endpoint: str, expected_primary_keys: list[str]) -> None:

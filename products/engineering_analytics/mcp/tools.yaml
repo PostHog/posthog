@@ -1,23 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product engineering_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product engineering_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Engineering analytics
 feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
-    engineering-analytics-author-friction:
-        operation: engineering_analytics_author_friction
-        enabled: false
-    engineering-analytics-author-friction-detail:
-        operation: engineering_analytics_author_friction_detail
-        enabled: false
-    engineering-analytics-author-workflow-costs:
-        operation: engineering_analytics_author_workflow_costs
-        enabled: false
     engineering-analytics-broken-tests:
         operation: engineering_analytics_broken_tests
         enabled: true
@@ -39,15 +28,12 @@ tools:
             and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is
             green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one
             branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run
-            is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats:
-            fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            is red. Pass a row's latest_run_id and latest_ci_engine to run-failure-logs to read the failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
             breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
         feature_flag: engineering-analytics
-    engineering-analytics-ci-cards:
-        operation: engineering_analytics_ci_cards
-        enabled: false
     engineering-analytics-ci-failure-logs:
         operation: engineering_analytics_ci_failure_logs
         enabled: true
@@ -66,26 +52,12 @@ tools:
             its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
-            run/job metadata behind these logs.
+            run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.
         feature_flag: engineering-analytics
-    engineering-analytics-ci-signals-config-retrieve:
-        operation: engineering_analytics_ci_signals_config_retrieve
-        enabled: false
-    engineering-analytics-ci-signals-config-update:
-        operation: engineering_analytics_ci_signals_config_update
-        enabled: false
-    engineering-analytics-current-branch-health:
-        operation: engineering_analytics_current_branch_health
-        enabled: false
-    engineering-analytics-delivery-comparison:
-        operation: engineering_analytics_delivery_comparison
-        enabled: false
-    engineering-analytics-delivery-summary:
-        operation: engineering_analytics_delivery_summary
-        enabled: false
     engineering-analytics-dora:
         operation: engineering_analytics_dora
         enabled: false
+        disabled_reason: Shipped off until codegen ran for the new endpoint, then never enabled; enable after review
         scopes:
             - engineering_analytics:read
         annotations:
@@ -143,12 +115,6 @@ tools:
             failed or errored tests. Counts are absolute, never rates, because fast passing runs are not emitted. Use
             selector to run or quarantine the test with its runner; nodeid is only the stable grouping key.
         feature_flag: engineering-analytics
-    engineering-analytics-job-aggregates:
-        operation: engineering_analytics_job_aggregates
-        enabled: false
-    engineering-analytics-master-failures:
-        operation: engineering_analytics_master_failures
-        enabled: false
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true
@@ -166,32 +132,9 @@ tools:
             per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the
             job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
-            still running that are left out of the estimate.
+            still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt). This covers
+            curated work and excludes suppressed relay/wait overhead; it is not an invoice total.
         feature_flag: engineering-analytics
-    engineering-analytics-pr-runs:
-        operation: engineering_analytics_pr_runs
-        enabled: false
-    engineering-analytics-pull-request-friction:
-        operation: engineering_analytics_pull_request_friction
-        enabled: false
-    engineering-analytics-pull-request-timelines:
-        operation: engineering_analytics_pull_request_timelines
-        enabled: false
-    engineering-analytics-quarantine:
-        operation: engineering_analytics_quarantine
-        enabled: false
-    engineering-analytics-quarantine-request:
-        operation: engineering_analytics_quarantine_request
-        enabled: false
-    engineering-analytics-repo-overview:
-        operation: engineering_analytics_repo_overview
-        enabled: false
-    engineering-analytics-repo-run-activity:
-        operation: engineering_analytics_repo_run_activity
-        enabled: false
-    engineering-analytics-resolve-branch:
-        operation: engineering_analytics_resolve_branch
-        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
         enabled: true
@@ -209,7 +152,8 @@ tools:
             surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
             original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
             or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
-            want all its runs' failures.
+            want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous
+            integer IDs return 400. Null engine means unknown historical provenance.
         feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
@@ -238,9 +182,6 @@ tools:
             github_posthog_posthog__com__pull_requests: so pick the table for the repo you mean (timestamps land as
             strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
-    engineering-analytics-team-ci-activity:
-        operation: engineering_analytics_team_ci_activity
-        enabled: false
     engineering-analytics-team-ci-health:
         operation: engineering_analytics_team_ci_health
         enabled: true
@@ -272,12 +213,6 @@ tools:
             last_seen_at. Teams are organizational owners of code surfaces, never authors. Read all counts as absolute
             signal, never rates: fast passing runs are not emitted, so there is no honest denominator.
         feature_flag: engineering-analytics
-    engineering-analytics-team-merge-trend:
-        operation: engineering_analytics_team_merge_trend
-        enabled: false
-    engineering-analytics-trunk-quarantine:
-        operation: engineering_analytics_trunk_quarantine
-        enabled: false
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
@@ -295,14 +230,8 @@ tools:
             time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the
             latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free
             GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced
-            yet.
+            yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.
         feature_flag: engineering-analytics
-    engineering-analytics-workflow-run:
-        operation: engineering_analytics_workflow_run
-        enabled: false
-    engineering-analytics-workflow-run-activity:
-        operation: engineering_analytics_workflow_run_activity
-        enabled: false
     engineering-analytics-workflow-runner-costs:
         operation: engineering_analytics_workflow_runner_costs
         enabled: true
@@ -319,11 +248,9 @@ tools:
             spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and
             estimated_cost_usd. Use this for "which runner tier drives this workflow's CI bill" and to spot oversized
             runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns
-            an empty list when the job-level source isn't synced yet.
+            an empty list when the job-level source isn't synced yet. Suppressed relay and wait overhead is excluded;
+            these curated estimates are not invoice totals.
         feature_flag: engineering-analytics
-    engineering-analytics-workflow-runs:
-        operation: engineering_analytics_workflow_runs
-        enabled: false
     pr-lifecycle:
         operation: engineering_analytics_pr_lifecycle
         enabled: true
@@ -362,8 +289,11 @@ tools:
             ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR
             verifiably never drafted. Null means "not observed" (the issue-events window is bounded), never zero. CI
             counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook
-            settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput
-            questions.
+            settles a late completion. Cost and billable minutes can lag new CI by up to 5 minutes. Bots and drafts are
+            present; exclude them (author.is_bot, is_draft) for throughput questions. To list every PR merged in a
+            window, pass state=merged: open PRs then do not count against the page, and rows come newest merged_at first
+            with number as the tie-breaker. Pages hold up to 1000 rows; while truncated is true, call again with offset
+            increased by limit, and keep date_to fixed across pages so new merges do not move rows between pages.
         param_overrides:
             date_from:
                 description: >

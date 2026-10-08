@@ -246,6 +246,27 @@ def _wildcard_bounds(value: str) -> tuple[str, str]:
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
+# The group's key is a column on the groups table, not an entry in its property JSON. Flag matching and
+# the release-condition blast radius already resolve it that way; HogQL has to agree everywhere.
+GROUP_KEY_PROPERTY = "$group_key"
+
+
+def group_property_chain(group_type_index: int | float | None, key: str) -> list[str]:
+    """Field chain that reads group property `key` through the events table's `group_N` lazy join.
+
+    `$group_key` is the `key` column, `$virt_*` properties are expression fields on the groups table, and
+    anything else lives in the property JSON. The breakdown builders and `property_to_expr` all go through
+    here so the three shapes cannot drift apart.
+    """
+    if group_type_index is None:
+        raise QueryError("A group property needs a group_type_index")
+    prefix = f"group_{int(group_type_index)}"
+    if key == GROUP_KEY_PROPERTY:
+        return [prefix, "key"]
+    if key.startswith("$virt_"):
+        return [prefix, key]
+    return [prefix, "properties", key]
+
 
 def _stringify_group_key_value(value: object) -> str | list[str]:
     """Group keys ($group_0–$group_4) are always stored as strings. A numeric filter
@@ -413,33 +434,24 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
-    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
-    filter value against a string-typed one compiles to equals(<String>, <number>), which
-    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
-    mirroring _stringify_group_key_value for group keys.
+# bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
+def _is_numeric_filter_value(v: object) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float))
+
+
+def _property_lhs_stays_string(property: Property, team: Team) -> bool:
+    """Whether the property's LHS compiles to a JSON-extracted String.
 
     Numeric-, Boolean-, and DateTime-typed properties are cast to a Float / Bool / DateTime
-    LHS by PropertySwapper, so their comparisons already resolve to a common type — those are
-    left untouched (stringifying them would reintroduce the mismatch the other way around).
-    Only the narrow numeric-value-vs-string-property shape is coerced.
-
-    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
-
-    # bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
-    def _is_numeric(v: object) -> bool:
-        return not isinstance(v, bool) and isinstance(v, (int, float))
-
-    values = value if isinstance(value, list) else [value]
-    if not any(_is_numeric(v) for v in values):
-        return value
-
+    LHS by PropertySwapper, so their comparisons already resolve to a common type.
+    A String-typed or as-yet-undefined property keeps its String LHS, and a numeric
+    comparison against it needs coercion on one side or the other."""
     # map_virtual_properties rewrites a $virt_ key to a typed column on the parent table instead
     # of a JSON extract, so its LHS is already numeric and has no PropertyDefinition row to look
-    # up. Without this guard the lookup below misses and stringifies, which breaks numeric virtual
+    # up. Without this guard the lookup below misses and coerces, which breaks numeric virtual
     # properties such as $virt_revenue.
     if property.key and property.key.startswith("$virt_"):
-        return value
+        return False
 
     if property.type == "person":
         type_filters: dict[str, object] = {"type": PropertyDefinition.Type.PERSON}
@@ -452,7 +464,7 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     else:
         # Other property types (session, data warehouse, logs, spans, …) resolve to properly
         # typed columns, so a numeric comparison already has a common type — leave them alone.
-        return value
+        return False
 
     property_type = (
         PropertyDefinition.objects.alias(
@@ -467,13 +479,29 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         .first()
     )
 
-    if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
+    return property_type not in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime)
+
+
+def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
+    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
+    filter value against a string-typed one compiles to equals(<String>, <number>), which
+    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
+    mirroring _stringify_group_key_value for group keys.
+
+    Only the narrow numeric-value-vs-string-property shape is coerced; a typed LHS is
+    left untouched (stringifying it would reintroduce the mismatch the other way around).
+
+    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
+    values = value if isinstance(value, list) else [value]
+    if not any(_is_numeric_filter_value(v) for v in values):
         return value
 
-    # String-typed or as-yet-undefined property: the LHS stays a JSON-extracted String, so
-    # stringify to keep both sides comparable. An integer-valued float loses its '.0' (13.0 -> '13').
+    if not _property_lhs_stays_string(property, team):
+        return value
+
+    # An integer-valued float loses its '.0' (13.0 -> '13').
     def _stringify(v: object) -> object:
-        if not _is_numeric(v):
+        if not _is_numeric_filter_value(v):
             return v
         if isinstance(v, float) and v.is_integer():
             return str(int(v))
@@ -482,6 +510,43 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     if isinstance(value, list):
         return cast(ValueT, [_stringify(v) for v in value])
     return cast(ValueT, _stringify(value))
+
+
+def _parse_numeric_bound(value: ValueT) -> int | float | None:
+    """Read an ordered-comparison bound as a number, or None when it is not one.
+
+    The filter UI submits a typed-in bound as text ('200'), so numeric text counts as
+    numeric here. NaN parses without error but orders meaninglessly, so it is rejected."""
+    if _is_numeric_filter_value(value):
+        return cast(int | float, value)
+    if isinstance(value, str):
+        try:
+            parsed = float(value)
+        except ValueError:
+            return None
+        return None if math.isnan(parsed) else parsed
+    return None
+
+
+def _coerce_ordered_bound(
+    expr: ast.Expr, value: ValueT, property: Property, team: Team
+) -> tuple[ast.Expr, ValueT | int | float]:
+    """Coerce an ordered comparison (lt/gt/lte/gte) of a numeric bound against a String LHS.
+
+    Stringifying the value, the way exact/is_not do, would order lexicographically
+    ('9' > '10'), so the cast has to go on the LHS instead. HogQL's toFloat prints as
+    accurateCastOrNull(..., 'Float64'), so a row whose value does not parse as a number
+    becomes NULL and drops out of the comparison, same as a row missing the property.
+    The bound comes back in parsed form, or a numeric-text bound would compare as
+    String against the Float64 LHS."""
+    bound = _parse_numeric_bound(value)
+    if bound is None:
+        return expr, value
+
+    if not _property_lhs_stays_string(property, team):
+        return expr, value
+
+    return ast.Call(name="toFloat", args=[expr]), bound
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
@@ -572,6 +637,29 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     if low > high:
         raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     return True
+
+
+@frozen
+class _BetweenComparison:
+    left: ast.Expr
+    low: int | float | str
+    high: int | float | str
+
+
+def _coerce_between_bounds(expr: ast.Expr, value: list, property: Property, team: Team) -> _BetweenComparison:
+    """Coerce a between/not_between comparison against a String LHS to numeric.
+
+    _validate_between_values already guaranteed both bounds parse as numbers, so a String
+    LHS always gets the toFloat cast (see _coerce_ordered_bound for the semantics). The
+    bounds are parsed with it, or a numeric-text bound ('10') would compare as String
+    against the Float64 LHS."""
+    if not _property_lhs_stays_string(property, team):
+        return _BetweenComparison(left=expr, low=value[0], high=value[1])
+
+    def _parse(v: object) -> int | float:
+        return float(v) if isinstance(v, str) else cast(int | float, v)
+
+    return _BetweenComparison(left=ast.Call(name="toFloat", args=[expr]), low=_parse(value[0]), high=_parse(value[1]))
 
 
 def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
@@ -784,7 +872,8 @@ def _expr_to_compare_op(
             ),
         )
     elif operator == PropertyOperator.LT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -793,7 +882,8 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -802,28 +892,41 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        between = _coerce_between_bounds(expr, value, property, team)
         return ast.And(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq, left=between.left, right=ast.Constant(value=between.low)
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq, left=between.left, right=ast.Constant(value=between.high)
+                ),
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        between = _coerce_between_bounds(expr, value, property, team)
         return ast.Or(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt, left=between.left, right=ast.Constant(value=between.low)
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt, left=between.left, right=ast.Constant(value=between.high)
+                ),
                 # A missing property makes both comparisons NULL and drops the row; keep it, matching
-                # every other negative operator.
-                ast.Call(name="isNull", args=[expr]),
+                # every other negative operator. With a coerced LHS this also keeps rows whose value
+                # does not parse as a number: they match no range, so "not between" holds for them.
+                ast.Call(name="isNull", args=[between.left]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
@@ -833,10 +936,17 @@ def _expr_to_compare_op(
             right=apply_path_cleaning(ast.Constant(value=value), team),
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
-        if not isinstance(value, list):
-            raise Exception("IN and NOT IN operators require a list of values")
+        values: list
+        if isinstance(value, list):
+            values = value
+        elif isinstance(value, str | int | float):
+            # Stored filters sometimes carry a single scalar for IN/NOT IN (filters created via
+            # the API); treat it as a one-element list, the way `exact` accepts both shapes.
+            values = [value]
+        else:
+            raise QueryError("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+        coerced = cast(list, _coerce_numeric_value_for_string_property(values, property, team))
         return ast.CompareOperation(
             op=op,
             left=expr,
@@ -1268,7 +1378,13 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        # `$group_key` is the group's key column, not an entry in its property JSON. Flag
+        # matching and the blast radius already resolve it that way, so resolve it here too;
+        # otherwise the same filter silently matches nothing in insights, cohorts and the
+        # groups list.
+        is_group_key_column = property.type == "group" and property.key == GROUP_KEY_PROPERTY
+
+        if property.key and (is_group_key_column or GROUP_KEY_PATTERN.match(str(property.key))):
             value = _stringify_group_key_value(value)
 
         if property.type == "person" and property.key == "distinct_id":
@@ -1328,6 +1444,8 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
+        elif is_group_key_column:
+            chain = ["key"] if scope == "group" else group_property_chain(property.group_type_index, GROUP_KEY_PROPERTY)
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "session" and scope in ["event", "replay"]:
@@ -1365,7 +1483,7 @@ def property_to_expr(
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
-        elif property.key == "":
+        elif property.key == "" or is_group_key_column:
             field = ast.Field(chain=[*chain])
         else:
             field = ast.Field(chain=[*chain, property.key])
@@ -1549,7 +1667,9 @@ def property_to_expr(
                 is_json_field=False,
             )
 
-        if property.key == "text":
+        # `$el_text` is the autocapture event property for the same text. The action editor saves it as
+        # `text`, but actions saved through other paths can still carry the event-property key.
+        if property.key == "text" or property.key == "$el_text":
             return parse_expr(
                 "arrayExists(text -> {compare}, elements_chain_texts)",
                 {
@@ -1820,6 +1940,29 @@ def tag_name_to_expr(tag_name: str):
     regex = rf"(^|;){tag_name}(\.|$|;|:)"
     expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(regex))})
     return expr
+
+
+def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
+    """Map an element property filter key to the breakdown column expression for the same key.
+
+    Keep this in sync with the element branch of `property_to_expr`: a breakdown value must be a
+    value the same key's filter can match, or a broken-down series and its actors query disagree.
+    """
+    if key == "href":
+        # elements_chain_href is the first href in the chain, which is the innermost element with an href.
+        return ast.Field(chain=["elements_chain_href"])
+    if key == "text":
+        # elements_chain_texts holds one entry per chain element that has a text, innermost first.
+        # The filter matches on any entry, so the first entry is the deterministic innermost pick.
+        return parse_expr("arrayElement(elements_chain_texts, 1)")
+    if key == "tag_name":
+        # The materialized elements_chain_elements column contains only interactive tags, while the
+        # tag_name filter matches every tag in the chain. Extract the innermost tag directly so the
+        # breakdown uses the same set of values as the filter.
+        return parse_expr("extract(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)')")
+    # A selector filter is a regex over the whole chain, so there is no per-event value that a
+    # selector breakdown could return without disagreeing with the filter.
+    raise QueryError(f"Breakdown by element property '{key}' is not supported. Use 'tag_name', 'text', or 'href'.")
 
 
 def selector_to_expr(selector_string: str):

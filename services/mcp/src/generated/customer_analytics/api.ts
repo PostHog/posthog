@@ -496,8 +496,17 @@ export const AnnouncementsCreateParams = () => zod.object({
         ),
 })
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = () => zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -808,7 +817,7 @@ export const CustomPropertySourcesCreateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column."
             ),
         key_column: zod
             .string()
@@ -861,13 +870,25 @@ export const CustomPropertySourcesPartialUpdateBody = () => zod
             .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const CustomPropertySourcesDestroyParams = () => zod.object({
@@ -881,8 +902,8 @@ export const CustomPropertySourcesDestroyParams = () => zod.object({
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const CustomPropertySourcesBackfillParams = () => zod.object({
     id: zod.string(),
@@ -950,7 +971,13 @@ export const CustomerTasksListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'all'])
         .default(customerTasksListQueryArchiveStateDefault)
         .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
-    assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
+    assigned_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Filter by me, unassigned, one user ID, or role:<role UUID>. A role returns tasks assigned to any current member of that organization role.'
+        ),
     due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
     due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),
     has_due_at: zod.boolean().optional().describe('Filter tasks by whether a deadline exists.'),

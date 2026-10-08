@@ -172,28 +172,18 @@ def json_dynamic_read_sql_from_parts(
 
     `field` and `sub_object` are called once per occurrence, so a caller whose key is parameterized can hand out the
     next `%(hogql_val_N)s` placeholder each time. The shape mirrors `_json_subcolumn_value_expr`: a non-empty
-    sub-object wins, an empty scalar reads as NULL, an inferred DateTime renders as ISO UTC, containers render as JSON.
+    sub-object wins, an empty scalar reads as NULL, containers render as JSON.
     """
     sub_object_read = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
     sub_object_again = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
     empty_check = f"isNull(nullIf(toString({field()}), ''))"
-    is_datetime = f"startsWith(dynamicType(accurateCast({field()}, 'Dynamic')), 'DateTime')"
-    utc_wall_clock = f"substring(toString(accurateCastOrNull({field()}, 'DateTime64(9, \\'UTC\\')')), 1, 19)"
-    datetime_text = (
-        f"concat(ifNull(toString(replaceOne({utc_wall_clock}, ' ', 'T')), ''), "
-        f"ifNull(toString(substring(toString({field()}), 20, 10)), ''), 'Z')"
-    )
     if as_json:
-        datetime_value = f"concat('\"', ifNull(toString({datetime_text}), ''), '\"')"
-        scalar = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"
+        typed = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"
     else:
-        datetime_value = datetime_text
-        is_container = ", ".join(
-            f"startsWith(dynamicType(accurateCast({field()}, 'Dynamic')), '{family}')"
-            for family in ("Array", "Map", "Tuple")
+        is_container = (
+            f"and(in(ascii(toString({field()})), tuple(91, 123)), in(ascii(toJSONString({field()})), tuple(91, 123)))"
         )
-        scalar = f"if(or({is_container}), nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}'), toString({field()}))"
-    typed = f"if({is_datetime}, {datetime_value}, {scalar})"
+        typed = f"if({is_container}, nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}'), toString({field()}))"
     scalar_or_null = f"if({empty_check}, NULL, {typed})"
     if not with_sub_object:
         return scalar_or_null

@@ -1,6 +1,5 @@
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import {
-    Breakdown,
     CachedNewExperimentQueryResponse,
     ExperimentEventExposureConfig,
     ExperimentMetric,
@@ -15,6 +14,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -22,6 +22,7 @@ import {
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    type ExperimentSavedMetric,
     FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
     FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     NOT_A_FUNNEL_REASON,
@@ -39,6 +40,7 @@ import {
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toExperimentWritePayload,
     withoutProjectedFlagConfig,
@@ -267,7 +269,7 @@ describe('getFunnelDropoffReason', () => {
 })
 
 describe('checkFeatureFlagEligibility', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test',
         name: 'Test',
@@ -838,79 +840,6 @@ describe('getOrderedMetricsWithResults', () => {
             expect(ordered[0].metric.isSharedMetric).toBe(true)
         })
 
-        it('merges breakdowns from metadata into shared metrics', () => {
-            const breakdowns: Breakdown[] = [
-                { property: '$browser', type: 'event' },
-                { property: '$os', type: 'event' },
-            ]
-
-            const experiment = {
-                ...baseExperiment,
-                saved_metrics: [
-                    {
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: 'test' },
-                        },
-                        metadata: {
-                            type: 'primary',
-                            breakdowns,
-                        },
-                    },
-                ],
-                primary_metrics_ordered_uuids: ['shared-uuid'],
-            }
-
-            const results = [mockResult({ result: 'shared-data' })]
-            const errors = [null]
-
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
-
-            expect(ordered).toHaveLength(1)
-            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual(breakdowns)
-        })
-
-        it('merges existing breakdownFilter properties with metadata breakdowns', () => {
-            const metadataBreakdowns: Breakdown[] = [{ property: '$browser', type: 'event' }]
-
-            const experiment = {
-                ...baseExperiment,
-                saved_metrics: [
-                    {
-                        saved_metric: 123,
-                        name: 'Shared Metric',
-                        query: {
-                            uuid: 'shared-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: 'test' },
-                            breakdownFilter: { some_other_prop: 'value' },
-                        },
-                        metadata: {
-                            type: 'primary',
-                            breakdowns: metadataBreakdowns,
-                        },
-                    },
-                ],
-                primary_metrics_ordered_uuids: ['shared-uuid'],
-            }
-
-            const results = [mockResult({ result: 'shared-data' })]
-            const errors = [null]
-
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
-
-            expect(ordered).toHaveLength(1)
-            expect(ordered[0].metric.breakdownFilter).toEqual({
-                some_other_prop: 'value',
-                breakdowns: metadataBreakdowns,
-            })
-        })
-
         it('filters shared metrics by type (primary vs secondary)', () => {
             const experiment = {
                 ...baseExperiment,
@@ -1021,59 +950,6 @@ describe('getOrderedMetricsWithResults', () => {
             const ordered = getOrderedMetricsWithResults(experiment, [], [], [], [], false)
 
             expect(ordered).toEqual([])
-        })
-
-        it('handles empty breakdowns array in metadata', () => {
-            const experiment = {
-                ...baseExperiment,
-                saved_metrics: [
-                    {
-                        saved_metric: 123,
-                        name: 'Shared',
-                        query: {
-                            uuid: 'shared-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: 'test' },
-                        },
-                        metadata: {
-                            type: 'primary',
-                            breakdowns: [],
-                        },
-                    },
-                ],
-                primary_metrics_ordered_uuids: ['shared-uuid'],
-            }
-
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
-
-            expect(ordered).toHaveLength(1)
-            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
-        })
-
-        it('handles missing breakdowns in metadata', () => {
-            const experiment = {
-                ...baseExperiment,
-                saved_metrics: [
-                    {
-                        saved_metric: 123,
-                        name: 'Shared',
-                        query: {
-                            uuid: 'shared-uuid',
-                            kind: NodeKind.ExperimentMetric,
-                            metric_type: ExperimentMetricType.MEAN,
-                            source: { kind: NodeKind.EventsNode, event: 'test' },
-                        },
-                        metadata: { type: 'primary' },
-                    },
-                ],
-                primary_metrics_ordered_uuids: ['shared-uuid'],
-            }
-
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult({})], [null], [], [], false)
-
-            expect(ordered).toHaveLength(1)
-            expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
         })
 
         it('tracks metricIndex for retry functionality', () => {
@@ -1217,34 +1093,49 @@ describe('metricResults', () => {
         expect(ordered.map((o) => o.result)).toEqual([{ result: 'data2' }, { result: 'data1' }])
     })
 
-    it('enriches shared metrics and merges metadata breakdowns', () => {
-        const breakdowns: Breakdown[] = [{ property: '$browser', type: 'event' }]
+    const savedQuery = {
+        uuid: 'shared-uuid',
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.MEAN,
+        source: { kind: NodeKind.EventsNode, event: 'test' },
+    }
+    const effectiveQuery = {
+        ...savedQuery,
+        breakdownFilter: { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+        fingerprint: 'effective-fingerprint',
+    }
+
+    it.each([
+        ['the effective query the API resolved', { effective_query: effectiveQuery }, effectiveQuery],
+        ['the saved query of a legacy shared metric', { effective_query: null }, savedQuery],
+        ['the saved query when the API predates effective_query', {}, savedQuery],
+        ['an empty metric when the link carries no query', { query: undefined }, {}],
+    ])('shows and queries a shared metric with %s', (_name, effectiveQueryField, expectedQuery) => {
         const experiment = {
             ...baseExperiment,
             saved_metrics: [
                 {
                     saved_metric: 123,
                     name: 'Shared Metric',
-                    query: {
-                        uuid: 'shared-uuid',
-                        kind: NodeKind.ExperimentMetric,
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.EventsNode, event: 'test' },
-                    },
-                    metadata: { type: 'primary', breakdowns },
+                    query: savedQuery,
+                    metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                    ...effectiveQueryField,
                 },
             ],
             primary_metrics_ordered_uuids: ['shared-uuid'],
         }
 
-        const ordered = metricResults(experiment)([mockResult({ result: 'shared' })], [null], 'primary')
+        const ordered = metricResults(experiment)([mockResult({})], [null], 'primary')
 
-        expect(ordered).toHaveLength(1)
-        expect(ordered[0].metric.uuid).toBe('shared-uuid')
-        expect(ordered[0].metric.name).toBe('Shared Metric')
-        expect(ordered[0].metric.sharedMetricId).toBe(123)
-        expect(ordered[0].metric.isSharedMetric).toBe(true)
-        expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual(breakdowns)
+        expect(ordered[0].metric).toEqual({
+            ...expectedQuery,
+            name: 'Shared Metric',
+            sharedMetricId: 123,
+            isSharedMetric: true,
+        })
+        expect(
+            sharedMetricsToExperimentMetrics(experiment.saved_metrics as unknown as ExperimentSavedMetric[], 'primary')
+        ).toEqual([expectedQuery])
     })
 
     it('only includes shared metrics whose metadata type matches', () => {

@@ -1,9 +1,18 @@
 from uuid import UUID, uuid4
 
+from django.http import QueryDict
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.ai_observability.backend.api.offline_experiment_read_serializers import (
+    OfflineExperimentQuerySerializer,
+    OfflineHistoryQuerySerializer,
+    OfflinePageQuerySerializer,
+    OfflineResultCellQuerySerializer,
+    OfflineResultQuerySerializer,
+    OfflineSummaryQuerySerializer,
+)
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     MAX_ITEM_PAYLOAD_BYTES,
     MAX_JSON_DEPTH,
@@ -13,10 +22,131 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultSubmissionSerializer,
     UploadSubmissionSerializer,
 )
+from products.ai_observability.backend.api.query import EmptyQuerySerializer
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 
 ITEM_ID = UUID("01922222-2222-7222-8222-222222222222")
 SCORER_VERSION_ID = UUID("01923333-3333-7333-8333-333333333333")
+
+
+class TestOfflineReadQuerySerializers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("item_ids", ""),
+            ("item_ids", f"{ITEM_ID},{ITEM_ID}"),
+            ("item_ids", ",".join(str(UUID(int=index + 1)) for index in range(51))),
+            ("scorer_version_ids", ""),
+            ("scorer_version_ids", f"{SCORER_VERSION_ID},{SCORER_VERSION_ID}"),
+            ("scorer_version_ids", ",".join(str(UUID(int=index + 1)) for index in range(21))),
+        ]
+    )
+    def test_fixed_cell_reads_reject_unbounded_or_ambiguous_selections(self, field: str, value: str) -> None:
+        serializer = OfflineResultCellQuerySerializer(
+            data={
+                "item_ids": str(ITEM_ID),
+                "scorer_version_ids": str(SCORER_VERSION_ID),
+                field: value,
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("empty", EmptyQuerySerializer, "limit"),
+            ("page", OfflinePageQuerySerializer, "scorer_version_ids"),
+            ("results", OfflineResultQuerySerializer, "scorer_definition_id"),
+            ("summary", OfflineSummaryQuerySerializer, "statuses"),
+            ("experiments", OfflineExperimentQuerySerializer, "team_id"),
+            ("history", OfflineHistoryQuerySerializer, "scorer_definition_id"),
+        ]
+    )
+    def test_each_surface_rejects_unsupported_filters(
+        self,
+        _name: str,
+        serializer_class: type[EmptyQuerySerializer] | type[OfflinePageQuerySerializer],
+        field: str,
+    ) -> None:
+        serializer = serializer_class(data={field: "1"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("zero_limit", {"limit": "0"}, "limit"),
+            ("oversized_page", {"limit": "101"}, "limit"),
+            ("oversized_cursor", {"cursor": "a" * 2049}, "cursor"),
+            ("unknown_source", {"run_source": "cron"}, "run_source"),
+            ("unknown_status", {"statuses": "complete"}, "statuses"),
+            ("duplicate_status", {"statuses": "completed,completed"}, "statuses"),
+            (
+                "reversed_dates",
+                {"date_from": "2026-09-25T10:00:00Z", "date_to": "2026-09-24T10:00:00Z"},
+                "date_to",
+            ),
+            ("invalid_version", {"scorer_version_ids": "not-a-uuid"}, "scorer_version_ids"),
+            (
+                "duplicate_versions",
+                {"scorer_version_ids": f"{SCORER_VERSION_ID},{SCORER_VERSION_ID}"},
+                "scorer_version_ids",
+            ),
+            (
+                "oversized_version_selection",
+                {"scorer_version_ids": ",".join(str(UUID(int=index + 1)) for index in range(21))},
+                "scorer_version_ids",
+            ),
+        ]
+    )
+    def test_filters_reject_unbounded_or_ambiguous_queries(self, _name: str, query: dict[str, str], field: str) -> None:
+        serializer = OfflineExperimentQuerySerializer(data=query)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    def test_repeated_query_parameters_are_rejected_instead_of_using_the_last_value(self) -> None:
+        serializer = OfflineExperimentQuerySerializer(data=QueryDict("limit=1&limit=100"))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("limit", serializer.errors)
+
+    @parameterized.expand(
+        [("experiments", OfflineExperimentQuerySerializer), ("history", OfflineHistoryQuerySerializer)]
+    )
+    def test_normalizes_supported_filters_and_maximum_version_selection(
+        self, _name: str, serializer_class: type[OfflineHistoryQuerySerializer]
+    ) -> None:
+        versions = tuple(UUID(int=index + 1) for index in range(20))
+        definition_id = uuid4() if serializer_class is OfflineExperimentQuerySerializer else None
+        identifiers = {
+            "suite_key": " run ",
+            "dataset_source": "  ",
+            "dataset_identifier": "dataset\t",
+            "dataset_revision_identifier": " rev-1",
+            "application_version": "app ",
+            "model_version": "model\n",
+            "prompt_version": "v3\n",
+        }
+        serializer = serializer_class(
+            data={
+                "limit": "100",
+                "run_source": "not_specified",
+                "statuses": "uploading,completed,failed",
+                **({"scorer_definition_id": str(definition_id)} if definition_id is not None else {}),
+                "scorer_version_ids": ",".join(str(version) for version in versions),
+                "date_from": "2026-09-24T10:00:00Z",
+                "date_to": "2026-09-25T10:00:00Z",
+                **identifiers,
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        query = serializer.validated_data
+        self.assertEqual(query.limit, 100)
+        self.assertIsNone(query.run_source)
+        self.assertTrue(query.run_source_is_null)
+        self.assertEqual(query.statuses, ("uploading", "completed", "failed"))
+        self.assertEqual(query.scorer_definition_id, definition_id)
+        self.assertEqual(query.scorer_version_ids, versions)
+        self.assertIsNotNone(query.date_from)
+        self.assertIsNotNone(query.date_to)
+        self.assertEqual({field: getattr(query, field) for field in identifiers}, identifiers)
 
 
 class TestOfflineExperimentSubmissionSerializers(SimpleTestCase):

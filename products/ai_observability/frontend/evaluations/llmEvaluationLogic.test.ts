@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
+import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
@@ -240,6 +241,7 @@ describe('llmEvaluationLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -309,6 +311,52 @@ describe('llmEvaluationLogic', () => {
             logic.actions.setOutputType('numeric')
             expect(logic.values.evaluation?.output_config.max).toBe(20)
         })
+
+        it.each([
+            ['hog', null],
+            ['llm_judge', null],
+            ['hog', 'return [input.category];'],
+            ['llm_judge', 'return [input.category];'],
+        ] as const)(
+            'keeps category edits and output switches in sync with generated Hog code from %s (custom: %s)',
+            (runtime, customSource) => {
+                logic.actions.setEvaluationType(runtime)
+                logic.actions.setOutputType('categorical')
+                if (runtime === 'llm_judge') {
+                    logic.actions.setEvaluationType('hog')
+                }
+                if (customSource) {
+                    logic.actions.setHogSource(customSource)
+                }
+
+                logic.actions.patchOutputConfig({
+                    options: [
+                        { key: 'helpful', label: 'Helpful' },
+                        { key: 'unresolved', label: 'Unresolved' },
+                    ],
+                })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['helpful'];",
+                })
+
+                logic.actions.patchOutputConfig({ options: [{ key: 'unresolved', label: 'Unresolved' }] })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    source: customSource ?? "return ['unresolved'];",
+                })
+
+                for (const outputType of ['numeric', 'boolean'] as const) {
+                    logic.actions.setOutputType(outputType)
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? (outputType === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE),
+                    })
+
+                    logic.actions.setOutputType('categorical')
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? "return ['unresolved'];",
+                    })
+                }
+            }
+        )
 
         it('preserves numeric output while switching runtimes and locks saved output types', async () => {
             const numeric = {
@@ -675,6 +723,47 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
+
+            it.each([
+                ['system_one', false, true],
+                ['openrouter', true, true],
+                ['openrouter', false, false],
+            ] as const)(
+                'requires numeric bounds for %s with supportsDecisions=%s: %s',
+                async (provider, supportsDecisions, boundsRequired) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+                    modelPickerLogic.actions.loadByokModelsSuccess([
+                        {
+                            id: 'custom-model',
+                            name: 'Decision model',
+                            provider: 'OpenRouter',
+                            description: '',
+                            providerKeyId: 'key-1',
+                            supportsDecisions,
+                        },
+                    ])
+                    logic.actions.loadEvaluationSuccess({
+                        ...mockEvaluation,
+                        output_type: 'numeric',
+                        output_config: {},
+                        model_configuration: { provider, model: 'custom-model', provider_key_id: 'key-1' },
+                    })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.patchOutputConfig({ min: 1, max: 10 })
+                    expect(logic.values.formValid).toBe(true)
+                    logic.actions.patchOutputConfig({ max: null })
+                    expect(logic.values.formValid).toBe(!boundsRequired)
+
+                    logic.actions.setModelConfiguration({
+                        provider: 'openai',
+                        model: 'gpt-5-mini',
+                        provider_key_id: 'key-1',
+                    })
+                    expect(logic.values.formValid).toBe(true)
+                }
+            )
 
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.
@@ -1597,23 +1686,35 @@ return result`,
             expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
         })
 
-        it('does not request a sample with an invalid numeric config', async () => {
-            const testSample = jest.fn(() => ({ results: [] }))
-            useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setOutputType('numeric')
-            logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: NaN } })
+        it.each(['numeric', 'categorical'] as const)(
+            'does not request a sample with an invalid %s config',
+            async (outputType) => {
+                const testSample = jest.fn(() => ({ results: [] }))
+                useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType(outputType)
+                logic.actions.patchOutputConfig(
+                    outputType === 'numeric'
+                        ? { passing_rule: { operator: 'gte', threshold: NaN } }
+                        : {
+                              options: Array.from({ length: 101 }, (_, i) => ({
+                                  key: `category_${i}`,
+                                  label: `Category ${i}`,
+                              })),
+                          }
+                )
 
-            await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
 
-            expect(testSample).not.toHaveBeenCalled()
-            expect(logic.values.hogTestResults).toBeNull()
-        })
+                expect(testSample).not.toHaveBeenCalled()
+                expect(logic.values.hogTestResults).toBeNull()
+            }
+        )
 
-        it.each(['boolean', 'numeric'] as const)(
+        it.each(['boolean', 'numeric', 'categorical'] as const)(
             'sends %s output config and clears sample results after configuration changes',
             async (outputType) => {
                 let requestBody: Record<string, unknown> | undefined
@@ -1667,7 +1768,16 @@ return result`,
                     output_config:
                         outputType === 'numeric'
                             ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
-                            : { allows_na: false },
+                            : outputType === 'categorical'
+                              ? {
+                                    allows_na: false,
+                                    selection_mode: 'single',
+                                    options: [
+                                        { key: 'resolved', label: 'Resolved' },
+                                        { key: 'unresolved', label: 'Unresolved' },
+                                    ],
+                                }
+                              : { allows_na: false },
                     target_config: { window_seconds: 120 },
                 })
                 expect(requestBody).not.toHaveProperty('allows_na')

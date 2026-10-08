@@ -1,3 +1,5 @@
+import typing
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -5,10 +7,13 @@ import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
     resolve_resume_manager,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
@@ -56,7 +61,7 @@ class TestResumableSourceManager:
 
         assert state == _SweepPosition(cursor="cus_1")
 
-    def test_state_reaches_redis_only_on_commit(self):
+    def test_only_a_confirmed_cursor_reaches_redis_and_only_on_commit(self):
         manager = _manager()
         redis = MagicMock()
 
@@ -64,6 +69,11 @@ class TestResumableSourceManager:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
             manager.save_state(_SweepPosition(cursor="cus_2"))
+            manager.commit()
+            redis.set.assert_not_called()
+
+            manager.confirm()
+            manager.save_state(_SweepPosition(cursor="cus_3"))
             redis.set.assert_not_called()
 
             manager.commit()
@@ -72,6 +82,22 @@ class TestResumableSourceManager:
         redis.set.assert_called_once_with(
             "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"cus_2"}', ex=60 * 60 * 24
         )
+
+    def test_save_and_load_logs_do_not_include_cursor_payloads(self):
+        manager = _manager()
+        redis = MagicMock()
+        redis.get.return_value = '{"cursor":"sensitive-customer-id"}'
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="sensitive-customer-id"))
+            manager.confirm()
+            manager.commit()
+            manager.load_state()
+
+        logger = typing.cast(MagicMock, manager._logger)
+        messages = [str(call.args[0]) for call in logger.debug.call_args_list]
+        assert all("sensitive-customer-id" not in message for message in messages)
 
     def test_committing_persists_the_staged_state_even_when_the_block_raises(self):
         manager = _manager()
@@ -95,20 +121,25 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.with_namespace("deltas").save_state(_SweepPosition(cursor="cus_3"))
+            manager.confirm()
             manager.commit()
 
         redis.set.assert_called_once_with(
             "posthog:data_warehouse:resumable_source:1:job-1:deltas", '{"cursor":"cus_3"}', ex=60 * 60 * 24
         )
 
-    def test_clear_state_drops_the_staged_cursor(self):
+    @pytest.mark.parametrize("confirmed", [True, False], ids=["confirmed", "pending"])
+    def test_clear_state_drops_the_staged_cursor(self, confirmed: bool):
         manager = _manager()
         redis = MagicMock()
 
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            if confirmed:
+                manager.confirm()
             manager.clear_state()
+            manager.confirm()
             manager.commit()
 
         redis.delete.assert_called_once_with("posthog:data_warehouse:resumable_source:1:job-1")
@@ -125,6 +156,7 @@ class TestResumableSourceManager:
         with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
             get_redis.return_value.__enter__.return_value = redis
             manager.save_state(_SweepPosition(cursor="cus_1"))
+            manager.confirm()
             manager.commit()
 
         redis.connection_pool.disconnect.assert_called_once()
@@ -157,3 +189,55 @@ class TestResumableSourceManager:
 
         redis.connection_pool.disconnect.assert_called_once()
         assert redis.delete.call_count == 2
+
+
+class TestResumeCoversRun:
+    @staticmethod
+    def _resume_state_of(source) -> type | None:
+        """The state class a source checkpoints, read off its `ResumableSource[...]` base."""
+        for base in getattr(type(source), "__orig_bases__", ()):
+            if typing.get_origin(base) is ResumableSource:
+                args = typing.get_args(base)
+                if len(args) > 1:
+                    return args[1]
+        return None
+
+    def test_a_keyset_source_never_claims_the_resumable_budget_for_an_incremental_run(self):
+        # Keyset seeking is a full-load path, so a keyset source's incremental runs resume from the
+        # watermark like any other source's do. Covering them here hands every one the resumable
+        # retry allowance — for the Postgres family that is most of the fleet, and the runs that
+        # cannot resume redo the whole read on each of those extra attempts. Derived from the state
+        # class so the next source to adopt `KeysetResumeState` is held to the same rule. Snowflake
+        # is deliberately not caught: it checkpoints on the incremental field, so its resume does
+        # cover incremental runs.
+        covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if source.resume_covers_run(incremental_or_append=True)
+        ]
+        assert covered == []
+
+    def test_a_keyset_source_covers_its_full_loads(self):
+        # The other half of the rule above. A full load seeks and checkpoints, so each extra attempt
+        # continues the read instead of restarting it, which is what the resumable allowance pays for.
+        not_covered = [
+            source.source_type
+            for source in self._keyset_sources()
+            if not source.resume_covers_run(incremental_or_append=False)
+        ]
+        assert not_covered == []
+
+    def _keyset_sources(self) -> list[ResumableSource]:
+        keyset_sources: list[ResumableSource] = [
+            source
+            for source in SourceRegistry.get_all_sources().values()
+            if isinstance(source, ResumableSource) and self._resume_state_of(source) is KeysetResumeState
+        ]
+        assert keyset_sources, "expected at least one source to checkpoint with KeysetResumeState"
+        return keyset_sources
+
+    def test_the_default_covers_every_run_of_any_other_resumable_source(self):
+        # A REST source paginates the same way whichever sync type it runs, and Snowflake checkpoints
+        # on its incremental field, so narrowing the default would cut their retry budgets.
+        for incremental in (True, False):
+            assert ResumableSource.resume_covers_run(MagicMock(), incremental_or_append=incremental) is True

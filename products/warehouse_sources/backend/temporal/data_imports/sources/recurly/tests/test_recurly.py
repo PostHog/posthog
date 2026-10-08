@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly import (
@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.re
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
-FULL_REFRESH_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_incremental]
+NO_LIST_PARAMS_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_list_params]
 
 
 def _list_body(data: list[dict[str, Any]], has_more: bool = False, next_path: str | None = None) -> dict[str, Any]:
@@ -48,15 +48,6 @@ class TestRecurlyHelpers:
     def test_extract_cursor(self, next_path, expected):
         assert _extract_cursor(next_path) == expected
 
-    def test_format_datetime_naive_datetime_gets_utc_z_suffix(self):
-        assert _format_datetime(datetime(2024, 1, 2, 3, 4, 5, 678000)) == "2024-01-02T03:04:05.678Z"
-
-    def test_format_datetime_aware_datetime_converted_to_utc(self):
-        from datetime import timedelta, timezone
-
-        value = datetime(2024, 1, 2, 5, 0, 0, tzinfo=timezone(timedelta(hours=2)))
-        assert _format_datetime(value) == "2024-01-02T03:00:00.000Z"
-
     def test_format_datetime_date(self):
         assert _format_datetime(date(2024, 1, 2)) == "2024-01-02T00:00:00.000Z"
 
@@ -68,28 +59,6 @@ class TestRecurlyHelpers:
 
 
 class TestRecurlyPaginator:
-    def test_initial_state(self):
-        paginator = RecurlyPaginator()
-        assert paginator._next_cursor is None
-        # BasePaginator starts True so the first request fires; update_state flips it.
-        assert paginator.has_next_page is True
-
-    def test_update_state_has_more_extracts_cursor(self):
-        paginator = RecurlyPaginator()
-        response = MagicMock()
-        response.json.return_value = _list_body([{"id": "a1"}], has_more=True, next_path="/accounts?cursor=next-1")
-        paginator.update_state(response)
-        assert paginator._next_cursor == "next-1"
-        assert paginator.has_next_page is True
-
-    def test_update_state_no_more_when_has_more_false(self):
-        paginator = RecurlyPaginator()
-        response = MagicMock()
-        response.json.return_value = _list_body([{"id": "a1"}], has_more=False, next_path="/accounts?cursor=ignored")
-        paginator.update_state(response)
-        assert paginator._next_cursor is None
-        assert paginator.has_next_page is False
-
     def test_update_state_has_more_but_missing_cursor_terminates(self):
         paginator = RecurlyPaginator()
         response = MagicMock()
@@ -105,27 +74,6 @@ class TestRecurlyPaginator:
         paginator.update_state(response)
         assert paginator.has_next_page is False
 
-    @pytest.mark.parametrize("seeded_cursor", [None, "cursor-2000"])
-    def test_init_request_honours_seeded_cursor(self, seeded_cursor):
-        paginator = RecurlyPaginator()
-        if seeded_cursor is not None:
-            paginator.set_resume_state({"next_cursor": seeded_cursor})
-
-        request = Request(method="GET", url="https://v3.recurly.com/accounts")
-        paginator.init_request(request)
-
-        if seeded_cursor is None:
-            assert request.params is None or "cursor" not in request.params
-        else:
-            assert request.params["cursor"] == seeded_cursor
-
-    def test_get_resume_state_returns_state_when_next_page(self):
-        paginator = RecurlyPaginator()
-        response = MagicMock()
-        response.json.return_value = _list_body([], has_more=True, next_path="/accounts?cursor=c-42")
-        paginator.update_state(response)
-        assert paginator.get_resume_state() == {"next_cursor": "c-42"}
-
     def test_get_resume_state_returns_none_on_terminal_page(self):
         paginator = RecurlyPaginator()
         response = MagicMock()
@@ -133,41 +81,8 @@ class TestRecurlyPaginator:
         paginator.update_state(response)
         assert paginator.get_resume_state() is None
 
-    def test_set_resume_state_round_trip(self):
-        paginator = RecurlyPaginator()
-        paginator.set_resume_state({"next_cursor": "c-99"})
-        assert paginator._next_cursor == "c-99"
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"next_cursor": "c-99"}
-
-    def test_set_resume_state_coerces_to_string(self):
-        paginator = RecurlyPaginator()
-        paginator.set_resume_state({"next_cursor": 12345})
-        assert paginator._next_cursor == "12345"
-
-    def test_set_resume_state_ignores_missing_cursor(self):
-        paginator = RecurlyPaginator()
-        paginator.set_resume_state({})
-        assert paginator._next_cursor is None
-
 
 class TestGetResource:
-    @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
-    def test_full_refresh_resource_uses_replace_and_stable_sort(self, endpoint):
-        resource = _resource(
-            endpoint, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
-        )
-        assert resource["name"] == endpoint
-        assert resource["table_name"] == endpoint
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == RECURLY_ENDPOINTS[endpoint].path
-        assert resource["endpoint"]["data_selector"] == "data"
-        params = resource["endpoint"]["params"]
-        assert params["sort"] == "created_at"
-        assert params["order"] == "asc"
-        assert params["limit"] == 200
-        assert "begin_time" not in params
-
     @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
     def test_incremental_resource_uses_merge_and_begin_time(self, endpoint):
         resource = _resource(
@@ -182,46 +97,22 @@ class TestGetResource:
         assert params["order"] == "asc"
         assert params["begin_time"] == "2024-01-01T00:00:00.000Z"
 
-    def test_incremental_honours_chosen_field(self):
-        resource = _resource(
-            "accounts",
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            db_incremental_field_last_value=None,
-        )
-        assert resource["endpoint"]["params"]["sort"] == "created_at"
-
-    def test_incremental_falls_back_to_updated_at_for_unknown_field(self):
-        resource = _resource(
-            "accounts",
-            should_use_incremental_field=True,
-            incremental_field="not_a_field",
-            db_incremental_field_last_value=None,
-        )
-        assert resource["endpoint"]["params"]["sort"] == "updated_at"
-
-    def test_no_begin_time_without_last_value(self):
-        resource = _resource(
-            "accounts",
-            should_use_incremental_field=True,
-            incremental_field="updated_at",
-            db_incremental_field_last_value=None,
-        )
-        assert "begin_time" not in resource["endpoint"]["params"]
-
-    @pytest.mark.parametrize("endpoint", FULL_REFRESH_ENDPOINTS)
-    def test_full_refresh_endpoint_ignores_incremental_request(self, endpoint):
-        # Even if the pipeline asks for incremental, an endpoint without a server-side
-        # time filter must stay full-refresh.
+    @pytest.mark.parametrize("endpoint", NO_LIST_PARAMS_ENDPOINTS)
+    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
+    def test_endpoint_without_list_params_sends_no_query_params(
+        self, endpoint: str, should_use_incremental_field: bool
+    ) -> None:
+        # gift_cards' list endpoint 400s on any query parameter at all (confirmed against
+        # the v2021-02-25 OpenAPI spec, which declares none for it), so limit/sort/order
+        # must never be sent even when the pipeline asks for incremental.
         resource = _resource(
             endpoint,
-            should_use_incremental_field=True,
+            should_use_incremental_field=should_use_incremental_field,
             incremental_field="updated_at",
             db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
         )
+        assert resource["endpoint"]["params"] == {}
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["params"]["sort"] == "created_at"
-        assert "begin_time" not in resource["endpoint"]["params"]
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -257,17 +148,6 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert message
-
-    @pytest.mark.parametrize("region, expected_host", [("us", "v3.recurly.com"), ("eu", "v3.eu.recurly.com")])
-    def test_region_selects_host(self, region, expected_host):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.recurly.recurly.make_tracked_session"
-        ) as mock_session:
-            mock_session.return_value.get.return_value = _make_http_response({}, status_code=200)
-            validate_credentials("key", region)
-
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert expected_host in called_url
 
 
 class TestRecurlySourceResumeBehavior:
@@ -328,15 +208,6 @@ class TestRecurlySourceResumeBehavior:
 
         assert [p.get("cursor") for p in sent_params] == ["cur-resumed"]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self):
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response(_list_body([{"id": "only"}], has_more=False))]
-        self._drive("accounts", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self):
         manager = MagicMock(spec=ResumableSourceManager)

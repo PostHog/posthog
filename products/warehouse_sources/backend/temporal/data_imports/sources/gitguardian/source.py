@@ -57,7 +57,7 @@ class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitGuardian",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a GitGuardian API token to sync your secret incidents, occurrences, monitored sources, honeytokens, members, and teams into the PostHog Data warehouse.
+            caption="""Enter a GitGuardian API token to sync your secret incidents, occurrences, incident activity logs, secret detectors, monitored sources, honeytokens, honeytoken events, members, teams, and team memberships into the PostHog Data warehouse.
 
 Create a service account token (recommended for unattended syncs) or a personal access token in your [GitGuardian API settings](https://dashboard.gitguardian.com/api). Grant the read scopes for the tables you want to sync: `incidents:read`, `sources:read`, `honeytokens:read`, `members:read`, and `teams:read`. Reading incidents requires a token with at least the Manager access level.
 

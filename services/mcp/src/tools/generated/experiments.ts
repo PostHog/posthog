@@ -76,7 +76,8 @@ const experimentArchive = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -453,7 +454,8 @@ const experimentDuplicate = (): ToolBase<ReturnType<typeof ExperimentDuplicateSc
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/duplicate/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, ['health']) as typeof result
+        return filtered
     },
 })
 
@@ -500,7 +502,8 @@ const experimentEnd = (): ToolBase<ReturnType<typeof ExperimentEndSchema>, WithP
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -527,7 +530,8 @@ const experimentFreezeExposure = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/freeze_exposure/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -551,7 +555,8 @@ const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithP
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['saved_metrics.*.effective_query', 'health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -831,7 +836,7 @@ const ExperimentMetricsRecalculationCreateSchema = () => {
 
 const experimentMetricsRecalculationCreate = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationJob>
 > => ({
     name: 'experiment-metrics-recalculation-create',
     schema: ExperimentMetricsRecalculationCreateSchema(),
@@ -840,7 +845,7 @@ const experimentMetricsRecalculationCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationJob>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
         })
@@ -861,7 +866,7 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = () => {
 
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationLatest>
 > =>
     withUiApp('experiment-results', {
         name: 'experiment-metrics-recalculation-latest-retrieve',
@@ -871,7 +876,7 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
             params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>>
         ) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculationLatest>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
             })
@@ -906,7 +911,7 @@ const ExperimentMetricsRecalculationRetrieveSchema = () => {
 
 const experimentMetricsRecalculationRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationRun>
 > => ({
     name: 'experiment-metrics-recalculation-retrieve',
     schema: ExperimentMetricsRecalculationRetrieveSchema(),
@@ -915,7 +920,7 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationRun>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
         })
@@ -958,7 +963,8 @@ const experimentMigrate = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -982,7 +988,8 @@ const experimentPause = (): ToolBase<ReturnType<typeof ExperimentPauseSchema>, W
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/pause/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1021,7 +1028,8 @@ const experimentReset = (): ToolBase<ReturnType<typeof ExperimentResetSchema>, W
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/reset/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1045,7 +1053,8 @@ const experimentResume = (): ToolBase<ReturnType<typeof ExperimentResumeSchema>,
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/resume/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1310,7 +1319,8 @@ const experimentShipVariant = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/ship_variant/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1393,7 +1403,8 @@ const experimentUnarchive = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1420,7 +1431,8 @@ const experimentUnfreezeExposure = (): ToolBase<
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unfreeze_exposure/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = omitResponseFields(result, ['health']) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -1541,7 +1553,13 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 'excluded_variants',
                 'metrics',
                 'metrics_secondary',
-                'saved_metrics',
+                'saved_metrics.*.id',
+                'saved_metrics.*.experiment',
+                'saved_metrics.*.saved_metric',
+                'saved_metrics.*.metadata',
+                'saved_metrics.*.created_at',
+                'saved_metrics.*.query',
+                'saved_metrics.*.name',
                 'conclusion',
                 'conclusion_comment',
                 'tags',

@@ -103,7 +103,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
+        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results younger than 24 hours are served from cache, and refresh=true does not change that: it computes only when no cached result is that fresh, which is also the default. To recompute, use experiment-metrics-recalculation-create. Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -319,7 +319,7 @@
         }
     },
     "notebooks-update-cell": {
-        "description": "Update a cell by node_id. For a SQL or Python cell pass `code` to replace its source and re-run it, or omit code to re-run it unchanged (how you refresh a stale cell). For a markdown cell (cell_type 'markdown' in notebooks-get: prose, a heading, a table, a fenced block) pass `markdown` instead: it replaces that block only, runs nothing, and leaves every other cell untouched. That is how you fix wording in a notebook you already shared, instead of appending a correction or recreating it under a new URL. Read the ids with notebooks-get and edit against that same read, because a markdown cell's id is derived from its text and changes once the text changes. Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
+        "description": "Update a cell by node_id. For a SQL or Python cell pass `code` to replace its source and re-run it, or omit code to re-run it unchanged (how you refresh a stale cell). For a markdown cell (cell_type 'markdown' in notebooks-get: prose, a heading, a table, a fenced block) pass `markdown` instead: it replaces that block only, runs nothing, and leaves every other cell untouched. That is how you fix wording in a notebook you already shared, instead of appending a correction or recreating it under a new URL. Read the ids with notebooks-get and edit against that same read, because a markdown cell's id is derived from its text and changes once the text changes. Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time. To refresh the whole notebook in one call instead, use notebooks-run. The run binds the notebook's current variables, so re-running (no code) is also how a cell picks up a changed variable value. Re-running a Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them its hourly_price the first time a run starts one.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update a cell's code and re-run it.",
@@ -348,8 +348,38 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-run": {
+        "description": "Run every SQL and Python cell of a markdown notebook, in document order, in one call. Cells run one at a time, and the run stops at the first cell that fails or is stopped, so a later cell never reads a stale upstream result. Pass `variables` to set the notebook's values first: the list replaces the whole set and the notebook stores it, so \"refresh this report for last week\" is a single call. Waits up to ~45s and writes each cell's result into the document as it lands. A longer run comes back with status 'running' and a run_id; continue with notebooks-run-status, which keeps waiting and writes the rest. Editing the notebook during a run does not change which cells run: the plan is frozen when the run starts, and a result whose cell was deleted is dropped. Editing a cell's code mid-run is the one case to avoid: the frozen code still runs, and its result lands under the code you just wrote. A Python cell provisions the notebook's sandbox when none is running, and the user pays for it while it runs, so tell them the sandbox_hourly_price the first time a run starts one.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Run every SQL and Python cell of a notebook in document order.",
+        "title": "Run notebook",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-run-status": {
+        "description": "Keep waiting on a notebook run that notebooks-run started, and write each cell's result into the document as it lands. Waits up to ~45s per call, so call it again while the status is still 'running'. Safe to repeat: a result already in the document is not written a second time. Returns the same shape as notebooks-run, including which cell stopped the run. A cell edited since the run started still receives the frozen code's result, so its rows and its code can disagree.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Continue waiting on a notebook run and write its results into the document.",
+        "title": "Notebook run status",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-set-variables": {
-        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically — re-run each stale cell with notebooks-update-cell (no code) so its result reflects the new values.",
+        "description": "Declare or change a markdown notebook's variables: named, typed values that cells read without hardcoding them — a SQL cell as a bare `{name}` placeholder (bound as a value, never as SQL text), a Python cell as a plain global. Use one for an input the reader will want to change (a country, a date range start, a threshold, a row limit) instead of repeating a literal across cells. The list you pass replaces the whole set, so read the current one from notebooks-get first and include every variable you want to keep. Returns the saved variables and stale_cells: cells whose code reads a variable that was added, removed, retyped, or given a new value. Nothing re-runs automatically: re-run each stale cell with notebooks-update-cell (no code), or run the whole notebook with notebooks-run, which can set the variables in the same call.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Set a notebook's variables; cells read them as {name} in SQL or globals in Python.",
@@ -531,104 +561,6 @@
             "readOnlyHint": false
         }
     },
-    "survey-create": {
-        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
-        "category": "Surveys",
-        "summary": "Creates a new survey in the project.",
-        "required_scopes": ["survey:write"],
-        "feature": "surveys",
-        "title": "Create survey",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "survey-get": {
-        "description": "Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters with survey-update.",
-        "category": "Surveys",
-        "summary": "Get a specific survey by ID.",
-        "required_scopes": ["survey:read"],
-        "feature": "surveys",
-        "title": "Get survey",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "surveys-get-all": {
-        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
-        "category": "Surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "required_scopes": ["survey:read"],
-        "feature": "surveys",
-        "title": "Get all surveys",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "survey-update": {
-        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
-        "category": "Surveys",
-        "summary": "Update an existing survey by ID.",
-        "required_scopes": ["survey:write"],
-        "feature": "surveys",
-        "title": "Update survey",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "survey-delete": {
-        "description": "Delete a survey by ID (soft delete - marks as archived).",
-        "category": "Surveys",
-        "summary": "Delete a survey by ID.",
-        "required_scopes": ["survey:write"],
-        "feature": "surveys",
-        "title": "Delete survey",
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "surveys-global-stats": {
-        "description": "Get aggregated response statistics across all surveys in the project. Includes event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
-        "category": "Surveys",
-        "summary": "Get aggregated response statistics across all surveys.",
-        "required_scopes": ["survey:read"],
-        "feature": "surveys",
-        "title": "Get all survey response stats",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "survey-stats": {
-        "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
-        "category": "Surveys",
-        "summary": "Get response statistics for a specific survey.",
-        "required_scopes": ["survey:read"],
-        "feature": "surveys",
-        "title": "Get survey response stats",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "debug-mcp-ui-apps": {
         "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
         "category": "Debug",
@@ -723,7 +655,7 @@
         "feature": "sql",
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
-        "required_scopes": ["query:read", "insight:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -737,7 +669,7 @@
         "feature": "data_schema",
         "summary": "Explore the user's events, actions, properties, and property values.",
         "title": "Read data schema",
-        "required_scopes": ["event_definition:read", "property_definition:read"],
+        "required_scopes": ["action:read", "event_definition:read", "property_definition:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

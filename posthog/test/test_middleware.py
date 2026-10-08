@@ -31,10 +31,12 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
     ActivityLoggingMiddleware,
+    Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
     per_request_logging_context_middleware,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
@@ -394,6 +396,19 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
             "posthog.middleware.per_request_logging_context_middleware"
         )
+
+
+class TestFix204Middleware(SimpleTestCase):
+    def test_no_content_response_has_no_body_or_content_length(self) -> None:
+        def get_response(request: HttpRequest) -> HttpResponse:
+            response = HttpResponse(b'{"ok": true}', status=204, content_type="application/json")
+            response.headers["Content-Length"] = str(len(response.content))
+            return response
+
+        response = Fix204Middleware(get_response)(RequestFactory().post("/"))
+
+        assert response.content == b""
+        assert "Content-Length" not in response.headers
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -1112,7 +1127,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
@@ -1175,6 +1189,17 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 
         self.login_as_other_user()
 
+        start = ActivityLog.objects.filter(scope="User", activity="logged_in", item_id=str(self.other_user.id)).latest(
+            "created_at"
+        )
+        assert (
+            start.user_id,
+            start.was_impersonated,
+            start.credential_type,
+            start.credential_id,
+            start.impersonated_by_id,
+        ) == (self.user.id, True, "session", None, self.user.id)
+
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
@@ -1190,6 +1215,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Verify dashboard was updated
         dashboard.refresh_from_db()
         assert dashboard.name == "Updated Dashboard"
+
+        log = ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard.id)).latest("created_at")
+        assert (log.user, log.was_impersonated, log.credential_type, log.impersonated_by_id) == (
+            self.other_user,
+            True,
+            "session",
+            self.user.id,
+        )
 
     def test_impersonation_blocked_when_user_disallows(self):
         """Verify regular impersonation fails when target user has allow_impersonation=False."""
@@ -2122,6 +2155,39 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
         self.middleware = ActivityLoggingMiddleware(get_response)
 
+    @parameterized.expand(
+        [
+            ("the session authenticates", "unchanged", "session"),
+            ("a later middleware rewraps the same user", "rewrapped", "session"),
+            ("another class authenticates", "replaced", None),
+        ]
+    )
+    def test_session_credential_applies_only_while_the_session_user_is_the_request_user(
+        self, _name: str, request_user: str, expected_type: str | None
+    ):
+        from django.contrib.auth.models import AnonymousUser
+        from django.http import HttpResponse
+        from django.utils.functional import SimpleLazyObject
+
+        from posthog.middleware import ActivityLoggingMiddleware
+
+        def get_response(request):
+            if request_user == "rewrapped":
+                request.user = SimpleLazyObject(lambda: self.user)
+            elif request_user == "replaced":
+                # DRF writes the principal of the class that authenticated back onto the request.
+                request.user = AnonymousUser()
+            self.captured["credential"] = self.activity_storage.get_credential()
+            return HttpResponse()
+
+        request = self.factory.get("/")
+        request.user = self.user
+        ActivityLoggingMiddleware(get_response)(request)
+
+        credential = self.captured["credential"]
+        assert (credential.type if credential else None) == expected_type
+        assert self.activity_storage.get_credential() is None
+
     def test_captures_x_posthog_client_header(self):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
         request.user = self.user
@@ -2309,6 +2375,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "access_blocked",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "access_blocked"),
+                "/login?error_code=access_blocked",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2397,6 +2469,15 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
         ("/signup", "", None, "same-origin"),
         ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/organization/confirm-creation", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/organization/confirm-creation", "next=/dashboard", None, "same-origin"),
+        (
+            "/verify_email/00000000-0000-0000-0000-000000000001",
+            "next=/connect/vercel/link?session=abc",
+            None,
+            "unsafe-none",
+        ),
+        ("/verify_email/00000000-0000-0000-0000-000000000001", "next=/dashboard", None, "same-origin"),
         ("/complete/github-link/", "", None, "same-origin"),
         ("/complete/slack-link/", "", None, "same-origin"),
         ("/login/not-a-backend/", "", None, "same-origin"),
@@ -2419,6 +2500,10 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "signup-next-oauth",
         "signup-no-next",
         "signup-next-non-oauth",
+        "confirm-creation-next-oauth",
+        "confirm-creation-next-non-oauth",
+        "verify-email-next-oauth",
+        "verify-email-next-non-oauth",
         "linking-complete-github",
         "linking-complete-slack",
         "login-unknown-backend",

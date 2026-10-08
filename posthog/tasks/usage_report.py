@@ -55,7 +55,6 @@ from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
-from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
@@ -218,7 +217,6 @@ class UsageReportCounters:
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
-    local_evaluation_not_modified_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
 
     # Queries
@@ -796,13 +794,15 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        use_new = use_new_events_schema(None)
+        group_columns = [f"properties.`$group_{i}`" if use_new else f"$group_{i}" for i in range(5)]
         # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
         return sync_execute(
             f"""
             SELECT team_id, count(1) as count
-            FROM {events_read_table(use_new_events_schema(None))}
+            FROM {events_read_table(use_new)}
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+            AND ({" OR ".join(f"{column} != ''" for column in group_columns)})
             GROUP BY team_id
             """,
             {"begin": begin, "end": end},
@@ -1392,7 +1392,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = USAGE_EVENT_NAMES[request_type]
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
     use_new = use_new_events_schema(None)
     count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
@@ -1433,7 +1433,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = USAGE_EVENT_NAMES[request_type]
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
     use_new = use_new_events_schema(None)
     sdk_breakdown_expr, _ = get_property_string_expr(
@@ -1763,6 +1763,7 @@ POSTHOG_AI_PRODUCTS = [
     "product_analytics",
     "surveys",
     "replay_vision",
+    "hogql_decide",
 ]
 
 # ai_product values billed as PostHog Desktop credits.
@@ -2862,11 +2863,6 @@ def capture_report(
             capture_exception(err, {"distinct_id": distinct_id, "organization_id": organization_id})
 
 
-def billable_feature_flag_requests(decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
-    """A full local evaluation response costs ten decide requests; a 304 costs one."""
-    return decide + local_evaluation * 10 + local_evaluation_not_modified
-
-
 # extend this with future usage based products
 def has_non_zero_usage(report: UsageReportCounters) -> bool:
     return (
@@ -2876,7 +2872,6 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
-        or report.local_evaluation_not_modified_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
         or report.free_historical_rows_synced_in_period > 0
@@ -3016,9 +3011,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
-        ),
-        "teams_with_local_evaluation_not_modified_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
-            period_start, period_end, FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
         "teams_with_dashboard_count": list(
@@ -3257,9 +3249,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
-    local_evaluation_not_modified_requests_count_in_period = all_data[
-        "teams_with_local_evaluation_not_modified_requests_count_in_period"
-    ].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3298,12 +3287,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
-            decide_requests_count_in_period,
-            local_evaluation_requests_count_in_period,
-            local_evaluation_not_modified_requests_count_in_period,
-        ),
+        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
+        + (local_evaluation_requests_count_in_period * 10),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

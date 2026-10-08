@@ -9,14 +9,19 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     BacktickIdentifierQuoter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
     KeysetNullKeyError,
+    KeysetPage,
     KeysetResumeState,
     is_orderable_keyset_type,
     iter_keyset_pages,
+    keyset_key_of_last_row,
+    keyset_last_key,
+    keyset_state,
     resolve_keyset_eligibility,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import SelectQueryBuilder
@@ -78,12 +83,81 @@ def test_an_eligible_key_type_can_always_be_checkpointed(arrow_type, last_key):
     with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
         get_redis.return_value.__enter__.return_value = redis
         manager.save_state(KeysetResumeState(last_key=last_key))
+        manager.confirm()
         manager.commit()
         redis.get.return_value = redis.set.call_args.args[1]
         restored = manager.load_state()
 
     assert restored is not None
     assert restored.last_key is not None
+
+
+class TestKeysetCheckpointState:
+    """`keyset_state` and `keyset_last_key` are the only sanctioned way to build and read the pair."""
+
+    def test_a_single_column_key_fills_both_fields(self):
+        # `last_key` is what a deploy predating `last_keys` reads. Writing only `last_keys` would make
+        # a rollback drop every in-flight checkpoint and restart those loads from row 0.
+        assert keyset_state((7,)) == KeysetResumeState(last_key=7, last_keys=[7])
+
+    def test_a_composite_key_leaves_the_single_value_field_empty(self):
+        # There is no honest scalar for a composite key. A deploy that can't read `last_keys` also
+        # refuses composite keys, so it never seeks on this state.
+        assert keyset_state((7, "b")) == KeysetResumeState(last_key=None, last_keys=[7, "b"])
+
+    def test_a_key_from_an_older_deploy_still_resumes(self):
+        # Forward compatibility: state written before `last_keys` existed carries only the scalar.
+        assert keyset_last_key(KeysetResumeState(last_key=7), key_length=1) == (7,)
+
+    def test_a_key_comes_back_as_a_tuple_after_its_json_round_trip(self):
+        # JSON has no tuple, so Redis hands back a list. Callers compare and unpack tuples.
+        assert keyset_last_key(KeysetResumeState(last_keys=[7, "b"]), key_length=2) == (7, "b")
+
+    @pytest.mark.parametrize(
+        "state,key_length",
+        [
+            (KeysetResumeState(last_keys=[7]), 2),
+            (KeysetResumeState(last_keys=[7, "b"]), 1),
+            (KeysetResumeState(last_key=7), 2),
+        ],
+    )
+    def test_a_key_of_the_wrong_width_restarts_rather_than_seeking(self, state, key_length):
+        # The table's primary key changed since the checkpoint. Seeking on it would compare the wrong
+        # columns, so the load has to start again.
+        assert keyset_last_key(state, key_length=key_length) is None
+
+    @pytest.mark.parametrize("state", [None, KeysetResumeState(), KeysetResumeState(last_keys=[])])
+    def test_no_checkpoint_starts_from_the_beginning(self, state):
+        assert keyset_last_key(state, key_length=1) is None
+
+
+class TestKeysetKeyOfLastRow:
+    @pytest.mark.parametrize(
+        "table,columns,expected",
+        [
+            (pa.table({"id": [1, 2]}), ["id"], (2,)),
+            (pa.table({"a": [1, 1], "b": ["x", "y"]}), ["a", "b"], (1, "y")),
+            # Column order follows the key, not the table.
+            (pa.table({"a": [1], "b": ["x"]}), ["b", "a"], ("x", 1)),
+        ],
+    )
+    def test_reads_the_key_of_the_final_row(self, table, columns, expected):
+        assert keyset_key_of_last_row(table, columns) == expected
+
+    @pytest.mark.parametrize(
+        "table,columns",
+        [
+            (pa.table({"id": [1, None]}), ["id"]),
+            (pa.table({"a": [1, 1], "b": ["x", None]}), ["a", "b"]),  # NULL in the trailing column
+            (pa.table({"a": [1, None], "b": ["x", "y"]}), ["a", "b"]),  # NULL in the leading column
+        ],
+    )
+    def test_any_null_part_stops_the_walk(self, table, columns):
+        # A composite key fails worse than a single one: both `(a, NULL) > (x, y)` and `b > NULL`
+        # evaluate to UNKNOWN, so the next page comes back empty and truncates the load silently
+        # rather than looping. Raising is the only option that neither truncates nor spins.
+        with pytest.raises(KeysetNullKeyError):
+            keyset_key_of_last_row(table, columns)
 
 
 @pytest.mark.parametrize(
@@ -125,26 +199,30 @@ def test_resolve_keyset_eligibility(primary_keys, incremental, declared, expecte
 _BUILDER = SelectQueryBuilder(quoter=BacktickIdentifierQuoter())
 
 
-def _fake_table(ids: list[int]) -> pa.Table:
-    return pa.table({"id": ids, "body": [f"row-{i}" for i in ids]})
+def _to_table(columns: list[str], rows) -> pa.Table:
+    return pa.table({column: [row[index] for row in rows] for index, column in enumerate(columns)})
 
 
 class _FakePages:
     # Serves a fixed dataset back through keyset SQL: parses `id > N` out of the built SQL, applies
     # the LIMIT, and records every query so the walk itself can be asserted.
-    def __init__(self, all_ids: list[int], chunk_size: int):
+    def __init__(self, all_ids: list[int], chunk_size: int, body: str = "row"):
         self.all_ids = sorted(all_ids)
         self.chunk_size = chunk_size
+        self.body = body
         self.queries: list[str] = []
+        self.limits: list[int] = []
 
     def run_page(self, page_sql):
         self.queries.append(page_sql.sql)
         after = page_sql.params.get("keyset_value") if isinstance(page_sql.params, dict) else None
+        limit = int(page_sql.sql.rsplit("LIMIT ", 1)[1])
+        self.limits.append(limit)
         remaining = [i for i in self.all_ids if after is None or i > after]
-        page = remaining[: self.chunk_size]
+        page = remaining[: min(limit, self.chunk_size)]
         if not page:
             return None
-        return _fake_table(page)
+        return KeysetPage(columns=["id", "body"], rows=[(i, self.body) for i in page])
 
 
 def test_iter_keyset_pages_walks_whole_table_in_order():
@@ -157,6 +235,7 @@ def test_iter_keyset_pages_walks_whole_table_in_order():
             keyset_column="id",
             chunk_size=3,
             run_page=pages.run_page,
+            to_table=_to_table,
             initial_last_value=None,
         )
     )
@@ -177,6 +256,7 @@ def test_iter_keyset_pages_seeks_from_initial_value():
             keyset_column="id",
             chunk_size=10,
             run_page=pages.run_page,
+            to_table=_to_table,
             initial_last_value=3,
         )
     )
@@ -194,6 +274,7 @@ def test_iter_keyset_pages_stops_immediately_when_empty():
             keyset_column="id",
             chunk_size=5,
             run_page=pages.run_page,
+            to_table=_to_table,
             initial_last_value=None,
         )
     )
@@ -212,6 +293,7 @@ def test_iter_keyset_pages_full_page_then_empty_terminates():
             keyset_column="id",
             chunk_size=2,
             run_page=pages.run_page,
+            to_table=_to_table,
             initial_last_value=None,
         )
     )
@@ -232,6 +314,7 @@ def test_checkpoint_records_each_page_only_once_the_consumer_takes_the_next():
         keyset_column="id",
         chunk_size=2,
         run_page=pages.run_page,
+        to_table=_to_table,
         initial_last_value=None,
         checkpoint=saved.append,
     )
@@ -256,6 +339,7 @@ def test_checkpoint_is_optional():
             keyset_column="id",
             chunk_size=5,
             run_page=pages.run_page,
+            to_table=_to_table,
             initial_last_value=None,
         )
     )
@@ -273,7 +357,7 @@ def test_null_page_boundary_raises_instead_of_replaying_the_page():
 
     def run_page(page_sql):
         queries.append(page_sql.sql)
-        return pa.table({"id": pa.array([1, None], type=pa.int64())})
+        return KeysetPage(columns=["id"], rows=[(1,), (None,)])
 
     walk = iter_keyset_pages(
         builder=_BUILDER,
@@ -282,6 +366,7 @@ def test_null_page_boundary_raises_instead_of_replaying_the_page():
         keyset_column="id",
         chunk_size=2,
         run_page=run_page,
+        to_table=_to_table,
         initial_last_value=None,
     )
 
@@ -291,3 +376,54 @@ def test_null_page_boundary_raises_instead_of_replaying_the_page():
         next(walk)
 
     assert len(queries) == 1  # crucially, no second query was ever issued
+
+
+# An id measures 16 bytes and the body 24, so an 80-byte budget holds two rows per batch.
+_WIDE_BODY = "x" * 24
+_TWO_ROW_BUDGET = 80
+
+
+def test_a_page_asks_for_fewer_rows_once_the_walk_reads_wide_rows():
+    pages = _FakePages(all_ids=[1, 2, 3, 4, 5, 6, 7, 8], chunk_size=4, body=_WIDE_BODY)
+
+    with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", _TWO_ROW_BUDGET):
+        tables = list(
+            iter_keyset_pages(
+                builder=_BUILDER,
+                schema="db",
+                table_name="t",
+                keyset_column="id",
+                chunk_size=4,
+                run_page=pages.run_page,
+                to_table=_to_table,
+                initial_last_value=None,
+            )
+        )
+
+    assert [v.as_py() for table in tables for v in table.column("id")] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert max(table.num_rows for table in tables) == 2
+    assert pages.limits[0] == 4
+    assert set(pages.limits[1:]) == {2}
+
+
+def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row():
+    pages = _FakePages(all_ids=[1, 2, 3, 4], chunk_size=4, body=_WIDE_BODY)
+    saved: list[int] = []
+
+    with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", _TWO_ROW_BUDGET):
+        walk = iter_keyset_pages(
+            builder=_BUILDER,
+            schema="db",
+            table_name="t",
+            keyset_column="id",
+            chunk_size=4,
+            run_page=pages.run_page,
+            to_table=_to_table,
+            initial_last_value=None,
+            checkpoint=saved.append,
+        )
+        first, second = next(walk), next(walk)
+
+    assert first.column("id").to_pylist() == [1, 2]
+    assert second.column("id").to_pylist() == [3, 4]
+    assert saved == [2]

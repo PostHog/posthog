@@ -27,7 +27,6 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TABULAR_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
@@ -55,15 +54,20 @@ POOL_NAME = "newborn"
 LEGACY_POOL_NAME = "sampled"
 
 UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
+# The scoring sweep's own birth-day scores of the same pool, in the same schema (`training/served.py`).
+SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
 
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
 TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
+# Families this build no longer trains. Saved scores objects still hold their rows, so every reader
+# drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
+# not require rows that no re-run can produce.
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -144,7 +148,6 @@ class ModelFamily:
 # settings match by construction. Keep it that way: the pair is a measurement of the text choice,
 # and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
-    ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
     ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
@@ -323,15 +326,16 @@ def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
 
 
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
-    """`scores` with a `model_name` column, filling the tabular family where it is absent.
+    """`scores` without the rows that name no model family or a retired one.
 
-    The grader reads scores objects up to 14 days old, so it still meets objects written before the
-    column existed. Every one of those holds tabular XGBoost rows, and grading them under a null
-    name would split the AUC series on the day the column arrived.
+    A scores object written before the `model_name` column existed holds only rows of a retired
+    family, and a later object can still hold named rows of one. No family this build trains can
+    grade them, and grading them would keep a retired series alive, or put the unnamed rows in a
+    series of their own, so they are dropped. The caller compares lengths to count them.
     """
     if "model_name" not in scores:
-        return scores.assign(model_name=TABULAR_MODEL_NAME)
-    return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
+        return scores.iloc[0:0].assign(model_name=pd.Series(dtype=object))
+    return scores[scores["model_name"].notna() & ~scores["model_name"].isin(RETIRED_MODEL_NAMES)]
 
 
 def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
@@ -342,7 +346,8 @@ def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> li
     `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
     whenever its models or its set's side input are missing for the partition, so the partial case
     is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
-    stamp alone cannot.
+    stamp alone cannot. A retired family's rows do not count: no re-run can produce them, so
+    counting them would refuse every re-run of the days that hold them.
     """
     return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
 

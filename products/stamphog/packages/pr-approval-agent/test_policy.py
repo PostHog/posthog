@@ -84,6 +84,7 @@ OLD_DENY_PATTERN_DEFS = {
             "dockerfile",
             "docker-compose",
             "\\.github/workflows",
+            "\\.depot/workflows",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -113,6 +114,38 @@ OLD_DENY_PATTERN_DEFS = {
             "Dockerfile",
             "\\.tool-versions",
             "\\.nvmrc",
+        ]
+    },
+    "devex_guardrails": {
+        "paths": [
+            "^\\.github/scripts/migration-deletion-allowlist\\.txt$",
+            "^\\.semgrep/rules/devex/",
+            "^\\.semgrep/rules/security/prefer-codegen-api\\.",
+            "^frontend/src/lib/api-ratchet-baseline\\.txt$",
+            "^posthog/(egress|ingress)/agents\\.md$",
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+            "^posthog/management/migration_analysis/",
+            "^posthog/migration_helpers/",
+            "^posthog/product_urls\\.py$",
+            "^posthog/settings/nextgensquash\\.py$",
+            "^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\\.txt|setup_import_baseline\\.txt)$",
+            "^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\\.py$",
+            "^products/(architecture\\.md|isolation_baseline\\.txt|readme\\.md)$",
+            "^docs/internal/django-startup-time\\.md$",
+            "^docs/published/handbook/engineering/type-system\\.md$",
+            "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
+            "^tools/hogli-commands/hogli_commands/product/",
+        ]
+    },
+    "workflows_delivery": {
+        "paths": [
+            "^products/cdp/backend/(api|models)/",
+            "^products/workflows/backend/(facade|presentation|models)/",
+            "^products/messaging/backend/(api|models)/",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
 }
@@ -218,6 +251,14 @@ def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
 
+def _self_governance_exempts_a_team(d: dict) -> None:
+    d["deny"]["stamphog_policy"]["exempt_author_teams"] = ["team-devex"]
+
+
+def _exempt_author_team_with_org_prefix(d: dict) -> None:
+    d["deny"]["auth"]["exempt_author_teams"] = ["@PostHog/team-security"]
+
+
 def _ownership_unknown_format(d: dict) -> None:
     d["ownership"]["sources"][0]["format"] = "svn-blame"
 
@@ -252,6 +293,8 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _out_of_contract_delegation,
         _ceiling_under_global_default,
         _rename_deps_toolchain,
+        _self_governance_exempts_a_team,
+        _exempt_author_team_with_org_prefix,
         _ownership_unknown_format,
         _ownership_both_locators,
         _ownership_no_locator,
@@ -646,10 +689,11 @@ def test_policy_file_only_pr_is_t2_never(path: str) -> None:
 def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
-    guidance = policy.review_guidance_path().read_text()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    guidance = reviewer._load_review_guidance()
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──

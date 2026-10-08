@@ -21,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.models.instance_setting import get_instance_setting
@@ -97,6 +98,21 @@ class ForwardingChallengeRateLimitKeys:
     attempts: str
 
 
+@frozen
+class ResolvedEmailConfig:
+    user: User
+    team: Team
+    config: EmailChannel
+
+
+@frozen
+class PendingCustomerEmailSetup:
+    user: User
+    team: Team
+    channel: EmailChannel
+    setup: EmailChannelSetup
+
+
 def _forwarding_challenge_rate_limit_keys(recipient: str) -> ForwardingChallengeRateLimitKeys:
     recipient_hash = sha256(recipient.strip().lower().encode()).hexdigest()
     key_prefix = f"customer-email-forwarding-challenge:{recipient_hash}"
@@ -143,23 +159,56 @@ def _is_organization_admin(user: User, team: Team) -> bool:
     ).exists()
 
 
-def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
-    """Parse config_id from request body, look up config scoped to team.
-
-    Returns (user, team, config) or a Response on failure.
-    """
+def _resolve_config(request: Request, config_id: uuid.UUID) -> ResolvedEmailConfig | Response:
     result = _get_team_from_request(request)
     if isinstance(result, Response):
         return result
     user, team = result
 
-    id_serializer = ConfigIdSerializer(data=request.data)
-    id_serializer.is_valid(raise_exception=True)
-    config = _get_config_for_team(id_serializer.validated_data["config_id"], team)
+    config = _get_config_for_team(config_id, team)
     if not config:
         return Response({"error": "Email config not found"}, status=404)
 
-    return user, team, config
+    return ResolvedEmailConfig(user=user, team=team, config=config)
+
+
+def _resolve_config_from_request(request: Request) -> ResolvedEmailConfig | Response:
+    id_serializer = ConfigIdSerializer(data=request.data)
+    id_serializer.is_valid(raise_exception=True)
+    return _resolve_config(request, id_serializer.validated_data["config_id"])
+
+
+def _resolve_pending_customer_email_setup(request: ValidatedRequest) -> PendingCustomerEmailSetup | Response:
+    result = _get_team_from_request(request)
+    if isinstance(result, Response):
+        return result
+    user, team = result
+
+    channel = (
+        EmailChannel.objects.select_for_update()
+        .filter(
+            id=request.validated_data["config_id"],
+            team=team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=user,
+        )
+        .first()
+    )
+    if channel is None:
+        return Response({"error": "Email config not found"}, status=404)
+    if channel.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+        return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+
+    setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=channel).first()
+    if setup is None:
+        return Response({"error": "This forwarding setup is no longer available."}, status=400)
+    if setup.expires_at <= timezone.now():
+        setup.delete()
+        channel.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+        channel.save(update_fields=["connection_status"])
+        return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
+
+    return PendingCustomerEmailSetup(user=user, team=team, channel=channel, setup=setup)
 
 
 def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict[str, object]:
@@ -179,6 +228,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain": config.domain,
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
+        "trusted_relay_sender": config.trusted_relay_sender,
         "is_default": config.is_default,
         "connection_status": config.connection_status,
         "setup_expires_at": setup.expires_at if setup is not None else None,
@@ -348,6 +398,17 @@ class ConfigIdSerializer(serializers.Serializer):
     config_id = serializers.UUIDField(help_text="Email channel ID.")
 
 
+class EmailSetTrustedRelaySerializer(ConfigIdSerializer):
+    trusted_relay_sender = serializers.EmailField(
+        allow_blank=True,
+        max_length=254,
+        help_text="Exact sender address of a trusted email relay. Leave blank to disable relay requester recovery.",
+    )
+
+    def validate_trusted_relay_sender(self, value: str) -> str:
+        return value.strip().lower()
+
+
 class EmailDnsRecordSerializer(serializers.Serializer):
     record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
     name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
@@ -388,6 +449,11 @@ class EmailChannelConfigSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="DNS records required to verify the sending domain.",
+    )
+    trusted_relay_sender = serializers.EmailField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Exact sender address trusted to supply the customer in X-PostHog-Requester or Reply-To.",
     )
     is_default = serializers.BooleanField(
         read_only=True,
@@ -697,7 +763,7 @@ class EmailVerifyDomainView(APIView):
         result = _resolve_config_from_request(request)
         if isinstance(result, Response):
             return result
-        user, team, config = result
+        user, team, config = result.user, result.team, result.config
 
         try:
             mg_result = mailgun_verify_domain(config.domain)
@@ -748,7 +814,7 @@ class EmailSendTestView(APIView):
         result = _resolve_config_from_request(request)
         if isinstance(result, Response):
             return result
-        user, team, config = result
+        user, team, config = result.user, result.team, result.config
 
         if (
             config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION
@@ -812,23 +878,21 @@ class EmailSetDefaultView(APIView):
 
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
-    @extend_schema(
-        request=ConfigIdSerializer,
+    @validated_request(
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
             return result
         user, team = result
 
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
+        config_id = request.validated_data["config_id"]
 
         with transaction.atomic():
             # Serialize all per-team default changes on the team row (the connect path takes the
@@ -855,13 +919,47 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
+class EmailSetTrustedRelayView(APIView):
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    @validated_request(
+        tags=["conversations"],
+        request_serializer=EmailSetTrustedRelaySerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = _resolve_config(request, request.validated_data["config_id"])
+        if isinstance(result, Response):
+            return result
+        user, team, config = result.user, result.team, result.config
+        if config.kind != EmailChannelKind.SUPPORT:
+            return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
+
+        trusted_relay_sender: str = request.validated_data["trusted_relay_sender"]
+        config.trusted_relay_sender = trusted_relay_sender
+        config.save(update_fields=["trusted_relay_sender"])
+
+        logger.info(
+            "email_channel_trusted_relay_updated",
+            team_id=team.id,
+            config_id=config.id,
+            enabled=bool(trusted_relay_sender),
+            user_id=user.id,
+        )
+        return Response({"ok": True})
+
+
 class EmailVerifyForwardingView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [EmailForwardingChallengeThrottle]
 
-    @extend_schema(
+    @validated_request(
         tags=["conversations"],
-        request=ConfigIdSerializer,
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
@@ -871,44 +969,15 @@ class EmailVerifyForwardingView(APIView):
             503: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        result = _get_team_from_request(request)
-        if isinstance(result, Response):
-            return result
-        user, team = result
-
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
-
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         with transaction.atomic():
-            config = (
-                EmailChannel.objects.select_for_update()
-                .filter(
-                    id=config_id,
-                    team=team,
-                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-                    owner=user,
-                )
-                .first()
-            )
-            if config is None:
-                return Response({"error": "Email config not found"}, status=404)
-            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
-                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+            pending_setup = _resolve_pending_customer_email_setup(request)
+            if isinstance(pending_setup, Response):
+                return pending_setup
 
-            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
-            if setup is None:
-                return Response({"error": "This forwarding setup is no longer available."}, status=400)
-            if setup.expires_at <= timezone.now():
-                setup.delete()
-                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
-                config.save(update_fields=["connection_status"])
-                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
-
-            setup_id = setup.id
-            channel_id = config.id
-            recipient = config.from_email
+            setup_id = pending_setup.setup.id
+            channel_id = pending_setup.channel.id
+            recipient = pending_setup.channel.from_email
 
         if not is_smtp_email_service_available():
             return Response(
@@ -938,7 +1007,7 @@ class EmailVerifyForwardingView(APIView):
             )
 
         challenge = create_forwarding_challenge(
-            team_id=team.id,
+            team_id=pending_setup.team.id,
             channel_id=channel_id,
             setup_id=setup_id,
         )
@@ -962,7 +1031,7 @@ class EmailVerifyForwardingView(APIView):
             cache.delete(rate_limit_keys.cooldown)
             logger.error(  # noqa: TRY400 - exception details may contain the signed challenge token
                 "customer_email_forwarding_challenge_enqueue_failed",
-                team_id=team.id,
+                team_id=pending_setup.team.id,
                 config_id=str(channel_id),
             )
             return Response({"error": "Could not send the verification email. Try again."}, status=502)
@@ -974,9 +1043,9 @@ class EmailVerifyForwardingView(APIView):
         )
         logger.info(
             "customer_email_forwarding_challenge_enqueued",
-            team_id=team.id,
+            team_id=pending_setup.team.id,
             config_id=str(channel_id),
-            user_id=user.id,
+            user_id=pending_setup.user.id,
         )
         return Response({"ok": True})
 
@@ -984,59 +1053,30 @@ class EmailVerifyForwardingView(APIView):
 class EmailConfirmForwardingView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
+    @validated_request(
         tags=["conversations"],
-        request=ConfigIdSerializer,
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailConfirmForwardingResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        result = _get_team_from_request(request)
-        if isinstance(result, Response):
-            return result
-        user, team = result
-
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
-
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         with transaction.atomic():
-            config = (
-                EmailChannel.objects.select_for_update()
-                .filter(
-                    id=config_id,
-                    team=team,
-                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-                    owner=user,
-                )
-                .first()
-            )
-            if config is None:
-                return Response({"error": "Email config not found"}, status=404)
-            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
-                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
-
-            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
-            if setup is None:
-                return Response({"error": "This forwarding setup is no longer available."}, status=400)
-            if setup.expires_at <= timezone.now():
-                setup.delete()
-                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
-                config.save(update_fields=["connection_status"])
-                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
-            if not setup.confirmation_action:
+            pending_setup = _resolve_pending_customer_email_setup(request)
+            if isinstance(pending_setup, Response):
+                return pending_setup
+            if not pending_setup.setup.confirmation_action:
                 return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
 
-            confirmation_url = setup.confirmation_action
+            confirmation_url = pending_setup.setup.confirmation_action
 
         logger.info(
             "customer_email_forwarding_confirmation_opened",
-            team_id=team.id,
-            config_id=config.id,
-            user_id=user.id,
+            team_id=pending_setup.team.id,
+            config_id=pending_setup.channel.id,
+            user_id=pending_setup.user.id,
         )
         return Response({"ok": True, "confirmation_url": confirmation_url})
 

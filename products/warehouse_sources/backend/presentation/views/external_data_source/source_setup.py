@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -73,7 +74,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.destination_links import set_source_destinations
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    EMPTY_SET_MESSAGE,
+    set_source_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
@@ -343,7 +347,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             )
         else:
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
-        return schema_with_error.latest_error if schema_with_error else None
+        if schema_with_error is None:
+            return None
+        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+
+    def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
+        cached = getattr(instance, "_error_redaction_values", None)
+        if cached is None:
+            cached = helpers.get_error_redaction_values(instance)
+            instance._error_redaction_values = cached  # type: ignore[attr-defined]
+        return cached
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
@@ -355,9 +368,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
+        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
         if self.context.get("schemas_list_only"):
-            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -576,7 +590,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_job_inputs = source_config.to_dict()
+        validated_job_inputs = source.serialize_config(source_config)
 
         # The settings form resubmits the whole connection config on every save, so changing an
         # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
@@ -585,7 +599,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # probe below only runs when the connection actually changed. Direct query sources still
         # probe on every save: the same call refreshes their schemas and connection metadata.
         try:
-            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+            stored_job_inputs = source.serialize_config(source.parse_config(existing_job_inputs))
         except Exception:
             # A stored config that no longer parses can't be compared, so treat it as changed and
             # let the probe run rather than skipping validation on a config we can't read.
@@ -645,7 +659,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # Credential validation adopts re-entered OAuth2 secrets into the integration row and
             # rewrites the config (pointer set, static secrets cleared) — re-serialize so job_inputs
             # stores the pointer and never the raw secrets.
-            validated_job_inputs = source_config.to_dict()
+            validated_job_inputs = source.serialize_config(source_config)
             for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
                 if key in existing_job_inputs:
                     validated_job_inputs[key] = existing_job_inputs[key]
@@ -776,6 +790,16 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
         ),
     )
+
+    def validate_destination_ids(self, destination_ids: list) -> list:
+        # An explicit empty list means the caller turned every destination off, which would leave
+        # the source syncing nowhere. Rejected here, before the source is created, because
+        # `set_source_destinations` runs after creation and swallows its own failures so that a bad
+        # destination set never costs the user the source. Omitting the field keeps its meaning of
+        # "the PostHog warehouse", which is what callers written before destinations existed send.
+        if not destination_ids:
+            raise serializers.ValidationError(EMPTY_SET_MESSAGE)
+        return destination_ids
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1188,7 +1212,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             status="Running",
             source_type=source_type_model,
             api_version=source.default_version,
-            job_inputs=source_config.to_dict(),
+            job_inputs=source.serialize_config(source_config),
             prefix=prefix,
             description=description,
             access_method=access_method,
@@ -1277,6 +1301,26 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Schemas given do not exist in source"},
+            )
+
+        # `payload` is a free-form dict, so the serializer never checks per-schema sync types. An
+        # unknown one would be saved as-is and fail every sync of that table.
+        valid_sync_types = ExternalDataSchema.SyncType.values
+        invalid_sync_types = sorted(
+            {
+                str(schema.get("sync_type"))
+                for schema in payload_schemas
+                if schema.get("sync_type") is not None and schema.get("sync_type") not in valid_sync_types
+            }
+        )
+        if invalid_sync_types:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
+                    f"Use one of: {', '.join(valid_sync_types)}."
+                },
             )
 
         # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_resources`
@@ -1694,21 +1738,22 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Attach destinations before any schedule starts. Extraction snapshots the set onto the
         # run, so a source whose destinations arrive after its first sync began writes that run
         # to the warehouse alone, and reaching the others costs a full resync.
-        if destination_ids:
-            try:
-                set_source_destinations(
-                    team_id=self.team_id,
-                    source_id=new_source_model.pk,
-                    destination_ids=destination_ids,
-                )
-            except Exception as e:
-                # The source is already created and its tables are configured. Losing that over a
-                # destination set the user can still fix on the Destinations tab is the worse trade.
-                base.logger.exception(
-                    "Could not attach destinations to a new source",
-                    exc_info=e,
-                    source_id=new_source_model.pk,
-                )
+        # Write the default set so new sources do not depend on the implicit fallback.
+        try:
+            selected_destination_ids = destination_ids or [get_or_create_warehouse_destination(self.team_id).pk]
+            set_source_destinations(
+                team_id=self.team_id,
+                source_id=new_source_model.pk,
+                destination_ids=selected_destination_ids,
+            )
+        except Exception as e:
+            # The source is already created and its tables are configured. Losing that over a
+            # destination set the user can still fix on the Destinations tab is the worse trade.
+            base.logger.exception(
+                "Could not attach destinations to a new source",
+                exc_info=e,
+                source_id=new_source_model.pk,
+            )
 
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale

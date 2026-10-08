@@ -32,6 +32,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
@@ -39,6 +40,7 @@ from products.review_hog.backend.temporal.activities import (
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
+    GatePushInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -48,6 +50,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
@@ -68,12 +71,14 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    gate_push_activity,
     generate_schemas_activity,
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -518,6 +523,34 @@ class ReviewPRWorkflow:
             return report_id
         acting_user_id = acting.acting_user_id
 
+        # Only an automatic follow-up is gated. The first automatic review of a PR and every human
+        # trigger always run. The gate fails open: an activity failure reviews the push.
+        if (
+            workflow.patched("reviewhog-push-gate-2026-10")
+            and inputs.trigger_source == TRIGGER_AUTOMATIC
+            and meta.automatic_reviewed_head_sha is not None
+        ):
+            try:
+                gate = await workflow.execute_activity(
+                    gate_push_activity,
+                    GatePushInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        repository=repository,
+                        previous_head_sha=meta.automatic_reviewed_head_sha,
+                        head_sha=head_sha,
+                        run_index=meta.run_index,
+                        review_mode=inputs.review_mode,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+                if gate.skip:
+                    workflow.logger.info(f"Automatic review skipped by the push gate ({gate.reason})")
+                    return report_id
+            except ActivityError:
+                workflow.logger.warning("The push gate failed; reviewing the push")
+
         # The turn passed every gate and is about to spend sandboxes: one started event per turn,
         # the counterpart of the completed/failed pair below. Best-effort like both of them.
         if workflow.patched("track-review-started-2026-09"):
@@ -559,6 +592,7 @@ class ReviewPRWorkflow:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
         publish_result: PublishResult | None = None
+        marker: ReviewHogMarker | None = None
         try:
             await workflow.execute_activity(
                 sync_review_skills_activity,
@@ -572,6 +606,25 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
+            if workflow.patched("record-turn-marker-2026-10"):
+                try:
+                    marker = await workflow.execute_activity(
+                        record_turn_marker_activity,
+                        RecordTurnMarkerInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            head_sha=head_sha,
+                            run_index=meta.run_index,
+                            acting_user_id=acting_user_id,
+                            review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning("Could not record the turn marker; continuing without it")
 
             stage = SandboxStageInput(
                 team_id=inputs.team_id,
@@ -748,6 +801,7 @@ class ReviewPRWorkflow:
                     turn_trigger_source=inputs.trigger_source,
                     review_mode=inputs.review_mode,
                     flash_reasoning_effort=acting.flash_reasoning_effort,
+                    marker=marker,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -769,6 +823,8 @@ class ReviewPRWorkflow:
                         review_url=publish_result.review_url if publish_result is not None else None,
                         resolved_from=acting.resolved_from,
                         review_mode=inputs.review_mode,
+                        celebrate_clean_reviews=acting.celebrate_clean_reviews,
+                        marker=marker,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

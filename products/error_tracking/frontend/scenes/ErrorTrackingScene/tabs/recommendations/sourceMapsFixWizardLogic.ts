@@ -179,7 +179,7 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         openModal: ({ source }) => {
-            posthog.capture('error_tracking_source_maps_wizard_opened', { source })
+            posthog.capture('error_tracking_source_maps_wizard_opened', { ui_source: source })
             cache.disposables.dispose('feedback-reveal')
             cache.disposables.add(() => {
                 const timeout = setTimeout(() => actions.revealFeedback(), FEEDBACK_REVEAL_DELAY_MS)
