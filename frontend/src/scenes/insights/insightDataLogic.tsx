@@ -92,6 +92,7 @@ import type {
     SetInsightOptions,
     UserBasicType,
 } from '../../types'
+import { isRestorableDraftQuery } from '../saved-insights/draftInsight'
 import { teamLogic } from '../teamLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
@@ -1061,6 +1062,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (insightId && insightId !== 'new') {
                     return
                 }
+            }
+
+            // a wrapper query that lost its source holds nothing to restore, so the scenes that read
+            // the draft reject it. isDraftQueryWorthSaving also reads query.source.kind, which throws
+            // on that shape, so this check comes first. Leave any earlier draft alone.
+            if (!isRestorableDraftQuery(query)) {
+                return
             }
 
             // a draft that only differs from the type's default in cosmetic ways (or that the

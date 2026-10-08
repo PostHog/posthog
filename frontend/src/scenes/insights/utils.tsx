@@ -48,6 +48,7 @@ import {
     isEventsNode,
     isGroupNode,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -878,7 +879,8 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     }
 
     let nodeKind: NodeKind
-    if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+    const usesWrappedKind = (isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)
+    if (usesWrappedKind && isNodeWithSource(query)) {
         nodeKind = query.source.kind
     } else {
         nodeKind = query.kind
