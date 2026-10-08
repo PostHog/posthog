@@ -1,4 +1,7 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
+from typing import Any
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -112,13 +115,11 @@ def check_detector_alert(
     )
 
 
-def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
-    """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
+@contextmanager
+def _resolved_query(alert: AlertConfiguration) -> Iterator[tuple[Insight, Any, Any]]:
+    """The alert's insight query, upgraded, unwrapped and checked against its evaluation delay.
 
-    If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
-    supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
-    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
-    ``ExtractionResult`` and the comparator evaluates it against the threshold.
+    A context manager, because the upgrade holds only while the query runs.
     """
     insight = alert.insight
     if insight.query is None:
@@ -136,7 +137,18 @@ def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | 
             validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
         except ValueError as err:
             raise AlertExtractionError(str(err)) from err
+        yield insight, query, kind
 
+
+def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:
+    """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
+
+    If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
+    supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
+    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
+    ``ExtractionResult`` and the comparator evaluates it against the threshold.
+    """
+    with _resolved_query(alert) as (insight, query, kind):
         if alert.detector_config:
             return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
 
@@ -202,21 +214,8 @@ def check_alert_per_series(
     """
     if alert.detector_config:
         raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
-    insight = alert.insight
-    if insight.query is None:
-        raise ValueError("Alert's insight has no valid query")
-
     try:
-        with upgrade_insight(insight):
-            query = insight.query
-            kind = get_from_dict_or_attr(query, "kind")
-            if kind in WRAPPER_NODE_KINDS:
-                query = get_from_dict_or_attr(query, "source")
-                kind = get_from_dict_or_attr(query, "kind")
-            try:
-                validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
-            except ValueError as err:
-                raise AlertExtractionError(str(err)) from err
+        with _resolved_query(alert) as (insight, query, kind):
             extracted = _extract_for_threshold(alert, insight, query, kind)
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
