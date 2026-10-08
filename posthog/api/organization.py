@@ -353,7 +353,7 @@ class OrganizationSerializer(
         if not can_create_project_in_organization(organization, membership):
             return None
         if hasattr(organization, "_has_non_demo_project"):
-            return organization._has_non_demo_project
+            return cast(bool, organization._has_non_demo_project)
         return organization.teams.exclude(is_demo=True).exists()
 
     @tracer.start_as_current_span("organization_serializer.teams")
