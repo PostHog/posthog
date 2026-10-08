@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
@@ -181,6 +182,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "null otherwise. Drives the in-product deprecation warning."
         ),
     )
+    connection_warning = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set on an update response when the change was saved but the connection check from the "
+            "API could not reach the database. Null otherwise."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -210,6 +218,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "connection_warning",
         ]
         read_only_fields = [
             "id",
@@ -228,6 +237,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "connection_warning",
         ]
 
     def to_representation(self, instance):
@@ -290,6 +300,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_connection_warning(self, instance: ExternalDataSource) -> str | None:
+        return getattr(instance, "_connection_warning", None)
 
     def _prefetched_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema] | None:
         prefetched = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
@@ -411,6 +425,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None
+        connection_warning: str | None = None
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -642,7 +657,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source, instance.team_id, e
                 )
             if not credentials_valid:
-                raise ValidationError(credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+                credentials_error = credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE
+                # These teams use internal hosts that the API cannot always reach, while the
+                # workers that sync and run live queries can. A direct query source still needs
+                # the probe, because the same call discovers its schemas.
+                if instance.is_direct_query or not is_team_allowlisted_for_internal_hosts(instance.team_id):
+                    raise ValidationError(credentials_error)
+                connection_warning = helpers.UNVERIFIED_CONNECTION_WARNING.format(error=credentials_error)
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
@@ -673,6 +694,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
+        cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their

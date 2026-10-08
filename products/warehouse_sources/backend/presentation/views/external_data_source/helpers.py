@@ -50,6 +50,11 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
 
+UNVERIFIED_CONNECTION_WARNING = (
+    "Source saved, but the connection check from the API failed. Syncs and live queries connect "
+    "from other services and can still work. Details: {error}"
+)
+
 
 def _source_unavailable_message(source_type: str) -> str:
     # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the

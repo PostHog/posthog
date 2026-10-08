@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -285,6 +286,30 @@ describe('sourceSettingsLogic', () => {
             { id: 'schema-1', should_sync: true, sync_frequency: '24hour' },
         ])
     })
+
+    it.each([
+        { case: 'a warning toast', connection_warning: 'Source saved, but the connection check failed.', warnings: 1 },
+        { case: 'the success toast', connection_warning: null, warnings: 0 },
+    ])(
+        'shows $case after a save, from the connection warning in the response',
+        async ({ connection_warning, warnings }) => {
+            const source = { ...makeSource([makeSchema()]), connection_warning }
+            jest.spyOn(api.externalDataSources, 'update').mockResolvedValue(source)
+            const warningToastSpy = jest.spyOn(lemonToast, 'warning')
+            const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+            logic = sourceSettingsLogic({ id: 'source-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSourceConfig()
+            }).toDispatchActions(['submitSourceConfigSuccess'])
+
+            expect(warningToastSpy).toHaveBeenCalledTimes(warnings)
+            expect(successToastSpy).toHaveBeenCalledTimes(1 - warnings)
+        }
+    )
 
     it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')

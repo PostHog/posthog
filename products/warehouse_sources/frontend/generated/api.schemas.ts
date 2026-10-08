@@ -3538,6 +3538,11 @@ export interface ExternalDataSourceSerializersApi {
     readonly api_version: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+     * @nullable
+     */
+    readonly connection_warning: string | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -5056,6 +5061,11 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly api_version?: string | null
     /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+     * @nullable
+     */
+    readonly connection_warning?: string | null
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
