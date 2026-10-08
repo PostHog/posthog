@@ -53,8 +53,8 @@ describe('weekly flaky report', () => {
             () => ({ owner: 'team-devex', repoPath: 'posthog/test/test_example.py' }),
             () => ({
                 evidence: [
-                    { runId: 10, jobId: 20 },
-                    { runId: 11, jobId: 21 },
+                    { url: 'https://github.com/PostHog/posthog/actions/runs/10/job/20' },
+                    { url: 'https://github.com/PostHog/posthog/actions/runs/11/job/21' },
                 ],
             })
         )
@@ -90,6 +90,16 @@ describe('weekly flaky report', () => {
         })
         assert.deepEqual(rows[0][1], { type: 'raw_text', text: 'pytest' })
         assert.deepEqual(rows[0][3], { type: 'raw_text', text: '-' })
+        const trunkUrl = 'https://app.trunk.io/posthog/flaky-tests/test/abc?repo=PostHog/posthog'
+        const [quarantinedRow] = tableRows(
+            [{ runner: 'pytest', selector: 'posthog/test/test_example.py::test_masked', trunk: { url: trunkUrl } }],
+            () => ({ owner: 'team-devex', repoPath: null }),
+            () => ({ evidence: [] }),
+            () => 'fix by 2026-08-13'
+        )
+        assert.deepEqual(quarantinedRow[3].elements[0].elements, [
+            { type: 'link', url: trunkUrl, text: 'fix by 2026-08-13' },
+        ])
         assert.deepEqual(rows[0][4], { type: 'raw_text', text: '3' })
         assert.deepEqual(rows[0][5], { type: 'raw_text', text: '4' })
         assert.deepEqual(rows[0][6], { type: 'raw_text', text: '2' })
@@ -374,10 +384,10 @@ describe('weekly flaky report', () => {
                     [
                         item.selector,
                         [
-                            [100, 10, 20],
-                            [300, 12, 22],
-                            [250, 12, 23],
-                            [200, 11, 21],
+                            [100, 'github_actions', 10, 20, '10', '20'],
+                            [300, 'depot_ci', 12, 22, 'wf12', 'job22'],
+                            [250, 'depot_ci', 12, 23, 'wf12', 'job23'],
+                            [200, 'github_actions', 11, 21, '11', '21'],
                         ],
                     ],
                 ],
@@ -386,8 +396,8 @@ describe('weekly flaky report', () => {
 
         assert.deepEqual(extrasFor(item), {
             evidence: [
-                { runId: 12, jobId: 22 },
-                { runId: 11, jobId: 21 },
+                { url: 'https://depot.dev/orgs/ntsdt08fpt/workflows/wf12?job=job22' },
+                { url: 'https://github.com/PostHog/posthog/actions/runs/11/job/21' },
             ],
         })
         assert.match(request.query, /lower\(f\.repo\) = lower\(\{repository\}\)/)
@@ -483,6 +493,7 @@ describe('weekly flaky report', () => {
             quarantinedAt: '2026-07-29T09:14:22Z',
             overdue: true,
             fixBy: '2026-08-13',
+            url: null,
         })
         assert.equal(pytestFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
         assert.equal(
@@ -690,7 +701,7 @@ describe('weekly flaky report', () => {
                 selector:
                     'frontend/src/lib/components/ActivityLog/activityLogLogic.person.test.tsx::the activity log logic humanizing persons can handle addition of a property',
             }),
-            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: null }
+            { quarantinedAt: '2026-07-11T16:45:09.000Z', overdue: false, fixBy: null, url: null }
         )
     })
 })

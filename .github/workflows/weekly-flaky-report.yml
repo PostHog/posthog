@@ -72,8 +72,6 @@ jobs:
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   # Optional: pin a specific GitHub source if the project has more than one.
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
-                  # Optional: override the source-prefixed runs table name.
-                  ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
                   # The same switches the CI uploaders read, so the report can only claim a test is
                   # masked when Trunk is actually masking it. Unset means no Trunk state at all.
                   TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}

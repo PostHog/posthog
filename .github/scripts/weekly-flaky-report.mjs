@@ -41,8 +41,7 @@ const TEAM_CHANNEL_POSTS = process.env.FLAKY_REPORT_TEAM_CHANNELS === 'true'
 const FEEDBACK_CHANNEL = '<#C09G8QA6740>' // #team-devex
 
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
-// The synced runs table name carries the warehouse source prefix, which differs per project.
-const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
+const DEPOT_ORG = 'ntsdt08fpt'
 
 const REPORT_WINDOW_DAYS = 7
 const TOP_N = 10
@@ -156,9 +155,17 @@ function selectorVariants(selector) {
     return variants.length > 0 ? variants : [selector]
 }
 
+// A Depot CI run has no page on GitHub, so each engine links to its own job page.
+function failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) {
+    if (engine === 'depot_ci') {
+        return `https://depot.dev/orgs/${DEPOT_ORG}/workflows/${workflowId}?job=${nativeJobId}`
+    }
+    return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
+}
+
 // The two most recent failing (run, job) pairs, from the product's ci_failures view. That view
-// holds fewer runs than the endpoint counts, so it supplies links and never a number. A run on
-// another CI engine has no page on GitHub, so only the runs GitHub synced get a link.
+// holds fewer runs than the endpoint counts, so it supplies links and never a number. The job
+// history join keeps only the runs a warehouse source synced, and supplies each engine's own ids.
 async function enrich(items, runHogql = hogql) {
     const bySelector = new Map()
     for (const item of items) {
@@ -175,19 +182,29 @@ async function enrich(items, runHogql = hogql) {
     try {
         const result = await runHogql(
             `SELECT f.test_id AS test_id,
-                arraySlice(arraySort(x -> -x.1, groupUniqArray((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
+                arraySlice(arraySort(x -> -x.1, groupUniqArray((
+                    toUnixTimestamp(f.timestamp), f.ci_engine, f.run_id, f.job_id,
+                    h.native_workflow_run_id, h.native_job_id
+                ))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
+            INNER JOIN (
+                SELECT ci_engine, run_id, job_name, run_attempt, native_workflow_run_id, native_job_id
+                FROM engineering_analytics_ci_job_history
+                WHERE created_at_raw >= {jobsFloor}
+            ) h ON h.ci_engine = f.ci_engine AND h.run_id = f.run_id
+                AND h.job_name = f.job_name AND h.run_attempt = f.run_attempt
             WHERE f.timestamp >= now() - INTERVAL ${REPORT_WINDOW_DAYS} DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
-                AND (f.ci_engine = 'github_actions' OR f.ci_engine IS NULL)
-                AND f.run_id IN (
-                    SELECT id FROM ${RUNS_TABLE}
-                    WHERE created_at >= toString(toDate(now() - INTERVAL 30 DAY))
-                )
             GROUP BY f.test_id
             LIMIT ${selectors.length}`,
-            { repository: GITHUB_REPOSITORY, selectors }
+            {
+                repository: GITHUB_REPOSITORY,
+                selectors,
+                // The job history view has no scan floor of its own. A re-run's job rows can
+                // predate the window, so the floor sits a week before it.
+                jobsFloor: new Date(Date.now() - 2 * REPORT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10),
+            }
         )
         rows = result.results || []
     } catch (err) {
@@ -203,12 +220,12 @@ async function enrich(items, runHogql = hogql) {
         }
         const seen = new Set()
         const evidence = []
-        for (const [, runId, jobId] of [...recent].sort((a, b) => b[0] - a[0])) {
+        for (const [, engine, runId, jobId, workflowId, nativeJobId] of [...recent].sort((a, b) => b[0] - a[0])) {
             if (seen.has(runId)) {
                 continue
             }
             seen.add(runId)
-            evidence.push({ runId, jobId })
+            evidence.push({ url: failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) })
             if (evidence.length === 2) {
                 break
             }
@@ -276,6 +293,7 @@ async function fetchTrunkQuarantined(runner, fetchQuarantine = fetchTrunkQuarant
             quarantinedAt: test.quarantined_at,
             overdue: Boolean(test.overdue),
             fixBy: trunkFixBy(test.quarantined_at, debt.ttl_days),
+            url: test.trunk_url || null,
         }
         for (const variant of selectorVariants(test.nodeid)) {
             byVariant.set(variant, entry)
@@ -431,15 +449,13 @@ function tableRows(items, ownerFor, extrasFor, statusFor = quarantineStatusFor) 
         const testCell = repoPath
             ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        const logLinks = evidence.map(({ runId, jobId }, index) => ({
-            url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
-            text: String(index + 1),
-        }))
+        const logLinks = evidence.map(({ url }, index) => ({ url, text: String(index + 1) }))
+        const status = statusFor(item) || '-'
         return [
             testCell,
             cell(RUNNER_LABELS[item.runner] || item.runner),
             cell(owner.replace(/^team-/, '')),
-            cell(statusFor(item) || '-'),
+            item.trunk?.url ? linkedCell([{ url: item.trunk.url, text: status }]) : cell(status),
             cell(countCell(item, item.failed_pr_count)),
             cell(countCell(item, item.failed_run_count)),
             cell(countCell(item, item.same_commit_recovery_run_count)),
