@@ -83,6 +83,7 @@ _LAZY = {
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
     "MAX_LOOKBACK_SECONDS": "logic.incremental",
+    "TRINO_INCREMENTAL_SCOPE": "logic.incremental",
     "IncrementalConfig": "logic.incremental",
     "IncrementalState": "logic.incremental",
     "clear_incremental_state": "logic.incremental",
@@ -96,6 +97,7 @@ _LAZY = {
     "window_start": "logic.incremental",
     "IncrementalFilterError": "logic.incremental_filter",
     "inject_incremental_filter": "logic.incremental_filter",
+    "apply_incremental_filter": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",
     "check_incremental_eligibility": "logic.incremental_eligibility",
 }

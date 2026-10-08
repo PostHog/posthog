@@ -281,7 +281,7 @@ class WritePlan:
 
 
 @database_sync_to_async_pool
-def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> WritePlan:
+def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int, *, scope: str | None = None) -> WritePlan:
     config = get_incremental_config(saved_query)
     if config is None:
         return WritePlan(incremental=False, reason="not configured for incremental materialization")
@@ -290,7 +290,7 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
         return WritePlan(incremental=False, reason="incremental materialization is not enabled")
 
     fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
-    state = get_incremental_state(saved_query)
+    state = get_incremental_state(saved_query, scope=scope)
 
     if state.watermark is None:
         return WritePlan(incremental=False, reason="first run", fingerprint=fingerprint, config=config)

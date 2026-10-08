@@ -15,6 +15,11 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
+from products.data_modeling.backend.facade.api import (
+    TRINO_INCREMENTAL_SCOPE,
+    clear_incremental_state,
+    set_incremental_state,
+)
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobStatus,
@@ -31,10 +36,15 @@ from products.managed_warehouse.backend.facade.api import (
     is_data_modeling_shadow_ready,
     is_dev_mode,
 )
-from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery, DuckLakeS3Secret
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeCompiledQuery,
+    DuckLakeS3Secret,
+    TrinoIncrementalWrite,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import get_node_suspended_metric
+from .materialize_view import WritePlan, _resolve_write_plan
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -228,6 +238,7 @@ async def _materialize_view_managed_warehouse(
     sql: str = ""
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+    plan: WritePlan | None = None
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -240,12 +251,24 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
         )
         if inputs.use_trino:
+            plan = await _resolve_write_plan(saved_query, team.pk, scope=TRINO_INCREMENTAL_SCOPE)
+            await logger.ainfo("Trino write plan", incremental=plan.incremental, reason=plan.reason)
             result = await execute_trino_model(
                 organization_id=str(team.organization_id),
                 team_id=team.pk,
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
+                incremental=_trino_incremental_write(plan),
             )
+            if plan.config is not None:
+                # A quiet window writes nothing, so it records the run without moving the watermark.
+                await database_sync_to_async_pool(set_incremental_state)(
+                    saved_query,
+                    watermark=result.watermark,
+                    fingerprint=plan.fingerprint,
+                    mode="incremental" if result.merged else "full_refresh",
+                    scope=TRINO_INCREMENTAL_SCOPE,
+                )
             from products.managed_warehouse.backend.facade.client import request_model_alias_reconciliation
 
             try:
@@ -312,6 +335,13 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
             error=str(e),
         )
+        if plan is not None and plan.incremental:
+            # The merge may have stopped partway or failed on a schema change. Rebuilding next run
+            # is the only state that is certainly correct.
+            try:
+                await database_sync_to_async_pool(clear_incremental_state)(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
+            except Exception as clear_error:
+                capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
@@ -328,6 +358,16 @@ async def _materialize_view_managed_warehouse(
                 f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
+
+
+def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:
+    if plan.config is None:
+        return None
+    return TrinoIncrementalWrite(
+        incremental_key=plan.config.incremental_key,
+        unique_key=tuple(plan.config.unique_key),
+        since=plan.since if plan.incremental else None,
+    )
 
 
 @activity.defn
