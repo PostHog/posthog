@@ -289,13 +289,10 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 # been through validation. Comparing them would make an unchanged condition look edited.
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
-# Rollout gate for cohort filters in conditional branches, targeted per organization
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
 def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
-    # The flag targets organizations, so evaluate it against the organization that owns the target team:
-    # a user acting on a project outside their active organization gets that project's rollout.
     try:
         return feature_enabled_or_false(
             WORKFLOWS_COHORT_CONDITIONS_FLAG,
@@ -1326,7 +1323,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
-    # Memoized because one instance validates every action and the flag check is a network call
     _cohort_conditions_flag: Optional[bool] = None
 
     def _cohort_conditions_enabled(self) -> bool:
@@ -1808,10 +1804,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    # Cohorts are allowed in conditional_branch only: a wait_until_condition has no membership
-                    # wake stream, so it would only advance on the polling backstop. An action reference counts
-                    # too, because the validator resolves the Action's steps and the compiler rejects any cohort
-                    # it did not clear. Grandfathered conditions skip the flag so re-saves never pay the flag call.
                     cohorts_supported = (
                         is_conditional_branch
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
@@ -2933,9 +2925,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
-        # The stored conditions of an active flow keep compiling with cohort support after a flag dial-down
-        # or an internal re-save without request context, so the flag only polices new adoption. Drafts are
-        # excluded, like the gated templates above: a draft can hold a cohort condition without passing the gate.
         self.context["stored_cohort_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
@@ -4352,8 +4341,6 @@ class HogFlowViewSet(
         # running tests while editing is unaffected.
         if self.action == "invocations":
             scopes = ["hog_flow:write", "group:read"]
-            # A cohort condition makes the runtime load the supplied person's real cohort memberships, so
-            # the branch a test run takes would be a membership oracle. Require person:read where that can happen.
             if self._test_invocation_may_read_cohort_membership(request):
                 scopes.append("person:read")
             return scopes
@@ -4368,16 +4355,12 @@ class HogFlowViewSet(
             return ["hog_flow:write", "person:read", "group:read"]
         return None
 
-    # Memoized because both permission classes ask for the scopes and the flag check is a network call
     _cohort_conditions_rollout: Optional[bool] = None
 
     def _test_invocation_may_read_cohort_membership(self, request: Request) -> bool:
-        # Schema generation asks for the security requirement without URL kwargs or a request body.
         workflow_id = self.kwargs.get("pk")
         if workflow_id is None:
             return False
-        # Where the flag is on, a hog_flow:write token can add a cohort condition between this check and
-        # the worker's own read of the workflow, so the stored definition alone cannot gate the scopes.
         if self._cohort_conditions_rollout is None:
             user = getattr(request, "user", None)
             self._cohort_conditions_rollout = (
@@ -4388,13 +4371,10 @@ class HogFlowViewSet(
             )
         if self._cohort_conditions_rollout:
             return True
-        # With the flag off, only conditions stored before a dial-down still compile with cohorts.
         data = request.data if isinstance(request.data, dict) else {}
         configuration = data.get("configuration")
         if _actions_reference_cohorts(configuration.get("actions") if isinstance(configuration, dict) else None):
             return True
-        # No access check here: it would ask the access-control permission for the required level, which
-        # calls this hook again. The view checks access before it dispatches the test run.
         try:
             hog_flow = get_workflow_edit_state(
                 team_id=self.team_id, workflow_id=workflow_id, user_access_control=None, required_level=None

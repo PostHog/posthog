@@ -144,10 +144,7 @@ class BytecodeCompiler(Visitor):
         self.args = args
         self.cohort_membership_supported = cohort_membership_supported
         self.null_safe_comparisons = null_safe_comparisons
-        # When set, every IN COHORT operand must be a constant id from this set, so a cohort id smuggled in
-        # through a hogql property cannot skip the eligibility validation the caller ran before compiling.
         self.allowed_cohort_ids = allowed_cohort_ids
-        # True only inside the call visit_compare_operation generates for IN COHORT; visit_call rejects it elsewhere
         self._compiling_cohort_membership_call = False
         # we're in a function definition
         if args is not None:
@@ -241,8 +238,6 @@ class BytecodeCompiler(Visitor):
                             f"Cohort {node.right.value} can't be used here. "
                             "Reference cohorts through a cohort filter so they can be validated."
                         )
-                # The STL implementations cannot read globals, so the runtime's `cohort_ids` global is the second
-                # argument. Only this generated call passes the visit_call guard, which blocks hand-authored calls.
                 name = "inCohort" if operation == Operation.IN_COHORT else "notInCohort"
                 call = ast.Call(name=name, args=[node.right, ast.Field(chain=["cohort_ids"])])
                 self._compiling_cohort_membership_call = True
@@ -422,8 +417,6 @@ class BytecodeCompiler(Visitor):
 
         # Did not find a local nor an upvalue, must be a global.
 
-        # The runtime injects the person's memberships as `cohort_ids` for the generated inCohort call, so an
-        # authored read such as `42 in cohort_ids` would test a cohort the allowlist never validated.
         if (
             self.cohort_membership_supported
             and node.chain[0] == "cohort_ids"
@@ -530,8 +523,6 @@ class BytecodeCompiler(Visitor):
     def visit_call(self, node: ast.Call):
         self._check_declared_call(node)
         if node.name in ("inCohort", "notInCohort") and not self._compiling_cohort_membership_call:
-            # A hand-authored inCohort(42) skips the save-time eligibility validation, which only sees cohort
-            # property filters, so an ineligible cohort would evaluate as a non-member for everyone.
             raise QueryError(f"Can't call {node.name}() directly. Use a cohort property filter instead.")
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]

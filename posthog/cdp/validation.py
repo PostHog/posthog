@@ -1150,7 +1150,6 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         workflow scopes, and a name would hand them a cohort-metadata oracle.
         """
         collected = set(filter_cohort_ids(data))
-        # action_to_expr inlines a referenced Action's stored steps, so their cohort properties need validation too
         action_ids = filter_action_ids(data)
         if action_ids:
             # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
@@ -1161,8 +1160,6 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         if not cohort_ids:
             return set()
 
-        # Scoped to the environment, not the project: membership rows are keyed by the cohort's team_id and
-        # the runtime reads them with the workflow's team_id, so a sibling environment's cohort has no rows here.
         cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
         for cohort_id in cohort_ids:
             cohort = cohorts.get(cohort_id)
