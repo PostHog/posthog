@@ -227,8 +227,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/keyword_view",
         "columns": _stats_columns(
             ad_group_criterion_criterion_id="Unique ID of the keyword criterion the metrics belong to.",
-            metrics_top_impression_percentage="Fraction of Google Search ad impressions shown among the top ads.",
-            metrics_absolute_top_impression_percentage="Fraction of Google Search ad impressions shown as the first ad.",
         ),
     },
     "video": {

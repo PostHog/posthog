@@ -2075,6 +2075,16 @@ class TestResourceSchemaInvariants:
         assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
         assert "segments.date" in contents["field_names"]
 
+    @pytest.mark.parametrize("alias", sorted(RESOURCE_SCHEMAS))
+    def test_click_type_is_not_selected_with_top_impression_metrics(self, alias):
+        # Google rejects a query that pairs segments.click_type with the top impression metrics
+        # (PROHIBITED_SEGMENT_WITH_METRIC_IN_SELECT_OR_WHERE_CLAUSE), which fails every sync of the table.
+        field_names = RESOURCE_SCHEMAS[alias]["field_names"]
+        if "segments.click_type" not in field_names:
+            return
+        assert "metrics.top_impression_percentage" not in field_names
+        assert "metrics.absolute_top_impression_percentage" not in field_names
+
 
 class TestConversionActionSegmentedStats:
     @pytest.mark.parametrize(
