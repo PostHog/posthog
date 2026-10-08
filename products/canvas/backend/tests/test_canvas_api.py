@@ -41,6 +41,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.facade.api import get_issue
 from products.error_tracking.backend.facade.testing import create_issue
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
@@ -1349,6 +1350,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "state": [],
                 "actions": [],
                 "agentRequests": False,
+                "operations": [],
             },
             "network": {"origins": []},
             "connectors": [],
@@ -1361,6 +1363,7 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "state": [],
                 "actions": [],
                 "agentRequests": False,
+                "operations": [],
             },
             "network": {"origins": []},
             "connectors": [{"provider": "github", "tools": ["list_pull_requests"]}],
@@ -2886,6 +2889,124 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestCanvasOperations(CanvasAPIBaseTest):
+    OPERATIONS = [
+        {
+            "name": "mark-incident",
+            "description": "Annotate the start of an incident.",
+            "verb": "annotations.create",
+            "payload": {"content": "Incident started"},
+        },
+        {
+            "name": "enable-beta",
+            "description": "Turn a beta flag on for everyone.",
+            "verb": "feature_flags.enable",
+            "inputs": ["flag_key"],
+        },
+    ]
+
+    def _operations_canvas(self) -> str:
+        canvas_id = self._create_canvas(name="Launch console")
+        capabilities = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": [],
+                "actions": ["annotations.create", "feature_flags.enable"],
+                "operations": self.OPERATIONS,
+            },
+            "network": {"origins": []},
+        }
+        response = self._publish(canvas_id, project=self._project(capabilities=capabilities))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id
+
+    def _invoke(self, canvas_id: str, name: str, arguments: dict[str, Any] | None = None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/{name}/invoke/",
+            {"arguments": arguments or {}},
+            format="json",
+        )
+
+    def test_operations_list_pairs_each_declaration_with_its_verb(self):
+        canvas_id = self._operations_canvas()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = {row["name"]: row for row in response.json()["operations"]}
+        assert set(rows) == {"mark-incident", "enable-beta"}
+        assert rows["enable-beta"]["verb"] == "feature_flags.enable"
+        assert rows["enable-beta"]["inputs"] == ["flag_key"]
+        assert rows["enable-beta"]["required_scopes"] == ["canvas:write", "feature_flag:write"]
+        assert rows["enable-beta"]["destructive"] is False
+        assert rows["mark-incident"]["inputs"] == []
+
+    def test_operation_invoke_runs_the_verb_with_the_declared_payload_and_caller_inputs(self):
+        canvas_id = self._operations_canvas()
+        flag = FeatureFlag.objects.create(team=self.team, key="beta-checkout", active=False, created_by=self.user)
+
+        marked = self._invoke(canvas_id, "mark-incident")
+        assert marked.status_code == status.HTTP_200_OK, marked.json()
+        annotation = Annotation.objects.get(id=marked.json()["result"]["annotation_id"])
+        assert annotation.content == "Incident started"
+        assert annotation.created_by_id == self.user.id
+        assert marked.json()["verb"] == "annotations.create"
+
+        enabled = self._invoke(canvas_id, "enable-beta", {"flag_key": "beta-checkout"})
+        assert enabled.status_code == status.HTTP_200_OK, enabled.json()
+        flag.refresh_from_db()
+        assert flag.active is True
+
+        # Only declared inputs may be supplied, so a caller cannot smuggle extra verb arguments.
+        smuggled = self._invoke(canvas_id, "mark-incident", {"content": "Something else"})
+        assert smuggled.status_code == status.HTTP_400_BAD_REQUEST, smuggled.json()
+        assert Annotation.objects.count() == 1
+
+        unknown = self._invoke(canvas_id, "no-such-operation")
+        assert unknown.status_code == status.HTTP_404_NOT_FOUND, unknown.json()
+
+        entries = self._activity("operation_invoked")
+        assert [entry.detail["trigger"]["job_id"] for entry in entries] == ["mark-incident", "enable-beta"]
+
+    def test_scoped_key_needs_the_operations_verb_scope(self):
+        canvas_id = self._operations_canvas()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ops", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:write"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/mark-incident/invoke/",
+            {"arguments": {}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Annotation.objects.count() == 0
+
+    def test_publish_skill_creates_a_team_skill_and_versions_it_on_republish(self):
+        canvas_id = self._operations_canvas()
+
+        first = self.client.post(f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/publish_skill/")
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        skill_name = first.json()["skill_name"]
+        assert first.json()["version"] == 1
+        skill = LLMSkill.objects.get(team=self.team, name=skill_name, is_latest=True)
+        assert "mark-incident" in skill.body and "enable-beta" in skill.body
+        assert "canvas-operation-invoke" in skill.body
+        assert str(canvas_id) in skill.body
+        assert skill.created_by_id == self.user.id
+
+        second = self.client.post(f"/api/projects/{self.team.id}/canvases/{canvas_id}/operations/publish_skill/")
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert second.json() == {**first.json(), "version": 2}
+        assert LLMSkill.objects.filter(team=self.team, name=skill_name, deleted=False).count() == 2
 
 
 class TestTaskCreatePayloadSerializer(SimpleTestCase):

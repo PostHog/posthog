@@ -36,6 +36,12 @@ from products.canvas.backend.contract import (
 )
 
 CANVAS_SOURCE_SCHEMA_VERSION = 1
+# Operations are named entry points to declared verbs; agents and skills call them by name.
+MAX_OPERATIONS = 20
+MAX_OPERATION_NAME_LENGTH = 64
+MAX_OPERATION_DESCRIPTION_LENGTH = 400
+MAX_OPERATION_PAYLOAD_BYTES = 4 * 1024
+_OPERATION_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CANVAS_ENTRY_HTML = "index.html"
 # The conventional React entry component (also what the synthetic shell mounts).
 CANVAS_COMPONENT_PATH = "src/canvas.tsx"
@@ -732,6 +738,98 @@ def validate_component_meta(project: dict[str, Any], kind: str) -> list[dict[str
     return diagnostics
 
 
+def _validate_operation_declarations(posthog_capabilities: dict[str, Any]) -> list[dict[str, Any]]:
+    """Check capabilities.posthog.operations: well-formed names, declared verbs, payload keys the verb accepts."""
+    operations = posthog_capabilities.get("operations") or []
+    if not isinstance(operations, list):
+        return [diagnostic("error", "operation_invalid", "capabilities.posthog.operations must be a list")]
+    diagnostics: list[dict[str, Any]] = []
+    if len(operations) > MAX_OPERATIONS:
+        diagnostics.append(
+            diagnostic("error", "operation_invalid", f"a canvas may declare at most {MAX_OPERATIONS} operations")
+        )
+    declared_verbs = set(posthog_capabilities.get("actions") or [])
+    seen_names: set[str] = set()
+    for index, operation in enumerate(operations):
+        label = f"capabilities.posthog.operations[{index}]"
+        if not isinstance(operation, dict):
+            diagnostics.append(diagnostic("error", "operation_invalid", f"{label} must be an object"))
+            continue
+        name = operation.get("name")
+        if not isinstance(name, str) or len(name) > MAX_OPERATION_NAME_LENGTH or not _OPERATION_NAME_RE.fullmatch(name):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "operation_invalid",
+                    f"{label}.name must be 1 to {MAX_OPERATION_NAME_LENGTH} lowercase letters, digits, and single "
+                    "hyphens, e.g. 'enable-beta'",
+                )
+            )
+        elif name in seen_names:
+            diagnostics.append(diagnostic("error", "operation_invalid", f'operation "{name}" is declared twice'))
+        else:
+            seen_names.add(name)
+        description = operation.get("description")
+        if not isinstance(description, str) or not description.strip():
+            diagnostics.append(diagnostic("error", "operation_invalid", f"{label}.description is required"))
+        elif len(description) > MAX_OPERATION_DESCRIPTION_LENGTH:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "operation_invalid",
+                    f"{label}.description may not exceed {MAX_OPERATION_DESCRIPTION_LENGTH} characters",
+                )
+            )
+        verb = operation.get("verb")
+        if not isinstance(verb, str) or verb not in declared_verbs or verb not in CANVAS_ACTIONS:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "operation_invalid",
+                    f"{label}.verb must be a registered verb the canvas declares in capabilities.posthog.actions",
+                )
+            )
+            continue
+        accepted_keys = set(CANVAS_ACTIONS[verb].payload_serializer().fields)
+        payload = operation.get("payload", {})
+        if not isinstance(payload, dict):
+            diagnostics.append(diagnostic("error", "operation_invalid", f"{label}.payload must be an object"))
+        else:
+            if len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) > MAX_OPERATION_PAYLOAD_BYTES:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "operation_invalid",
+                        f"{label}.payload may not exceed {MAX_OPERATION_PAYLOAD_BYTES // 1024} KB serialized",
+                    )
+                )
+            unknown_payload_keys = sorted(set(payload) - accepted_keys)
+            if unknown_payload_keys:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "operation_invalid",
+                        f'{label}.payload has keys "{verb}" does not accept: ' + ", ".join(unknown_payload_keys),
+                    )
+                )
+        inputs = operation.get("inputs", [])
+        if not isinstance(inputs, list) or not all(isinstance(key, str) for key in inputs):
+            diagnostics.append(
+                diagnostic("error", "operation_invalid", f"{label}.inputs must be a list of payload field names")
+            )
+        else:
+            unknown_inputs = sorted(set(inputs) - accepted_keys)
+            if unknown_inputs:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "operation_invalid",
+                        f'{label}.inputs names fields "{verb}" does not accept: ' + ", ".join(unknown_inputs),
+                    )
+                )
+    return diagnostics
+
+
 def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") -> list[dict[str, Any]]:
     """Validate a candidate source project against the platform contract.
 
@@ -780,6 +878,7 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                 + ", ".join(sorted(CANVAS_ACTIONS)),
             )
         )
+    diagnostics.extend(_validate_operation_declarations(capabilities.get("posthog") or {}))
     diagnostics.extend(_validate_connector_declarations(capabilities.get("connectors") or []))
     if capabilities.get("connectors") and "shared" in (capabilities.get("posthog") or {}).get("state", []):
         diagnostics.append(

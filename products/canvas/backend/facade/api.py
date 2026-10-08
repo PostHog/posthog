@@ -52,6 +52,15 @@ from products.canvas.backend.logic.canvases import (
     provision_home_canvas as provision_home_canvas,
     update_canvas as update_canvas,
 )
+from products.canvas.backend.logic.operations import (
+    find_operation as find_operation,
+    list_operations as list_operations,
+    operation_payload as operation_payload,
+    operation_required_scopes as operation_required_scopes,
+    operation_skill_body as operation_skill_body,
+    operation_skill_description as operation_skill_description,
+    operation_skill_name as operation_skill_name,
+)
 from products.canvas.backend.logic.runtime import (
     action_required_scopes as action_required_scopes,
     action_starts_cloud_run as action_starts_cloud_run,

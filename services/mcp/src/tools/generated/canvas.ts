@@ -726,6 +726,93 @@ const canvasActionInvoke = (): ToolBase<ReturnType<typeof CanvasActionInvokeSche
     },
 })
 
+const CanvasOperationsListSchema = () => {
+    const CanvasesOperationsRetrieveParams = orvalSchemas.CanvasesOperationsRetrieveParams()
+    return CanvasesOperationsRetrieveParams.omit({ project_id: true }).extend({
+        id: CanvasesOperationsRetrieveParams.shape['id'].describe(
+            'ID of the canvas whose declared operations to list.'
+        ),
+    })
+}
+
+const canvasOperationsList = (): ToolBase<
+    ReturnType<typeof CanvasOperationsListSchema>,
+    Schemas.CanvasOperationsResponse
+> => ({
+    name: 'canvas-operations-list',
+    schema: CanvasOperationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasOperationsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasOperationsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/operations/`,
+        })
+        return result
+    },
+})
+
+const CanvasOperationInvokeSchema = () => {
+    const CanvasesOperationsInvokeBody = orvalSchemas.CanvasesOperationsInvokeBody()
+    const CanvasesOperationsInvokeParams = orvalSchemas.CanvasesOperationsInvokeParams()
+    return CanvasesOperationsInvokeParams.omit({ project_id: true })
+        .extend(CanvasesOperationsInvokeBody.shape)
+        .extend({
+            id: CanvasesOperationsInvokeParams.shape['id'].describe('ID of the canvas that declares the operation.'),
+            operation_name: CanvasesOperationsInvokeParams.shape['operation_name'].describe(
+                "The operation's declared name, exactly as listed by canvas-operations-list."
+            ),
+            arguments: CanvasesOperationsInvokeBody.shape['arguments'].describe(
+                "Values for the operation's declared `inputs`, keyed by payload field name."
+            ),
+        })
+}
+
+const canvasOperationInvoke = (): ToolBase<
+    ReturnType<typeof CanvasOperationInvokeSchema>,
+    Schemas.CanvasActionResult
+> => ({
+    name: 'canvas-operation-invoke',
+    schema: CanvasOperationInvokeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasOperationInvokeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.arguments !== undefined) {
+            body['arguments'] = params.arguments
+        }
+        const result = await context.api.request<Schemas.CanvasActionResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/operations/${encodeURIComponent(String(params.operation_name))}/invoke/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasOperationsPublishSkillSchema = () => {
+    const CanvasesOperationsPublishSkillCreateParams = orvalSchemas.CanvasesOperationsPublishSkillCreateParams()
+    return CanvasesOperationsPublishSkillCreateParams.omit({ project_id: true }).extend({
+        id: CanvasesOperationsPublishSkillCreateParams.shape['id'].describe(
+            'ID of the canvas whose operations to publish as a skill.'
+        ),
+    })
+}
+
+const canvasOperationsPublishSkill = (): ToolBase<
+    ReturnType<typeof CanvasOperationsPublishSkillSchema>,
+    Schemas.CanvasPublishSkillResponse
+> => ({
+    name: 'canvas-operations-publish-skill',
+    schema: CanvasOperationsPublishSkillSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasOperationsPublishSkillSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasPublishSkillResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/operations/publish_skill/`,
+        })
+        return result
+    },
+})
+
 const CanvasActionsListSchema = () => z.object({})
 
 const canvasActionsList = (): ToolBase<ReturnType<typeof CanvasActionsListSchema>, Schemas.CanvasActionsResponse> => ({
@@ -764,5 +851,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-state-value-retrieve': canvasStateValueRetrieve,
     'canvas-validate-create': canvasValidateCreate,
     'canvas-action-invoke': canvasActionInvoke,
+    'canvas-operations-list': canvasOperationsList,
+    'canvas-operation-invoke': canvasOperationInvoke,
+    'canvas-operations-publish-skill': canvasOperationsPublishSkill,
     'canvas-actions-list': canvasActionsList,
 }

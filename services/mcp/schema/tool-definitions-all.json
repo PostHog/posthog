@@ -2130,6 +2130,48 @@
             "readOnlyHint": false
         }
     },
+    "canvas-operation-invoke": {
+        "description": "Run one operation a canvas declares, by name, as the authenticated user: the operation's verb executes with its declared payload plus the `arguments` you pass for its `inputs`, exactly as a viewer's click would, with the user's own permissions and an activity log entry. Arguments outside the operation's `inputs` are refused. The credential must also hold the verb's own write scope (listed per operation by canvas-operations-list). Confirm with the user before invoking an operation marked destructive. Returns `{verb, result}`; a 409 with `change_request_id` means an approval policy took the change.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Invoke a canvas operation",
+        "title": "Invoke a canvas operation",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-operations-list": {
+        "description": "List the named operations a canvas's live version declares: each binds a registered verb to a fixed payload and names the `inputs` a caller supplies, with the verb's destructive and paid-compute flags and the scopes an API key needs. Read this before canvas-operation-invoke, and to decide whether a canvas is worth publishing as a skill with canvas-operations-publish-skill. A canvas with no operations returns an empty list; its verbs are still reachable through canvas-action-invoke.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "List canvas operations",
+        "title": "List canvas operations",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-operations-publish-skill": {
+        "description": "Write (or republish) a team skill that documents a canvas's declared operations and the exact MCP calls that run them, so any agent in the project can discover and use them. The skill name is stable per canvas; calling this again after the canvas changes publishes a new version. Fails with 409 when the canvas's live version declares no operations. Do this when the user asks to expose a canvas's operations to agents, after the canvas is published.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Publish canvas operations as a skill",
+        "title": "Publish canvas operations as a skill",
+        "required_scopes": ["canvas:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-promote-create": {
         "description": "Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head: revert does not act on drafts.",
         "category": "Canvas",
