@@ -7,7 +7,6 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
-    Heading,
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -62,9 +61,7 @@ export function NewSessionScene(): JSX.Element {
                         </Empty>
                     ) : (
                         <>
-                            <Heading size="2xl" render={<h1 />} className="mb-5">
-                                Start a new session
-                            </Heading>
+                            <h1 className="sr-only">Start a new session</h1>
                             {resolving ? (
                                 <SpaceTaskComposerSkeleton />
                             ) : (
