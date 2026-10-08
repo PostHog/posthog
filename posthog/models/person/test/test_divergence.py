@@ -34,6 +34,7 @@ from posthog.models.person.divergence import (
     SampleSummary,
     ScanSummary,
     TeamCheck,
+    _team_check_modulus,
     _WritePacer,
     check_team,
     repair_distinct_id,
@@ -1064,6 +1065,19 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("gone", "skipped_mapping_gone"),
         ]
         assert self._ch_mapping("gone") == (str(person.uuid), 1, 100)
+
+
+class TestTeamCheckModulus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_team", 0, 200, 1),
+            ("small_team_reads_everything", 3_999, 200, 1),
+            ("filter_keeps_ten_times_the_sample", 4_000, 200, 2),
+            ("largest_teams", 50_000_000, 200, 25_000),
+        ]
+    )
+    def test_modulus_keeps_ten_times_the_sample(self, _name: str, rows: int, sample_size: int, expected: int) -> None:
+        assert _team_check_modulus(rows, sample_size) == expected
 
 
 class TestWritePacer(SimpleTestCase):
