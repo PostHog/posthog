@@ -112,6 +112,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
+                className="border-b-0"
                 title={
                     <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">
                         {PANE_LABELS[activePane]}
@@ -193,7 +194,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="TodayShell__sidebar relative border-r border-[var(--border)]"
+                            className="TodayShell__sidebar TodayShell__sidebar--framed relative"
                             aria-label={PANE_LABELS[activePane]}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}

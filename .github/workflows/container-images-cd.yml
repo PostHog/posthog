@@ -616,8 +616,12 @@ jobs:
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/temporal/data_modeling/**'
                         - 'products/customer_analytics/backend/**'
-                        - 'products/warehouse_sources/backend/temporal/data_imports/**'
+                        # The extract worker imports the whole warehouse_sources backend
+                        # (models, facade, scheduling, tasks) and the data_warehouse facade.
+                        - 'products/warehouse_sources/backend/**'
+                        - 'products/data_warehouse/backend/**'
                         - 'posthog/warehouse/**'
+                        - Dockerfile
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -655,6 +659,8 @@ jobs:
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'
+                        # The loader imports the Temporal logger.
+                        - 'posthog/temporal/common/**'
                         - pyproject.toml
                         - Dockerfile
                         - 'posthog/clickhouse/migrations/**'
