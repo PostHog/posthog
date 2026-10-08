@@ -860,6 +860,7 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
+        "STAMPHOG_REVIEWER_ENGINE",
         *NETWORK_RESTRICTED_AGENT_ENV,
     }
     assert all(env[name] == "1" for name in NETWORK_RESTRICTED_AGENT_ENV)

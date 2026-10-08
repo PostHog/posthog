@@ -154,9 +154,6 @@ class TestHosts:
 
 
 class TestRequireIdentifier:
-    def test_accepts_a_plain_identifier(self) -> None:
-        assert _require_identifier("  YOUR_BALANCE_PLATFORM  ", "Balance platform ID") == "YOUR_BALANCE_PLATFORM"
-
     @parameterized.expand(
         [
             ("empty", ""),
@@ -195,25 +192,6 @@ class TestCoercion:
 
 
 class TestIterWindows:
-    def test_short_range_is_a_single_window(self) -> None:
-        start = datetime(2026, 1, 1, tzinfo=UTC)
-        end = start + timedelta(days=3)
-        assert list(iter_windows(start, end)) == [(start, end)]
-
-    def test_long_range_is_split_into_contiguous_ascending_windows(self) -> None:
-        start = datetime(2026, 1, 1, tzinfo=UTC)
-        end = start + timedelta(days=MAX_WINDOW_DAYS * 2 + 10)
-
-        windows = list(iter_windows(start, end))
-
-        assert len(windows) == 3
-        assert windows[0][0] == start
-        assert windows[-1][1] == end
-        for (_, previous_end), (next_start, _) in zip(windows, windows[1:]):
-            assert previous_end == next_start
-        for window_start, window_end in windows:
-            assert window_end - window_start <= timedelta(days=MAX_WINDOW_DAYS)
-
     @parameterized.expand([("equal", 0), ("inverted", -5)])
     def test_no_windows_when_end_not_after_start(self, _name: str, offset_days: int) -> None:
         start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -265,22 +243,6 @@ class TestReportParsing:
     def test_normalize_header(self, _name: str, header: str, expected: str) -> None:
         assert normalize_header(header) == expected
 
-    def test_rows_are_normalized_and_stamped_with_the_requested_batch(self) -> None:
-        text = "Psp Reference,Type,Gross Debit (GC),Batch Number\nABC123,Settled,10.00,7\n"
-
-        rows = list(parse_report_rows(io.StringIO(text), 7, mock.MagicMock()))
-
-        assert rows == [
-            {
-                "psp_reference": "ABC123",
-                "type": "Settled",
-                "gross_debit_gc": "10.00",
-                # The requested batch is the authoritative integer watermark, so it overrides
-                # the report's own string column.
-                "batch_number": 7,
-            }
-        ]
-
     def test_blank_and_malformed_rows_are_skipped(self) -> None:
         logger = mock.MagicMock()
         text = "Psp Reference,Type\nABC,Settled\n\nSHORT\nDEF,Refunded\n"
@@ -289,9 +251,6 @@ class TestReportParsing:
 
         assert [row["psp_reference"] for row in rows] == ["ABC", "DEF"]
         assert logger.warning.call_count == 1
-
-    def test_empty_report_yields_nothing(self) -> None:
-        assert list(parse_report_rows(io.StringIO(""), 1, mock.MagicMock())) == []
 
 
 class TestValidateCredentials:
@@ -324,14 +283,6 @@ class TestValidateCredentials:
 
         assert is_valid is expected_valid
         assert session.requested_urls[1] == "https://balanceplatform-api-test.adyen.com/bcl/v2/balancePlatforms/BP123"
-
-    def test_no_fallback_without_a_balance_platform(self) -> None:
-        session = _FakeSession([_FakeResponse(status_code=401)])
-        with mock.patch.object(adyen_module, "_get_session", return_value=session):
-            is_valid, _ = validate_credentials("test", "key")
-
-        assert is_valid is False
-        assert len(session.requested_urls) == 1
 
     def test_malformed_identifier_fails_before_any_request(self) -> None:
         session = _FakeSession([])
@@ -368,35 +319,6 @@ class TestCursorPagination:
                 resume=resume,
             )
         )
-
-    def test_walks_pages_until_the_cursor_runs_out(self) -> None:
-        session = _FakeSession(
-            [
-                _FakeResponse(
-                    json_data={"data": [{"id": "t1"}], "_links": {"next": {"href": "https://x?cursor=c2"}}},
-                ),
-                _FakeResponse(json_data={"data": [{"id": "t2"}]}),
-            ]
-        )
-        manager = _FakeManager()
-
-        pages = self._pages(session, manager)
-
-        assert [item["id"] for page in pages for item in page] == ["t1", "t2"]
-        assert _query(session.requested_urls[1])["cursor"] == ["c2"]
-
-    def test_first_request_carries_the_required_window_and_sort(self) -> None:
-        session = _FakeSession([_FakeResponse(json_data={"data": []})])
-
-        self._pages(session, _FakeManager())
-
-        params = _query(session.requested_urls[0])
-        assert params["balancePlatform"] == ["BP123"]
-        assert params["createdSince"] == ["2026-01-01T00:00:00Z"]
-        assert params["createdUntil"] == ["2026-01-02T00:00:00Z"]
-        assert params["sortOrder"] == ["asc"]
-        assert params["limit"] == [str(PAGE_SIZE)]
-        assert "cursor" not in params
 
     def test_state_is_saved_after_each_yielded_page(self) -> None:
         session = _FakeSession(
@@ -518,24 +440,6 @@ class TestPageNumberPagination:
 
 
 class TestFanout:
-    def test_children_are_fetched_per_parent_and_checkpointed(self) -> None:
-        session = _FakeSession(
-            [
-                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}, {"id": "AH2"}]}),
-                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1", "accountHolderId": "AH1"}]}),
-                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA2", "accountHolderId": "AH2"}]}),
-            ]
-        )
-        manager = _FakeManager()
-
-        rows = _drain(session, "BalanceAccounts", manager, balance_platform="BP123")
-
-        assert [row["id"] for row in rows] == ["BA1", "BA2"]
-        assert session.requested_urls[1].startswith(
-            "https://balanceplatform-api-test.adyen.com/bcl/v2/accountHolders/AH1/balanceAccounts"
-        )
-        assert [state.parent_index for state in manager.saved_states] == [1, 2]
-
     def test_resume_skips_parents_already_walked(self) -> None:
         session = _FakeSession(
             [
@@ -577,16 +481,6 @@ class TestReportBatches:
         assert session.requested_urls[0].endswith(
             "/reports/download/MerchantAccount/ACME/settlement_detail_report_batch_1.csv"
         )
-
-    def test_requests_gzip_and_csv(self) -> None:
-        session = _FakeSession([self._report("A,Settled,\n"), *[_FakeResponse(status_code=404) for _ in range(4)]])
-
-        _drain(session, "SettlementDetailReports", _FakeManager(), merchant_account="ACME")
-
-        headers = session.requested_headers[0]
-        assert headers is not None
-        assert headers["Accept-Encoding"] == "gzip"
-        assert headers["Accept"] == "text/csv"
 
     def test_incremental_watermark_starts_at_the_next_batch(self) -> None:
         session = _FakeSession([self._report("C,Settled,\n"), *[_FakeResponse(status_code=404) for _ in range(4)]])

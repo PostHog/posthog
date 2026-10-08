@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apify_data
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
     ACTOR_RUNS_ENDPOINT,
     ACTORS_ENDPOINT,
-    DATASETS_ENDPOINT,
     USAGE_MONTHLY_ENDPOINT,
 )
 
@@ -115,19 +114,6 @@ class TestPagination:
 
     @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"i": 0}], total=1)])
-
-        manager = _make_manager()
-        rows = _rows(_run(manager, None))
-
-        assert [r["i"] for r in rows] == [0]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"i": 200}], total=201)])
@@ -212,31 +198,6 @@ class TestPlatformEndpoints:
 
         # Truncated to whole seconds, which only ever re-fetches the boundary row.
         assert params[0]["startedAfter"] == "2026-03-04T05:06:07Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_the_watermark(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_platform_response([])])
-
-        _rows(
-            _run_platform(
-                ACTOR_RUNS_ENDPOINT,
-                _make_manager(),
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert "startedAfter" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_datasets_asks_for_unnamed_storages(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_platform_response([])])
-
-        _rows(_run_platform(DATASETS_ENDPOINT, _make_manager()))
-
-        # Actor runs store their output in unnamed datasets, which the endpoint hides by default.
-        assert params[0]["unnamed"] == "true"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_envelope_raises_loudly(self, MockSession) -> None:

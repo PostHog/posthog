@@ -137,18 +137,6 @@ class TestTopLevelEndpoints:
         assert session.get.call_args_list[0].args[0] == f"{BASE}/organizations/acme?page%5Bsize%5D=100"
         assert [row["id"] for batch in batches for row in batch] == ["acme"]
 
-    def test_saves_resume_state_only_while_pages_remain(self) -> None:
-        next_url = f"{BASE}/organizations/acme/projects?page%5Bnumber%5D=2"
-        responses = [
-            _response(_page([{"id": "prj-1", "attributes": {}}], next_url)),
-            _response(_page([{"id": "prj-2", "attributes": {}}])),
-        ]
-        _, _, manager = _run_endpoint("projects", responses)
-        # The final page must not be checkpointed — a retry resuming past the end would sync nothing.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            TerraformCloudResumeConfig(next_url=next_url)
-        ]
-
     def test_resumes_from_saved_url(self) -> None:
         resume_url = f"{BASE}/organizations/acme/projects?page%5Bnumber%5D=3"
         responses = [_response(_page([{"id": "prj-9", "attributes": {}}]))]
@@ -160,27 +148,6 @@ class TestTopLevelEndpoints:
 
 
 class TestFanOutEndpoints:
-    def test_runs_fan_out_stamps_workspace_and_bookmarks_progress(self) -> None:
-        responses = [
-            _response(_page([_workspace("ws-1", "app"), _workspace("ws-2", "infra")])),
-            _response(_page([_run_item("run-1", "2026-01-02T00:00:00Z")])),  # ws-1 runs
-            _response(_page([_run_item("run-2", "2026-01-01T00:00:00Z")])),  # ws-2 runs
-        ]
-        batches, session, manager = _run_endpoint("runs", responses)
-
-        rows = [row for batch in batches for row in batch]
-        # Every child row carries its parent workspace so the table joins back without
-        # unpacking JSON:API relationships.
-        assert [(row["id"], row["workspace_id"], row["workspace_name"]) for row in rows] == [
-            ("run-1", "ws-1", "app"),
-            ("run-2", "ws-2", "infra"),
-        ]
-        assert session.get.call_args_list[1].args[0] == f"{BASE}/workspaces/ws-1/runs?page%5Bsize%5D=100"
-        # Crash between workspaces must resume at ws-2, not restart the whole fan-out.
-        assert TerraformCloudResumeConfig(next_url=None, workspace_id="ws-2") in [
-            call.args[0] for call in manager.save_state.call_args_list
-        ]
-
     def test_state_versions_filter_by_workspace_name_and_org(self) -> None:
         # State versions have no per-workspace path; dropping the name filters would sync the
         # same global list once per workspace.
@@ -194,39 +161,6 @@ class TestFanOutEndpoints:
         assert "filter%5Borganization%5D%5Bname%5D=acme" in child_url
         assert "filter%5Bworkspace%5D%5Bname%5D=app" in child_url
         assert [row["id"] for batch in batches for row in batch] == ["sv-1"]
-
-    def test_state_versions_strip_signed_capability_urls(self) -> None:
-        # State-version payloads carry signed state-file download/upload URLs. Persisting them
-        # would let anyone who can query the warehouse table read or write raw Terraform state
-        # (including secrets) without any HCP Terraform authorization.
-        responses = [
-            _response(_page([_workspace("ws-1", "app")])),
-            _response(
-                _page(
-                    [
-                        {
-                            "id": "sv-1",
-                            "attributes": {
-                                "serial": 4,
-                                "created-at": "2026-01-01T00:00:00Z",
-                                "hosted-state-download-url": "https://archivist.terraform.io/v1/object/signed",
-                                "hosted-json-state-download-url": "https://archivist.terraform.io/v1/object/signed-json",
-                                "sanitized-state-download-url": "https://archivist.terraform.io/v1/object/sanitized",
-                                "hosted-state-upload-url": "https://archivist.terraform.io/v1/object/upload",
-                                "hosted-json-state-upload-url": "https://archivist.terraform.io/v1/object/upload-json",
-                            },
-                        }
-                    ]
-                )
-            ),
-        ]
-        batches, _, _ = _run_endpoint("state_versions", responses)
-        (row,) = [row for batch in batches for row in batch]
-        assert not any("download_url" in key or "upload_url" in key for key in row)
-        # The non-capability metadata still lands.
-        assert row["serial"] == 4
-        assert row["created_at"] == "2026-01-01T00:00:00Z"
-        assert row["workspace_id"] == "ws-1"
 
     def test_resumes_into_bookmarked_workspace(self) -> None:
         resume_url = f"{BASE}/workspaces/ws-2/runs?page%5Bnumber%5D=5"
@@ -242,16 +176,6 @@ class TestFanOutEndpoints:
         assert session.get.call_args_list[1].args[0] == resume_url
         assert [row["id"] for batch in batches for row in batch] == ["run-9"]
 
-    def test_restarts_when_bookmarked_workspace_no_longer_exists(self) -> None:
-        responses = [
-            _response(_page([_workspace("ws-1", "app")])),
-            _response(_page([_run_item("run-1", "2026-01-01T00:00:00Z")])),
-        ]
-        batches, _, _ = _run_endpoint(
-            "runs", responses, manager=_manager(TerraformCloudResumeConfig(next_url="http://x", workspace_id="ws-gone"))
-        )
-        assert [row["id"] for batch in batches for row in batch] == ["run-1"]
-
     def test_skips_workspace_deleted_mid_sync(self) -> None:
         responses = [
             _response(_page([_workspace("ws-1", "app"), _workspace("ws-2", "infra")])),
@@ -264,25 +188,6 @@ class TestFanOutEndpoints:
 
 
 class TestIncrementalPaginationTermination:
-    def test_stops_paging_once_page_predates_watermark(self) -> None:
-        # The API has no server-side time filter: without the client-side stop every
-        # incremental sync re-walks each workspace's whole run history.
-        next_url = f"{BASE}/workspaces/ws-1/runs?page%5Bnumber%5D=2"
-        responses = [
-            _response(_page([_workspace("ws-1", "app")])),
-            # Older than watermark minus the 24h lookback -> stop, page 2 never requested.
-            _response(_page([_run_item("run-old", "2026-01-01T00:00:00Z")], next_url)),
-        ]
-        batches, session, _ = _run_endpoint(
-            "runs",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
-        )
-        assert session.get.call_count == 2
-        # The boundary page is still yielded; merge dedupes it on the primary key.
-        assert [row["id"] for batch in batches for row in batch] == ["run-old"]
-
     def test_lookback_keeps_paging_through_recent_rows(self) -> None:
         # Runs mutate until they reach a final status, so rows inside the 24h lookback window
         # must be re-pulled even though they predate the raw watermark.

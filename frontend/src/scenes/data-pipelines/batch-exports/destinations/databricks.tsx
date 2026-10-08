@@ -4,7 +4,7 @@ import { LemonCheckbox, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { PERSON_PROPERTIES_EVENT_FIELD } from './common'
+import { PERSON_EVENT_FIELDS } from './common'
 import type { DestinationDefinition } from './types'
 
 export const databricksDefinition: DestinationDefinition = {
@@ -24,7 +24,7 @@ export const databricksDefinition: DestinationDefinition = {
             type: 'integer',
             schema_valid: true,
         },
-        ...PERSON_PROPERTIES_EVENT_FIELD,
+        ...PERSON_EVENT_FIELDS,
         created_at: {
             name: 'created_at',
             hogql_value: 'created_at',

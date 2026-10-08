@@ -103,6 +103,34 @@ class TestApprovalGateFailsClosed(_ApprovalGateFixtures):
         flag.refresh_from_db()
         assert flag.active is False
 
+    def test_a_detect_that_raises_blocks_the_write(self, _mock_enabled):
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        serializer = self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+        # A broken detect() leaves the gate unable to answer. Reading that as "no policy applies"
+        # would disable the very policy this action implements.
+        with patch(
+            "products.approvals.backend.actions.feature_flags.EnableFeatureFlagAction.detect",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(APIException):
+                serializer.save()
+
+        flag.refresh_from_db()
+        assert flag.active is False
+
     def test_gate_passes_through_when_no_policy(self, _mock_enabled):
         flag = self._create_disabled_flag()
         request = self._drf_request({"active": True})
@@ -209,6 +237,7 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         action_class.key = "feature_flag.update"
         action_class.version = 1
         action_class.resource_type = "feature_flag"
+        action_class.derive_owner_kind.return_value = None
 
         return _create_change_request(
             action_class=action_class,

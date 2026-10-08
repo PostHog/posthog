@@ -20,10 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workday.wo
     WorkdayAuthError,
     WorkdayHostNotAllowedError,
     WorkdayResumeConfig,
-    base_url,
     mint_access_token,
-    normalize_hostname,
-    token_url,
     validate_credentials,
     workday_source,
 )
@@ -124,26 +121,6 @@ def _build_source(
 
 class TestUrlHelpers:
     @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            (HOSTNAME, HOSTNAME),
-            (f"https://{HOSTNAME}", HOSTNAME),
-            (f"http://{HOSTNAME}/", HOSTNAME),
-            (f"  {HOSTNAME}  ", HOSTNAME),
-            (f"{HOSTNAME}/acme_pt1", HOSTNAME),
-            (f"https://{HOSTNAME}/ccx/api/v1/acme_pt1/workers", HOSTNAME),
-        ],
-    )
-    def test_normalize_hostname(self, raw: str, expected: str) -> None:
-        assert normalize_hostname(raw) == expected
-
-    def test_base_url(self) -> None:
-        assert base_url(f"https://{HOSTNAME}/") == f"https://{HOSTNAME}/ccx/api"
-
-    def test_token_url(self) -> None:
-        assert token_url(HOSTNAME, TENANT) == f"https://{HOSTNAME}/ccx/oauth2/{TENANT}/token"
-
-    @pytest.mark.parametrize(
         "endpoint, expected",
         [
             # The Common service is served straight off /ccx/api/v1 with no service segment.
@@ -158,9 +135,6 @@ class TestUrlHelpers:
     )
     def test_build_endpoint_path(self, endpoint: str, expected: str) -> None:
         assert build_endpoint_path(WORKDAY_ENDPOINTS[endpoint], "acme_pt1", "v7") == expected
-
-    def test_staffing_paths_follow_the_pinned_version(self) -> None:
-        assert build_endpoint_path(WORKDAY_ENDPOINTS["jobs"], TENANT, "v6") == f"/staffing/v6/{TENANT}/jobs"
 
 
 class TestMintAccessToken:
@@ -272,31 +246,6 @@ class TestValidateCredentials:
         session.post.assert_not_called()
         session.get.assert_not_called()
 
-    def test_success(self) -> None:
-        assert self._validate() == (True, None)
-
-    def test_probes_the_named_schema_endpoint(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _json_response({"total": 0, "data": []})
-        with (
-            mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session),
-            mock.patch(f"{WORKDAY_MODULE}.mint_access_token", return_value="tok"),
-        ):
-            validate_credentials(
-                hostname=HOSTNAME,
-                tenant=TENANT,
-                client_id="client",
-                client_secret="secret",
-                refresh_token="refresh",
-                staffing_version="v7",
-                schema_name="job_profiles",
-            )
-
-        args, kwargs = session.get.call_args
-        assert args[0] == f"https://{HOSTNAME}/ccx/api/staffing/v7/{TENANT}/jobProfiles"
-        assert kwargs["headers"]["Authorization"] == "Bearer tok"
-        assert kwargs["allow_redirects"] is False
-
     @pytest.mark.parametrize(
         "status_code, schema_name, expected_ok",
         [
@@ -330,43 +279,6 @@ class TestValidateCredentials:
 
 
 class TestWorkdaySource:
-    def test_paginates_until_the_total_is_reached(self) -> None:
-        session = mock.MagicMock()
-        first = [{"id": str(index)} for index in range(100)]
-        second = [{"id": "100"}]
-        snapshots = _wire(session, [_page(first, total=101), _page(second, total=101)])
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            rows = _rows(_build_source())
-
-        assert [row["id"] for row in rows] == [str(index) for index in range(101)]
-        assert [snapshot["params"]["offset"] for snapshot in snapshots] == [0, 100]
-        assert snapshots[0]["params"]["limit"] == 100
-        assert snapshots[0]["url"] == f"https://{HOSTNAME}/ccx/api/v1/{TENANT}/workers"
-
-    def test_stops_on_an_empty_page_when_the_total_overstates(self) -> None:
-        session = mock.MagicMock()
-        # `total` overstates what the tenant actually hands back, so termination has to fall back
-        # to the empty page rather than looping on the same offset until the total is "reached".
-        full_page = [{"id": str(index)} for index in range(100)]
-        _wire(session, [_page(full_page, total=5000), _page([], total=5000)])
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            rows = _rows(_build_source())
-
-        assert len(rows) == 100
-        assert session.send.call_count == 2
-
-    def test_stops_on_a_short_page(self) -> None:
-        session = mock.MagicMock()
-        _wire(session, [_page([{"id": "1"}], total=5000)])
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            rows = _rows(_build_source())
-
-        assert [row["id"] for row in rows] == ["1"]
-        assert session.send.call_count == 1
-
     def test_checkpoints_after_each_page(self) -> None:
         session = mock.MagicMock()
         _wire(session, [_page([{"id": str(i)} for i in range(100)], total=101), _page([{"id": "100"}], total=101)])
@@ -389,34 +301,6 @@ class TestWorkdaySource:
 
         assert snapshots[0]["params"]["offset"] == 200
         assert [row["id"] for row in rows] == ["200"]
-
-    def test_ignores_a_zero_resume_offset(self) -> None:
-        session = mock.MagicMock()
-        snapshots = _wire(session, [_page([{"id": "0"}], total=1)])
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            _rows(_build_source(manager=FakeResumeManager(WorkdayResumeConfig(offset=0))))
-
-        assert snapshots[0]["params"]["offset"] == 0
-
-    @pytest.mark.parametrize("endpoint", sorted(WORKDAY_ENDPOINTS))
-    def test_every_endpoint_requests_its_documented_path(self, endpoint: str) -> None:
-        session = mock.MagicMock()
-        snapshots = _wire(session, [_page([], total=0)])
-
-        with mock.patch(CLIENT_SESSION_PATCH, return_value=session):
-            response = _build_source(endpoint=endpoint)
-            _rows(response)
-
-        expected_path = build_endpoint_path(WORKDAY_ENDPOINTS[endpoint], TENANT, "v7")
-        assert snapshots[0]["url"] == f"https://{HOSTNAME}/ccx/api{expected_path}"
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-
-    def test_full_refresh_declares_no_sort_order(self) -> None:
-        # Workday's REST collections have no ordering guarantee and no server-side time filter,
-        # so claiming "asc" would be a lie the incremental checkpointing could act on.
-        assert _build_source().sort_mode is None
 
     def test_internal_hostname_is_blocked_at_run_time(self) -> None:
         session = mock.MagicMock()

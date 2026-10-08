@@ -86,11 +86,14 @@ def token_exchange_error_message(error: requests.RequestException) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class AppleSearchAdsCredentials:
-    client_id: str
-    team_id: str
-    key_id: str
+    # Empty on the OAuth path, where PostHog's own service provider registration holds the key
+    # material and the client is handed a bearer token instead of minting one. Only the
+    # customer-supplied key pair path fills these in.
+    client_id: str = ""
+    team_id: str = ""
+    key_id: str = ""
     # repr=False: keep the PEM out of tracebacks, logs, and pytest assertion diffs.
-    private_key: str = dataclasses.field(repr=False)
+    private_key: str = dataclasses.field(default="", repr=False)
     # v5 scopes every request to an organization, the Platform API to an ad account, and the
     # two are different identifiers. Which one a source needs follows its version pin, which
     # the connect form cannot express — so both are optional here and `validate_credentials`
@@ -135,6 +138,13 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
     and presents that as `client_secret`. Unchanged between v5 and the Platform API.
     """
     now = int(issued_at if issued_at is not None else time.time())
+    private_key = _normalize_private_key(credentials.private_key)
+    # PyJWT loads a public key without complaint and only fails once it tries to sign with it.
+    if "PUBLIC KEY-----" in private_key:
+        raise AppleSearchAdsAuthError(
+            "You entered the public key. Paste the private key you generated for your Apple Ads API "
+            "client, not the public key you uploaded to Apple."
+        )
     try:
         return jwt.encode(
             {
@@ -144,11 +154,11 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
                 "exp": now + CLIENT_SECRET_TTL_SECONDS,
                 "iss": credentials.team_id,
             },
-            _normalize_private_key(credentials.private_key),
+            private_key,
             algorithm="ES256",
             headers={"alg": "ES256", "kid": credentials.key_id},
         )
-    except (jwt.PyJWTError, ValueError, TypeError) as e:
+    except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as e:
         # The cryptography backend's own text names its PEM framing internals and links its FAQ,
         # neither of which helps someone in the setup form — keep it on the chained cause only.
         raise AppleSearchAdsAuthError(
@@ -188,21 +198,27 @@ class AppleSearchAdsClient:
         credentials: AppleSearchAdsCredentials,
         api_version: str,
         request_logger: Optional[FilteringBoundLogger] = None,
+        token_provider: Optional[Callable[[], str]] = None,
     ) -> None:
         self._credentials = credentials
         self._api_version = api_version
         self._base_url = base_url_for_version(api_version)
         self._logger: FilteringBoundLogger = request_logger or logger
         self._access_token: Optional[str] = None
+        # On the OAuth path the caller supplies the bearer token, because the grant belongs to
+        # PostHog's service provider registration rather than to credentials stored on the source.
+        # Called on every (re-)authentication, so it can refresh an expired token in place.
+        self._token_provider = token_provider or self._mint_access_token
+        redact_values = (credentials.private_key,) if credentials.private_key else ()
         self._session = make_tracked_session(
             retry=APPLE_SEARCH_ADS_RETRY,
-            redact_values=(credentials.private_key,),
+            redact_values=redact_values,
         )
         # The token exchange body carries the signed assertion and the response the bearer
         # token, neither of which the name-based sample scrubbers would recognise.
         self._token_session = make_tracked_session(
             retry=APPLE_SEARCH_ADS_RETRY,
-            redact_values=(credentials.private_key,),
+            redact_values=redact_values,
             capture=False,
         )
 
@@ -211,7 +227,7 @@ class AppleSearchAdsClient:
         return self._base_url
 
     def authenticate(self) -> str:
-        self._access_token = self._mint_access_token()
+        self._access_token = self._token_provider()
         return self._access_token
 
     def _mint_access_token(self) -> str:
@@ -313,6 +329,7 @@ def validate_credentials(
     credentials: AppleSearchAdsCredentials,
     api_version: str,
     schema_name: Optional[str] = None,
+    token_provider: Optional[Callable[[], str]] = None,
 ) -> tuple[bool, str | None]:
     """Mint a token and probe one account-scoped endpoint.
 
@@ -320,7 +337,7 @@ def validate_credentials(
     source-create (``schema_name is None``) so a user who only granted a subset of access can
     still connect, and reported per-table otherwise.
     """
-    client = AppleSearchAdsClient(credentials, api_version)
+    client = AppleSearchAdsClient(credentials, api_version, token_provider=token_provider)
     try:
         client.authenticate()
     except AppleSearchAdsAuthError as e:
@@ -805,9 +822,10 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     start_date: Optional[str] = None,
+    token_provider: Optional[Callable[[], str]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = endpoints_for_version(api_version)[endpoint]
-    client = AppleSearchAdsClient(credentials, api_version, request_logger)
+    client = AppleSearchAdsClient(credentials, api_version, request_logger, token_provider=token_provider)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     # Listed once, up front: the scope stream is lazy and rebuilt on a missed checkpoint, so
@@ -850,6 +868,7 @@ def apple_search_ads_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     start_date: Optional[str] = None,
+    token_provider: Optional[Callable[[], str]] = None,
 ) -> SourceResponse:
     config = endpoints_for_version(api_version)[endpoint]
 
@@ -864,6 +883,7 @@ def apple_search_ads_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             start_date=start_date,
+            token_provider=token_provider,
         ),
         primary_keys=list(config.primary_keys),
         # Reporting windows are walked oldest-first, so `date` only ever moves forward across

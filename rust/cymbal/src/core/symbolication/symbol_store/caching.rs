@@ -1,7 +1,9 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use tokio::sync::Mutex;
+use tracing::info;
 
 use crate::metric_consts::{
     STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
@@ -9,6 +11,12 @@ use crate::metric_consts::{
 };
 
 use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
+
+// Parsing can transiently need many times the fetched size (e.g. ProguardCache::write), and
+// none of that is held against the cache budget. We log large parses before they start, so
+// the last log line of an OOM-killed pod names the symbol set that was being parsed.
+const LARGE_FETCHED_BYTES: usize = 10_000_000;
+const LARGE_PARSED_BYTES: usize = 50_000_000;
 
 // This is a type-specific symbol provider layer, designed to
 // wrap some inner provider and provide a type-safe caching layer
@@ -24,7 +32,7 @@ impl<P> Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: SymbolSetCacheKey + Send,
-    P::Fetched: Send,
+    P::Fetched: Countable + Send,
     P::Set: Countable + Any + Send + Sync,
 {
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
@@ -37,7 +45,7 @@ impl<P> Provider for Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: SymbolSetCacheKey + Send,
-    P::Fetched: Send,
+    P::Fetched: Countable + Send,
     P::Set: Countable + Any + Send + Sync,
 {
     type Ref = P::Ref;
@@ -58,8 +66,28 @@ where
         // concurrent fetches to occur. De-duping fetches is handled by the
         // `AtMostOne` provider wrapper in the production catalog.
         let found = self.inner.fetch(team_id, r).await?;
+        let fetched_bytes = found.byte_count();
+        let set_type = set_type_name::<P::Set>();
+        if fetched_bytes >= LARGE_FETCHED_BYTES {
+            info!(
+                team_id,
+                cache_key, set_type, fetched_bytes, "Parsing large symbol set"
+            );
+        }
+        let parse_start = Instant::now();
         let parsed = self.inner.parse(found).await?;
         let bytes = parsed.byte_count();
+        if fetched_bytes >= LARGE_FETCHED_BYTES || bytes >= LARGE_PARSED_BYTES {
+            info!(
+                team_id,
+                cache_key,
+                set_type,
+                fetched_bytes,
+                cached_bytes = bytes,
+                parse_ms = parse_start.elapsed().as_millis() as u64,
+                "Parsed large symbol set"
+            );
+        }
 
         let mut cache = self.cache.lock().await; // Re-acquire the cache-wide lock to insert, dropping the ref_lock
 
@@ -168,6 +196,17 @@ impl Countable for Vec<u8> {
     fn byte_count(&self) -> usize {
         self.len()
     }
+}
+
+impl Countable for Bytes {
+    fn byte_count(&self) -> usize {
+        self.len()
+    }
+}
+
+fn set_type_name<T>() -> &'static str {
+    let name = std::any::type_name::<T>();
+    name.rsplit("::").next().unwrap_or(name)
 }
 
 #[cfg(test)]

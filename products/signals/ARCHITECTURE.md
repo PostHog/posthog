@@ -687,8 +687,8 @@ Every save must include all shared defaults. Owners can edit or disable them, bu
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
 It accepts optional `context` (up to 2,000 characters), saved on that generation request. Concurrent requests keep the first request's context; later requests do not inherit it.
 The editor exposes this as a single optional paragraph. It adds priorities without replacing the scout's responsibilities, shared defaults or saved choices.
-The backend supplies current instructions, bounded reference text from the exact skill version and recent run summaries to a background session.
-It captures the exact governing description, instructions, report rules and reference texts before the session starts, including clipping and omission metadata. This context is immutable within a generation and is reused if that attempt resumes. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
+The backend captures the complete governing description, instructions, report rules and all reference files from the exact skill version before the session starts. This context is immutable within a generation and is reused if that attempt resumes.
+Only the generation prompt is bounded: up to 60,000 instruction characters, 20 reference paths and four file contents totaling 60,000 characters. These prompt limits do not shorten the saved reference used for judging. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
 The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
 One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
@@ -696,7 +696,7 @@ Criteria explain the required result in plain language, with specific source ref
 The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
 Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
-The saved reference context and its generation identifier survive replacement of the latest suggestions. Legacy rubrics without a captured reference remain readable; reading or editing them does not invent provenance.
+The saved reference context and its generation identifier survive replacement of the latest suggestions. Legacy rubrics without a complete captured reference remain readable; reading or editing them does not invent provenance. Owners must regenerate suggestions and explicitly adopt the complete reference before starting trials, but can keep their existing criteria.
 Expired or terminal requests reject late worker updates. An update to an expired request records the failure and completion time.
 A request that cannot start, because of the daily limit or a dispatch failure, restores the last completed suggestions.
 

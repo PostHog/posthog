@@ -188,7 +188,9 @@ class InboxCounts:
 def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCounts:
     shown_reports = [item.key.split(":", 1)[1] for item in shown if item.group == ItemGroup.REPORT]
     try:
-        counts = signals.open_report_counts(team_id=team.id, user=user, exclude_report_ids=shown_reports)
+        counts = signals.open_report_counts(
+            team_id=team.id, user=user, exclude_report_ids=shown_reports, include_unowned=False
+        )
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return InboxCounts(more_for_you=0, open_in_project=0)

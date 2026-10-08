@@ -41,6 +41,9 @@ RECOVERY_GRACE_SECONDS = 300
 # Reconcile sweep: catch runs whose queue batch failed but whose ExternalDataJob was left non-terminal.
 RECONCILE_INTERVAL_SECONDS = 300.0
 RECONCILE_GRACE_SECONDS = 120  # don't race a _fail_run that is still in flight
+# After start, a pod without the queue-gauge slot retries every recovery tick for this long, so it
+# takes the slot soon after the previous holder's lease lapses instead of at the next reconcile.
+GAUGE_SLOT_WARMUP_SECONDS = RECONCILE_INTERVAL_SECONDS
 RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
@@ -417,6 +420,10 @@ class BatchConsumerAdapter(Protocol):
         limit: int,
     ) -> None: ...
 
+    async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
+        """Sample the queue-wide gauges if this pod holds the gauge slot; True means it does."""
+        ...
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -483,6 +490,8 @@ class BatchConsumer:
         self._in_flight: dict[tuple[int, str], asyncio.Task[None]] = {}
         # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
         self._last_reconcile_monotonic = 0.0
+        self._holds_gauge_slot = False
+        self._gauge_warmup_deadline = 0.0
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._inflight_progress: dict[str, BatchPhaseProgress] = {}
@@ -533,12 +542,16 @@ class BatchConsumer:
         # Session-scoped SET, not a libpq startup option: PgBouncer rejects
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
-        if timeout_ms is not None:
-            try:
+        try:
+            if timeout_ms is not None:
                 await conn.execute(f"SET statement_timeout = {timeout_ms}")
-            except psycopg.Error:
-                await conn.close()
-                raise
+            # The queue statements are index probes that take milliseconds, but the planner
+            # can price the claim query above jit_above_cost. JIT compilation then costs
+            # more than the whole statement, on every poll.
+            await conn.execute("SET jit = off")
+        except psycopg.Error:
+            await conn.close()
+            raise
         return conn
 
     async def _drop_conn(self, attr: str) -> None:
@@ -691,6 +704,8 @@ class BatchConsumer:
             # scans the whole queue and can outlast the health server's startup
             # grace window, and a pod liveness-killed mid-sweep can never boot.
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            self._gauge_warmup_deadline = time.monotonic() + GAUGE_SLOT_WARMUP_SECONDS
+            await self._probe_queue_gauges()
             try:
                 await self._recovery_sweep_with_timeout()
             except psycopg.OperationalError as e:
@@ -1286,38 +1301,56 @@ class BatchConsumer:
                 await self._stop_heartbeat(heartbeat_task)
                 heartbeat_task = None
 
-                for batch in batches:
-                    await self._adapter.after_batch_processed(status_conn, batch=batch)
+                try:
+                    for batch in batches:
+                        await self._adapter.after_batch_processed(status_conn, batch=batch)
 
-                duration = time.monotonic() - start
-                self._metrics.batch_processing_duration_seconds.observe(duration)
+                    duration = time.monotonic() - start
+                    self._metrics.batch_processing_duration_seconds.observe(duration)
 
-                await self._verify_ownership(lock_conn, head)
-                for batch in batches:
-                    await self._adapter.update_status(
-                        status_conn,
-                        batch_id=batch.id,
-                        job_state=self._adapter.succeeded_state,
-                        attempt=attempts[batch.id],
-                        batch_created_at=batch.created_at,
+                    await self._verify_ownership(lock_conn, head)
+                    for batch in batches:
+                        await self._adapter.update_status(
+                            status_conn,
+                            batch_id=batch.id,
+                            job_state=self._adapter.succeeded_state,
+                            attempt=attempts[batch.id],
+                            batch_created_at=batch.created_at,
+                        )
+                        self._metrics.batches_processed_total.labels(status="success").inc()
+                    self._metrics.coalesced_sets_total.labels(outcome="success").inc()
+                    self._metrics.coalesced_set_batches.observe(len(batches))
+                    self._metrics.coalesced_set_runs.observe(len(run_uuids))
+                    self._metrics.coalesced_set_rows.observe(row_count)
+                    logger.info(
+                        self._event("batch_set_processed_ok"),
+                        run_uuid=head.run_uuid,
+                        run_uuids=run_uuids,
+                        batch_indexes=[batch.batch_index for batch in batches],
+                        batch_count=len(batches),
+                        row_count=row_count,
+                        byte_size=byte_size,
+                        is_final_batch=batches[-1].is_final_batch,
+                        duration_seconds=round(duration, 3),
                     )
-                    self._metrics.batches_processed_total.labels(status="success").inc()
-                self._metrics.coalesced_sets_total.labels(outcome="success").inc()
-                self._metrics.coalesced_set_batches.observe(len(batches))
-                self._metrics.coalesced_set_runs.observe(len(run_uuids))
-                self._metrics.coalesced_set_rows.observe(row_count)
-                logger.info(
-                    self._event("batch_set_processed_ok"),
-                    run_uuid=head.run_uuid,
-                    run_uuids=run_uuids,
-                    batch_indexes=[batch.batch_index for batch in batches],
-                    batch_count=len(batches),
-                    row_count=row_count,
-                    byte_size=byte_size,
-                    is_final_batch=batches[-1].is_final_batch,
-                    duration_seconds=round(duration, 3),
-                )
-                return True
+                    return True
+                except OwnershipLostError:
+                    raise
+                except Exception as err:
+                    # The set's write already landed (process_batches returned), so only the
+                    # post-write bookkeeping failed — e.g. a dropped queue-DB connection while
+                    # marking a member succeeded. Falling back to the single-batch path, the same
+                    # way a load failure above does, routes the error through
+                    # _handle_batch_failure's retryable/transient classification instead of
+                    # letting it bubble to the group handler as an unconditional capture_exception.
+                    logger.warning(
+                        self._event("batch_set_failed_post_processing"),
+                        run_uuid=head.run_uuid,
+                        run_uuids=run_uuids,
+                        error=str(err),
+                        error_type=type(err).__name__,
+                    )
+                    return await self._process_singly(batches, lock_conn, spent_attempt=True)
             finally:
                 await self._stop_heartbeat(heartbeat_task)
 
@@ -1589,6 +1622,9 @@ class BatchConsumer:
                 else:
                     self._report_queue_failure(self._event("recovery_sweep_error"), e)
 
+            if not self._holds_gauge_slot and time.monotonic() < self._gauge_warmup_deadline:
+                await self._probe_queue_gauges()
+
             now = time.monotonic()
             if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:
                 self._last_reconcile_monotonic = now
@@ -1615,6 +1651,21 @@ class BatchConsumer:
                         self._report_queue_failure(self._event("reconcile_sweep_error"), e)
                 except Exception as e:
                     self._report_queue_failure(self._event("reconcile_sweep_error"), e)
+
+    async def _probe_queue_gauges(self) -> None:
+        """Sample the queue gauges outside the reconcile cadence; a failed probe must never stop the consumer."""
+        probe_timeout_ctx = asyncio.timeout(self._config.sweep_timeout_seconds)
+        try:
+            async with probe_timeout_ctx:
+                self._holds_gauge_slot = await self._with_queue_conn(
+                    "_recovery_conn",
+                    "observe_queue_gauges",
+                    self._adapter.observe_queue_gauges,
+                    should_abort=probe_timeout_ctx.expired,
+                )
+        except Exception:
+            self._holds_gauge_slot = False
+            logger.warning(self._event("queue_gauge_probe_failed"), exc_info=True)
 
     async def _recovery_sweep_with_timeout(self) -> None:
         """Run the recovery sweep under the sweep timeout; a sweep that never returns must not stall the consumer."""

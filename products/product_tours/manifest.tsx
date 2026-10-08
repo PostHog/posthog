@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             name: 'Product tour',
             iconType: 'product_tour',
             href: (ref: string) => urls.productTour(ref),
+            listHref: () => urls.productTours(),
             iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
             filterKey: 'product_tour',
         },
