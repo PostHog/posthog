@@ -775,7 +775,10 @@ export const ExperimentsListQueryParams = () => zod.object({
         .describe(
             'Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.'
         ),
-    search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Free-text search applied to the experiment name and its feature flag key (case-insensitive).'),
     status: zod
         .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
@@ -18820,7 +18823,8 @@ export const ExperimentsLaunchCreateParams = () => zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.

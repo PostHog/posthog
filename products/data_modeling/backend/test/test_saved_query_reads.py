@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -11,7 +12,8 @@ from posthog.models.organization import OrganizationMembership
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
-from products.data_modeling.backend.facade.contracts import UpstreamTableRef
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -77,6 +79,38 @@ class TestSavedQueryReads(BaseTest):
         assert api.allowed_saved_query_ids(self.team.id, admin, required_level=required_level) == frozenset(
             {readable.id, editable.id, ungranted.id, owned.id}
         )
+
+    def test_saved_query_definitions_lists_live_views_with_their_node_interval(self) -> None:
+        live = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="Default"),
+            saved_query=live,
+            type=NodeType.MAT_VIEW,
+        )
+        set_declared_target(node, timedelta(hours=6))
+        node.save()
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="gone", deleted=True)
+        other_team = Team.objects.create(organization=self.organization)
+        DataWarehouseSavedQuery.objects.create(team=other_team, name="elsewhere")
+
+        assert api.saved_query_definitions(self.team.id) == [
+            SavedQueryDefinition(
+                id=live.id,
+                name="orders",
+                hogql="SELECT 1",
+                is_materialized=True,
+                sync_frequency_interval=timedelta(hours=6),
+                is_test=False,
+                is_managed=False,
+                created_at=live.created_at,
+            )
+        ]
 
     def test_dependent_saved_query_ids_follows_every_node_of_the_source(self) -> None:
         source = DataWarehouseSavedQuery.objects.create(team=self.team, name="source")

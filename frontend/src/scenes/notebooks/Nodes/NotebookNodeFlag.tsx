@@ -18,6 +18,9 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
@@ -81,7 +84,9 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
                     }
                 },
             },
-            canCreateEarlyAccessFeature
+            // canCreateEarlyAccessFeature is false for a non-v1 flag, so the notebook never offers Create.
+            // A non-v1 flag that already has an early access feature still gets the View action.
+            canCreateEarlyAccessFeature || (hasEarlyAccessFeatures && !isV1FeatureFlagConfig(featureFlag.filters))
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
                       icon: <IconRocket />,
@@ -127,7 +132,11 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             <BindLogic logic={featureFlagLogic} props={{ id }}>
                 {expanded ? (
                     <div className="p-2">
-                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        {isV1FeatureFlagConfig(featureFlag.filters) ? (
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        ) : (
+                            <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                        )}
                     </div>
                 ) : null}
             </BindLogic>

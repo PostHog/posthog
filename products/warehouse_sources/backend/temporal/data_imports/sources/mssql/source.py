@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     SSHTunnelMixin,
@@ -19,14 +19,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
+    MSSQL_METADATA_TIMEOUT_ERROR,
+    MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLImplementation,
+    MSSQLMetadataTimeoutError,
+    MSSQLResumeState,
     retry_on_transient_connection_error,
+    run_metadata_with_deadline,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -66,10 +73,29 @@ _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 
 @SourceRegistry.register
-class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(
+    SQLSource[MSSQLSourceConfig],
+    ResumableSource[MSSQLSourceConfig, MSSQLResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MSSQLResumeState]:
+        return ResumableSourceManager[MSSQLResumeState](inputs, MSSQLResumeState)
+
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: MSSQLSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MSSQLResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset must not continue from a checkpoint. The read starts from the first row.
+        if inputs.reset_pipeline:
+            resumable_source_manager.clear_state()
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -89,6 +115,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # died between opening and the query running — just surfaced through a different
             # internal code path. A fresh connection from the next Temporal retry resolves it.
             "Not connected to any MS SQL server",
+            # SQL Server error 1222. A metadata statement waited longer than the `SET LOCK_TIMEOUT`
+            # that `MSSQLImplementation.connect` sets, because another session held a lock on the
+            # catalog or on the table. The lock belongs to the customer's own workload and goes
+            # away when that transaction ends.
+            "Lock request time out period exceeded",
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -185,6 +216,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # (SQL Server error 208): the lookup returns an empty result set rather than erroring, so
             # our own guard fires before the SELECT. The table is gone from the source, so retrying
             # replays the identical empty lookup. Match the stable prefix, not the schema/table name.
+            # Raised by `run_metadata_with_deadline` when the connect or a metadata query gives no
+            # answer at all. The next attempt opens the same connection and waits the same time, so
+            # a retry inside the job only holds a worker for longer. `handle_non_retryable_error`
+            # still tries again on a few later runs before it gives up, which covers a server that
+            # was briefly unreachable.
+            MSSQL_METADATA_TIMEOUT_ERROR: "Your SQL Server did not answer PostHog's connection or metadata queries in time. Check that the server is running and reachable, including through the SSH tunnel if you use one, and that no long-running transaction is holding locks on the tables being synced.",
             _TABLE_NOT_FOUND_ERROR: "One of the tables you're syncing no longer exists in your SQL Server — it was likely dropped or renamed after it was first discovered. Remove it from the sync or restore it at the source, then re-enable the sync.",
         }
 
@@ -212,7 +249,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                 api_version=api_version,
             )
 
-        return retry_on_transient_connection_error(discover)
+        return run_metadata_with_deadline(
+            lambda: retry_on_transient_connection_error(discover),
+            action="listed the tables",
+            timeout_seconds=MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -313,6 +354,8 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except MSSQLMetadataTimeoutError:
+            return False, _CONNECTION_TIMED_OUT_ERROR
         except (HostNotAllowedError, TemporaryHostResolutionError) as e:
             # The host policy refused the host, or its lookup never answered. Both carry their own
             # user-facing wording and neither is a PostHog defect, so they are not captured.

@@ -331,27 +331,14 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(
-    job: "ExternalDataJob",
-    is_incremental: bool,
-    reset_pipeline: bool,
-    should_resume: bool,
-    *,
-    incremental_cursor_staged: bool = False,
-) -> None:
+async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
-    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
-    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
-    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
-    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
-    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
-    if (
-        job.rows_synced is not None
-        and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
-        and not should_resume
-    ):
+    # The incremental cursor is staged and only promoted on completion, so a retried attempt
+    # re-extracts the whole window from batch 0, and keeping the previous attempt's count
+    # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
+    # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
@@ -497,6 +484,68 @@ async def setup_row_tracking_with_billing_check(
             )
 
 
+def reset_pipeline_requested(
+    schema: "ExternalDataSchema",
+    *,
+    workflow_reset_pipeline: bool | None,
+    scheduled_full_refresh: bool,
+    job_created_at: datetime,
+) -> bool:
+    """Whether this run was asked to load the table again from the start.
+
+    The import and the pre-extraction repartition both read this answer. One function keeps them
+    from a disagreement, in which the repartition rewrites a table that the import then deletes.
+    """
+    if workflow_reset_pipeline is not None:
+        return workflow_reset_pipeline
+    if schema.sync_type_config.get("reset_pipeline", False) is True:
+        return True
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
+
+
+def import_replaces_table(
+    schema: "ExternalDataSchema", *, workflow_reset_pipeline: bool | None, job_created_at: datetime
+) -> bool:
+    """Whether the import that follows the repartition step deletes the table and loads it again.
+
+    Answers before the source is built, so it cannot see three things that the import sees later: a
+    resumed run, a webhook-only resource, and a reset that the source asks for. A resumed run is the
+    second attempt or later, and the repartition step runs before the first. A webhook schema counts
+    as webhook-only here, so the answer for it is always False. In each unseen case the answer is
+    False and the repartition step does what it did before.
+
+    A scheduled full refresh is not an input, because the workflow does not run the repartition step
+    for it.
+    """
+    reset_pipeline = reset_pipeline_requested(
+        schema,
+        workflow_reset_pipeline=workflow_reset_pipeline,
+        scheduled_full_refresh=False,
+        job_created_at=job_created_at,
+    )
+    return resets_table_before_extraction(
+        reset_pipeline, should_resume=False, schema=schema, webhook_only=schema.is_webhook
+    )
+
+
+def resets_table_before_extraction(
+    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+) -> bool:
+    """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        ExternalDataSchema,
+    )
+
+    if should_resume:
+        return False
+    if reset_pipeline:
+        return not webhook_only
+    return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+
 async def handle_reset_or_full_refresh(
     reset_pipeline: bool,
     should_resume: bool,
@@ -532,7 +581,9 @@ async def handle_reset_or_full_refresh(
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_ref.reset_table()
-        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
+            promote_pending_repartition=True
+        )
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
@@ -540,7 +591,7 @@ async def handle_reset_or_full_refresh(
         # Keep the initial_sync_complete latch: this branch runs on every scheduled full-refresh
         # sync, and a run that extracts zero rows never reaches post-load to re-set it.
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
-            clear_initial_sync_complete=False
+            clear_initial_sync_complete=False, promote_pending_repartition=True
         )
 
 
@@ -572,6 +623,8 @@ async def handle_corrupted_delta_log(
     job: "ExternalDataJob",
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
+    *,
+    table_will_be_reset: bool = False,
 ) -> bool:
     """Detect and revive a corrupt Delta table before extraction.
 
@@ -592,10 +645,17 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
+    `table_will_be_reset` says that this run deletes the table before extraction in any case (a
+    scheduled full refresh or a requested reset). The delete does not read the log, so an unreadable
+    log needs no detection there, and the open is skipped. A revive marker and a staged swap are
+    still handled, because they need more than the delete.
+
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
+        if table_will_be_reset and schema.repartition_swap is None:
+            return False
         try:
             if not await delta_table_ref.is_table_corrupted():
                 return False

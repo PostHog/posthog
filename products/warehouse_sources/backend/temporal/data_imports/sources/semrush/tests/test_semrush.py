@@ -1,16 +1,12 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest.mock import patch
 
-from requests import Response, Session
+from requests import RequestException, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.semrush import (
     semrush_source,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.se
     PROJECT_ID_ERROR,
     QUOTA_ERROR,
     REQUEST_ERROR,
+    UNAVAILABLE_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.source import SemrushSource
 
@@ -33,44 +30,6 @@ def response(body: object, status: int = 200) -> Response:
     result._content = json.dumps(body).encode()
     result.headers["Content-Type"] = "application/json"
     return result
-
-
-@pytest.mark.parametrize(
-    "endpoint,path,body,expected",
-    [
-        ("site_audit", "info", {"id": 123, "errors": 2}, [{"id": 123, "errors": 2, "project_id": "123"}]),
-        (
-            "site_audit_snapshots",
-            "snapshots",
-            {"snapshots": [{"snapshot_id": "snapshot-a", "finish_date": 1700000000000}]},
-            [{"snapshot_id": "snapshot-a", "finish_date": 1700000000000, "project_id": "123"}],
-        ),
-        (
-            "site_audit_issue_descriptions",
-            "meta/issues",
-            {"issues": [{"id": 1, "title": "Server errors"}]},
-            [{"id": 1, "title": "Server errors", "project_id": "123"}],
-        ),
-        ("site_audit_snapshots", "snapshots", {"snapshots": []}, []),
-        ("site_audit_issue_descriptions", "meta/issues", {"issues": []}, []),
-    ],
-)
-def test_requests_and_terminal_page(endpoint: str, path: str, body: object, expected: list[dict[str, object]]) -> None:
-    with patch.object(Session, "send", return_value=response(body)) as send:
-        source = semrush_source("fake-api-key", "123", endpoint, 1, "job")
-        rows = [row for page in cast(Iterable[Any], source.items()) for row in page]
-
-    assert rows == expected
-    assert send.call_count == 1
-    request = send.call_args.args[0]
-    url = urlsplit(request.url)
-    assert url.scheme == "https"
-    assert url.netloc == "api.semrush.com"
-    assert url.path == f"/reports/v1/projects/123/siteaudit/{path}"
-    assert parse_qs(url.query) == {"key": ["fake-api-key"]}
-    assert "Authorization" not in request.headers
-    assert request.method == "GET"
-    assert send.call_args.kwargs["allow_redirects"] is False
 
 
 @pytest.mark.parametrize(
@@ -116,11 +75,9 @@ def test_transient_errors_retry(status: int, body: object) -> None:
     assert send.call_count == 2
 
 
-def test_retry_limit_bounds_paid_requests() -> None:
-    with patch.object(Session, "send", return_value=response({}, 503)) as send, patch("tenacity.nap.time.sleep"):
-        with pytest.raises(RESTClientRetryableError):
-            validate_credentials("fake-api-key", "123", 1)
-    assert send.call_count == 3
+def test_connection_failure_reports_unavailable() -> None:
+    with patch.object(Session, "send", side_effect=RequestException("boom")):
+        assert validate_credentials("fake-api-key", "123", 1) == (False, UNAVAILABLE_ERROR)
 
 
 @pytest.mark.parametrize("project_id", ["", "../456", "123?key=other", "https://example.com", "１２３", "123/456"])

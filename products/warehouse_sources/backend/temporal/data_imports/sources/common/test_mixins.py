@@ -1,4 +1,5 @@
 import socket
+import threading
 from dataclasses import dataclass, field
 
 import pytest
@@ -156,6 +157,19 @@ class TestIsHostSafe(SimpleTestCase):
 
         assert not valid
         assert error is not None and "Try again" in error
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_that_does_not_answer_is_reported_as_try_again(self) -> None:
+        release = threading.Event()
+        try:
+            with (
+                patch(f"{_MIXINS_MODULE}.HOST_RESOLUTION_TIMEOUT_SECONDS", 0.05),
+                patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=lambda *args, **kwargs: release.wait()),
+            ):
+                with pytest.raises(TemporaryHostResolutionError):
+                    resolve_safe_host("db.example.com", team_id=999)
+        finally:
+            release.set()
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_a_host_with_characters_outside_ascii_is_refused_before_any_lookup(self) -> None:

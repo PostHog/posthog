@@ -24,7 +24,6 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.product_analytics.backend.presentation.insight_ee.EnterpriseInsightsViewSet",
     "products.reminders.backend.api.reminder.ReminderViewSet",
-    "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",
 }
 
@@ -105,7 +104,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchRunViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
-    "products.batch_exports.backend.presentation.views.batch_export.BatchExportRunViewSet",
+    "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
@@ -239,6 +238,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.tasks.backend.presentation.views.channels_api.ChannelViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskActivityViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskMentionViewSet",
+    "products.cross_project_dashboards.backend.presentation.views.CrossProjectDashboardTileViewSet",
+    "products.cross_project_dashboards.backend.presentation.views.CrossProjectDashboardViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskThreadMessageViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksTeamConfigViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksUserConfigViewSet",
@@ -250,6 +251,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.visual_review.backend.presentation.views.RunViewSet",
     "products.warehouse_sources.backend.presentation.views.column_statistics.WarehouseColumnStatisticsViewSet",
     "products.warehouse_sources.backend.presentation.views.public_source_configs.PublicSourceConfigViewSet",
+    "products.warehouse_suggestions.backend.presentation.views.WarehouseSuggestionViewSet",
     "products.web_analytics.backend.api.custom_bot_rules.CustomBotRuleViewSet",
     "products.web_analytics.backend.api.heatmaps_api.HeatmapViewSet",
     "products.web_analytics.backend.api.heatmaps_api.LegacyHeatmapViewSet",

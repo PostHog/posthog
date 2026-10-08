@@ -72,12 +72,18 @@ class AlertEvaluationResult:
     skipped_reason: str | None = None
 
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
     ChartDisplayType.ACTIONS_DONUT,
+    ChartDisplayType.ACTIONS_PROPORTION_BAR,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,

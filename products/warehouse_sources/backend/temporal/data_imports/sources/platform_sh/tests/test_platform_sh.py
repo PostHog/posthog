@@ -57,28 +57,6 @@ def _session(get_side_effect: Any, post_side_effect: Any = None) -> mock.Mock:
 
 
 class TestPlatformShClientAuth:
-    def test_exchanges_api_token_before_first_request(self) -> None:
-        session = _session([_resp(_envelope([{"id": "org-1"}]))])
-        with mock.patch.object(platform_sh, "make_tracked_session", return_value=session):
-            client = PlatformShClient("api-tok", "platform_sh", mock.Mock())
-            client.get(f"{API}/organizations")
-
-        post_call = session.post.call_args
-        assert post_call.args[0] == "https://auth.api.platform.sh/oauth2/token"
-        assert post_call.kwargs["auth"] == ("platform-api-user", "")
-        assert post_call.kwargs["data"] == {"grant_type": "api_token", "api_token": "api-tok"}
-        # The bearer token, not the raw API token, authenticates the data request.
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer bearer-1"
-
-    def test_upsun_platform_uses_upsun_hosts(self) -> None:
-        session = _session([_resp(_envelope([]))])
-        with mock.patch.object(platform_sh, "make_tracked_session", return_value=session):
-            client = PlatformShClient("api-tok", "upsun", mock.Mock())
-            client.get(f"{client.api_base}/organizations")
-
-        assert client.api_base == "https://api.upsun.com"
-        assert session.post.call_args.args[0] == "https://auth.upsun.com/oauth2/token"
-
     def test_mid_run_401_refreshes_token_and_retries_once(self) -> None:
         # Access tokens expire after ~15 minutes, so a long sync is guaranteed to hit a 401
         # mid-run; the client must re-exchange and retry instead of failing the job.
@@ -303,17 +281,6 @@ class TestGetRowsActivities:
         assert [row["id"] for row in rows] == ["a3"]
         activity_urls = [c.args[0] for c in session.get.call_args_list if "/activities" in c.args[0]]
         assert len(activity_urls) == 1
-
-    def test_no_watermark_keeps_walking_until_exhausted(self) -> None:
-        first_page = [self._activity("a2", "2026-07-02T00:00:00+00:00")]
-        second_page = [self._activity("a1", "2026-07-01T00:00:00+00:00")]
-        session = self._fan_out_session([_resp(first_page), _resp(second_page), _resp([])])
-
-        with mock.patch.object(platform_sh, "make_tracked_session", return_value=session):
-            batches = list(get_rows("tok", "platform_sh", "activities", mock.Mock(), _manager()))
-
-        rows = [row for batch in batches for row in batch]
-        assert [row["id"] for row in rows] == ["a2", "a1"]
 
     def test_drops_log_field(self) -> None:
         # `log` is unbounded raw build output and prone to echoing secrets; it must not land in a

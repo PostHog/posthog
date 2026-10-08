@@ -24,6 +24,7 @@ QUOTA_ERROR = "Semrush API units or request limits are exhausted. Add API units 
 PROJECT_ERROR = "Semrush could not find this project. Check the project ID and your access to it."
 PROJECT_ID_ERROR = "Enter the numeric project ID from your Semrush project URL."
 REQUEST_ERROR = "Semrush rejected the request. Check your project ID, Site Audit setup, and API access."
+UNAVAILABLE_ERROR = "Semrush is unavailable or rate-limiting requests. Try again later."
 
 ERROR_MESSAGES = {
     70: AUTH_ERROR,

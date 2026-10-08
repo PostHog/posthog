@@ -40,7 +40,7 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.filters.filter import Filter
+from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -49,6 +49,7 @@ from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -1378,6 +1379,20 @@ class ExperimentService:
         except Exception:
             logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
 
+    @staticmethod
+    def _notify_experiment_launched(experiment: Experiment) -> None:
+        responses = experiment_launched.send_robust(
+            sender=Experiment, team_id=experiment.team_id, experiment_id=experiment.id
+        )
+        for receiver, response in responses:
+            if isinstance(response, Exception):
+                logger.error(
+                    "experiment_launched_receiver_failed",
+                    receiver=getattr(receiver, "__qualname__", repr(receiver)),
+                    experiment_id=experiment.id,
+                    exc_info=response,
+                )
+
     def _ensure_feature_flag(
         self,
         feature_flag_key: str,
@@ -1789,6 +1804,7 @@ class ExperimentService:
             )
 
         self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
+        self._notify_experiment_launched(experiment)
 
         return experiment
 
@@ -3679,6 +3695,7 @@ class ExperimentService:
                 request=report_request,
                 event_source=event_source,
             )
+            self._notify_experiment_launched(experiment)
 
         return experiment
 
@@ -4115,9 +4132,9 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_filter = None
+        exposure_entities: list[Entity] = []
         if exposure_filter_data:
-            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+            exposure_entities = parse_entities(exposure_filter_data)
 
         target_entity: int | str = "$feature_flag_called"
         target_entity_type = "events"
@@ -4130,8 +4147,8 @@ class ExperimentService:
             }
         ]
 
-        if exposure_filter:
-            entity = exposure_filter.entities[0]
+        if exposure_entities:
+            entity = exposure_entities[0]
             if entity.id:
                 target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
                 target_entity = entity.id
@@ -4343,7 +4360,7 @@ class ExperimentService:
 
         search = query_params.get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search))
+            queryset = queryset.filter(Q(name__icontains=search) | Q(feature_flag__key__icontains=search))
 
         order = query_params.get("order")
         if order:

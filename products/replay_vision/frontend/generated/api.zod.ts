@@ -1192,6 +1192,8 @@ export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensiv
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
+export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
+
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
         query: zod
@@ -1250,6 +1252,22 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
+            ),
+        experiment: zod
+            .union([
+                zod.object({
+                    experiment_id: zod.number().min(1).describe('The experiment an experiment scanner watches.'),
+                    variants: zod
+                        .array(zod.string().max(visionScannersEstimateCreateBodyExperimentOneVariantsItemMax))
+                        .min(1)
+                        .nullish()
+                        .describe('The variant keys it watches. Null or omitted means every variant.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

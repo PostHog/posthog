@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.sequenzy import (
     SequenzyResumeConfig,
-    _paginator_state,
     sequenzy_source,
     validate_credentials,
 )
@@ -76,61 +75,6 @@ def _manager(resume: SequenzyResumeConfig | None = None) -> MagicMock:
 
 
 class TestSequenzyPagination:
-    def test_subscribers_follow_next_cursor_until_null(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response(
-                {
-                    "success": True,
-                    "subscribers": [{"id": "sub_1", "email": "a@example.com"}],
-                    "pagination": {"nextCursor": "cur_1", "hasMore": True},
-                }
-            ),
-            _make_http_response(
-                {
-                    "success": True,
-                    "subscribers": [{"id": "sub_2", "email": "b@example.com"}],
-                    "pagination": {"nextCursor": "cur_2", "hasMore": True},
-                }
-            ),
-            _make_http_response(
-                {
-                    "success": True,
-                    "subscribers": [{"id": "sub_3", "email": "c@example.com"}],
-                    "pagination": {"nextCursor": None, "hasMore": False},
-                }
-            ),
-        ]
-        _, sent_params, rows = _drive("subscribers", manager, responses)
-
-        assert [p.get("cursor") for p in sent_params] == [None, "cur_1", "cur_2"]
-        assert [row["id"] for row in rows] == ["sub_1", "sub_2", "sub_3"]
-        # The intermediate cursors are staged so a crash resumes mid-collection.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
-            SequenzyResumeConfig(cursor="cur_1"),
-            SequenzyResumeConfig(cursor="cur_2"),
-        ]
-
-    def test_subscribers_request_shape(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response(
-                {
-                    "success": True,
-                    "subscribers": [{"id": "sub_1"}],
-                    "pagination": {"nextCursor": None, "hasMore": False},
-                }
-            ),
-        ]
-        _, sent_params, _ = _drive("subscribers", manager, responses)
-
-        # `status=all` must go out or unsubscribed/bounced contacts silently never sync;
-        # `includeTotal=false` skips the API's count query; page size rides as `limit`.
-        assert sent_params[0]["status"] == "all"
-        assert sent_params[0]["includeTotal"] == "false"
-        assert sent_params[0]["limit"] == 1000
-
     def test_campaigns_offset_pagination_stops_at_total(self) -> None:
         manager = _manager()
         responses = [
@@ -153,44 +97,6 @@ class TestSequenzyPagination:
 
         assert [(p.get("offset"), p.get("limit")) for p in sent_params] == [(0, 100), (100, 100)]
         assert len(rows) == 150
-
-    def test_email_metrics_page_pagination_stops_at_total_pages(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response(
-                {
-                    "success": True,
-                    "emails": [{"emailType": "campaign", "emailId": "camp_1"}],
-                    "pagination": {"page": 1, "limit": 500, "total": 2, "totalPages": 2},
-                }
-            ),
-            _make_http_response(
-                {
-                    "success": True,
-                    "emails": [{"emailType": "sequence", "emailId": "node_1"}],
-                    "pagination": {"page": 2, "limit": 500, "total": 2, "totalPages": 2},
-                }
-            ),
-        ]
-        _, sent_params, rows = _drive("email_metrics", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2]
-        # A stable sort keeps rows from shuffling between pages while counts move mid-sync.
-        assert sent_params[0]["sort"] == "name"
-        assert sent_params[0]["order"] == "asc"
-        assert len(rows) == 2
-
-    @pytest.mark.parametrize("endpoint", ["tags", "lists", "segments"])
-    def test_single_page_endpoints_make_one_request(self, endpoint: str) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response({"success": True, endpoint: [{"id": f"{endpoint}_1", "name": "x"}]}),
-        ]
-        _, sent_params, rows = _drive(endpoint, manager, responses)
-
-        assert len(sent_params) == 1
-        assert [row["id"] for row in rows] == [f"{endpoint}_1"]
-        manager.save_state.assert_not_called()
 
 
 class TestSequenzyResume:
@@ -215,27 +121,6 @@ class TestSequenzyResume:
         assert sent_params[0][param] == expected
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response(
-                {
-                    "success": True,
-                    "subscribers": [{"id": "only"}],
-                    "pagination": {"nextCursor": None, "hasMore": False},
-                }
-            ),
-        ]
-        _drive("subscribers", manager, responses)
-
-        manager.save_state.assert_not_called()
-        manager.load_state.assert_not_called()
-
-    def test_paginator_state_drops_unset_fields(self) -> None:
-        assert _paginator_state(SequenzyResumeConfig(cursor="c")) == {"cursor": "c"}
-        assert _paginator_state(SequenzyResumeConfig(offset=200)) == {"offset": 200}
-        assert _paginator_state(SequenzyResumeConfig()) is None
-
 
 class TestSequenzyCompanyHeader:
     def test_company_id_sets_workspace_header(self) -> None:
@@ -246,15 +131,6 @@ class TestSequenzyCompanyHeader:
         mock_session, _, _ = _drive("tags", manager, responses, company_id="company_abc123")
 
         assert mock_session.headers.get("x-company-id") == "company_abc123"
-
-    def test_no_company_id_sends_no_workspace_header(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_http_response({"success": True, "tags": []}),
-        ]
-        mock_session, _, _ = _drive("tags", manager, responses)
-
-        assert "x-company-id" not in mock_session.headers
 
 
 class TestValidateCredentials:

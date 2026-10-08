@@ -186,10 +186,11 @@ class SupportReplyWorkflow:
             return "skipped_human_engaged"
 
         # Record lifecycle start
+        run_started_at = workflow.now().isoformat()
         await _record_triage(
             {
                 "status": "in_progress",
-                "started_at": workflow.now().isoformat(),
+                "started_at": run_started_at,
             }
         )
 
@@ -801,6 +802,8 @@ class SupportReplyWorkflow:
                 triage_patch = {
                     **outcome,
                     "status": triage_status,
+                    # The start write is best effort, so the stored started_at can belong to an earlier run.
+                    "started_at": run_started_at,
                     "finished_at": workflow.now().isoformat(),
                     "ai_trace_id": trace_id,
                     "draft_task_run_ids": draft_task_run_ids,

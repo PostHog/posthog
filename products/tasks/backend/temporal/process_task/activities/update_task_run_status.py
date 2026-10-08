@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
@@ -18,9 +19,6 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
-# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
-# error_message so a normal completion never reads as a failure.
-TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # TaskRun.state marker for runs stopped by the hard wall-clock cap. Written without an
 # error_message: the marker is the machine-readable reason, and a fabricated prose
 # message would just get parroted back to users by every error surface.
@@ -84,6 +82,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             # Terminal statuses are final. A run cancelled out of band must not be resurrected to
             # completed/failed by its own workflow finishing afterward, which would both lie in the
             # audit trail and undo the cancellation. Re-checked here while holding the row lock.
+            if old_status in _TERMINAL_STATUSES and input.status == TaskRun.Status.IN_PROGRESS:
+                raise ApplicationError(
+                    f"TaskRun {input.run_id} is already {old_status}; refusing to start it",
+                    non_retryable=True,
+                    type="TaskRunAlreadyTerminalError",
+                )
             if old_status in _TERMINAL_STATUSES and input.status != old_status:
                 log_with_activity_context(
                     "Skipping terminal status overwrite",

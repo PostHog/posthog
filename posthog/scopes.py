@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "comment",
     "conversation",
     "context_layer_internal",
+    "cross_project_dashboard",
     "customer_analytics",
     "customer_task",
     "customer_journey",
@@ -244,8 +245,7 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
-# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
-# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
+# llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     # SDK local evaluation and remote config. The Rust feature-flags service already

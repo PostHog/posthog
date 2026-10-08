@@ -770,6 +770,25 @@ export const signalsReportsReviewersUpdate = async (
     })
 }
 
+export const getSignalsReportsReviewersMeDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers
+ */
+export const signalsReportsReviewersMeDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/signals/`
 }
@@ -1203,7 +1222,7 @@ export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: S
 }
 
 /**
- * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them.
+ * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
  * @summary List the reports that matter most to the current user
  */
 export const signalsReportsForYouRetrieve = async (

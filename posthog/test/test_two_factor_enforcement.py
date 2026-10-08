@@ -685,3 +685,6 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         response = client.post("/api/login/token/", {"token": "123456"})
         self.assertEqual(response.status_code, 429)
+
+        response = client.post("/api/login/token/", {"token": "abcd2345"})
+        self.assertEqual(response.status_code, 400, "Backup codes have their own rate limit")

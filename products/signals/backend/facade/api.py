@@ -40,11 +40,13 @@ from products.signals.backend.briefing_reports import (
     OpenReportCounts as OpenReportCounts,
     open_report_counts as open_report_counts,
     report_details as report_details,
+    report_ids_naming_user as report_ids_naming_user,
     reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_access import may_read_reports as may_read_reports
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.report_metric_access import (
     # Re-exported so the Today briefing reads report metrics with the viewer's access, as the Inbox does.
@@ -56,6 +58,17 @@ from products.signals.backend.report_metrics import (
     REPORT_METRIC_ROLES as REPORT_METRIC_ROLES,
     REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
     ReportMetricSnapshot as ReportMetricSnapshot,
+)
+from products.signals.backend.report_page_source import (
+    ReportArtefactText as ReportArtefactText,
+    ReportPageSource as ReportPageSource,
+    ReportSignal as ReportSignal,
+    report_agent_texts as report_agent_texts,
+    report_page_source as report_page_source,
+)
+from products.signals.backend.report_sections import (
+    ReportSections as ReportSections,
+    report_sections as report_sections,
 )
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (

@@ -52,6 +52,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     cdc_pg_connection,
     drop_slot_and_publication,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    CLIENT_DEADLINE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
@@ -92,6 +95,10 @@ _HOST_IS_URL_ERROR = (
 _HOST_HAS_PORT_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com). Put the port number "
     "in the port field instead."
+)
+
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
 )
 
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
@@ -389,6 +396,13 @@ _CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
     "reconnecting didn't help. The database, a connection pooler, a firewall, or an SSH tunnel is "
     "ending the connection early. Check those for idle or connection lifetime timeouts, restarts, "
     "and failovers. This sync is still enabled and will run again on its next schedule."
+)
+
+_CLIENT_DEADLINE_EXHAUSTED_MESSAGE = (
+    "Your database stopped answering in the middle of the sync, and it did so again on every retry. "
+    "A connection pooler, a firewall, or an overloaded database can hold a query without an answer. "
+    "Check those, and check that your database has capacity for the read. This sync is still "
+    "enabled and will run again on its next schedule."
 )
 
 _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
@@ -1375,7 +1389,12 @@ class PostgresSource(
         # The bounded lookup in front of every connect raises these two when the resolver does not
         # answer in time or answers "try again". Neither is a verdict on the host, and a fresh
         # attempt recovers, so they belong with the other self-recovering connect failures.
+        #
+        # `CLIENT_DEADLINE_ERROR` is the client-side statement deadline. It acts only when the
+        # server's own statement timeout did not, so it reports a pooler or a server that stopped
+        # answering, not a query that is too slow for its index.
         return {
+            CLIENT_DEADLINE_ERROR,
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1401,6 +1420,7 @@ class PostgresSource(
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }
@@ -1701,6 +1721,11 @@ class PostgresSource(
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
 
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
+
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.
         if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
@@ -1933,18 +1958,7 @@ class PostgresSource(
                 supports_resume=False,
             )
 
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before its table started streaming, or a worker one deploy behind, would consume this
-        # buffer on v2, which stamps no position on the rows it writes, so every later run would
-        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
-        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
-            )
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
         # replays over it; every reset writer does that. Merging the buffer into a wiped table

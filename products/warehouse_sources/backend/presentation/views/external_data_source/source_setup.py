@@ -74,7 +74,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.destination_links import set_source_destinations
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    EMPTY_SET_MESSAGE,
+    set_source_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
@@ -587,7 +590,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_job_inputs = source_config.to_dict()
+        validated_job_inputs = source.serialize_config(source_config)
 
         # The settings form resubmits the whole connection config on every save, so changing an
         # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
@@ -596,7 +599,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # probe below only runs when the connection actually changed. Direct query sources still
         # probe on every save: the same call refreshes their schemas and connection metadata.
         try:
-            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+            stored_job_inputs = source.serialize_config(source.parse_config(existing_job_inputs))
         except Exception:
             # A stored config that no longer parses can't be compared, so treat it as changed and
             # let the probe run rather than skipping validation on a config we can't read.
@@ -656,7 +659,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             # Credential validation adopts re-entered OAuth2 secrets into the integration row and
             # rewrites the config (pointer set, static secrets cleared) — re-serialize so job_inputs
             # stores the pointer and never the raw secrets.
-            validated_job_inputs = source_config.to_dict()
+            validated_job_inputs = source.serialize_config(source_config)
             for key in helpers._CDC_EXPOSED_JOB_INPUT_KEYS:
                 if key in existing_job_inputs:
                     validated_job_inputs[key] = existing_job_inputs[key]
@@ -787,6 +790,16 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
         ),
     )
+
+    def validate_destination_ids(self, destination_ids: list) -> list:
+        # An explicit empty list means the caller turned every destination off, which would leave
+        # the source syncing nowhere. Rejected here, before the source is created, because
+        # `set_source_destinations` runs after creation and swallows its own failures so that a bad
+        # destination set never costs the user the source. Omitting the field keeps its meaning of
+        # "the PostHog warehouse", which is what callers written before destinations existed send.
+        if not destination_ids:
+            raise serializers.ValidationError(EMPTY_SET_MESSAGE)
+        return destination_ids
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1199,7 +1212,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             status="Running",
             source_type=source_type_model,
             api_version=source.default_version,
-            job_inputs=source_config.to_dict(),
+            job_inputs=source.serialize_config(source_config),
             prefix=prefix,
             description=description,
             access_method=access_method,

@@ -25,6 +25,7 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',
@@ -225,7 +226,8 @@ export function initKea({
                 // owning UI surfaces them itself: load actions (AccessDenied scene gates) and the
                 // self-handled write actions above. Other writes keep the generic toast, since
                 // most write flows have no failure handling of their own. Read-only impersonation
-                // uses the distinct `impersonation_read_only` code and still toasts.
+                // uses the distinct `impersonation_read_only` code, which apiStatusLogic toasts only
+                // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (
@@ -244,6 +246,7 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isReadOnlyImpersonationError = error.code === 'impersonation_read_only'
                     const isFeatureFlagDuplicateKey =
                         error.code === 'unique' &&
                         error.attr === 'key' &&
@@ -266,6 +269,7 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
+                        isReadOnlyImpersonationError ||
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError
                     ) {

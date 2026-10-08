@@ -12,7 +12,7 @@ import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
-import { isExternalHref, itemHref, itemSource, itemStateLabel } from './todayBriefingItems'
+import { isExternalHref, itemHref, itemReportId, itemSource, itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 import { TodayMoreReports } from './TodayMoreReports'
@@ -20,7 +20,7 @@ import { TodayNavItem } from './TodayNavItem'
 import { TodayReportNavItem } from './TodayReportNavItem'
 
 function PersonalBriefingNavItems(): JSX.Element {
-    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey, reportStateOverrides } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const { location } = useValues(router)
     const currentPath = removeProjectIdIfPresent(location.pathname)
@@ -31,18 +31,20 @@ function PersonalBriefingNavItems(): JSX.Element {
                 const href = itemHref(item)
                 const source = itemSource(item)
                 const preview = reportPreviews.sidebar[item.key]
+                const reportId = itemReportId(item)
+                const state = (reportId ? reportStateOverrides[reportId] : undefined) ?? item.state
                 const row = (
                     <TodayNavItem
                         key={item.key}
                         title={displayConventionalCommitTitle(item.title, 'Untitled report')}
-                        meta={itemStateLabel(item) ?? (item.signal || source.label)}
+                        meta={itemStateLabel({ state }) ?? (item.signal || source.label)}
                         color={source.color}
                         icon={<TodayIcon icon={source.icon} />}
                         to={href}
                         target={isExternalHref(href) ? '_blank' : undefined}
                         active={hoveredItemKey === item.key}
                         current={removeProjectIdIfPresent(href) === currentPath}
-                        state={item.state}
+                        state={state}
                         dataAttr="today-nav-item"
                         onClick={() => itemOpened(item, 'sidebar')}
                         onHoverChange={(hovered) => setHoveredItemKey(hovered ? item.key : null)}
@@ -89,6 +91,7 @@ export function TodayHomeSidebar(): JSX.Element {
                 variant="outline"
                 size="lg"
                 className="mb-1 w-full"
+                nativeButton={false}
                 render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >

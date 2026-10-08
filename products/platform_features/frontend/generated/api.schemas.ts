@@ -82,6 +82,11 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -192,6 +197,11 @@ export interface PatchedOrganizationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly membership_level?: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at?: string | null
     readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -1359,6 +1369,7 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1442,6 +1453,7 @@ export type ActivityLogListParams = {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1462,6 +1474,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1545,6 +1558,7 @@ export const ActivityLogListScope = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1552,6 +1566,7 @@ export const ActivityLogListScope = {
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1635,6 +1650,7 @@ export const ActivityLogListScope = {
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+ * * `WarehouseSuggestion` - WarehouseSuggestion
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1643,6 +1659,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1726,6 +1743,7 @@ export const ActivityLogListScopesItem = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',

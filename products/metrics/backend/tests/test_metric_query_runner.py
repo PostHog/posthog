@@ -103,15 +103,13 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_fine_is_coarsened", dt.timedelta(days=2), "second", None, "minute"),
-            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second", None, "second"),
-            ("min_interval_raises_auto_pick", dt.timedelta(hours=1), None, "minute_15", "minute_15"),
-            ("min_interval_raises_explicit_interval", dt.timedelta(hours=1), "minute", "hour", "hour"),
-            ("min_interval_below_interval_is_ignored", dt.timedelta(days=2), "hour_6", "minute", "hour_6"),
-            ("min_interval_still_coarsened", dt.timedelta(days=30), "second", "minute", "minute_5"),
+            ("too_fine_is_coarsened", dt.timedelta(days=2), "second_15", "second_30"),
+            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second_15", "second_15"),
+            ("fifteen_seconds", dt.timedelta(hours=6), "second_15", "second_15"),
+            ("thirty_minutes", dt.timedelta(days=2), "minute_30", "minute_30"),
         ]
     )
-    def test_resolves_interval(self, _name, span, interval, min_interval, expected):
+    def test_resolves_interval(self, _name, span, interval, expected):
         now = timezone.now()
         runner = self.runner_class(
             team=self.team,
@@ -120,21 +118,8 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_from=now - span,
             date_to=now,
             interval=interval,
-            min_interval=min_interval,
         )
         self.assertEqual(runner.interval, expected)
-
-    def test_unknown_min_interval_raises(self):
-        now = timezone.now()
-        with self.assertRaises(ValueError):
-            self.runner_class(
-                team=self.team,
-                metric_name="x",
-                aggregation="sum",
-                date_from=now - dt.timedelta(hours=1),
-                date_to=now,
-                min_interval="fortnight",
-            )
 
     def test_rejects_invalid_regex_filter(self):
         now = timezone.now()
@@ -981,9 +966,10 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         by_env = {s.labels["env"]: s for s in series}
         self.assertEqual(len(by_env["prod"].points), len(by_env["dev"].points))
 
-    def test_unknown_interval_raises(self):
+    @parameterized.expand([("removed_one_second_step", "second"), ("unknown", "fortnight")])
+    def test_unknown_interval_raises(self, _name, interval):
         with self.assertRaises(ValueError):
-            self._run(interval="fortnight")
+            self._run(interval=interval)
 
     def test_group_by_resource_scope(self):
         truncate_metrics_tables()
