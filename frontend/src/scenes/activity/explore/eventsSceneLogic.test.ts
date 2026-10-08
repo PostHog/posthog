@@ -10,9 +10,12 @@ import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActivityTab } from '~/types'
+import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { getEventLookupQuery } from './defaults'
 import { FlagCallsNote, eventsSceneLogic } from './eventsSceneLogic'
+
+const LOOKUP_UUID = '018f0000-0000-7000-8000-000000000002'
 
 describe('eventsSceneLogic', () => {
     let logic: ReturnType<typeof eventsSceneLogic.build>
@@ -121,4 +124,106 @@ describe('eventsSceneLogic', () => {
 
         expect(logic.values.flagCallsNote).toBe(expected)
     })
+
+    test.each<
+        [
+            string,
+            FlagEvaluationsModeEnumApi,
+            Partial<EventsQuery>,
+            'row' | 'no row' | 'error',
+            'link' | 'edit',
+            string | undefined,
+        ]
+    >([
+        [
+            'a link to a flag call on mode 2',
+            FlagEvaluationsModeEnumApi.Number2,
+            {},
+            'row',
+            'link',
+            '$feature_flag_called',
+        ],
+        [
+            'a link on mode 2 that flag_evaluations does not hold',
+            FlagEvaluationsModeEnumApi.Number2,
+            {},
+            'no row',
+            'link',
+            undefined,
+        ],
+        [
+            'a link on mode 2 whose flag call query fails',
+            FlagEvaluationsModeEnumApi.Number2,
+            {},
+            'error',
+            'link',
+            undefined,
+        ],
+        ['a link on mode 1', FlagEvaluationsModeEnumApi.Number1, {}, 'row', 'link', undefined],
+        [
+            'a link that names its event',
+            FlagEvaluationsModeEnumApi.Number2,
+            { event: '$pageview' },
+            'row',
+            'link',
+            '$pageview',
+        ],
+        [
+            'a link with another filter',
+            FlagEvaluationsModeEnumApi.Number2,
+            {
+                properties: [
+                    ...(getEventLookupQuery(LOOKUP_UUID).source as EventsQuery).properties!,
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$browser',
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ],
+            },
+            'row',
+            'link',
+            undefined,
+        ],
+        ['an edit that clears the event of a lookup', FlagEvaluationsModeEnumApi.Number2, {}, 'row', 'edit', undefined],
+    ])(
+        'resolves the event name for %s',
+        async (_name, mode, sourceOverrides, flagCallQuery, arrival, expectedEvent) => {
+            const after = '2026-08-24T00:00:00.000Z'
+            const before = '2026-08-24T00:00:30.000Z'
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const { query } = (await request.json()) as Record<string, any>
+                        const asksForTheFlagCall =
+                            query.kind === NodeKind.EventsQuery &&
+                            query.event === '$feature_flag_called' &&
+                            JSON.stringify(query.properties).includes(LOOKUP_UUID) &&
+                            query.after === after &&
+                            query.before === before
+                        if (asksForTheFlagCall && flagCallQuery === 'error') {
+                            return [500, { detail: 'Query failed' }]
+                        }
+                        return [200, { results: asksForTheFlagCall && flagCallQuery === 'row' ? [[LOOKUP_UUID]] : [] }]
+                    },
+                },
+            })
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            const lookup = getEventLookupQuery(LOOKUP_UUID)
+            const query: DataTableNode = {
+                ...lookup,
+                source: { ...(lookup.source as EventsQuery), after, before, ...sourceOverrides },
+            }
+
+            if (arrival === 'link') {
+                router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url)
+            } else {
+                logic.actions.setQuery(query)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(((logic.values.query as DataTableNode).source as EventsQuery).event).toBe(expectedEvent)
+        }
+    )
 })
