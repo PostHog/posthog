@@ -213,7 +213,7 @@ describe('flag called dependencies', () => {
             ['an action series whose action has not loaded', false, viz(trends([action(ACTION_ID)])), []],
             // The rebuilt series shows the event's label as its name, so a match on `name` flags the fixed insight.
             ['the flag_evaluations series that replaces it', false, viz(trends([FLAG_EVALUATIONS_SERIES])), []],
-            // An all-events series loses the flag calls from its counts, but the announcement covers it.
+            // An all-events series keeps working. Its count only drops by the flag calls.
             ['an all-events series', false, viz(trends([events(null)])), []],
             ['a series on another event', false, viz(trends([events('$pageview')])), []],
             // A legacy insight saved with only `filters` arrives with a null query.
@@ -355,6 +355,15 @@ describe('flag called dependencies', () => {
                 'with a legacy trends metric whose exposure query is on another event',
                 false,
                 legacyExperiment(trends([events('$pageview')])),
+                [],
+            ],
+            [
+                'with a shared legacy trends metric and no exposure query',
+                true,
+                runningExperiment({
+                    resolved_exposure_event: '$experiment_exposure',
+                    saved_metrics: [{ query: legacyTrendsMetric() }],
+                }),
                 [],
             ],
             [

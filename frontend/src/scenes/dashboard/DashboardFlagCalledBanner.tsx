@@ -18,7 +18,12 @@ export function DashboardFlagCalledBanner(): JSX.Element | null {
     const { insightTiles, placement } = useValues(dashboardLogic)
 
     // Shared and exported views have nobody who can rebuild the insights.
-    if (placement === DashboardPlacement.Public || placement === DashboardPlacement.Export) {
+    // A flag's Usage tab renders the usage dashboard that PostHog generated, which the customer did not build.
+    if (
+        placement === DashboardPlacement.Public ||
+        placement === DashboardPlacement.Export ||
+        placement === DashboardPlacement.FeatureFlag
+    ) {
         return null
     }
     // A viewer without access to an insight gets its tile without a query.

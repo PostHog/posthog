@@ -2,8 +2,7 @@ import { useValues } from 'kea'
 
 import { experimentFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
-
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 export function ExperimentFlagCalledBanner(): JSX.Element {
     const { experiment } = useValues(experimentLogic)

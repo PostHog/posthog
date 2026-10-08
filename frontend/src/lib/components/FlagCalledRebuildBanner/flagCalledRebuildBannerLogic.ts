@@ -100,7 +100,7 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
                 const results = await Promise.allSettled(
                     missingIds.map((id) => actionsRetrieve(String(values.currentProjectId), id))
                 )
-                // A deleted action no longer matches events, so a failed fetch leaves it out.
+                // An action that fails to load counts as not reading the event, so its banner stays hidden.
                 actions.addReferencedActions(
                     results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
                 )

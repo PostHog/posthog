@@ -12,7 +12,7 @@ interface FlagCalledRebuildBannerProps {
     references: FlagCalledReferences
     action?: LemonBannerAction
     className?: string
-    /** A function receives the resolved check, so a caller can list which of its parts depend on flag calls. */
+    /** A function child receives `dependsOn`, which reports whether a set of references reads flag calls, directly or through a loaded action. */
     children: React.ReactNode | ((dependsOn: (references: FlagCalledReferences) => boolean) => React.ReactNode)
 }
 

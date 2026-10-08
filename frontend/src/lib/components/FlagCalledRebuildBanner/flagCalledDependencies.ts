@@ -159,7 +159,7 @@ export function cohortFlagCalledReferences(
 }
 
 /**
- * Mirrors count_running_experiments_on_feature_flag_called in products/experiments/backend/facade/api.py.
+ * Extends count_running_experiments_on_feature_flag_called in products/experiments/backend/facade/api.py.
  * An experiment that ended keeps its exposures, because the events table keeps the flag calls it already has.
  */
 export function experimentFlagCalledReferences(experiment: Experiment): FlagCalledReferences {
