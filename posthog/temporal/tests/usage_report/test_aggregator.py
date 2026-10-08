@@ -6,6 +6,7 @@ These cover the building blocks the aggregation activity composes:
 No Django / Temporal / S3 required.
 """
 
+import gzip
 import json
 import weakref
 import dataclasses
@@ -32,6 +33,7 @@ from posthog.temporal.usage_report.aggregator import (
     load_all_data,
     load_usage_counter_report,
     sort_org_reports,
+    write_org_report_chunks,
 )
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
@@ -460,3 +462,64 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
     out = filter_orgs_with_usage(reports)
 
     assert set(out.keys()) == {"with-events", "with-recordings"}
+
+
+@pytest.mark.parametrize("active_orgs", [0, 4, 5])
+def test_chunks_stream_reports_and_preserve_counts(active_orgs: int) -> None:
+    references: list[weakref.ReferenceType[OrgReport]] = []
+    objects: dict[str, bytes] = {}
+
+    def reports() -> Iterator[OrgReport]:
+        for index in range(active_orgs + 1):
+            report = _empty_org_report(str(index), event_count_in_period=int(index < active_orgs))
+            references.append(weakref.ref(report))
+            yield report
+
+    def write(key: str, content: str | bytes, **kwargs: Any) -> None:
+        objects[key] = content.encode() if isinstance(content, str) else content
+        assert sum(ref() is not None for ref in references) <= 1
+
+    with patch("posthog.storage.object_storage.write", side_effect=write):
+        result = write_org_report_chunks(
+            _ctx(), reports(), _instance_metadata(), chunk_size=2, version=2, region="US", check_cancelled=lambda: None
+        )
+
+    assert result.total_orgs == active_orgs + 1
+    assert result.total_orgs_with_usage == active_orgs
+    assert len(result.chunk_keys) == (active_orgs + 1) // 2
+    chunks = [[json.loads(line) for line in gzip.decompress(objects[key]).splitlines()] for key in result.chunk_keys]
+    assert [row["organization_id"] for chunk in chunks for row in chunk] == [str(i) for i in range(active_orgs)]
+    assert all(0 < len(chunk) <= 2 for chunk in chunks)
+    manifest = json.loads(objects[result.manifest_key])
+    assert manifest["total_orgs"] == result.total_orgs
+    assert manifest["total_orgs_with_usage"] == result.total_orgs_with_usage
+    assert manifest["chunk_keys"] == result.chunk_keys
+
+
+@pytest.mark.parametrize("failure", ["upload", "cancel"])
+def test_failed_chunk_run_does_not_publish_manifest(failure: str) -> None:
+    written: list[str] = []
+
+    def write(key: str, content: str | bytes, **kwargs: Any) -> None:
+        if failure == "upload" and written:
+            raise OSError("upload failed")
+        written.append(key)
+
+    def check_cancelled() -> None:
+        if failure == "cancel" and written:
+            raise RuntimeError("cancelled")
+
+    with (
+        patch("posthog.storage.object_storage.write", side_effect=write),
+        pytest.raises((OSError, RuntimeError)),
+    ):
+        write_org_report_chunks(
+            _ctx(),
+            (_empty_org_report(str(i), event_count_in_period=1) for i in range(3)),
+            _instance_metadata(),
+            chunk_size=2,
+            version=2,
+            region="US",
+            check_cancelled=check_cancelled,
+        )
+    assert not any(key.endswith("manifest.json") for key in written)
