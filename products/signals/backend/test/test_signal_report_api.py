@@ -743,6 +743,16 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
         assert row["source_suggestion"] is None
 
+    def test_source_suggestion_hides_while_a_freshness_probe_fails(self):
+        report = self._create_report()
+        _suggest_source(report, "session_replay")
+        _seen_event(self.team, "$exception", days_ago=1)
+        cache.clear()
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+
+        with patch("posthog.data_freshness._probe_app_metrics", side_effect=RuntimeError("store unavailable")):
+            assert self.client.get(url).json()["source_suggestion"] is None
+
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None

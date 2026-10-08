@@ -34,7 +34,7 @@ def _opted_in(team: Team, product: SuggestedSourceProduct) -> bool:
 def _products_with_recent_data(team: Team) -> set[str] | None:
     """Products the team received data for recently, or None when a failed probe left it unknown."""
     results = get_organization_data_freshness(str(team.organization_id), [team])
-    if not results:
+    if not results or results[0].degraded:
         return None
     return {source.data_source for source in results[0].sources}
 
