@@ -1,6 +1,15 @@
 import { useActions } from 'kea'
 
-import { IconArchive, IconCopy, IconPencil, IconPeople, IconStar, IconStarFilled, IconTrash } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconPencil,
+    IconPeople,
+    IconPlus,
+    IconStar,
+    IconStarFilled,
+    IconTrash,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -33,6 +42,10 @@ export function TodaySpaceActions({
 
     return (
         <>
+            <Item to={urls.taskSpaceNewSession(space.id)} dataAttr={attr('new-session')}>
+                <IconPlus />
+                New session
+            </Item>
             {space.system_role !== 'personal' && (
                 <Item onClick={() => toggleStar(space.id, !space.starred)} dataAttr={attr('star')}>
                     {space.starred ? <IconStarFilled /> : <IconStar />}

@@ -869,7 +869,8 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
-export const NewChatPage: Story = {
+// New session opens this page. It files into the personal space until the user picks another one.
+export const NewSessionPage: Story = {
     parameters: { pageUrl: urls.taskNewSession() },
 }
 
