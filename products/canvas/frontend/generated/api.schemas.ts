@@ -659,9 +659,9 @@ export interface CanvasConnectorCallResultApi {
 }
 
 /**
- * * `unchecked` - unchecked
- * * `ok` - ok
- * * `drift` - drift
+ * * `unchecked` - Unchecked
+ * * `ok` - Ok
+ * * `drift` - Drift
  */
 export type CanvasDataCheckStatusEnumApi =
     (typeof CanvasDataCheckStatusEnumApi)[keyof typeof CanvasDataCheckStatusEnumApi]
@@ -673,10 +673,10 @@ export const CanvasDataCheckStatusEnumApi = {
 } as const
 
 /**
- * * `event` - event
- * * `person` - person
- * * `group` - group
- * * `session` - session
+ * * `event` - Event
+ * * `person` - Person
+ * * `group` - Group
+ * * `session` - Session
  */
 export type CanvasDataPropertyDeclarationTypeEnumApi =
     (typeof CanvasDataPropertyDeclarationTypeEnumApi)[keyof typeof CanvasDataPropertyDeclarationTypeEnumApi]
@@ -699,10 +699,10 @@ export interface CanvasDataPropertyDeclarationApi {
     name: string
     /** Which kind of property the name refers to.
      *
-     * * `event` - event
-     * * `person` - person
-     * * `group` - group
-     * * `session` - session */
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
     type: CanvasDataPropertyDeclarationTypeEnumApi
 }
 
@@ -724,9 +724,9 @@ export interface CanvasDataCheckMissingApi {
 export interface CanvasDataCheckApi {
     /** 'unchecked' before the first nightly run, 'ok' when everything declared exists, else 'drift'.
      *
-     * * `unchecked` - unchecked
-     * * `ok` - ok
-     * * `drift` - drift */
+     * * `unchecked` - Unchecked
+     * * `ok` - Ok
+     * * `drift` - Drift */
     status: CanvasDataCheckStatusEnumApi
     /**
      * When the check last ran, if ever.

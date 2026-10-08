@@ -569,10 +569,10 @@ export const CanvasesDraftCreateBody = () => zod
                                                     type: zod
                                                         .enum(['event', 'person', 'group', 'session'])
                                                         .describe(
-                                                            '\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         )
                                                         .describe(
-                                                            'Which kind of property the name refers to.\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         ),
                                                 })
                                                 .describe(
@@ -896,10 +896,10 @@ export const CanvasesEditCreateBody = () => zod
                                             type: zod
                                                 .enum(['event', 'person', 'group', 'session'])
                                                 .describe(
-                                                    '\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                    '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                 )
                                                 .describe(
-                                                    'Which kind of property the name refers to.\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                    'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                 ),
                                         })
                                         .describe('One property a canvas reads, with the kind of property it is.')
@@ -1762,10 +1762,10 @@ export const CanvasesPublishCreateBody = () => zod
                                                     type: zod
                                                         .enum(['event', 'person', 'group', 'session'])
                                                         .describe(
-                                                            '\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         )
                                                         .describe(
-                                                            'Which kind of property the name refers to.\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         ),
                                                 })
                                                 .describe(
@@ -2348,10 +2348,10 @@ export const CanvasesValidateCreateBody = () => zod
                                                     type: zod
                                                         .enum(['event', 'person', 'group', 'session'])
                                                         .describe(
-                                                            '\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            '\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         )
                                                         .describe(
-                                                            'Which kind of property the name refers to.\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                                                            'Which kind of property the name refers to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                                                         ),
                                                 })
                                                 .describe(
