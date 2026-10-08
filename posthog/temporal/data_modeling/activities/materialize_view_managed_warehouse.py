@@ -17,7 +17,9 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    WritePlan,
     clear_incremental_state,
+    resolve_write_plan,
     set_incremental_state,
 )
 from products.data_modeling.backend.facade.models import (
@@ -44,7 +46,6 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import get_node_suspended_metric
-from .materialize_view import WritePlan, _resolve_write_plan
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -251,7 +252,9 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
         )
         if inputs.use_trino:
-            plan = await _resolve_write_plan(saved_query, team.pk, scope=TRINO_INCREMENTAL_SCOPE)
+            plan = await database_sync_to_async_pool(resolve_write_plan)(
+                team.pk, saved_query.id, scope=TRINO_INCREMENTAL_SCOPE
+            )
             await logger.ainfo("Trino write plan", incremental=plan.incremental, reason=plan.reason)
             result = await execute_trino_model(
                 organization_id=str(team.organization_id),

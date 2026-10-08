@@ -244,7 +244,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view._incremental_enabled", return_value=True
+                "products.data_modeling.backend.logic.incremental_plan.incremental_enabled", return_value=True
             ),
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",

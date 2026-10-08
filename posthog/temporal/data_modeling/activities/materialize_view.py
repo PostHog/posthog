@@ -32,7 +32,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -57,16 +56,13 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
-    IncrementalConfig,
     IncrementalFilterError,
+    WritePlan,
     clear_incremental_state,
-    definition_fingerprint,
-    get_incremental_config,
-    get_incremental_state,
     inject_incremental_filter,
     record_incremental_history,
+    resolve_write_plan,
     set_incremental_state,
-    window_start,
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -197,10 +193,6 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
-# The only gate. Incremental is also the only path that writes through deltalite, so turning this
-# off falls back to full refresh on delta-rs and takes the engine with it.
-INCREMENTAL_FLAG = "data-modeling-incremental-views"
-
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
 INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
@@ -245,72 +237,6 @@ class DuplicateOutputColumnError(NonReportableError):
             "Give each output column a unique name, for example with an alias."
         )
         self.duplicates = duplicates
-
-
-def _incremental_enabled(team_id: int) -> bool:
-    """Fails closed: a flag-service outage produces a full refresh, which costs money but is
-    never wrong."""
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            INCREMENTAL_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team_id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate incremental flag; falling back to full refresh", team_id=team_id)
-        return False
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class WritePlan:
-    """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
-    job so an unexpectedly expensive run explains itself."""
-
-    incremental: bool
-    reason: str
-    since: typing.Any = None
-    fingerprint: str | None = None
-    config: IncrementalConfig | None = None
-
-
-@database_sync_to_async_pool
-def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int, *, scope: str | None = None) -> WritePlan:
-    config = get_incremental_config(saved_query)
-    if config is None:
-        return WritePlan(incremental=False, reason="not configured for incremental materialization")
-
-    if not _incremental_enabled(team_id):
-        return WritePlan(incremental=False, reason="incremental materialization is not enabled")
-
-    fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
-    state = get_incremental_state(saved_query, scope=scope)
-
-    if state.watermark is None:
-        return WritePlan(incremental=False, reason="first run", fingerprint=fingerprint, config=config)
-
-    if fingerprint is None or fingerprint != state.definition_fingerprint:
-        # The query or its config changed, so existing rows were computed by a definition that no
-        # longer applies. Rebuilding is the only way the table still matches the SQL the user sees.
-        return WritePlan(incremental=False, reason="definition changed", fingerprint=fingerprint, config=config)
-
-    since = window_start(state, config)
-    if since is None:
-        return WritePlan(incremental=False, reason="no usable watermark", fingerprint=fingerprint, config=config)
-
-    return WritePlan(
-        incremental=True,
-        reason="incremental",
-        since=since,
-        fingerprint=fingerprint,
-        config=config,
-    )
 
 
 def _is_s3_permission_denied(error: BaseException) -> bool:
@@ -1133,7 +1059,7 @@ async def _materialize_incrementally(
     publish to copy incrementally would break that, so the two decisions are linked.
     """
     config = plan.config
-    assert config is not None  # _resolve_write_plan only sets incremental with a config
+    assert config is not None  # resolve_write_plan only sets incremental with a config
 
     delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
     # Wrapped in pa.schema() because delta-rs hands back an arro3 schema, whose DataType does not
@@ -1280,7 +1206,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
-    plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
+    plan = await database_sync_to_async_pool(resolve_write_plan)(inputs.team_id, objects.saved_query.id)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
