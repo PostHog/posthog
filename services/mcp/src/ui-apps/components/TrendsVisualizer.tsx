@@ -139,15 +139,12 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             data: [item.aggregated_value ?? 0],
             color: colorAt(i),
         }))
+        const pieConfig = displayType === 'ActionsDonut' ? DONUT_CONFIG : PIE_CONFIG
         return (
             <div>
                 <ChartHeader title={TITLE} />
                 <div className="flex flex-col w-full h-[400px]">
-                    <PieChart
-                        series={slices}
-                        theme={theme}
-                        config={displayType === 'ActionsDonut' ? DONUT_CONFIG : PIE_CONFIG}
-                    />
+                    <PieChart series={slices} theme={theme} config={pieConfig} />
                 </div>
             </div>
         )
