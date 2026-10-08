@@ -11,7 +11,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_catalog.backend.facade.api import compute_drift, metrics_visible_to_user
+from products.data_catalog.backend.facade.api import compute_drift, metrics_for_team, metrics_visible_to_user
 from products.data_catalog.backend.facade.enums import MetricStatus
 
 from ee.hogai.context import AssistantContextManager
@@ -109,6 +109,10 @@ def _visible_approved_metric_names(team: Team, user: User) -> list[str]:
     # Hides metrics over tables the user cannot read, like the `read_data` metric kinds do.
     user_access_control = UserAccessControl(user=user, team=team)
     if not user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+        return []
+    # metrics_visible_to_user builds the full warehouse schema, and this prompt is rebuilt on every model turn.
+    # Skip that build when the team has no approved metrics.
+    if not metrics_for_team(team).filter(status=MetricStatus.APPROVED).exists():
         return []
     approved = list(
         metrics_visible_to_user(team, user, user_access_control).filter(status=MetricStatus.APPROVED).order_by("name")
