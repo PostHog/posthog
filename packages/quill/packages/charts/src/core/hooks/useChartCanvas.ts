@@ -44,6 +44,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         if (!wrapper) {
             return
         }
+        let deferredRepaint = false
 
         // `forceRepaint` publishes fresh state even when nothing moved — for a restored context,
         // whose bitmap came back blank while every value stayed identical.
@@ -66,12 +67,21 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             }
 
             const rect = layoutRect ?? wrapper.getBoundingClientRect()
+            // A sub-pixel wrapper (a `display: none` ancestor, Chromium shrinking the viewport for a tall
+            // screenshot) has nothing to draw, and resizing to it would wipe the bitmap. Keep the last frame,
+            // and replay a requested repaint (a restored context) once a real size arrives.
+            if (rect.width < 1 || rect.height < 1) {
+                deferredRepaint ||= forceRepaint
+                return
+            }
+            const repaint = forceRepaint || deferredRepaint
+            deferredRepaint = false
             rectRef.current = rect
             const dpr = window.devicePixelRatio || 1
 
             const staticWiped = syncCanvasSize(canvas, rect, dpr)
             const overlayWiped = syncCanvasSize(overlayCanvas, rect, dpr)
-            if (staticWiped || forceRepaint) {
+            if (staticWiped || repaint) {
                 markPaintPending(canvas)
             }
 
@@ -83,7 +93,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             const next = buildDimensions(rect, marginsRef.current)
             setCanvasState((prev) =>
                 prev &&
-                !forceRepaint &&
+                !repaint &&
                 !staticWiped &&
                 !overlayWiped &&
                 prev.ctx === context &&

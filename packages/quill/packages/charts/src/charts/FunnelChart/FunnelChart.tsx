@@ -306,9 +306,10 @@ export function FunnelChart<Meta = unknown>({
     return (
         <div className="flex flex-col flex-1 min-h-0">
             {/* Flex column so the chart stretches into the min-height floor. */}
+            {/* No `min-h-0` with a floor set, because an `!important` Tailwind build lets it beat the inline `minHeight`. */}
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div
-                className="flex flex-col flex-1 min-h-0"
+                className={chartMinHeight != null ? 'flex flex-col flex-1' : 'flex flex-col flex-1 min-h-0'}
                 style={chartMinHeight != null ? { minHeight: chartMinHeight } : undefined}
                 data-attr="hog-funnel-chart-region"
             >
