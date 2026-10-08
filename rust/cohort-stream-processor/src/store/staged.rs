@@ -12,8 +12,8 @@
 
 use super::column_families::{Cf, OpaqueCf};
 use super::keys::{
-    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2DirtyKey, Stage2Key,
-    Stage2TransferredRegisterKey, TombstoneKey,
+    MergeAppliedKey, MergeDrainKey, PartitionProvenanceKey, PendingTransferKey, Stage2DirtyKey,
+    Stage2Key, Stage2TransferredRegisterKey, TombstoneKey,
 };
 use super::keyspace::Keyspace;
 
@@ -123,6 +123,14 @@ impl StagedBatch {
         self.ops.push(StagedOp::Delete {
             cf: Cf::Stage2,
             key: key.encode().to_vec(),
+        });
+    }
+
+    pub fn put_partition_provenance(&mut self, key: PartitionProvenanceKey, value: &[u8]) {
+        self.ops.push(StagedOp::Put {
+            cf: Cf::Stage2,
+            key: key.encode().to_vec(),
+            value: value.to_vec(),
         });
     }
 

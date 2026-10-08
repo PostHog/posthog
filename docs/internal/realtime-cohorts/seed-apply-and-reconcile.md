@@ -164,6 +164,9 @@ A timer sends a drain message down every worker's live lane every couple of seco
    Before the first catalog load, the job waits.
    The guard checks only that one hash.
    The walk composes the cohort's tree from the processor's current catalog, so an edit that changes only the composition, or only the other kind's leaves, does not stop it.
+   The guard then checks the partition's [provenance](#partition-provenance).
+   Until the partition has a verdict for its tenure, the job waits.
+   On a cold or stale partition, the worker produces a `reconcile_withheld` marker instead of walking, and releases the deferred offset as a discard does.
 2. **Scanning.**
    Read the next page of the cohort's Stage 2 rows on this partition.
    Recompute each row from stored leaf state and emit it, `entered` or `left`, tagged `origin: reconcile` with the run id, whether or not it changed.
@@ -197,10 +200,35 @@ Only re-telling everything repairs that.
 Downstream, once the run completes, the consumer deletes the cohort's rows that nothing has written since the run's snapshot.
 [Membership output and readers](membership-output-and-readers.md#mark-and-sweep) explains that sweep.
 
+## Partition provenance
+
+A partition can lose its history without an error: its volume is lost, its ownership moves to another pod, or a pod reopens state that another pod has since advanced.
+A walk over that state would certify membership that misses people, and the downstream sweep would then delete them.
+
+With durable restore on, each partition keeps its provenance in reserved keys at the end of its `cf_stage2` range: a lineage, and the committed offset of each of the five inputs.
+A partition wipe deletes the provenance together with the state.
+Each consumer writes the offsets it commits into the provenance before it forces the write-ahead log to disk, so the provenance is never behind a commit.
+
+At the start of each tenure, after the boot assignment settles, the processor compares the provenance with the consumer groups' committed offsets.
+After a restore, it compares with the checkpoint's offsets, because the restore rewinds the inputs to them.
+
+| Verdict | When                                                                                                    | Reconcile                                   |
+| ------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| warm    | The lineage exists and no stored offset is behind its group's commit, or no group has a commit yet      | Walks and produces `reconcile_complete`     |
+| cold    | No lineage while a group has commits, or the partition moved to this pod after boot                     | Produces `reconcile_withheld` with `cold`   |
+| stale   | A stored offset is behind its group's commit, or a group has a commit that the provenance never recorded | Produces `reconcile_withheld` with `stale`  |
+
+A cold or stale verdict is stored in the lineage, so a restart keeps it.
+Nothing clears it yet: the partition withholds every marker until an operator rebuilds it.
+On the first deploy, an existing store without provenance adopts its current commits once, so an intact store reads warm.
+The seeder accepts only `reconcile_complete`, so a withheld partition leaves the run short and the sweep deletes nothing for it.
+`cohort_partition_provenance_fenced` counts cold and stale partitions by reason.
+
 ## Commits
 
 The seed consumer commits on the same cadence as the other consumers, after forcing the write-ahead log to disk.
 The committable offset is the lowest of the processed offset, any held offset, and any deferred reconcile.
+A partition without a provenance verdict for its tenure commits nothing on any input, because its own commit would move the group past its stored offsets.
 
 ## Failure behavior
 
@@ -216,6 +244,8 @@ The committable offset is the lowest of the processed offset, any held offset, a
 | A reconcile page's produce or commit fails                                                                     | The same page retries on the next drain, and its rows are emitted again                                                                                                                                                                                                                                                                                                                                                       |
 | A marker produce fails                                                                                         | The worker retries on the next drain                                                                                                                                                                                                                                                                                                                                                                                          |
 | A restart after the marker is acknowledged but before the commit                                               | The request replays and produces a second marker for the same run and partition, which the seeder counts once                                                                                                                                                                                                                                                                                                                 |
+| A partition is missing history at the start of its tenure                                                      | Its reconciles produce `reconcile_withheld` and release their offsets. The run stays short on that partition, so the sweep deletes nothing for it                                                                                                                                                                                                                                                                             |
+| The committed-offset fetch for the provenance verdict fails                                                    | The partition keeps waiting, commits nothing, and its reconciles wait. The next tick retries                                                                                                                                                                                                                                                                                                                                  |
 | The reconcile gate is off on the processor                                                                     | Requests are skipped and committed, so the run never completes until reconcile is dispatched again                                                                                                                                                                                                                                                                                                                            |
 | The person apply gate is off on the processor                                                                  | Person seeds are skipped and committed, but reconcile still walks and produces every marker. With person completion and person readiness on, the run completes and Django stamps the cohort ready over state the seeds never wrote. Turn person apply on everywhere before any person run is dispatched. A cohort already stamped this way keeps its stamp, so run a new person backfill for it after turning person apply on |
 

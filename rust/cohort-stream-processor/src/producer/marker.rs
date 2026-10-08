@@ -25,13 +25,20 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::kafka::AlwaysHealthy;
 use crate::producer::merge::Capture;
-use crate::producer::ReconcileCompleteMarker;
+use crate::producer::{ReconcileCompleteMarker, ReconcileWithheldMarker};
 
 #[async_trait]
 pub trait ReconcileMarkerSink: Send + Sync {
     async fn produce(
         &self,
         markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>>;
+
+    /// Produce the outcome a partition emits in place of its completion marker when its state is
+    /// missing history.
+    async fn produce_withheld(
+        &self,
+        markers: Vec<ReconcileWithheldMarker>,
     ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
@@ -64,6 +71,20 @@ impl ReconcileMarkerSink for KafkaReconcileMarkerSink {
         )
         .await
     }
+
+    async fn produce_withheld(
+        &self,
+        markers: Vec<ReconcileWithheldMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        send_keyed_iter_to_kafka_with_headers(
+            &self.producer,
+            &self.topic,
+            reconcile_withheld_key,
+            |_| None,
+            markers,
+        )
+        .await
+    }
 }
 
 /// Inert sink for when the reconcile gate is off: satisfies the [`ReconcileMarkerSink`] slot without
@@ -85,10 +106,23 @@ impl ReconcileMarkerSink for NoopReconcileMarkerSink {
             .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
             .collect()
     }
+
+    async fn produce_withheld(
+        &self,
+        markers: Vec<ReconcileWithheldMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        markers
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
+    }
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureReconcileMarkerSink(Capture<ReconcileCompleteMarker>);
+pub struct CaptureReconcileMarkerSink {
+    complete: Capture<ReconcileCompleteMarker>,
+    withheld: Capture<ReconcileWithheldMarker>,
+}
 
 impl CaptureReconcileMarkerSink {
     pub fn new() -> Self {
@@ -96,11 +130,18 @@ impl CaptureReconcileMarkerSink {
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self(Capture::failing_first(n))
+        Self {
+            complete: Capture::failing_first(n),
+            withheld: Capture::failing_first(n),
+        }
     }
 
     pub fn markers(&self) -> Vec<ReconcileCompleteMarker> {
-        self.0.recorded()
+        self.complete.recorded()
+    }
+
+    pub fn withheld(&self) -> Vec<ReconcileWithheldMarker> {
+        self.withheld.recorded()
     }
 }
 
@@ -110,7 +151,14 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
         &self,
         markers: Vec<ReconcileCompleteMarker>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        self.0.produce(markers)
+        self.complete.produce(markers)
+    }
+
+    async fn produce_withheld(
+        &self,
+        markers: Vec<ReconcileWithheldMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        self.withheld.produce(markers)
     }
 }
 
@@ -120,6 +168,18 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
 fn reconcile_complete_key(marker: &ReconcileCompleteMarker) -> Option<String> {
     Some(format!(
         "{}:{}:{}:{}",
+        marker.team_id().0,
+        marker.cohort_id().0,
+        marker.run_id().0,
+        marker.partition(),
+    ))
+}
+
+/// Distinct from the completion key of the same partition, so a compacting topic can never let a
+/// withheld outcome replace a completion marker or the reverse.
+fn reconcile_withheld_key(marker: &ReconcileWithheldMarker) -> Option<String> {
+    Some(format!(
+        "{}:{}:{}:{}:withheld",
         marker.team_id().0,
         marker.cohort_id().0,
         marker.run_id().0,

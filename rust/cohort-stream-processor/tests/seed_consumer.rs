@@ -681,6 +681,7 @@ async fn spawn_instance(
             scan_page: 1,
             backlog: reconcile_backlog.clone(),
             marker_sink,
+            provenance: Default::default(),
         },
         person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
         seed_budget: cohort_stream_processor::workers::seed_run::RunBudget::default(),

@@ -703,6 +703,23 @@ pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emit
 pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
+/// Reconcile jobs that emitted a `reconcile_withheld` marker instead of a completion marker,
+/// labelled by `reason` and `kind` (counter).
+pub const RECONCILE_MARKERS_WITHHELD_TOTAL: &str = "cohort_reconcile_markers_withheld_total";
+
+// ── partition provenance ────────────────────────────────────────────────────
+
+/// Owned partitions whose state is missing history, labelled by `reason` (`cold` or `stale`)
+/// (gauge). Sustained non-zero means reconciles on those partitions cannot certify membership.
+pub const PARTITION_PROVENANCE_FENCED: &str = "cohort_partition_provenance_fenced";
+/// Owned partitions that wait for their first classification of this tenure (gauge). Offsets of a
+/// waiting partition are not committed, so a sustained non-zero value means growing replay.
+pub const PARTITION_PROVENANCE_PENDING: &str = "cohort_partition_provenance_pending";
+/// Partition classifications, labelled by `class` (`warm`, `adopted`, `cold`, `stale`) (counter).
+pub const PARTITION_PROVENANCE_CLASSIFIED_TOTAL: &str =
+    "cohort_partition_provenance_classified_total";
+/// Classification attempts that failed and retry on the next tick, labelled by `stage` (counter).
+pub const PARTITION_PROVENANCE_ERRORS_TOTAL: &str = "cohort_partition_provenance_errors_total";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///
@@ -1121,6 +1138,14 @@ mod tests {
             "cohort_reconcile_marker_produce_errors_total",
         );
         assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
+        assert_eq!(
+            RECONCILE_MARKERS_WITHHELD_TOTAL,
+            "cohort_reconcile_markers_withheld_total",
+        );
+        assert_eq!(
+            PARTITION_PROVENANCE_FENCED,
+            "cohort_partition_provenance_fenced"
+        );
     }
 
     #[test]

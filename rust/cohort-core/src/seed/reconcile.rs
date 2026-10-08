@@ -393,6 +393,90 @@ impl<'de> Deserialize<'de> for ReconcileCompleteKind {
     }
 }
 
+pub(super) const RECONCILE_WITHHELD_KIND: &str = "reconcile_withheld";
+
+/// Why the processor withheld a partition's completion certificate. The `&'static str` form is both
+/// the wire value and a metric label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WithheldReason {
+    /// The partition has no state while its consumer groups have commits.
+    Cold,
+    /// The partition's state is behind its consumer groups' commits.
+    Stale,
+}
+
+impl WithheldReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cold => "cold",
+            Self::Stale => "stale",
+        }
+    }
+}
+
+impl Serialize for WithheldReason {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+/// The outcome the processor emits in place of a [`ReconcileCompleteMarker`] when the partition's
+/// state is missing history. It shares the marker topic and is keyed the same way, but its `type`
+/// differs, so a reader that accepts only `reconcile_complete` skips it and the run stays short.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReconcileWithheldMarker {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    team_id: i32,
+    cohort_id: i32,
+    partition: u16,
+    run_id: RunId,
+    reason: WithheldReason,
+    /// ClickHouse `DateTime64(6)` wire format.
+    last_updated: String,
+}
+
+impl ReconcileWithheldMarker {
+    pub fn new(
+        team_id: TeamId,
+        cohort_id: CohortId,
+        partition: u16,
+        run_id: RunId,
+        reason: WithheldReason,
+        last_updated: String,
+    ) -> Self {
+        Self {
+            kind: RECONCILE_WITHHELD_KIND,
+            team_id: team_id.0,
+            cohort_id: cohort_id.0,
+            partition,
+            run_id,
+            reason,
+            last_updated,
+        }
+    }
+
+    pub const fn team_id(&self) -> TeamId {
+        TeamId(self.team_id)
+    }
+
+    pub const fn cohort_id(&self) -> CohortId {
+        CohortId(self.cohort_id)
+    }
+
+    pub const fn partition(&self) -> u16 {
+        self.partition
+    }
+
+    pub const fn run_id(&self) -> RunId {
+        self.run_id
+    }
+
+    pub const fn reason(&self) -> WithheldReason {
+        self.reason
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
@@ -548,6 +632,25 @@ mod tests {
             .unwrap()
             .replace("reconcile_complete", "seed");
 
+        assert!(serde_json::from_str::<ReconcileCompleteMarker>(&payload).is_err());
+    }
+
+    #[test]
+    fn a_withheld_marker_has_its_own_type_so_a_complete_marker_reader_skips_it() {
+        let marker = ReconcileWithheldMarker::new(
+            TeamId(42),
+            CohortId(91204),
+            7,
+            RunId(Uuid::nil()),
+            WithheldReason::Stale,
+            "2026-05-26 12:34:56.789123".to_string(),
+        );
+        let payload = serde_json::to_string(&marker).unwrap();
+
+        assert_eq!(
+            payload,
+            r#"{"type":"reconcile_withheld","team_id":42,"cohort_id":91204,"partition":7,"run_id":"00000000-0000-0000-0000-000000000000","reason":"stale","last_updated":"2026-05-26 12:34:56.789123"}"#,
+        );
         assert!(serde_json::from_str::<ReconcileCompleteMarker>(&payload).is_err());
     }
 

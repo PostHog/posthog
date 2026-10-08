@@ -28,7 +28,10 @@ use crate::observability::metrics::{
     STAGE2_ORPHAN_GC_KEYS_DELETED_TOTAL, STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
     STAGE2_ORPHAN_GC_SKIPPED_TOTAL, STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
 };
-use crate::store::{Cf, CohortStore, Stage2DirtyKey, Stage2Key, Stage2TransferredRegisterKey};
+use crate::store::{
+    Cf, CohortStore, PartitionProvenanceKey, Stage2DirtyKey, Stage2Key,
+    Stage2TransferredRegisterKey,
+};
 
 /// Per-worker resume cursor: the raw last-key scanned in this partition's `cf_stage2` slice; `None`
 /// restarts at the prefix start. Loss on a rebalance is benign — a fresh tenure rescans and
@@ -97,6 +100,10 @@ pub fn handle_stage2_orphan_gc(
     let mut stale_dirty: Vec<Stage2DirtyKey> = Vec::new();
     let mut settled_transferred: Vec<Stage2TransferredRegisterKey> = Vec::new();
     for (key_bytes, value) in &rows {
+        // Provenance describes the whole partition, not a cohort, so the catalog never orphans it.
+        if PartitionProvenanceKey::decode(key_bytes).is_ok() {
+            continue;
+        }
         if let Ok(dirty) = Stage2DirtyKey::decode(key_bytes) {
             if !store.is_stage2_dirty_tracking_active(dirty.stage2_key().cohort_prefix()) {
                 stale_dirty.push(dirty);

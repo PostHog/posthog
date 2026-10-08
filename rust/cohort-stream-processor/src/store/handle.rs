@@ -488,6 +488,35 @@ impl StoreHandle {
         .await
     }
 
+    /// Read one partition's provenance slots on the maintenance lane.
+    pub async fn read_partition_provenance(
+        &self,
+        partition_id: u16,
+    ) -> Result<Vec<(u8, Vec<u8>)>, StoreError> {
+        self.read(
+            "read_partition_provenance",
+            ReadLane::Maintenance,
+            move |store| store.read_partition_provenance(partition_id),
+        )
+        .await
+    }
+
+    /// Whether this store records partition provenance, read on the maintenance lane.
+    pub async fn tracks_provenance(&self) -> Result<bool, StoreError> {
+        self.read("tracks_provenance", ReadLane::Maintenance, |store| {
+            store.tracks_provenance()
+        })
+        .await
+    }
+
+    /// Record that the store now carries provenance for every partition it keeps. No permit.
+    pub async fn mark_provenance_tracked(&self) -> Result<(), StoreError> {
+        self.write("mark_provenance_tracked", false, |store| {
+            store.mark_provenance_tracked()
+        })
+        .await
+    }
+
     /// Reclaim all state for one partition on rebalance. No permit.
     pub async fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
         self.write("delete_partition", false, move |store| {
