@@ -193,13 +193,19 @@ describe('URL Routing', () => {
                 expected: 'tools' as const,
             },
             {
+                description: 'code mode from query param',
+                headers: {},
+                params: '?mode=code',
+                expected: 'code' as const,
+            },
+            {
                 description: 'unknown value ignored',
                 headers: { 'x-posthog-mcp-mode': 'banana' },
                 params: '',
                 expected: undefined,
             },
             {
-                description: 'legacy exec value ignored (only tools or cli accepted)',
+                description: 'legacy exec value ignored (only tools, cli or code accepted)',
                 headers: { 'x-posthog-mcp-mode': 'exec' },
                 params: '',
                 expected: undefined,

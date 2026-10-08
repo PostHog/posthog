@@ -43,4 +43,12 @@ describe('resolveMode', () => {
     it('explicit mode=tools disables single exec for a client that would default to cli', () => {
         expect(resolveMode({ ...base, mode: 'tools' })).toEqual({ mode: 'tools', useSingleExec: false })
     })
+
+    it.each([
+        ['an unknown client', profile()],
+        ['a Cursor client', profile({ clientName: 'cursor' })],
+    ])('selects code mode only when %s asks for it explicitly', (_label, clientProfile) => {
+        expect(resolveMode({ mode: 'code', clientProfile })).toEqual({ mode: 'code', useSingleExec: true })
+        expect(resolveMode({ mode: undefined, clientProfile }).mode).not.toBe('code')
+    })
 })

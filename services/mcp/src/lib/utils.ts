@@ -79,15 +79,17 @@ export function sanitizeHeaders(headers: Record<string, string | undefined>): Re
     return sanitised
 }
 
-export type McpMode = 'tools' | 'cli'
+const MCP_MODES = ['tools', 'cli', 'code'] as const
+export type McpMode = (typeof MCP_MODES)[number]
 
 // Caller-supplied selection between the tool-based MCP (each PostHog tool registered
-// individually) and the CLI-based MCP (a single `posthog` CLI-like tool that wraps
-// all tools). Anything other than `tools` or `cli` returns undefined and lets
-// `resolveMode` pick: cli by default, tools for allow-listed clients (Cursor).
+// individually), the CLI-based MCP (a single `posthog` CLI-like tool that wraps
+// all tools), and code mode (a single `run_code` tool whose script calls the tools).
+// Anything else returns undefined and lets `resolveMode` pick: cli by default, tools
+// for allow-listed clients (Cursor). Code mode is never picked automatically.
 export function parseMcpMode(raw: string | null | undefined): McpMode | undefined {
     const value = raw?.trim().toLowerCase()
-    return value === 'tools' ? 'tools' : value === 'cli' ? 'cli' : undefined
+    return MCP_MODES.find((mode) => mode === value)
 }
 
 export function getSearchParamsFromRecord(

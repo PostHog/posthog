@@ -75,9 +75,10 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     const { mode, clientProfile } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
-    // header always wins over auto-detection.
+    // header always wins over auto-detection. Code mode also reaches every tool
+    // through the exec dispatcher, so it counts as single-exec.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
-    return { mode: resolved, useSingleExec: resolved === 'cli' }
+    return { mode: resolved, useSingleExec: resolved !== 'tools' }
 }
 
 export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
