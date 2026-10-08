@@ -8049,6 +8049,56 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(per_q[self.choice_qid]["distribution"], {"yes": 1})
         self.assertEqual(per_q[self.open_qid]["response_count"], 1)
 
+    @parameterized.expand([("native_array", lambda picks: picks), ("json_array_string", json.dumps)])
+    def test_per_question_stats_counts_multiple_choice_selections(self, _name: str, encode: Any):
+        choice_qid = str(uuid.uuid4())
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Multi",
+            type="popover",
+            questions=[
+                {
+                    "id": choice_qid,
+                    "type": "multiple_choice",
+                    "question": "Pick any",
+                    "choices": ["yes", "no"],
+                    "hasOpenChoice": True,
+                    "translations": {"zh-cn": {"choices": ["是", "否"]}},
+                },
+            ],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+        submission_id = str(uuid.uuid4())
+        events: list[tuple[str, str, dict[str, Any]]] = [
+            ("u-1", "survey sent", {f"$survey_response_{choice_qid}": encode(["yes", "no"])}),
+            ("u-2", "survey sent", {f"$survey_response_{choice_qid}": encode(["是", "my own private reason"])}),
+            ("u-3", "survey sent", {f"$survey_response_{choice_qid}": encode(["first secret", "second secret"])}),
+            (
+                "u-4",
+                "survey sent",
+                {"$survey_submission_id": submission_id, f"$survey_response_{choice_qid}": encode(["no"])},
+            ),
+            ("u-4", "survey dismissed", {"$survey_submission_id": submission_id, "$survey_partially_completed": True}),
+        ]
+        for minute, (distinct_id, event, properties) in enumerate(events):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=f"2024-06-10 09:0{minute}:00",
+                properties={"$survey_id": str(survey.id), **properties},
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/?include_per_question_stats=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stats = response.json()["per_question_stats"][0]
+
+        self.assertEqual(stats["response_count"], 4)
+        self.assertEqual(stats["distribution"], {"yes": 2, "no": 2, "<other>": 2})
+
 
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     SURVEY_PAYLOAD = {
