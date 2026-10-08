@@ -17,6 +17,8 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import SafeSQL, Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
@@ -31,9 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _MAX_CONNECT_ATTEMPTS,
     _MYSQL_SAFE_CONVERSIONS,
     _SSH_HANDSHAKE_EOF_ERROR,
+    CONNECT_TIMEOUT_SECONDS,
+    HANDSHAKE_READ_TIMEOUT_SECONDS,
     METADATA_READ_TIMEOUT_SECONDS,
     STATEMENT_TIMEOUT_SECONDS,
     UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
+    WRITE_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
     MySQLUnavoidableFilesortError,
@@ -61,11 +66,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
+    _SourceConnection,
     _TLSRequiredConnection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
     _INVALID_CREDENTIALS_ERROR,
     MySQLSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
+    PlanetScaleMySQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -1041,6 +1050,53 @@ class TestStreamingConnectionTimeouts:
         mock_connect, _, _ = build_pipeline_mocks
         _drain_source()
         assert mock_connect.call_args_list[0].kwargs["read_timeout"] == METADATA_READ_TIMEOUT_SECONDS
+
+    def test_every_connection_limits_the_connect_and_the_write(self, build_pipeline_mocks):
+        mock_connect, _, _ = build_pipeline_mocks
+        _drain_source()
+        for call in mock_connect.call_args_list:
+            assert call.kwargs["connect_timeout"] == CONNECT_TIMEOUT_SECONDS
+            assert call.kwargs["write_timeout"] == WRITE_TIMEOUT_SECONDS
+
+    @pytest.mark.parametrize(
+        "read_timeout, handshake_read_timeout",
+        [(STATEMENT_TIMEOUT_SECONDS, HANDSHAKE_READ_TIMEOUT_SECONDS), (20, 20)],
+        ids=["slow_query_limit_is_not_used_for_the_login", "a_shorter_limit_is_kept"],
+    )
+    def test_handshake_has_its_own_read_timeout(self, mocker, read_timeout, handshake_read_timeout):
+        # A server that accepts the socket and never sends its greeting is retried as a transient
+        # drop, so with the query limit each of those attempts waited 10 minutes.
+        during_handshake: list[float] = []
+
+        def fake_connect(self, sock=None):
+            during_handshake.append(self._read_timeout)
+            self._sock = sock
+
+        mocker.patch.object(pymysql.Connection, "connect", fake_connect)
+        sock = MagicMock()
+        connection = _SourceConnection(defer_connect=True, read_timeout=read_timeout)
+
+        connection.connect(sock)
+
+        assert during_handshake == [handshake_read_timeout]
+        assert connection._read_timeout == read_timeout  # type: ignore[attr-defined]
+        sock.setsockopt.assert_any_call(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    @pytest.mark.parametrize(
+        "error, kept_out_of_error_tracking",
+        [
+            # pymysql's wording when a socket read reaches `read_timeout`.
+            (pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query (timed out)"), True),
+            # pymysql's wording when a socket write reaches `write_timeout`.
+            (pymysql.err.OperationalError(2006, "MySQL server has gone away (TimeoutError('timed out'))"), False),
+        ],
+        ids=["read_timeout", "write_timeout"],
+    )
+    @pytest.mark.parametrize("source_class", [MySQLSource, PlanetScaleMySQLSource])
+    def test_driver_timeout_is_retryable(self, source_class, error, kept_out_of_error_tracking):
+        source = source_class()
+        assert error_message_matches(str(error), source.get_retryable_errors()) is kept_out_of_error_tracking
+        assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
     def test_set_session_timeouts_are_executed(self, build_pipeline_mocks):
         _, setup_cursor, _ = build_pipeline_mocks
