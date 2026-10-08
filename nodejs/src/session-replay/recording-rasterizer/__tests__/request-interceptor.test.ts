@@ -363,6 +363,13 @@ describe('RequestInterceptor', () => {
                 name: 'the content encoding is not supported',
                 response: { headers: { 'content-encoding': 'compress' }, body: 'x' },
             },
+            {
+                name: 'the body has more content encodings than allowed',
+                response: {
+                    headers: { 'content-encoding': 'gzip, gzip, gzip' },
+                    body: gzipSync(gzipSync(gzipSync('h1 {}'))),
+                },
+            },
         ])('responds with empty CSS when $name', async ({ response }) => {
             mockFetch.mockResolvedValue(streamedResponse(response))
 
