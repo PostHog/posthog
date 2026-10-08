@@ -108,6 +108,24 @@ describe('preserveGroupTargetingFilters', () => {
         ],
     }
 
+    const existingSameKeyMixedFlag = {
+        aggregation_group_type_index: null,
+        groups: [
+            {
+                aggregation_group_type_index: null,
+                properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'free' }],
+                rollout_percentage: 100,
+            },
+            {
+                aggregation_group_type_index: 0,
+                properties: [
+                    { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                ],
+                rollout_percentage: 100,
+            },
+        ],
+    }
+
     const existingPersonThenTwoGroupTypesFlag = {
         aggregation_group_type_index: null,
         groups: [
@@ -705,6 +723,44 @@ describe('preserveGroupTargetingFilters', () => {
             unresolved: [4],
         },
         {
+            name: 'the payload echoes the stored null flag level',
+            existing: existingMixedFlag,
+            incoming: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        properties: [{ key: 'email', operator: 'icontains', value: '@acme.com' }],
+                        rollout_percentage: 100,
+                    },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                ],
+            },
+            unresolved: [0, 1],
+        },
+        // A swap of these two sets and an in-place exchange of their values send the same payload.
+        {
+            name: 'two sets on different aggregations filter on the same key and exchange values',
+            existing: existingSameKeyMixedFlag,
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 100 },
+                ],
+            },
+            unresolved: [0, 1],
+        },
+        {
+            name: 'one of two sets that filter on the same key changes its value',
+            existing: existingSameKeyMixedFlag,
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                ],
+            },
+            unresolved: [1],
+        },
+        {
             name: 'the sets of a flag on one group type are reordered',
             existing: {
                 aggregation_group_type_index: 0,
@@ -754,28 +810,30 @@ describe('preserveGroupTargetingFilters', () => {
 
     it.each([
         {
-            name: 'an in-place edit gives a set the value that the other set held',
-            existing: {
+            name: 'the payload echoes the stored null flag level',
+            existing: existingMixedFlag,
+            incoming: {
                 aggregation_group_type_index: null,
                 groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
                     {
-                        aggregation_group_type_index: null,
-                        properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'free' }],
-                        rollout_percentage: 100,
-                    },
-                    {
-                        aggregation_group_type_index: 0,
-                        properties: [
-                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
-                        ],
+                        properties: [{ key: 'email', operator: 'icontains', value: '@globex.com' }],
                         rollout_percentage: 100,
                     },
                 ],
             },
+            expected: [
+                [0, 'group', 0],
+                [undefined, 'person', undefined],
+            ],
+        },
+        {
+            name: 'two sets that filter on the same key keep their values',
+            existing: existingSameKeyMixedFlag,
             incoming: {
                 groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'free' }], rollout_percentage: 100 },
                     { properties: [{ key: 'plan', operator: 'exact', value: 'enterprise' }], rollout_percentage: 100 },
-                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
                 ],
             },
             expected: [

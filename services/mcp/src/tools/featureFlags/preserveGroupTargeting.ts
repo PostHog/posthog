@@ -10,8 +10,11 @@
  * edited one. The merge therefore refuses any other edit to such a flag, unless the payload changes
  * the flag-level aggregation or each set without a source states, clears, or implies its own: it
  * sends aggregation_group_type_index, carries an explicit person-aggregated property, or carries a
- * group property with a group_type_index. On a flag whose sets all aggregate the same way, a set
- * that keeps its keys at its index keeps its source even when other sets change.
+ * group property with a group_type_index. A set loses its source on such a flag when another stored
+ * set on a different aggregation has the same keys and the incoming values differ from the stored
+ * ones, because a swap of the two sets and an in-place edit of their values send the same payload.
+ * On a flag whose sets all aggregate the same way, a set that keeps its keys at its index keeps its
+ * source even when other sets change.
  *
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. It types every other untyped
@@ -25,12 +28,15 @@
  * filled from the existing flag.
  *
  * A condition set pinned to person aggregation never gains group targeting. A set is
- * pinned when the payload clears aggregation with an explicit null, or when it carries an
- * explicit property of any type except `group` without setting a group index itself.
+ * pinned when it clears its own aggregation, when the payload changes the flag level to null, or
+ * when it carries an explicit property of any type except `group` without setting a group index
+ * itself.
  *
  * `super_groups` is ignored: the flags API drops it from writes
  * (LEGACY_UNKNOWN_FILTER_KEYS in products/feature_flags/backend/api/filters_schema.py).
  */
+
+import { isDeepStrictEqual } from 'node:util'
 
 import { ToolInputValidationError } from '@/lib/errors'
 import { isRecord } from '@/lib/plain-object'
@@ -94,7 +100,8 @@ function hasExplicitPersonProperty(group: FlagConditionGroup): boolean {
 /**
  * A set that carries its own group index is never pinned, which matches the backend's per-set
  * fallback in filters_validation.py. Any other set is pinned when it clears its own aggregation,
- * when the payload clears the flag level, or when it carries an explicit person-aggregated property.
+ * when the payload changes the flag level to null, or when it carries an explicit person-aggregated
+ * property.
  */
 function isPinnedToPerson(group: FlagConditionGroup, flagClearsAggregation: boolean): boolean {
     return (
@@ -157,6 +164,15 @@ function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: numbe
         return group.aggregation_group_type_index
     }
     return hasKey(group, 'aggregation_group_type_index') ? null : (flagLevelGroupIndex ?? null)
+}
+
+function keepsValues(incoming: FlagConditionGroup, source: ExistingSet): boolean {
+    const properties = Array.isArray(incoming.properties) ? incoming.properties : []
+    return properties.every(
+        (prop) =>
+            typeof prop?.key !== 'string' ||
+            (source.propsByKey.get(prop.key) ?? []).some((stored) => isDeepStrictEqual(stored.value, prop.value))
+    )
 }
 
 function keepsKeysAt(
@@ -349,7 +365,7 @@ export function preserveGroupTargetingFilters(
     const payloadChangesFlagAggregation =
         hasKey(incoming, 'aggregation_group_type_index') &&
         incoming.aggregation_group_type_index !== existing?.aggregation_group_type_index
-    const incomingClearsAggregation = explicitlyClearsAggregation(incoming)
+    const incomingClearsAggregation = payloadChangesFlagAggregation && explicitlyClearsAggregation(incoming)
 
     // The flag-level index is the UI's "Target by" group type.
     if (!payloadChangesFlagAggregation && isPresentGroupIndex(existingFlagGroupIndex)) {
@@ -368,16 +384,30 @@ export function preserveGroupTargetingFilters(
         const pinnedToPerson = result.groups.map(
             (group) => isRecord(group) && isPinnedToPerson(group, incomingClearsAggregation)
         )
-        const storedAggregations = new Set(
-            existingSets.flatMap((existingSet) =>
-                existingSet ? [storedAggregation(existingSet.group, existingFlagGroupIndex)] : []
-            )
+        const aggregations = existingSets.map((existingSet) =>
+            existingSet ? storedAggregation(existingSet.group, existingFlagGroupIndex) : undefined
         )
-        const mixedAggregation = storedAggregations.size > 1
+        const mixedAggregation = new Set(aggregations.filter((aggregation) => aggregation !== undefined)).size > 1
         const incomingGroups = result.groups
+        const sharesKeysAcrossAggregations = (index: number): boolean =>
+            existingSets.some(
+                (other, otherIndex) =>
+                    !!other &&
+                    aggregations[otherIndex] !== aggregations[index] &&
+                    hasSameKeySet(other.propsByKey, existingSets[index]?.propsByKey ?? new Map())
+            )
         // On a single-aggregation flag a positional source cannot carry the wrong aggregation.
         const sourceSets = keepsStoredSets(incomingGroups, existingSets)
-            ? existingSets
+            ? existingSets.map((existingSet, index) => {
+                  const group = incomingGroups[index]
+                  const ambiguous =
+                      mixedAggregation &&
+                      !!existingSet &&
+                      isRecord(group) &&
+                      sharesKeysAcrossAggregations(index) &&
+                      !keepsValues(group, existingSet)
+                  return ambiguous ? undefined : existingSet
+              })
             : mixedAggregation
               ? []
               : existingSets.map((existingSet, index) =>
