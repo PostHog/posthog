@@ -46,9 +46,25 @@ describe('IngestionApiServer', () => {
             })
         })
 
-        // In shadow mode the pipeline's persons store is the router, whose flush seals and writes the shadow
-        // segments the Postgres decision closes. A drain through the raw Postgres store writes Postgres only, so
-        // every person with a group pending at the stop ends one group ahead on Postgres.
+        it('still drains the group store when the persons drain fails, and rethrows the failure', async () => {
+            const personsStore = {
+                flush: jest.fn().mockRejectedValue(new Error('persons flush failed')),
+                shutdown: jest.fn().mockResolvedValue(undefined),
+            }
+            const groupStore = {
+                flush: jest.fn().mockResolvedValue([]),
+                shutdown: jest.fn().mockResolvedValue(undefined),
+            }
+            ;(server as any).pipelinePersonsStore = personsStore
+            ;(server as any).groupStore = groupStore
+
+            await expect((server as any).drainStores()).rejects.toThrow('persons flush failed')
+
+            expect(groupStore.flush).toHaveBeenCalledTimes(1)
+            expect(groupStore.shutdown).toHaveBeenCalledTimes(1)
+        })
+
+        // In shadow mode only the pipeline's store writes both backends; the raw store writes Postgres only.
         it('drains the pipeline persons store at shutdown and produces its messages, not the raw Postgres store', async () => {
             const message = { output: PERSONS_OUTPUT, value: Buffer.from('person-payload') }
             const personsStore = {

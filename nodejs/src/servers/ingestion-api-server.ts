@@ -515,14 +515,15 @@ export class IngestionApiServer implements NodeServer {
             id: 'ingestion-api',
             // Runs before the lifecycle ends Postgres and Redis, so in-flight batches and the store drain finish here.
             onShutdown: async () => {
-                // Stop accepting stream traffic before draining stores, so no
-                // new batches land mid-teardown.
-                await this.grpcServer?.stop()
-                await this.drainStores()
-                await this.topHog.stop()
-                await this.hogTransformer.stop()
-                await eventFilterManagerStarted.stop()
-                await stopEventIngestionRestrictionManager()
+                try {
+                    await this.grpcServer?.stop()
+                    await this.drainStores()
+                } finally {
+                    await this.topHog.stop()
+                    await this.hogTransformer.stop()
+                    await eventFilterManagerStarted.stop()
+                    await stopEventIngestionRestrictionManager()
+                }
             },
             healthcheck: () => this.isHealthy(),
         }
@@ -537,31 +538,39 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
+    /** Drains both stores even when one fails, then rethrows the first failure. */
     private async drainStores(): Promise<void> {
-        // No Kafka offsets in this server — drain buffered writes before
-        // shutdown so shutdown() can assert a clean cache, through the
-        // pipeline's store: in shadow mode that is the router, whose flush
-        // seals and writes the shadow segments; the raw store writes Postgres only.
-        const personsStore = this.pipelinePersonsStore ?? this.personsStore
-        if (personsStore) {
-            const personsFlushResults = await personsStore.flush()
-            if (this.ingestionOutputs) {
-                await Promise.all(createPersonProducePromises(personsFlushResults, this.ingestionOutputs))
-            }
-            await personsStore.shutdown()
-        }
+        const results = await Promise.allSettled([this.drainPersonsStore(), this.drainGroupStore()])
         this.personhogClientClosers.forEach((close) => close())
-        if (this.groupStore) {
-            const groupFlushResults = await this.groupStore.flush()
-            // flush() returns messages for the caller to produce (it no
-            // longer awaits ClickHouse delivery inline) — produce them here,
-            // as for persons above, so a drain at shutdown doesn't write
-            // Postgres but silently drop the corresponding ClickHouse row.
-            if (groupFlushResults.length > 0 && this.ingestionOutputs) {
-                await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
-            }
-            await this.groupStore.shutdown()
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failed) {
+            throw failed.reason
         }
+    }
+
+    private async drainPersonsStore(): Promise<void> {
+        // In shadow mode the pipeline's store is the routing store, so both backends write the pending updates.
+        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        if (!personsStore) {
+            return
+        }
+        const flushResults = await personsStore.flush()
+        if (this.ingestionOutputs) {
+            await Promise.all(createPersonProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await personsStore.shutdown()
+    }
+
+    private async drainGroupStore(): Promise<void> {
+        if (!this.groupStore) {
+            return
+        }
+        const flushResults = await this.groupStore.flush()
+        // flush() leaves the ClickHouse messages to the caller; skipping them would write Postgres only.
+        if (flushResults.length > 0 && this.ingestionOutputs) {
+            await Promise.all(createGroupProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await this.groupStore.shutdown()
     }
 
     private getCleanupResources(): CleanupResources {
