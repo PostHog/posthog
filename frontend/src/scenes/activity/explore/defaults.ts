@@ -2,7 +2,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, TeamPublicType, TeamType } from '~/types'
 
-const EVENT_LOOKUP_FILTER = /^uuid = '([a-f0-9-]+)'$/
+const EVENT_LOOKUP_FILTER = /^uuid = '[a-f0-9-]+'$/
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
     kind: NodeKind.DataTableNode,
@@ -19,18 +19,21 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     showPersistentColumnConfigurator: true,
 })
 
-// An event link opens the events scene with this query. getEventLookupUuid recognizes its filter, so change the two together.
+// An event link opens the events scene with this query. isUnnamedEventLookup recognizes its filter. Change the two together.
 export const getEventLookupQuery = (id: string): DataTableNode =>
     getDefaultEventsSceneQuery([
         { type: PropertyFilterType.HogQL, key: `uuid = '${id.replaceAll(/[^a-f0-9-]/g, '')}'`, value: null },
     ])
 
-export function getEventLookupUuid(source: EventsQuery): string | null {
+export function isUnnamedEventLookup(source: EventsQuery): boolean {
     const [filter, ...otherFilters] = source.properties ?? []
-    if (otherFilters.length > 0 || filter?.type !== PropertyFilterType.HogQL) {
-        return null
-    }
-    return EVENT_LOOKUP_FILTER.exec(filter.key)?.[1] ?? null
+    return (
+        !source.event &&
+        !source.events?.length &&
+        otherFilters.length === 0 &&
+        filter?.type === PropertyFilterType.HogQL &&
+        EVENT_LOOKUP_FILTER.test(filter.key)
+    )
 }
 
 export function applyTestAccountFilter<T extends DataTableNode>(
