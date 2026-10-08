@@ -5,7 +5,7 @@ import type { AiTaskPromptChange } from './workflowLogic'
 
 export function AiTaskPromptDiffs({ changes }: { changes: AiTaskPromptChange[] }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2" data-attr="workflow-publish-ai-task-prompt-diffs">
+        <div className="ph-no-capture flex flex-col gap-2" data-attr="workflow-publish-ai-task-prompt-diffs">
             <div className="flex flex-col">
                 <span className="font-semibold">Changed AI task instructions</span>
                 <span className="text-xs text-secondary">
