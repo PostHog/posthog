@@ -460,6 +460,14 @@ snapshots:
         hash: v1.k794b7964.5f3e7c9a9923ca547abac285ccd1d4e220df5132c95f96a25d4e71418ab595e0.mVhI7r6cz_F9H3wZ4y7DaEGsVhVzj1MD2mK539UwvJc
     components-cards-insight-card--access-control-viewer-access--light:
         hash: v1.k794b7964.bf2be6132e7d881f5648da794c30b861a8970b30aad98024e1470afa20fb1184.QjEzM0TKMP1UfPhiAgRyZW3hsOIKbNn5o8Un7s1Yswc
+    components-cards-insight-card--capacity-cooldown--medium--dark:
+        hash: v1.k794b7964.f1f23f29992ce43001fbc773629d6850285d3cbc9a234f66b30e21be8d4d2f5f.Es6aDswFYvx82yk7f3j4RwLHlYAqF0aaO4XRkOp0QH0
+    components-cards-insight-card--capacity-cooldown--medium--light:
+        hash: v1.k794b7964.7464f22a5d98705e763d26dece33c66eb95c892ef38d95a632aac188bfc22726.IS9DIlMe5hPP4Ukgnfbc20iNHSI-zgA_SbGxAP-X_a8
+    components-cards-insight-card--capacity-cooldown--narrow--dark:
+        hash: v1.k794b7964.7e206075878d618ba32721bbe8231f34ee774bb8f4f169b5410015779386b3e6.YXpAuy8cawNj_2PdEhATFg1_bxz5L2KHPsDmZ_R6G5M
+    components-cards-insight-card--capacity-cooldown--narrow--light:
+        hash: v1.k794b7964.c79d5e095dca03b4d0c640a4fdd6bbfce9a4c611d4dfcf54118b012688073920.kbucWQpmGl5l1HtxNnrrkN544BGhjh0Jn4DhhufGG8U
     components-cards-insight-card--error-states--dark:
         hash: v1.k794b7964.dca2213d0a2f6dc232e1b2ac1505aa4a5b97b1dc9b9f2ac09dab969ed1eb12dd.O8WWpdu2VcmOz94y1p3UhIYwWZxSBZKZYOTJZNnO9qI
     components-cards-insight-card--error-states--light:
@@ -11769,11 +11777,11 @@ snapshots:
     scenes-app-insights-error-empty-states--query-server-error--dark:
         hash: v1.k794b7964.8e86d1d4ab6af6159804e2801298842f1d086cbbb796c91fb60de816ab1abf5f.H93T__KkhRkfdLXG-mls00Kg7VOvi1uPJRzKchhICco
     scenes-app-insights-error-empty-states--query-server-error--light:
-        hash: v1.k794b7964.d8a09489dec3ccafe72938195eab9d2205c4f94c1d3d2921b37b4019bb2a10c3.h_DDpFNJx1Si9ffnyxJi-NhpWbSWzRFPekIqDSz71Iw
+        hash: v1.k794b7964.1da6d8ff318554274dfcf23f2bd5e467c57e41a8636811ff7b414a9febb00939.4QptNtnaVprfFvdPzXqDJ1tFsrS7gMdRBjpp0tId-m4
     scenes-app-insights-error-empty-states--server-error--dark:
         hash: v1.k794b7964.8e86d1d4ab6af6159804e2801298842f1d086cbbb796c91fb60de816ab1abf5f.J7QYlsp_PAgkdRCMRB8buDteS7Gdpd4_tVO1BjQ_q8U
     scenes-app-insights-error-empty-states--server-error--light:
-        hash: v1.k794b7964.d8a09489dec3ccafe72938195eab9d2205c4f94c1d3d2921b37b4019bb2a10c3.tUHjsrFGt5D8TGMnQm1yjO8zFex-m83mZFRfNh8Hmhs
+        hash: v1.k794b7964.1da6d8ff318554274dfcf23f2bd5e467c57e41a8636811ff7b414a9febb00939.4ZjVo7gmmFa9ccPeg0xuvfci3cQ1OCyVOj4d2dKh-ks
     scenes-app-insights-error-empty-states--validation-error--dark:
         hash: v1.k794b7964.78c398feb22adb44344fad6c155ad42ecdbd9d77d80e4e0a60227b4a32abf14f.wmWI9S-nFvoZ5tNpxol33U3eINboLyZM9cggyHqv8hU
     scenes-app-insights-error-empty-states--validation-error--light:
