@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -64,14 +65,15 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
-    def _create_active_flow(self, optimize: bool = True) -> str:
+    def _create_active_flow(self, optimize: bool = True, team_id: int | None = None) -> str:
+        team_id = team_id or self.team.id
         create = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
+            f"/api/projects/{team_id}/hog_flows",
             {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action()]},
         )
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
-        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        activate = self.client.patch(f"/api/projects/{team_id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
         if optimize:
             self._optimize(flow_id)
@@ -578,9 +580,9 @@ class TestWorkflowProposals(APIBaseTest):
     def _suggestions_scout(self) -> SignalScoutConfig | None:
         return SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").first()
 
-    def _toggle(self, flow_id: str, enabled: bool, headers: dict | None = None) -> None:
+    def _toggle(self, flow_id: str, enabled: bool, headers: dict | None = None, team_id: int | None = None) -> None:
         response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization",
+            f"/api/projects/{team_id or self.team.id}/hog_flows/{flow_id}/optimization",
             {"enabled": enabled},
             format="json",
             headers=headers or {},
@@ -610,24 +612,49 @@ class TestWorkflowProposals(APIBaseTest):
     @parameterized.expand(
         [
             ("paused by a person", "paused"),
+            ("paused by the system", "system_paused"),
+            ("api key limited to a child environment", "child_key"),
+            ("a project at its enabled-scout limit", "at_cap"),
             ("api key without the proposal scope turning one on", "key_on"),
             ("api key without the proposal scope turning one off", "key_off"),
             ("a scout a person set up", "own"),
         ]
     )
     def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str):
-        flow_id = self._create_active_flow(optimize=False)
+        flow_team_id = self.team.id
+        if case == "child_key":
+            flow_team_id = Team.objects.create(organization=self.organization, name="child", parent_team=self.team).id
+        flow_id = self._create_active_flow(optimize=False, team_id=flow_team_id)
         headers: dict = {}
         enabled = True
         if case == "paused":
             SignalScoutConfig.objects.for_team(self.team.id).create(
                 team=self.team, skill_name="signals-scout-workflows", enabled=False
             )
+        elif case == "system_paused":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                skill_name="signals-scout-workflows",
+                source_product="workflows",
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            )
+        elif case == "child_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="child",
+                user=self.user,
+                secure_value=hash_key_value(key),
+                scopes=["*"],
+                scoped_teams=[flow_team_id],
+            )
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
         elif case == "own":
             SignalScoutConfig.objects.for_team(self.team.id).create(
                 team=self.team, skill_name="signals-scout-workflows", enabled=True
             )
-        else:
+        elif case in ("key_on", "key_off"):
             key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="toggle", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
@@ -639,24 +666,45 @@ class TestWorkflowProposals(APIBaseTest):
                 enabled = False
             self.client.logout()
 
-        self._toggle(flow_id, enabled, headers)
+        with patch(
+            "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
+            return_value=0 if case == "at_cap" else 100,
+        ):
+            self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
 
         scout = self._suggestions_scout()
         assert scout is None or scout.write_scopes == []
+        if case == "system_paused":
+            assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        if case == "at_cap":
+            assert scout is None
 
-    def test_suggestions_scout_keeps_a_persons_pause_across_opt_out(self, _mock_flag):
+    @parameterized.expand(
+        [
+            ("a person", SignalScoutConfig.Status.PAUSED_BY_USER),
+            ("the system", SignalScoutConfig.Status.PAUSED_BY_SYSTEM),
+        ]
+    )
+    def test_suggestions_scout_keeps_a_pause_across_opt_out(
+        self, _mock_flag, _name: str, paused_status: SignalScoutConfig.Status
+    ):
         flow_id = self._create_active_flow(optimize=False)
         self._toggle(flow_id, True)
         scout = self._suggestions_scout()
         assert scout is not None
-        scout.enabled = False
-        scout.save()
+        scout.status = paused_status
+        scout.pause_reason = (
+            SignalScoutConfig.PauseReason.REPEATED_FAILURES
+            if paused_status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+            else None
+        )
+        scout.save(update_fields=["status", "pause_reason"])
 
         self._toggle(flow_id, False)
         self._toggle(flow_id, True)
 
         scout = self._suggestions_scout()
-        assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        assert scout is not None and scout.status == paused_status
 
     @parameterized.expand([("archived",), ("draft",)])
     def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag, status):

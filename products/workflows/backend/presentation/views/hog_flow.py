@@ -82,6 +82,7 @@ from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import (
     AccessControlPermission,
+    get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
     posthog_feature_flag_enabled,
@@ -5519,7 +5520,12 @@ class HogFlowViewSet(
         # Switching the scout on grants a write scope that its runs use as this person, so a scoped API
         # key has to carry that scope itself, whichever way it toggles. A failure never fails the toggle.
         token_scopes = get_authenticator_scopes(request.successful_authenticator)
-        may_grant = token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        # The scout lives on the project, so a key limited to one of its environments may not grant it.
+        project_id = self.team.parent_team_id or self.team.id
+        may_grant = (token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes) and (
+            scoped_team_ids is None or project_id in scoped_team_ids
+        )
         try:
             sync_suggestions_scout(self.team, acting_user=cast(User, request.user), may_grant=may_grant)
         except Exception as error:
