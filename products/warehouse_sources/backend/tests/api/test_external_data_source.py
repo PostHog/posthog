@@ -110,7 +110,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     PostgresDiscoveredSchema,
     SSLRequiredError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECT_TIMEOUT_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -6777,17 +6780,12 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("internal_host_team_saves_with_warning", True, 200, "new-host.example.com"),
-            ("other_team_is_rejected", False, 400, "db.example.com"),
+            ("internal_host_team_saves_with_warning", True, _CONNECT_TIMEOUT_VALIDATION_ERROR, 200),
+            ("other_team_is_rejected", False, _CONNECT_TIMEOUT_VALIDATION_ERROR, 400),
+            ("internal_host_team_with_rejected_credentials_is_rejected", True, "Invalid password.", 400),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
-        return_value=(False, "Connection timed out."),
-    )
-    def test_update_with_failed_connection_probe(
-        self, _name, allowlisted, expected_status, expected_host, _mock_validate_credentials
-    ):
+    def test_update_with_failed_connection_probe(self, _name, allowlisted, probe_error, expected_status):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6807,9 +6805,15 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        with patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
-            return_value=allowlisted,
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+                return_value=(False, probe_error),
+            ),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+                return_value=allowlisted,
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
@@ -6818,9 +6822,11 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         source.refresh_from_db()
-        assert source.job_inputs["host"] == expected_host
-        if allowlisted:
-            assert "Connection timed out." in response.json()["connection_warning"]
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert probe_error in response.json()["connection_warning"]
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",

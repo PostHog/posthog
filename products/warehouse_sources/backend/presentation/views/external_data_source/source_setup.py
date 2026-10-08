@@ -186,7 +186,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text=(
             "Set on an update response when the change was saved but the connection check from the "
-            "API failed. Null otherwise."
+            "API could not reach the database. Null otherwise."
         ),
     )
 
@@ -659,9 +659,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if not credentials_valid:
                 credentials_error = credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE
                 # These teams use internal hosts that the API cannot always reach, while the
-                # workers that sync and run live queries can. A direct query source still needs
-                # the probe, because the same call discovers its schemas.
-                if instance.is_direct_query or not is_team_allowlisted_for_internal_hosts(instance.team_id):
+                # workers that sync and run live queries can. Only an unreachable host qualifies,
+                # so rejected credentials and rejected configs still block the save. A direct
+                # query source still needs the probe, because the same call discovers its schemas.
+                if (
+                    instance.is_direct_query
+                    or not is_team_allowlisted_for_internal_hosts(instance.team_id)
+                    or not source.is_unreachable_validation_error(credentials_error)
+                ):
                     raise ValidationError(credentials_error)
                 connection_warning = helpers.UNVERIFIED_CONNECTION_WARNING.format(error=credentials_error)
             if instance.is_direct_query:

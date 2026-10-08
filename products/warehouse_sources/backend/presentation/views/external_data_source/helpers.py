@@ -51,7 +51,7 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
 )
 
 UNVERIFIED_CONNECTION_WARNING = (
-    "Source saved, but the connection check from the API failed. Syncs and live queries connect "
+    "Source saved, but the API could not reach the database. Syncs and live queries connect "
     "from other services and can still work. Details: {error}"
 )
 
