@@ -98,6 +98,18 @@ class WorkflowVisionRequestResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Set only when `status` is 'completed': the same per-session answers a parked step is woken with.",
     )
+    session_count = serializers.IntegerField(required=False, help_text="Sessions in the request. Set when completed.")
+    succeeded_count = serializers.IntegerField(required=False, help_text="Sessions with an answer. Set when completed.")
+    failed_count = serializers.IntegerField(required=False, help_text="Sessions whose scan failed. Set when completed.")
+    ineligible_count = serializers.IntegerField(
+        required=False, help_text="Sessions the scanner can't analyze, such as too short. Set when completed."
+    )
+    skipped_count = serializers.IntegerField(
+        required=False, help_text="Sessions not scanned because a limit was reached. Set when completed."
+    )
+    lost_count = serializers.IntegerField(
+        required=False, help_text="Sessions that never settled before the scan timed out. Set when completed."
+    )
 
 
 class WorkflowVisionRequestRejectedSerializer(serializers.Serializer):
@@ -181,13 +193,12 @@ class WorkflowVisionRequestViewSet(viewsets.GenericViewSet):
             request_id=str(started.request_id),
             created=started.created,
         )
-        # A settled request returns the body a parked step is woken with (counts included), so the step output
-        # has one shape either way.
-        result = started.result or {}
-        typed = WorkflowVisionRequestResponseSerializer(
-            {**result, "request_id": started.request_id, "status": started.status}
-        ).data
-        return Response({**result, **typed}, status=status.HTTP_202_ACCEPTED if started.created else status.HTTP_200_OK)
+        # A settled request returns the body a parked step is woken with, so the step output has one shape either way.
+        body = {**(started.result or {}), "request_id": started.request_id, "status": started.status}
+        return Response(
+            WorkflowVisionRequestResponseSerializer(body).data,
+            status=status.HTTP_202_ACCEPTED if started.created else status.HTTP_200_OK,
+        )
 
 
 def _rejected(detail: str, http_status: int) -> Response:
