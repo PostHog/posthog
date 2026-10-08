@@ -12854,6 +12854,14 @@ snapshots:
         hash: v1.k794b7964.543e6b89c21b4a0de9fca38a2a7b585c4e467382f5ce5772d50424b866ec9f31.ya9rrl_NUzwRgesGT5CjUr6YpnBH7zRoH2U6TQnyZ5U
     scenes-app-persons-modal--with-results--light:
         hash: v1.k794b7964.892edabd980ca7b6b06f80ed8879ef4b9100ae8ff6a6c03fc77d9a9574a4f553.YVtPZaAGoU1C4_4htQ_YK_xO1AxKBVtTuEEYW-n0eUM
+    scenes-app-platformalerts--detail--dark:
+        hash: v1.k794b7964.888d953d422c04e421f3603549e4704dd2b718897df92814149c218eec46eca6.lTtI1hfXTS-GDSkgNVVRZ_O3MyyM8GjvCs6ChptwJXI
+    scenes-app-platformalerts--detail--light:
+        hash: v1.k794b7964.60df5deb2c9dafac546acf889862925d1852290b0ff6fe97168fbc43908a70ec.e17thFNgW2nMl9GRZBa2Bii_TZ4tVHg6ID8RFF6ZXIo
+    scenes-app-platformalerts--list--dark:
+        hash: v1.k794b7964.aab1c9fbc591759a9e754595061e016837e6c4e862c2360de2168635f64a83ab.5EgAUewtjNyO6pUOWeokaTKJMivFHpfxpi9aOWBt9VM
+    scenes-app-platformalerts--list--light:
+        hash: v1.k794b7964.de5bad7fdb767b1af67aff9f17311843e261cf6a397ae81eb869be106367bf54.zfo-7njw2DSU3-XaDFSukMRuOZAxgU3CZ4a94pqsapA
     scenes-app-posthog-ai--chat-history--dark:
         hash: v1.k794b7964.eee0d73adae1a95b8020e415795b22d598502020aca651bbf0e9d6efc874570d.bRIMlhqBUQzGifiT0EX3if9HvBrvwa0aLAzSQMEAu-w
     scenes-app-posthog-ai--chat-history--light:
