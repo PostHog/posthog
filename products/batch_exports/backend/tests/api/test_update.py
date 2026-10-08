@@ -53,7 +53,10 @@ def bigquery_integration(team, user):
     )
 
 
-def test_can_put_config(client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration):
+@pytest.mark.parametrize("model", ["events", "persons"])
+def test_can_put_config(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration, model
+):
     destination_data: dict[str, t.Any] = {
         "type": "AwsS3",
         "integration": aws_s3_integration.id,
@@ -68,6 +71,7 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "model": model,
         "start_at": "2023-07-19T00:00:00+00:00",
         "end_at": "2023-07-20T00:00:00+00:00",
     }
@@ -110,6 +114,7 @@ def test_can_put_config(client: HttpClient, temporal, encryption_codec, organiza
 
     # get the batch export and validate e.g. that interval has been updated to day
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["model"] == model
     assert batch_export["interval"] == "day"
     assert batch_export["timezone"] == "UTC"
     assert batch_export["offset_day"] is None

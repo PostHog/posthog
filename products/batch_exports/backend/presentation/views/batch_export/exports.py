@@ -117,7 +117,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Human-readable name for the batch export.")
     model = serializers.ChoiceField(
         choices=BatchExport.Model.choices,
-        required=False,
+        default=serializers.CreateOnlyDefault(BatchExport.Model.EVENTS),  # type: ignore[arg-type]
         help_text=(
             "Which data model to export: events, persons, sessions, or hogql. "
             "The hogql model exports the results of hogql_query."
@@ -243,6 +243,14 @@ class _DatabaseFieldFinder(TraversingVisitor):
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
+    model = serializers.ChoiceField(
+        choices=BatchExport.Model.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.Model.EVENTS),  # type: ignore[arg-type]
+        help_text=(
+            "Which data model to export: events, persons, sessions, or hogql. "
+            "The hogql model exports the results of hogql_query."
+        ),
+    )
     destination = destination_views.BatchExportDestinationSerializer(
         help_text="Destination configuration (type, config, and optional integration)."
     )
@@ -369,8 +377,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def _validate_model_query(self, attrs: dict) -> None:
         """Validate `hogql_query` for the model the batch export ends up with."""
-        current_model = (self.instance.model if self.instance is not None else None) or BatchExport.Model.EVENTS
-        model = attrs.get("model") or current_model
+        current_model = self.instance.model if self.instance is not None else attrs["model"]
+        model = attrs.get("model", current_model)
 
         if self.instance is not None and model != current_model and BatchExport.Model.HOGQL in (model, current_model):
             raise serializers.ValidationError(
@@ -778,7 +786,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-        model = validated_data.get("model") or BatchExport.Model.EVENTS
+        model = validated_data["model"]
         hogql_query = validated_data.pop("hogql_query", None)
         hogql_modifiers = validated_data.pop("hogql_modifiers", None)
 

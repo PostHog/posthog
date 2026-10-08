@@ -2402,18 +2402,11 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('A human-readable name for this BatchExport.'),
         model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions', 'hogql'])
-                    .describe(
-                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
-                    ),
-                zod.enum(['']),
-                zod.null(),
-            ])
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -3113,18 +3106,11 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('A human-readable name for this BatchExport.'),
         model: zod
-            .union([
-                zod
-                    .enum(['events', 'persons', 'sessions', 'hogql'])
-                    .describe(
-                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
-                    ),
-                zod.enum(['']),
-                zod.null(),
-            ])
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({

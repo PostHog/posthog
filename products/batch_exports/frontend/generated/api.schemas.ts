@@ -22,12 +22,6 @@ export const BatchExportModelEnumApi = {
     Hogql: 'hogql',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
 /**
  * * `AwsS3` - Aws S3
  * * `S3Compatible` - S3 Compatible
@@ -882,13 +876,13 @@ export interface BatchExportApi {
     readonly team_id: number
     /** A human-readable name for this BatchExport. */
     name: string
-    /** Which model this BatchExport is exporting.
+    /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
      *
      * * `events` - Events
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: BatchExportModelEnumApi | BlankEnumApi | null
+    model?: BatchExportModelEnumApi
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.

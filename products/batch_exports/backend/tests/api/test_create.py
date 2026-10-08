@@ -83,6 +83,7 @@ def test_create_batch_export_with_interval_schedule(
 
     data = response.json()
 
+    assert data["model"] == "events"
     assert data["destination"] == batch_export_data["destination"]
 
     # We should match on top level fields.
