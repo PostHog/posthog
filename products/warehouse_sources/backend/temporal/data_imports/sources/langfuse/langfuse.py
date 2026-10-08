@@ -1,11 +1,12 @@
 import re
 import json
 import time
+import bisect
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -45,6 +46,12 @@ RESPONSE_CHUNK_BYTES = 1024 * 1024
 # allows 2.5M rows per run on page endpoints and 50M observations, far above a normal sync.
 MAX_PAGES_PER_RUN = 50_000
 
+# Parent ids are all held in memory before the first child row is yielded, so cap what a hostile host
+# can make a worker retain. Real queue ids are short cuids; this allows far more than any real project.
+MAX_PARENT_ID_BYTES = 16 * 1024 * 1024
+# Rough per-id cost of the str object and set slot, so many short ids count against the budget too.
+PARENT_ID_OVERHEAD_BYTES = 64
+
 DEFAULT_HOST = "https://cloud.langfuse.com"
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
@@ -80,7 +87,7 @@ class LangfusePaginationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LangfuseResumeConfig:
     # Next page number ("page" endpoints) or opaque cursor ("cursor" endpoints) to fetch.
     page: int | None = None
@@ -89,6 +96,8 @@ class LangfuseResumeConfig:
     # saved page/cursor stays aligned with the query it was produced by (the incremental watermark
     # can advance mid-run for ascending endpoints).
     from_value: str | None = None
+    # Parent row the saved page belongs to, for fan-out endpoints.
+    parent_id: str | None = None
 
 
 def normalize_host(host: str | None) -> str:
@@ -319,6 +328,38 @@ def _coerce_float_fields(items: list[dict[str, Any]], float_fields: frozenset[st
                 item[field_name] = float(value)
 
 
+def _list_parent_ids(
+    fetch_page: Callable[[str, dict[str, Any]], dict[str, Any]],
+    url: str,
+    config: LangfuseEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[LangfuseResumeConfig],
+) -> list[str]:
+    """Every parent row id, sorted so a saved parent_id marks a stable resume position."""
+    ids: set[str] = set()
+    retained_bytes = 0
+    page = 1
+    while True:
+        data = fetch_page(url, {"limit": config.page_size, "page": page})
+        items = data.get("data") or []
+        for item in items:
+            parent_id = str(item["id"]) if item.get("id") else None
+            if parent_id is not None and parent_id not in ids:
+                retained_bytes += PARENT_ID_OVERHEAD_BYTES + len(parent_id.encode())
+                if retained_bytes > MAX_PARENT_ID_BYTES:
+                    raise LangfuseResponseTooLargeError(
+                        f"{RESPONSE_LIMIT_ERROR}: {config.name} ids exceeded {MAX_PARENT_ID_BYTES} bytes"
+                    )
+                ids.add(parent_id)
+        total_pages = (data.get("meta") or {}).get("totalPages")
+        if not items or total_pages is None or page >= total_pages:
+            return sorted(ids)
+        if page >= MAX_PAGES_PER_RUN:
+            raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {page} pages fetched from {config.name}")
+        # Nothing is yielded while the parents are listed, so give the pipeline a chance to hand off.
+        resumable_source_manager.safe_point()
+        page += 1
+
+
 def get_rows(
     host: str | None,
     public_key: str,
@@ -343,16 +384,18 @@ def get_rows(
 
     page: int = 1
     cursor: str | None = None
+    resume_parent_id: str | None = None
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         # Reuse the interrupted run's from-filter so the saved page/cursor matches its query.
         from_value = resume_config.from_value
         page = resume_config.page or 1
         cursor = resume_config.cursor
-        logger.debug(f"Langfuse: resuming {endpoint} from page={page}, cursor={cursor}")
+        resume_parent_id = resume_config.parent_id
+        logger.debug(f"Langfuse: resuming {endpoint} from page={page}, cursor={cursor}, parent={resume_parent_id}")
 
     base_params = _build_params(config, from_value)
-    url = f"{normalize_host(host)}{config.path}"
+    base_url = normalize_host(host)
     auth = (public_key.strip(), secret_key.strip())
     # One session reused across every page so urllib3 keeps the connection alive instead of
     # re-handshaking per request. `retry=Retry(total=0)` disables adapter-level retries, whose
@@ -367,7 +410,7 @@ def get_rows(
         wait=_retry_wait,
         reraise=True,
     )
-    def fetch_page(params: dict[str, Any]) -> dict[str, Any]:
+    def fetch_page(url: str, params: dict[str, Any]) -> dict[str, Any]:
         # stream=True so the (customer-controlled) body isn't buffered until we read it under a cap.
         # Don't follow redirects: an attacker-controlled host could 3xx to an internal address (SSRF).
         response = session.get(
@@ -399,15 +442,42 @@ def get_rows(
 
         return json.loads(body)
 
+    parent_ids: list[str | None] = [None]
+    parent_index = 0
+    if config.parent is not None:
+        parent_config = LANGFUSE_ENDPOINTS[config.parent]
+        ids = _list_parent_ids(fetch_page, f"{base_url}{parent_config.path}", parent_config, resumable_source_manager)
+        if resume_parent_id is not None:
+            parent_index = bisect.bisect_left(ids, resume_parent_id)
+            # The saved parent was deleted since the interrupted run, so start its successor from the top.
+            if parent_index < len(ids) and ids[parent_index] != resume_parent_id:
+                page = 1
+        if parent_index >= len(ids):
+            return
+        parent_ids = list(ids)
+
     pages_fetched = 0
     while True:
+        parent_id = parent_ids[parent_index]
+        if parent_id is None:
+            url = f"{base_url}{config.path}"
+        else:
+            url = f"{base_url}{config.path.format(parent_id=quote(parent_id, safe=''))}"
+        next_parent_id = parent_ids[parent_index + 1] if parent_index + 1 < len(parent_ids) else None
+
         params = dict(base_params)
         if config.pagination == "page":
             params["page"] = page
         elif cursor is not None:
             params["cursor"] = cursor
 
-        data = fetch_page(params)
+        try:
+            data = fetch_page(url, params)
+        except requests.HTTPError as e:
+            # A parent deleted after it was listed has no child route anymore.
+            if parent_id is None or e.response is None or e.response.status_code != 404:
+                raise
+            data = {}
         pages_fetched += 1
         items = data.get("data") or []
         _coerce_float_fields(items, config.float_fields)
@@ -418,7 +488,9 @@ def get_rows(
             total_pages = meta.get("totalPages")
             has_next = bool(items) and total_pages is not None and page < total_pages
             advanced = _advance_from_value(config, items, from_value) if has_next else None
-            next_state = LangfuseResumeConfig(page=1 if advanced else page + 1, from_value=advanced or from_value)
+            next_state = LangfuseResumeConfig(
+                page=1 if advanced else page + 1, from_value=advanced or from_value, parent_id=parent_id
+            )
         else:
             next_cursor = meta.get("cursor")
             # A compliant server never hands back the cursor it was just given; looping on it would
@@ -427,16 +499,25 @@ def get_rows(
             if next_cursor is not None and next_cursor == cursor:
                 raise LangfusePaginationError(f"{REPEATED_CURSOR_ERROR} (endpoint {endpoint})")
             has_next = bool(items) and next_cursor is not None
-            next_state = LangfuseResumeConfig(cursor=next_cursor, from_value=from_value)
+            next_state = LangfuseResumeConfig(cursor=next_cursor, from_value=from_value, parent_id=parent_id)
+
+        if not has_next and next_parent_id is not None:
+            next_state = LangfuseResumeConfig(page=1, from_value=from_value, parent_id=next_parent_id)
+        has_more = has_next or next_parent_id is not None
 
         if items:
             yield items
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
             # page rather than skipping it — merge dedupes on the primary key.
-            if has_next:
+            if has_more:
                 resumable_source_manager.save_state(next_state)
+        elif has_more:
+            # An empty parent yields nothing. Every earlier row is already yielded, so moving the
+            # checkpoint on and handing off here loses nothing.
+            resumable_source_manager.save_state(next_state)
+            resumable_source_manager.safe_point()
 
-        if not has_next:
+        if not has_more:
             break
 
         # The checkpoint above already points at the next page, so raising here (retryable) lets a
@@ -448,7 +529,11 @@ def get_rows(
             resumable_source_manager.safe_point()
             raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
-        if config.pagination == "page":
+        if not has_next:
+            parent_index += 1
+            page = 1
+            cursor = None
+        elif config.pagination == "page":
             page = next_state.page or 1
             if next_state.from_value != from_value:
                 from_value = next_state.from_value
