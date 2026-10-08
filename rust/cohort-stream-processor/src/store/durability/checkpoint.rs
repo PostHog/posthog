@@ -32,7 +32,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -272,7 +271,7 @@ impl CheckpointSweeper {
 
     /// Take the shutdown checkpoint of `owned` and upload it. `upload_timeout` cancels the upload,
     /// so the pod stops inside its graceful shutdown window. Returns `true` when the upload succeeds.
-    pub async fn final_checkpoint(&self, owned: Vec<i32>, upload_timeout: Duration) -> bool {
+    async fn final_checkpoint(&self, owned: Vec<i32>, upload_timeout: Duration) -> bool {
         let started = Instant::now();
         let cancel = CancellationToken::new();
         let deadline = {
