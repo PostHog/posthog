@@ -7018,6 +7018,7 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }

@@ -36467,6 +36467,10 @@
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36489,6 +36493,10 @@
                     "type": "number"
                 },
                 "position": {
+                    "type": ["number", "null"]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
                     "type": ["number", "null"]
                 }
             },
@@ -36613,6 +36621,10 @@
         "MarketingAnalyticsSearchRow": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36662,6 +36674,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
+                    "type": ["number", "null"]
                 }
             },
             "required": [
