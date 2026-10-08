@@ -27,14 +27,12 @@ import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
 export function SearchPerformanceTable({
     query,
     metrics,
-    showPosition = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
     queryKey = 'marketing-search-performance',
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
-    showPosition?: boolean
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
@@ -56,7 +54,7 @@ export function SearchPerformanceTable({
                   'impressions',
                   'ctr',
                   ...(hasPaidSources ? ['cost' as const] : []),
-                  ...(hasOrganicSources && (!hasPaidSources || showPosition) ? ['position' as const] : []),
+                  ...(hasOrganicSources ? ['position' as const] : []),
               ]
             : ['cost', 'conversions', 'cpc', 'cpa']
 

@@ -332,7 +332,9 @@ export const Comparison: Story = {
 export const MixedWithPosition: Story = {
     ...Comparison,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByRole('checkbox', { name: 'Show position' }))
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
+        await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
 export const OrganicTraffic: Story = {
