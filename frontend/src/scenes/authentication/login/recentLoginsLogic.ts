@@ -56,7 +56,7 @@ export interface recentLoginsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasRecentLogins: (recentLogins: RecentLogin[]) => boolean
         isOtherLoginMethodsCollapsed: (
-            hasRecentLogins: any,
+            hasRecentLogins: boolean,
             otherLoginMethodsShown: boolean,
             isPasswordLoginUnavailable: boolean
         ) => boolean
