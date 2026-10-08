@@ -444,6 +444,8 @@ def get_rows(
         # host's pagination metadata can extract from a single run.
         if pages_fetched >= MAX_PAGES_PER_RUN:
             logger.warning(f"Langfuse: page limit reached for {endpoint} after {pages_fetched} pages")
+            # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+            resumable_source_manager.safe_point()
             raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
         if config.pagination == "page":

@@ -66,7 +66,7 @@ Invoke `/writing-pr-descriptions` before writing the body — it carries the sha
 Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
-**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Upload with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -294,7 +294,6 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, or when a branch review is requested, check `test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"` first. If true, skip the local review without probing `cr`, loading the skill, or announcing the skip. Otherwise invoke the skill and, if a person can answer, offer setup or a skip when `cr` is missing or signed out. Never substitute `/code-review` or review subagents.
 
 **Invoke when in the area:**
 

@@ -4,8 +4,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -133,6 +135,8 @@ describe('experimentMetricsLogic', () => {
         // Default handlers so every afterMount-driven load/trigger has a mock; tests override per-case.
         useMocks({
             get: {
+                // The fixture is a dev preflight, which never blocks a reload; the window tests need production.
+                '/_preflight': [200, { ...preflightJson, is_debug: false }],
                 '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
             },
             post: {
@@ -711,6 +715,267 @@ describe('experimentMetricsLogic', () => {
                 logic.actions.triggerRecalculation()
             }).toDispatchActions(['setCurrentRecalculation'])
             expect(createMock).toHaveBeenCalled()
+        })
+
+        it('clears the recalculating marks when the create request is rejected', async () => {
+            // The marks are set before the POST so the shown values read as refreshing; a rejected POST
+            // never reaches the poll that would clear them. A 429 takes the window path, tested below. The
+            // latest run finished outside the window, so the manual trigger is not blocked locally.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        {
+                            ...completedRecalculation,
+                            completed_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+                        },
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            })
+                .toDispatchActions(['triggerRecalculation', 'setRecalculatingMetricUuids'])
+                .toFinishAllListeners()
+
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to trigger metrics recalculation')
+        })
+
+        it('keeps the marks of a run already being polled when a retry request is rejected', async () => {
+            // The latest read found an active run and marked the shown metrics; the first poll has not landed
+            // yet, so the retry button is enabled. A rejected retry must not strip the polled run's marks.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        { ...pendingRecalculation, id: 'recalc-2', status: 'in_progress' },
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
+            })
+            // Real timers: the poll's first tick is two seconds out, and the by-id mock stays in progress with
+            // no results, so a tick that lands keeps the marks either way.
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'pollRecalculation'])
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            // Wait for the catch block's dispatches rather than all listeners: the active run's poll loop
+            // keeps a listener in flight for as long as the run stays in progress.
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual_retry')
+            }).toDispatchActions([
+                'triggerRecalculation',
+                'setRecalculatingMetricUuids',
+                'setRecalculationLoading',
+                'setRecalculationLoading',
+                'setRecalculatingMetricUuids',
+            ])
+
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to trigger metrics recalculation')
+        })
+
+        it('does not restore marks a completed poll already cleared while the retry request was pending', async () => {
+            let releasePost: () => void = () => {}
+            const postGate = new Promise<void>((resolve) => {
+                releasePost = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async () => {
+                        await postGate
+                        return [429, { code: 'recalculation_rate_limited', detail: 'Too soon.' }]
+                    },
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'pollRecalculation'])
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            logic.actions.triggerRecalculation('manual_retry')
+            // The first poll tick lands two seconds in, finds the run completed, and clears its marks.
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+            expect(logic.values.currentRecalculation?.id).toBe('recalc-2')
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+
+            releasePost()
+            await expectLogic(logic).toDispatchActions(['setRecalculationLoading', 'setRecalculatingMetricUuids'])
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
+        describe('manual refresh window', () => {
+            // query_to stays old, as on a stopped experiment, so the window can only come from completed_at.
+            const finishedMinutesAgo = <T extends object>(
+                latest: T,
+                minutesAgo: number
+            ): T & { completed_at: string } => ({
+                ...latest,
+                completed_at: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
+            })
+
+            it.each([
+                {
+                    name: 'blocks a manual reload inside the window',
+                    latest: completedRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: true,
+                },
+                {
+                    name: 'allows a manual reload after the window',
+                    latest: completedRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 6,
+                    blocked: false,
+                },
+                {
+                    name: 'lets a heal through inside the window',
+                    latest: completedRecalculation,
+                    trigger: 'heal_latest_run',
+                    minutesAgo: 2,
+                    blocked: true,
+                },
+                {
+                    // The fallback is not a run: a fresh timeseries point must not block the first recalculation.
+                    name: 'never blocks on a timeseries fallback',
+                    latest: completeTimeseriesFallbackRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: false,
+                },
+                {
+                    name: 'never blocks after a failed run',
+                    latest: partialFailureRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: false,
+                },
+            ] as const)('$name', async ({ latest, trigger, minutesAgo, blocked }) => {
+                const posts = !(blocked && trigger === 'manual')
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            finishedMinutesAgo(latest, minutesAgo),
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isManualRefreshBlocked).toBe(blocked)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation(trigger)
+                }).toFinishAllListeners()
+                expect(createMock.mock.calls.length > 0).toBe(posts)
+            })
+
+            it('never blocks a reload in local development', async () => {
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            finishedMinutesAgo(completedRecalculation, 2),
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                // The mount-time preflight load must land first, or it overwrites the dev preflight.
+                await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+                preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: true } as any)
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isManualRefreshBlocked).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toFinishAllListeners()
+                expect(createMock).toHaveBeenCalled()
+            })
+
+            it('syncs the window and informs the user when the backend answers 429', async () => {
+                // The local window was open (an old run), but another tab or an agent used the window first.
+                const latestCalls: number[] = []
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => {
+                            latestCalls.push(1)
+                            return [200, finishedMinutesAgo(completedRecalculation, 10)]
+                        },
+                    },
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            429,
+                            {
+                                code: 'recalculation_rate_limited',
+                                detail: 'Metrics were recalculated less than 5 minutes ago.',
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isManualRefreshBlocked).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                })
+                    .toDispatchActions(['triggerRecalculation', 'loadLatestRecalculation'])
+                    .toFinishAllListeners()
+
+                expect(latestCalls).toHaveLength(2)
+                expect(lemonToast.info).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(logic.values.isRecalculating).toBe(false)
+            })
+
+            it('unblocks the reload button when the window closes, without a new load', async () => {
+                jest.useFakeTimers()
+                try {
+                    useMocks({
+                        get: {
+                            '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                                200,
+                                finishedMinutesAgo(completedRecalculation, 4),
+                            ],
+                        },
+                    })
+                    mountLogic()
+                    await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                    expect(logic.values.isManualRefreshBlocked).toBe(true)
+
+                    await expectLogic(logic, () => {
+                        jest.advanceTimersByTime(60 * 1000 + 200)
+                    }).toDispatchActions(['recheckRefreshEligibility'])
+                    expect(logic.values.isManualRefreshBlocked).toBe(false)
+                } finally {
+                    jest.useRealTimers()
+                }
+            })
         })
 
         describe('queuing', () => {

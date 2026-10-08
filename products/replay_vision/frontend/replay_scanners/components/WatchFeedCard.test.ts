@@ -1,5 +1,12 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
-import { observationKeyMomentMs, watchCardHeadline, watchReasonCopy, watchStartSeconds } from './WatchFeedCard'
+import {
+    jevCardSentence,
+    jevRowTitle,
+    observationKeyMomentMs,
+    watchCardHeadline,
+    watchReasonCopy,
+    watchStartSeconds,
+} from './WatchFeedCard'
 
 describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
@@ -152,6 +159,66 @@ describe('WatchFeedCard helpers', () => {
             { name: 'never starts before the recording', keyMomentMs: 1_000, expected: 0 },
         ])('$name', ({ keyMomentMs, expected }) => {
             expect(watchStartSeconds(keyMomentMs)).toBe(expected)
+        })
+    })
+
+    describe('jevCardSentence', () => {
+        it("prefers the scan's notability sentence over the derived headline", () => {
+            const sentence = jevCardSentence(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi
+            )
+            expect(sentence).toBe('The card form rejected a valid card three times.')
+        })
+
+        it('derives the headline when the reason carries no notability sentence', () => {
+            const sentence = jevCardSentence(
+                observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
+                { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi
+            )
+            expect(sentence).toBe('Retried the form twice.')
+        })
+
+        it('falls back to the scanner name when the scan wrote no prose', () => {
+            const bare = {
+                scanner_snapshot: { name: 'Confused checkout', scanner_type: 'monitor' },
+                scanner_result: { model_output: {} },
+            } as unknown as ReplayObservationApi
+            expect(jevCardSentence(bare, { kind: 'unviewed_recent' } as WatchFeedReasonApi)).toBe('Confused checkout')
+        })
+    })
+
+    describe('jevRowTitle', () => {
+        const notable = {
+            kind: 'jev_watchable',
+            jev_probability: 0.9,
+            notability_reason: 'The card form rejected a valid card three times.',
+        } as WatchFeedReasonApi
+        it.each<{ name: string; scannerType: string; output: Record<string, unknown>; expected: string }>([
+            {
+                name: "leads with a summarizer's authored title over the scan's sentence",
+                scannerType: 'summarizer',
+                output: { title: 'Checkout card rejected', summary: 'Tried the card three times. Left.' },
+                expected: 'Checkout card rejected',
+            },
+            {
+                name: 'falls back to the card sentence for an untitled summarizer',
+                scannerType: 'summarizer',
+                output: { title: '', summary: 'Tried the card three times. Left.' },
+                expected: 'The card form rejected a valid card three times.',
+            },
+            {
+                name: 'leads other scan types with the card sentence',
+                scannerType: 'monitor',
+                output: { reasoning: 'Retried the form twice. The submit then failed.' },
+                expected: 'The card form rejected a valid card three times.',
+            },
+        ])('$name', ({ scannerType, output, expected }) => {
+            expect(jevRowTitle(observation(scannerType, output), notable)).toBe(expected)
         })
     })
 

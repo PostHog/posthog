@@ -64,6 +64,7 @@ from posthog.temporal.alerts.admission import (
     hold_evaluation_slot,
     inflight_alert_ids,
 )
+from posthog.temporal.alerts.investigation import MAX_INVESTIGATIONS_PER_EPISODE
 from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -82,8 +83,8 @@ from products.alerts.backend.facade.api import (
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
 )
-from products.alerts.backend.facade.contracts import AlertDelivery
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -1018,6 +1019,58 @@ class TestEvaluateAlert:
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
 
+    @pytest.mark.parametrize(
+        "investigated,previous_verdict,expect_investigation,expect_notify,expect_held",
+        [
+            (1, "false_positive", True, True, False),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "false_positive", False, False, True),
+            (MAX_INVESTIGATIONS_PER_EPISODE, "true_positive", False, True, False),
+        ],
+    )
+    async def test_gated_alert_holds_each_fire_on_a_verdict(
+        self,
+        ateam,
+        investigated: int,
+        previous_verdict: str,
+        expect_investigation: bool,
+        expect_notify: bool,
+        expect_held: bool,
+    ) -> None:
+        alert = await _create_alert(ateam, state=AlertState.FIRING, detector_config={"type": "zscore"})
+
+        @sync_to_async
+        def _seed_episode() -> None:
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                investigation_agent_enabled=True, investigation_gates_notifications=True
+            )
+            episode_start = datetime.now(UTC) - timedelta(days=5)
+            AlertCheck.objects.create(alert_configuration=alert, state=AlertState.NOT_FIRING)
+            AlertCheck.objects.filter(alert_configuration=alert).update(created_at=episode_start)
+            for index in range(investigated):
+                earlier = AlertCheck.objects.create(
+                    alert_configuration=alert,
+                    state=AlertState.FIRING,
+                    investigation_status=InvestigationStatus.DONE,
+                    investigation_verdict=previous_verdict,
+                )
+                AlertCheck.objects.filter(id=earlier.id).update(created_at=episode_start + timedelta(days=index + 1))
+
+        await _seed_episode()
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.should_start_investigation is expect_investigation
+        assert result.should_gate_notification is expect_investigation
+        assert result.should_notify is expect_notify
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.notification_suppressed_by_agent is expect_held
+
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
@@ -1410,7 +1463,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -1434,7 +1487,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -1740,7 +1793,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

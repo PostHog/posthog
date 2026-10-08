@@ -5,7 +5,7 @@ interface TimeToSeeDataFields {
     time_to_see_data_ms: number
     primary_interaction_id: string
     query_id?: string
-    status?: 'failure' | 'success' | 'cancelled'
+    status?: 'failure' | 'success' | 'cancelled' | 'hidden' | 'no_load'
     api_response_bytes?: number
     api_url?: string
     insight?: string
@@ -28,6 +28,14 @@ export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
     last_tile_kind?: string | null
     last_tile_status?: string | null
     tiles_still_loading?: number
+    tiles_succeeded?: number
+    tiles_requeried_while_loading?: number
+    tiles_mounted?: number
+    first_tile_ms?: number | null
+    kind_ready_ms?: Record<string, number>
+    visible_ms?: number
+    was_hidden?: boolean
+    visit_id?: string | null
     cancel_reason?: 'navigated_away' | 'left_app' | 'refreshed'
 }
 

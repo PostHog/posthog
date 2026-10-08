@@ -2,7 +2,7 @@
 
 Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
-    inbox_report_state/v1/dt=D/             Postgres spine + report state + tabular features
+    inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
     inbox_report_labels/v1/dt=D/            cumulative label columns from the dogfood project's events
     inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/
@@ -21,7 +21,11 @@ from any later partition, choosing the label-maturity window at read time. Late-
 are never backfilled into old partitions.
 
 Point-in-time caveats, per source:
-- labels are fully point-in-time for any past day (explicit event-time bound);
+- labels are fully point-in-time for any past day (explicit event-time bound), except the
+  server-side action counts. Those read current artefact rows bounded by created_at. A report
+  merge moves the source's notes and linked PRs to the survivor and keeps their created_at, and a
+  note can be deleted. A partition rebuilt after either change gives the action to the survivor
+  or loses it;
 - embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound), and
   the title snapshot carries the same guarantee and the same limit. The bound does not cover a
   re-embedded rendering: the source replaces on a key that includes the rendering and the document
@@ -44,8 +48,10 @@ Point-in-time caveats, per source:
 
 import json
 import datetime
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
+
+from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
@@ -55,7 +61,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -70,6 +76,8 @@ from products.signals.backend.signal_metadata import (
 )
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
+    HUMAN_ACTOR_KINDS,
+    PARQUET_PART_NAME,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
@@ -78,6 +86,7 @@ from products.signals.dags.inbox_ranking.common import (
     latest_object_key,
     merge_emission_rows,
     object_row_count,
+    object_schema_version,
     object_snapshot_date,
     owner_tags,
     partition_def,
@@ -98,6 +107,8 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABELS_TEAM_ID,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
+    SERVER_ACTIONS_COLUMNS,
+    SERVER_ACTIONS_STREAM,
     SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
     SIGNAL_EMBEDDINGS_SQL,
     etl_workload,
@@ -107,7 +118,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 6
+FEATURE_SCHEMA_VERSION = 9
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -237,6 +248,10 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_dismissal_reason", pa.string()),
     ("wrong_dismissal_count", pa.int32()),
     ("first_wrong_dismissed_at", _TIMESTAMP),
+    ("fixed_count", pa.int32()),
+    ("first_fixed_at", _TIMESTAMP),
+    ("lowvalue_dismissal_count", pa.int32()),
+    ("first_lowvalue_dismissed_at", _TIMESTAMP),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),
@@ -257,6 +272,26 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_reviewer_removed_at", _TIMESTAMP),
     ("resolve_click_count", pa.int32()),
     ("first_resolve_clicked_at", _TIMESTAMP),
+    ("copy_prompt_count", pa.int32()),
+    ("first_prompt_copied_at", _TIMESTAMP),
+    ("implement_click_count", pa.int32()),
+    ("first_implement_clicked_at", _TIMESTAMP),
+    ("open_pr_click_count", pa.int32()),
+    ("first_open_pr_clicked_at", _TIMESTAMP),
+    ("view_diff_count", pa.int32()),
+    ("first_diff_viewed_at", _TIMESTAMP),
+    ("restore_count", pa.int32()),
+    ("first_restored_at", _TIMESTAMP),
+    ("reasoned_resolution_count", pa.int32()),
+    ("first_reasoned_resolved_at", _TIMESTAMP),
+    ("claim_count", pa.int32()),
+    ("first_claimed_at", _TIMESTAMP),
+    ("linked_pr_count", pa.int32()),
+    ("first_pr_linked_at", _TIMESTAMP),
+    ("note_count", pa.int32()),
+    ("first_noted_at", _TIMESTAMP),
+    ("slack_discussion_count", pa.int32()),
+    ("first_slack_discussed_at", _TIMESTAMP),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -382,6 +417,58 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             else:
                 entry["actionability"] = _judgment_value(parsed, "actionability")
     return judgments
+
+
+# The artefact types that count as a server-side action, with the label columns each one fills.
+_ACTION_ARTEFACT_COLUMNS: dict[str, tuple[str, str]] = {
+    SignalReportArtefact.ArtefactType.WORK_CLAIM: ("claim_count", "first_claimed_at"),
+    SignalReportArtefact.ArtefactType.PULL_REQUEST: ("linked_pr_count", "first_pr_linked_at"),
+    SignalReportArtefact.ArtefactType.NOTE: ("note_count", "first_noted_at"),
+}
+
+
+def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -> list[tuple[Any, ...]]:
+    """One `(report_id, *SERVER_ACTIONS_COLUMNS)` row per report with a server-side action before
+    the cutoff. Rows are counted, not the action row's own `count`, because that counter keeps
+    moving after the cutoff."""
+    entries: dict[str, dict[str, Any]] = {}
+
+    def entry(report_id: Any) -> dict[str, Any]:
+        return entries.setdefault(str(report_id), {column: LABEL_DEFAULTS[column] for column in SERVER_ACTIONS_COLUMNS})
+
+    for chunk in _chunked(report_ids):
+        artefacts = (
+            SignalReportArtefact.objects.filter(
+                report_id__in=chunk,
+                type__in=list(_ACTION_ARTEFACT_COLUMNS),
+                actor_kind__in=HUMAN_ACTOR_KINDS,
+                created_at__lt=snapshot_end,
+            )
+            .values("report_id", "type")
+            .annotate(row_count=Count("id"), earliest_at=Min("created_at"))
+        )
+        for row in artefacts.iterator(chunk_size=2000):
+            count_column, first_column = _ACTION_ARTEFACT_COLUMNS[row["type"]]
+            values = entry(row["report_id"])
+            values[count_column] = row["row_count"]
+            values[first_column] = row["earliest_at"]
+        # One row per (report, user), so the count is the number of people who discussed it.
+        discussions = (
+            SignalReportAction.all_teams.filter(
+                report_id__in=chunk,
+                type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+                first_at__lt=snapshot_end,
+            )
+            .values("report_id")
+            .annotate(row_count=Count("id"), earliest_at=Min("first_at"))
+        )
+        for row in discussions.iterator(chunk_size=2000):
+            values = entry(row["report_id"])
+            values["slack_discussion_count"] = row["row_count"]
+            values["first_slack_discussed_at"] = row["earliest_at"]
+    return [
+        (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
+    ]
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
@@ -770,16 +857,31 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
         )
         context.log.info(f"{stream_name}: {len(stream_rows[stream_name])} reports")
 
+    # The server-side actions are read for every report in the inbox before the cutoff, plus every
+    # report an event stream named, so an action from a surface that emits no event still lands.
+    action_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+    } | valid_report_uuids({row[0] for rows in stream_rows.values() for row in rows})
+    stream_rows[SERVER_ACTIONS_STREAM] = server_action_rows(sorted(action_report_ids), snapshot_end)
+    context.log.info(f"{SERVER_ACTIONS_STREAM}: {len(stream_rows[SERVER_ACTIONS_STREAM])} reports")
+
     rows = merge_label_streams(stream_rows, datetime.date.fromisoformat(partition_key))
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, LABELS_TABLE, partition_key)
-    write_parquet(s3_client(), bucket, key, pa.Table.from_pylist(rows, schema=LABELS_SCHEMA))
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=LABELS_SCHEMA),
+        schema_version=FEATURE_SCHEMA_VERSION,
+    )
     context.add_output_metadata(
         {
             "rows": dagster.MetadataValue.int(len(rows)),
             **{
-                f"{stream_name}_reports": dagster.MetadataValue.int(len(stream_rows[stream_name]))
-                for stream_name, _, _ in LABEL_STREAMS
+                f"{stream_name}_reports": dagster.MetadataValue.int(len(stream))
+                for stream_name, stream in stream_rows.items()
             },
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -953,10 +1055,11 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
-    # the label windows only grow, since they accumulate from LABELS_EPOCH.
+    # the label windows only grow, since they accumulate from LABELS_EPOCH. The cap must end before
+    # the training schedule starts, so a stuck run fails instead of leaving training without snapshots.
     tags={
         **owner_tags,
-        "dagster/max_runtime": str(3 * 60 * 60),
+        "dagster/max_runtime": str(2 * 60 * 60),
         # The state, embeddings, signal-embeddings and labels assets execute as parallel subprocesses
         # in one run pod, and the embeddings snapshot holds a 1536-float vector per live report, so
         # the pod's peak memory grows with the inventory. The default 8Gi limit is what a run gets
@@ -965,7 +1068,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
             "container_config": {
                 "resources": {
                     "requests": {"memory": "8Gi"},
-                    "limits": {"memory": "16Gi"},
+                    "limits": {"memory": "24Gi"},
                 }
             }
         },
@@ -1003,3 +1106,95 @@ def inbox_ranking_dataset_schedule(
     # builds the partition it was scheduled for; run_key dedupes a re-evaluated tick.
     previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)
     return dagster.RunRequest(partition_key=previous_day.isoformat(), run_key=previous_day.isoformat())
+
+
+inbox_ranking_labels_refresh_job = dagster.define_asset_job(
+    name="inbox_ranking_labels_refresh_job",
+    selection=[LABELS_TABLE],
+    tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},
+)
+
+
+def stale_label_partitions(
+    stamps: Mapping[str, int | None], current: int, limit: int, requested: Collection[str] = ()
+) -> list[str]:
+    """The partitions to rewrite, newest first. `stamps` holds only partitions whose labels object
+    exists. A missing object has no state snapshot either, so a rewrite cannot make it an example.
+    `requested` are partitions already requested at `current`, in flight or failed."""
+    stale = [
+        partition
+        for partition, version in stamps.items()
+        if (version is None or version < current) and partition not in requested
+    ]
+    return sorted(stale, reverse=True)[:limit]
+
+
+def label_refresh_window(today: datetime.date) -> list[str]:
+    """The training lookback, without the newest day. The daily schedule writes `today - 1`, so the
+    sensor never writes the same object at the same time."""
+    start = max(
+        today - datetime.timedelta(days=1 + settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS),
+        partition_def.start.date(),
+    )
+    end = today - datetime.timedelta(days=2)
+    return [(start + datetime.timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)]
+
+
+def _existing_label_partitions(client, bucket: str, prefix: str) -> set[str]:
+    table_prefix = f"{prefix}/{LABELS_TABLE}/{DATASET_VERSION}/dt="
+    partitions: set[str] = set()
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=table_prefix):
+        for item in page.get("Contents", []):
+            partition, _, name = item["Key"].removeprefix(table_prefix).partition("/")
+            if name == PARQUET_PART_NAME:
+                partitions.add(partition)
+    return partitions
+
+
+# A label column change bumps FEATURE_SCHEMA_VERSION, and the training lookback then holds
+# partitions without that column. The heads that read it train on almost no examples until those
+# partitions are rewritten. A partition is requested at most once per version: the cursor skips a
+# run that is in flight or failed, so the next tick moves on to older partitions. A failed refresh
+# alerts like any other run failure and needs a person.
+@dagster.sensor(
+    job=inbox_ranking_labels_refresh_job,
+    minimum_interval_seconds=60 * 60,
+    default_status=dagster.DefaultSensorStatus.RUNNING
+    if settings.CLOUD_DEPLOYMENT == "US"
+    else dagster.DefaultSensorStatus.STOPPED,
+)
+def inbox_ranking_labels_refresh_sensor(
+    context: dagster.SensorEvaluationContext,
+) -> dagster.SensorResult | dagster.SkipReason:
+    if dataset_unconfigured():
+        return dagster.SkipReason(f"{S3_BUCKET_ENV} is not set; skipping until the dedicated bucket is provisioned")
+    cursor = json.loads(context.cursor) if context.cursor else {}
+    requested = set(cursor.get("requested", [])) if cursor.get("version") == FEATURE_SCHEMA_VERSION else set()
+
+    client, bucket, prefix = s3_client(), dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX
+    existing = _existing_label_partitions(client, bucket, prefix)
+    stamps = {
+        partition: object_schema_version(client, bucket, partition_object_key(prefix, LABELS_TABLE, partition))
+        for partition in label_refresh_window(datetime.datetime.now(datetime.UTC).date())
+        if partition in existing
+    }
+    stale = stale_label_partitions(stamps, FEATURE_SCHEMA_VERSION, len(stamps))
+    batch = stale_label_partitions(
+        stamps, FEATURE_SCHEMA_VERSION, settings.INBOX_RANKING_LABELS_REFRESH_MAX_RUNS, requested
+    )
+    context.log.info(f"stale_label_partitions={len(stale)} requesting={len(batch)} (schema v{FEATURE_SCHEMA_VERSION})")
+    if not batch:
+        return dagster.SkipReason(f"stale_label_partitions={len(stale)}, none left to request")
+    return dagster.SensorResult(
+        run_requests=[
+            dagster.RunRequest(
+                partition_key=partition,
+                run_key=f"{partition}-labels-v{FEATURE_SCHEMA_VERSION}",
+                tags=owner_tags,
+            )
+            for partition in batch
+        ],
+        cursor=json.dumps(
+            {"version": FEATURE_SCHEMA_VERSION, "requested": sorted(requested.union(batch) & set(stale))}
+        ),
+    )

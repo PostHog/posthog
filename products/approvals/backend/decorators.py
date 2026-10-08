@@ -101,14 +101,19 @@ def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
     return None
 
 
-def _check_for_duplicate(action_class, team, resource_id: Optional[str]) -> Optional[ChangeRequest]:
+def _check_for_duplicate(
+    action_class, team, resource_id: Optional[str], intent_data: dict[str, Any]
+) -> Optional[ChangeRequest]:
     """Check if there's already a pending/approved change request."""
+    target_filter = action_class.get_target_filter(intent_data) if resource_id is None else {}
+
     return ChangeRequest.objects.filter(
         action_key=action_class.key,
         team=team,
         resource_type=action_class.resource_type,
         resource_id=resource_id,
         state__in=[ChangeRequestState.PENDING, ChangeRequestState.APPROVED],
+        **target_filter,
     ).first()
 
 
@@ -166,6 +171,7 @@ def _create_change_request(
         intent=_json_safe(intent_data),
         intent_display=_json_safe(display_data),
         policy_snapshot=_json_safe(policy_snapshot),
+        owner_kind=action_class.derive_owner_kind(team, resource_id, intent_data),
         created_by=user,
         state=ChangeRequestState.PENDING,
         expires_at=expires_at,
@@ -321,7 +327,7 @@ def _evaluate_gate(
     # Step 5: REQUIRE_APPROVAL - check for duplicates and create change request
     resource_id = _extract_resource_id(request, args, kwargs)
 
-    existing = _check_for_duplicate(action_class, team, resource_id)
+    existing = _check_for_duplicate(action_class, team, resource_id, intent_data)
     if existing:
         logger.info(
             "Rejecting duplicate change request",
@@ -554,6 +560,7 @@ def approval_gate(action_refs: Union[type, str, list]):
             # would satisfy a single policy while the other policies' gated fields sail through
             # unapproved. Gating on only the first match reopens exactly that bypass.
             matches: list[tuple[Any, Any]] = []
+            detection_failed = False
             for action_class in actions:
                 try:
                     if action_class.detect(request, self, *args, **kwargs):
@@ -566,11 +573,19 @@ def approval_gate(action_refs: Union[type, str, list]):
                         extra={"action": action_class.key, "error": str(e)},
                         exc_info=True,
                     )
+                    detection_failed = True
 
-            if not matches:
+            if detection_failed:
+                # Unknown means deny. Carrying on would read a broken detect() as "no policy
+                # applies", which silently disables the policy that action implements.
+                result = GateResult(
+                    action="error",
+                    error_message="Could not determine whether this change needs approval. Try again.",
+                )
+            elif not matches:
                 return method(self, *args, **kwargs)
 
-            if len(matches) > 1:
+            elif len(matches) > 1:
                 # A single ChangeRequest can only carry one action's approval, but the apply path
                 # replays the whole payload — so we cannot safely gate a change that needs approval
                 # under several policies at once. Reject it (fail closed) and tell the caller to

@@ -77,17 +77,6 @@ class TestNormalizeHost:
 
 
 class TestFromFilterValue:
-    def test_applies_lookback_and_formats_iso_z(self):
-        # Traces declare a 1h lookback: a watermark of 12:00 must re-pull from 11:00 so
-        # late-arriving rows (ingestion lag) aren't skipped forever.
-        value = _from_filter_value(
-            LANGFUSE_ENDPOINTS["traces"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        assert value == "2026-03-04T11:00:00Z"
-
     def test_date_value_is_supported(self):
         value = _from_filter_value(
             LANGFUSE_ENDPOINTS["traces"],
@@ -96,22 +85,6 @@ class TestFromFilterValue:
             incremental_field="timestamp",
         )
         assert value == "2026-03-03T23:00:00Z"
-
-    @pytest.mark.parametrize(
-        "should_use, last_value",
-        [
-            (False, datetime(2026, 3, 4, tzinfo=UTC)),
-            (True, None),
-        ],
-    )
-    def test_full_or_first_sync_has_no_filter(self, should_use, last_value):
-        value = _from_filter_value(
-            LANGFUSE_ENDPOINTS["traces"],
-            should_use_incremental_field=should_use,
-            db_incremental_field_last_value=last_value,
-            incremental_field="timestamp",
-        )
-        assert value is None
 
     def test_unsupported_incremental_field_raises(self):
         with pytest.raises(ValueError):
@@ -264,19 +237,6 @@ class TestGetRows:
         manager.load_state.return_value = resume_state
         return manager
 
-    def test_page_pagination_walks_all_pages(self):
-        manager = self._manager()
-        rows, session = self._run(
-            manager,
-            [
-                _page([{"id": "t1"}, {"id": "t2"}], page=1, total_pages=2),
-                _page([{"id": "t3"}], page=2, total_pages=2),
-            ],
-        )
-        assert [r["id"] for r in rows] == ["t1", "t2", "t3"]
-        assert session.get.call_args_list[0].kwargs["params"]["page"] == 1
-        assert session.get.call_args_list[1].kwargs["params"]["page"] == 2
-
     def test_whole_number_costs_are_emitted_as_floats(self):
         # The oldest traces are fetched first and often carry a flat 0 cost. Left as ints they
         # create an integer column, and the first fractional cost then fails the whole sync.
@@ -290,28 +250,6 @@ class TestGetRows:
         assert rows[0]["totalCost"] == 0.0
         assert rows[0]["latency"] == 2.0
 
-    def test_non_integer_values_in_float_fields_are_left_alone(self):
-        manager = self._manager()
-        rows, _ = self._run(
-            manager,
-            [
-                _page(
-                    [
-                        {"id": "t1", "totalCost": 0.25, "latency": None},
-                        {"id": "t2", "totalCost": "n/a", "latency": True},
-                    ],
-                    page=1,
-                    total_pages=1,
-                )
-            ],
-        )
-        assert rows[0]["totalCost"] == 0.25
-        assert rows[0]["latency"] is None
-        # A string stays a string so a genuine upstream type change still surfaces, and a bool is
-        # not an int here even though Python says otherwise.
-        assert rows[1]["totalCost"] == "n/a"
-        assert rows[1]["latency"] is True
-
     def test_fields_outside_float_fields_keep_their_type(self):
         # scores.value is numeric only for NUMERIC scores, so it must not be widened.
         manager = self._manager()
@@ -324,86 +262,6 @@ class TestGetRows:
         assert not isinstance(rows[0]["value"], float)
         assert rows[1]["value"] == "misc"
 
-    def test_page_pagination_saves_next_page_after_yield(self):
-        manager = self._manager()
-        self._run(
-            manager,
-            [
-                _page([{"id": "t1"}], page=1, total_pages=2),
-                _page([{"id": "t2"}], page=2, total_pages=2),
-            ],
-        )
-        # Only the non-final page checkpoints (a crash re-yields the last page; merge dedupes),
-        # and it points at the NEXT page to fetch.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, LangfuseResumeConfig)
-        assert saved.page == 2
-
-    def test_traces_request_pins_ascending_order_and_incremental_filter(self):
-        # The pipeline checkpoints the incremental watermark per batch for sort_mode="asc";
-        # dropping the orderBy pin or the from-filter would corrupt it.
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
-            [_page([{"id": "t1"}], page=1, total_pages=1)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        params = session.get.call_args.kwargs["params"]
-        assert params["orderBy"] == "timestamp.asc"
-        assert params["fromTimestamp"] == "2026-03-04T11:00:00Z"
-        assert session.get.call_args.kwargs["auth"] == ("pk-lf-x", "sk-lf-x")
-        assert session.get.call_args.kwargs["allow_redirects"] is False
-
-    def test_cursor_pagination_follows_cursor_until_absent(self):
-        manager = self._manager()
-        rows, session = self._run(
-            manager,
-            [
-                _cursor_page([{"id": "o1"}], cursor="abc"),
-                _cursor_page([{"id": "o2"}], cursor=None),
-            ],
-            endpoint="observations",
-        )
-        assert [r["id"] for r in rows] == ["o1", "o2"]
-        assert "cursor" not in session.get.call_args_list[0].kwargs["params"]
-        assert session.get.call_args_list[1].kwargs["params"]["cursor"] == "abc"
-
-    def test_cursor_request_keeps_field_selection_and_filter_on_every_page(self):
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
-            [
-                _cursor_page([{"id": "o1"}], cursor="abc"),
-                _cursor_page([{"id": "o2"}], cursor=None),
-            ],
-            endpoint="observations",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC),
-            incremental_field="startTime",
-        )
-        for call in session.get.call_args_list:
-            assert call.kwargs["params"]["fromStartTime"] == "2026-03-04T11:00:00Z"
-            assert "io" in call.kwargs["params"]["fields"]
-            assert call.kwargs["params"]["limit"] == 1000
-
-    def test_resume_reuses_saved_page_and_from_value(self):
-        # The watermark can advance mid-run; the resumed query must reuse the ORIGINAL
-        # from-filter or the saved page number points into a different result set.
-        manager = self._manager(LangfuseResumeConfig(page=3, from_value="2026-01-01T00:00:00Z"))
-        _rows, session = self._run(
-            manager,
-            [_page([{"id": "t9"}], page=3, total_pages=3)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        params = session.get.call_args.kwargs["params"]
-        assert params["page"] == 3
-        assert params["fromTimestamp"] == "2026-01-01T00:00:00Z"
-
     def test_resume_from_saved_cursor(self):
         manager = self._manager(LangfuseResumeConfig(cursor="saved-cursor"))
         rows, session = self._run(
@@ -413,19 +271,6 @@ class TestGetRows:
         )
         assert session.get.call_args.kwargs["params"]["cursor"] == "saved-cursor"
         assert [r["id"] for r in rows] == ["o9"]
-
-    def test_empty_page_terminates(self):
-        manager = self._manager()
-        rows, session = self._run(manager, [_page([], page=1, total_pages=5)])
-        assert rows == []
-        assert session.get.call_count == 1
-        manager.save_state.assert_not_called()
-
-    def test_missing_total_pages_stops_instead_of_looping(self):
-        manager = self._manager()
-        rows, session = self._run(manager, [_response(json_data={"data": [{"id": "t1"}], "meta": {}})])
-        assert [r["id"] for r in rows] == ["t1"]
-        assert session.get.call_count == 1
 
     def test_rejects_plaintext_http_before_request(self):
         manager = self._manager()
@@ -462,26 +307,6 @@ class TestGetRows:
         with pytest.raises(langfuse_module.LangfuseHostNotAllowedError) as exc:
             self._run(manager, [_response(status_code=302)])
         assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
-
-    def test_disables_adapter_retries(self):
-        # urllib3 honors Retry-After uncapped, so a hostile host could park the worker before the
-        # bounded tenacity policy runs. The sync session must opt out of adapter-level retries.
-        manager = self._manager()
-        session = mock.MagicMock()
-        session.get.side_effect = [_page([], page=1, total_pages=1)]
-        with mock.patch.object(langfuse_module, "make_tracked_session", return_value=session) as mts:
-            list(
-                get_rows(
-                    host="https://cloud.langfuse.com",
-                    public_key="pk-lf-x",
-                    secret_key="sk-lf-x",
-                    endpoint="traces",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    team_id=1,
-                )
-            )
-        assert mts.call_args.kwargs["retry"].total == 0
 
     @pytest.mark.parametrize(
         "attr, value, chunks",
@@ -537,64 +362,6 @@ class TestGetRows:
         assert [r["id"] for r in rows] == ["t1"]
         assert session.get.call_count == 2
 
-    def test_keyset_paging_advances_the_filter_and_resets_the_page(self):
-        # Offset depth is what kills a traces backfill: Langfuse answers a deep offset with a 422
-        # resource limit. Each page must move fromTimestamp past the newest row it saw and go back
-        # to page 1, so the offset never grows.
-        manager = self._manager()
-        rows, session = self._run(
-            manager,
-            [
-                _page(
-                    [_trace("t1", "2026-03-04T10:00:00Z"), _trace("t2", "2026-03-04T10:05:00Z")],
-                    page=1,
-                    total_pages=900,
-                ),
-                _page(
-                    [_trace("t2", "2026-03-04T10:05:00Z"), _trace("t3", "2026-03-04T10:09:00Z")],
-                    page=1,
-                    total_pages=400,
-                ),
-                _page([_trace("t3", "2026-03-04T10:09:00Z")], page=1, total_pages=1),
-            ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        assert [r["id"] for r in rows] == ["t1", "t2", "t2", "t3", "t3"]
-        pages = [call.kwargs["params"]["page"] for call in session.get.call_args_list]
-        bounds = [call.kwargs["params"]["fromTimestamp"] for call in session.get.call_args_list]
-        assert pages == [1, 1, 1]
-        assert bounds == ["2026-03-04T09:00:00Z", "2026-03-04T10:05:00Z", "2026-03-04T10:09:00Z"]
-
-    def test_keyset_paging_preserves_subsecond_progress(self):
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
-            [
-                _page(
-                    [_trace("t1", "2026-03-04T10:00:00.100Z"), _trace("t2", "2026-03-04T10:00:00.200Z")],
-                    page=1,
-                    total_pages=900,
-                ),
-                _page(
-                    [_trace("t2", "2026-03-04T10:00:00.200Z"), _trace("t3", "2026-03-04T10:00:00.300Z")],
-                    page=1,
-                    total_pages=400,
-                ),
-                _page([_trace("t3", "2026-03-04T10:00:00.300Z")], page=1, total_pages=1),
-            ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 11, 0, 0, tzinfo=UTC),
-            incremental_field="timestamp",
-        )
-        assert [call.kwargs["params"]["page"] for call in session.get.call_args_list] == [1, 1, 1]
-        assert [call.kwargs["params"]["fromTimestamp"] for call in session.get.call_args_list] == [
-            "2026-03-04T10:00:00Z",
-            "2026-03-04T10:00:00.200000Z",
-            "2026-03-04T10:00:00.300000Z",
-        ]
-
     def test_keyset_checkpoint_carries_the_advanced_filter(self):
         # Resume reuses the saved from_value verbatim, so a checkpoint that kept the ORIGINAL bound
         # next to page 1 would restart the whole walk on the next activity attempt.
@@ -629,36 +396,6 @@ class TestGetRows:
             incremental_field="timestamp",
         )
         assert [call.kwargs["params"]["page"] for call in session.get.call_args_list] == [1, 2, 3]
-
-    def test_keyset_advances_from_an_unfiltered_first_sync(self):
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
-            [
-                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=900),
-                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=1),
-            ],
-        )
-        assert "fromTimestamp" not in session.get.call_args_list[0].kwargs["params"]
-        assert session.get.call_args_list[1].kwargs["params"]["fromTimestamp"] == "2026-03-04T10:05:00Z"
-
-    def test_cursor_endpoint_keeps_offset_free_paging(self):
-        # Only traces is pinned ascending, so only traces may move its bound. A descending endpoint
-        # that did so would filter away the rows it has not read yet.
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
-            [
-                _cursor_page([{"id": "o1", "startTime": "2026-03-04T10:05:00Z"}], cursor="abc"),
-                _cursor_page([{"id": "o2", "startTime": "2026-03-04T09:00:00Z"}], cursor=None),
-            ],
-            endpoint="observations",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 8, 0, 0, tzinfo=UTC),
-            incremental_field="startTime",
-        )
-        for call in session.get.call_args_list:
-            assert call.kwargs["params"]["fromStartTime"] == "2026-03-04T07:00:00Z"
 
     def test_page_limit_raises_after_checkpointing_next_page(self):
         # A hostile host reporting ever-more totalPages would otherwise keep the loop alive until

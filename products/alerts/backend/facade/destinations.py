@@ -15,8 +15,7 @@ from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
 
-from ..logic import destination_configs, destinations, insight_alert_destinations
-from .contracts import (
+from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -26,6 +25,8 @@ from .contracts import (
     EventKindSpec,
     OwnedAlertDestination,
 )
+
+from ..logic import destination_configs, destinations, insight_alert_destinations
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -55,6 +56,15 @@ def validate_destination_data(
 ) -> None:
     """Raise `AlertDestinationValidationError` when the payload cannot become a destination."""
     destination_configs.validate_destination_data(data, allowed_destination_types=allowed_destination_types)
+
+
+def destination_handles_event_kind(destination_type: DestinationType, spec: EventKindSpec) -> bool:
+    """Whether a destination type has something to send for one event kind.
+
+    An incident manager such as PagerDuty follows only the kinds that trigger or resolve an
+    incident, so a product filters its event kinds with this before it builds configs.
+    """
+    return destination_configs.destination_handles_event_kind(destination_type, spec)
 
 
 def build_alert_destination_config(

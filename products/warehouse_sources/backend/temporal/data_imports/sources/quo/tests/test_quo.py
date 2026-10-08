@@ -1,21 +1,22 @@
 import json
-from datetime import UTC, date, datetime
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo import (
     QuoResumeConfig,
-    _to_iso,
     quo_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import ENDPOINTS, QUO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
+    QUO_API_VERSION_2026_03_30,
+    QUO_API_VERSION_V1,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -72,61 +73,37 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return quo_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = QUO_API_VERSION_V1, **kwargs: Any):
+    return quo_source(
+        "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version, **kwargs
+    )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestToIso:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (None, None),
-            (datetime(2026, 1, 1, tzinfo=UTC), "2026-01-01T00:00:00+00:00"),
-            (datetime(2026, 1, 1), "2026-01-01T00:00:00+00:00"),
-            (date(2026, 1, 2), "2026-01-02T00:00:00+00:00"),
-            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00+00:00"),
-            (1700000000, None),
-        ],
-    )
-    def test_to_iso_values(self, value: Any, expected: Optional[str]):
-        assert _to_iso(value) == expected
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "api_version, expected_url, expected_version_header",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (QUO_API_VERSION_V1, "https://api.quo.com/v1/phone-numbers", None),
+            (QUO_API_VERSION_2026_03_30, "https://api.quo.com/phone-numbers", "2026-03-30"),
         ],
     )
     @mock.patch(QUO_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        assert validate_credentials("key") is expected
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_validate_credentials_probes_phone_numbers_with_raw_key(self, mock_session):
+    def test_validate_credentials_probes_phone_numbers_with_raw_key(
+        self, mock_session, api_version, expected_url, expected_version_header
+    ):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
 
-        validate_credentials("key")
+        validate_credentials("key", api_version)
 
         call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.quo.com/v1/phone-numbers"
+        assert call.args[0] == expected_url
         # Quo takes the raw key in the Authorization header, with no Bearer prefix.
         assert call.kwargs["headers"]["Authorization"] == "key"
+        assert call.kwargs["headers"].get("Quo-Api-Version") == expected_version_header
 
 
 class TestTopLevelPagination:
@@ -151,18 +128,6 @@ class TestTopLevelPagination:
         manager.save_state.assert_called_once_with(QuoResumeConfig(page_token="tok"))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_api_key_in_authorization_header(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "US1"}])])
-
-        _rows(_source("users", _make_manager()))
-
-        auth = requests_seen[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.name == "Authorization"
-        assert auth.api_key == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         requests_seen = _wire(session, [_response([{"id": "US9"}])])
@@ -174,15 +139,13 @@ class TestTopLevelPagination:
         assert requests_seen[0]["params"]["pageToken"] == "tok5"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_endpoint_issues_one_request_without_page_size(self, MockSession):
+    def test_ignores_state_saved_under_a_dated_version(self, MockSession):
         session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "PN1"}])])
+        requests_seen = _wire(session, [_response([{"id": "US9"}])])
 
-        rows = _rows(_source("phone_numbers", _make_manager()))
+        _rows(_source("users", _make_manager(QuoResumeConfig(page_token="cur5", api_version="2026-03-30"))))
 
-        assert [row["id"] for row in rows] == ["PN1"]
-        assert len(requests_seen) == 1
-        assert requests_seen[0]["params"] == {}
+        assert "pageToken" not in requests_seen[0]["params"]
 
     @pytest.mark.parametrize(
         "incremental_field, expected_param",
@@ -208,47 +171,10 @@ class TestTopLevelPagination:
 
         assert requests_seen[0]["params"] == {"maxResults": 100, expected_param: WATERMARK_ISO}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_time_filters(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response([{"id": "CN1"}])])
-
-        _rows(_source("conversations", _make_manager()))
-
-        assert requests_seen[0]["params"] == {"maxResults": 100}
-
 
 class TestFanOut:
     def _fan_out_requests(self, session: mock.MagicMock) -> list[tuple[str, dict[str, Any]]]:
         return [(call.args[0], dict(call.kwargs.get("params") or {})) for call in session.get.call_args_list]
-
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_calls_fan_out_per_conversation(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response(
-                [
-                    {"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]},
-                    {"id": "CN2", "phoneNumberId": "PN2", "participants": ["+15550002"]},
-                ]
-            ),
-            _json_response([{"id": "AC1"}]),
-            _json_response([{"id": "AC2"}]),
-        ]
-
-        rows = _rows(_source("calls", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["AC1", "AC2"]
-        requests_seen = self._fan_out_requests(session)
-        assert requests_seen[0] == ("https://api.quo.com/v1/conversations", {"maxResults": 100})
-        assert requests_seen[1] == (
-            "https://api.quo.com/v1/calls",
-            {"maxResults": 100, "phoneNumberId": "PN1", "participants": ["+15550001"]},
-        )
-        assert requests_seen[2] == (
-            "https://api.quo.com/v1/calls",
-            {"maxResults": 100, "phoneNumberId": "PN2", "participants": ["+15550002"]},
-        )
 
     @pytest.mark.parametrize(
         "endpoint, expected_group_queried",
@@ -314,53 +240,114 @@ class TestFanOut:
         requests_seen = self._fan_out_requests(session)
         assert requests_seen[2][1]["pageToken"] == "tok"
 
-    @mock.patch(QUO_SESSION_PATCH)
-    def test_incremental_watermark_applied_to_child_requests_only(self, mock_session):
-        session = mock_session.return_value
-        session.get.side_effect = [
-            _json_response([{"id": "CN1", "phoneNumberId": "PN1", "participants": ["+15550001"]}]),
-            _json_response([{"id": "AC1"}]),
-        ]
 
-        _rows(
+def _dated_response(items: list[dict[str, Any]], next_cursor: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"data": items, "nextCursor": next_cursor}).encode()
+    return resp
+
+
+class TestDatedVersion:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_after_cursor_with_version_header(self, MockSession):
+        session = MockSession.return_value
+        requests_seen = _wire(
+            session,
+            [
+                _dated_response([{"id": "US1"}, {"id": "US2"}], next_cursor="cur"),
+                _dated_response([{"id": "US3"}]),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("users", manager, api_version=QUO_API_VERSION_2026_03_30))
+
+        assert [row["id"] for row in rows] == ["US1", "US2", "US3"]
+        assert requests_seen[0]["url"] == "https://api.quo.com/users"
+        assert requests_seen[0]["params"] == {"limit": 50}
+        assert requests_seen[1]["params"] == {"limit": 50, "after": "cur"}
+        assert session.headers["Quo-Api-Version"] == "2026-03-30"
+        manager.save_state.assert_called_once_with(QuoResumeConfig(page_token="cur", api_version="2026-03-30"))
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_after",
+        [
+            (QuoResumeConfig(page_token="cur5", api_version="2026-03-30"), "cur5"),
+            # A v1 pageToken means nothing to the dated `after` param.
+            (QuoResumeConfig(page_token="tok5"), None),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_only_from_state_saved_on_the_same_wire(self, MockSession, resume_state, expected_after):
+        session = MockSession.return_value
+        requests_seen = _wire(session, [_dated_response([{"id": "US9"}])])
+
+        _rows(_source("users", _make_manager(resume_state), api_version=QUO_API_VERSION_2026_03_30))
+
+        assert requests_seen[0]["params"].get("after") == expected_after
+
+    @pytest.mark.parametrize(
+        "endpoint, incremental_field, expected_params",
+        [
+            ("conversations", "createdAt", {"limit": 50, "createdAt[gte]": WATERMARK_ISO}),
+            ("conversations", "updatedAt", {"limit": 50, "updatedAt[gte]": WATERMARK_ISO}),
+            ("calls", "createdAt", {"limit": 50, "include": "summary", "createdAt[gte]": WATERMARK_ISO}),
+            ("messages", "createdAt", {"limit": 50, "createdAt[gt]": WATERMARK_ISO}),
+        ],
+    )
+    @mock.patch(QUO_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_run_uses_range_filters_without_fan_out(
+        self, MockSession, mock_fan_out_session, endpoint, incremental_field, expected_params
+    ):
+        session = MockSession.return_value
+        requests_seen = _wire(session, [_dated_response([{"id": "X1"}])])
+
+        rows = _rows(
             _source(
-                "calls",
+                endpoint,
                 _make_manager(),
+                api_version=QUO_API_VERSION_2026_03_30,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=WATERMARK,
-                incremental_field="createdAt",
+                incremental_field=incremental_field,
             )
         )
 
-        requests_seen = self._fan_out_requests(session)
-        # The parent walk stays unfiltered: an old conversation can still receive new calls.
-        assert "createdAfter" not in requests_seen[0][1]
-        assert requests_seen[1][1]["createdAfter"] == WATERMARK_ISO
+        assert [row["id"] for row in rows] == ["X1"]
+        assert len(requests_seen) == 1
+        assert requests_seen[0]["url"] == f"https://api.quo.com/{endpoint}"
+        assert requests_seen[0]["params"] == expected_params
+        mock_fan_out_session.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_phone_numbers_request_restrictions(self, MockSession):
+        session = MockSession.return_value
+        requests_seen = _wire(session, [_dated_response([{"id": "PN1"}])])
+
+        _rows(_source("phone_numbers", _make_manager(), api_version=QUO_API_VERSION_2026_03_30))
+
+        assert requests_seen[0]["url"] == "https://api.quo.com/phone-numbers"
+        assert requests_seen[0]["params"] == {"limit": 50, "include": "restrictions"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_contact_custom_fields_stay_on_v1_wire(self, MockSession):
+        session = MockSession.return_value
+        requests_seen = _wire(session, [_response([{"key": "k1"}])])
+
+        rows = _rows(_source("contact_custom_fields", _make_manager(), api_version=QUO_API_VERSION_2026_03_30))
+
+        assert [row["key"] for row in rows] == ["k1"]
+        assert requests_seen[0]["url"] == "https://api.quo.com/v1/contact-custom-fields"
+        assert "Quo-Api-Version" not in session.headers
+
+    def test_unknown_version_raises(self):
+        with pytest.raises(ValueError, match="Unsupported Quo API version"):
+            _source("users", _make_manager(), api_version="2099-01-01")
 
 
 class TestQuoSourceResponse:
     def test_unknown_endpoint_raises_unknown_resource(self):
         with pytest.raises(UnknownResourceError):
             _source("not_a_table", _make_manager())
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = QUO_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        # Quo lists return newest-first, so the watermark must only commit at sync end.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(QUO_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createdAt"

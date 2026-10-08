@@ -57,6 +57,16 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.rollbar.com": "Rollbar denied access. Please check that your project access token has the read scope.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_session` uses `make_tracked_session`, whose `DEFAULT_RETRY` already retries a
+        # dropped connection or read timeout before `fetch`'s own tenacity retry re-raises once
+        # that budget is exhausted too. urllib3 wraps that as "... Max retries exceeded with
+        # url: ...". `fetch` also retries a 429/5xx response itself, re-raising as
+        # "Rollbar API error (retryable): ..." once that budget is exhausted. Temporal then
+        # retries the whole activity either way, so the failure is transient and
+        # self-recovering, not a bug to report.
+        return {"Max retries exceeded with url", "Rollbar API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -102,10 +112,7 @@ You can find or create a project access token in your Rollbar project under Sett
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_rollbar_credentials(config.access_token):
-            return True, None
-
-        return False, "Invalid Rollbar project access token"
+        return validate_rollbar_credentials(config.access_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RollbarResumeConfig]:
         return ResumableSourceManager[RollbarResumeConfig](inputs, RollbarResumeConfig)

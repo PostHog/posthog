@@ -5,7 +5,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { SCORE_RUN_POLL_INTERVAL_MS, autoresearchPipelineLogic, trainingRunProgress } from './autoresearchPipelineLogic'
+import {
+    SCORE_RUN_POLL_INTERVAL_MS,
+    autoresearchPipelineLogic,
+    featureChanges,
+    scoringCoverage,
+    trainingRunProgress,
+} from './autoresearchPipelineLogic'
 import {
     autoresearchModelsList,
     autoresearchRetrieve,
@@ -13,7 +19,13 @@ import {
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
 } from './generated/api'
-import { AutoresearchRunApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
+import {
+    AutoresearchRunApi,
+    AutoresearchTrainingRunApi,
+    FeatureDirectionEnumApi,
+    IterationTrailApi,
+    ModelExplanationFieldApi,
+} from './generated/api.schemas'
 
 jest.mock('./generated/api', () => ({
     autoresearchRetrieve: jest.fn(),
@@ -74,6 +86,19 @@ function makeIteration(overrides: Partial<IterationTrailApi>): IterationTrailApi
         holdout_score: null,
         ...overrides,
     } as IterationTrailApi
+}
+
+function makeScoringRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
+    return {
+        id: 'scoring-run',
+        pipeline: 'pipeline-1',
+        run_type: 'inference',
+        status: 'completed',
+        rows_scored: 45000,
+        metrics: { rows_eligible: 250000 },
+        created_at: '2026-01-02T00:00:00Z',
+        ...overrides,
+    } as AutoresearchRunApi
 }
 
 describe('autoresearchPipelineLogic', () => {
@@ -171,6 +196,40 @@ describe('autoresearchPipelineLogic', () => {
         logic.unmount()
     })
 
+    describe('scoringCoverage', () => {
+        it.each([
+            ['a rolling run', [makeScoringRun({})], { scored: 45000, eligible: 250000, rescoreDays: 6 }],
+            ['a run that scored everyone', [makeScoringRun({ metrics: { rows_eligible: 45000 } })], null],
+            ['a run from before the eligible count was recorded', [makeScoringRun({ metrics: {} })], null],
+            [
+                'an older rolling run superseded by a full one',
+                [
+                    makeScoringRun({ id: 'old', created_at: '2026-01-01T00:00:00Z' }),
+                    makeScoringRun({ id: 'new', rows_scored: 900, metrics: { rows_eligible: 900 } }),
+                ],
+                null,
+            ],
+            [
+                'a newer run that failed',
+                [
+                    makeScoringRun({}),
+                    makeScoringRun({ id: 'failed', status: 'failed', created_at: '2026-01-03T00:00:00Z' }),
+                ],
+                { scored: 45000, eligible: 250000, rescoreDays: 6 },
+            ],
+        ])('reads the coverage of %s', (_name, runs, expected) => {
+            expect(scoringCoverage(runs, 1)).toEqual(expected)
+        })
+
+        it('counts the rescore interval in days for a non-daily cadence', () => {
+            expect(scoringCoverage([makeScoringRun({})], 7)).toEqual({
+                scored: 45000,
+                eligible: 250000,
+                rescoreDays: 42,
+            })
+        })
+    })
+
     describe('trainingRunProgress', () => {
         it('derives progress from live iteration rows while the run is in flight', () => {
             // Persisted fields are only written at completion, so they read 0 / null here.
@@ -217,6 +276,25 @@ describe('autoresearchPipelineLogic', () => {
                 ],
             })
             expect(trainingRunProgress(run)).toEqual({ iterationCount: 2, bestHoldoutScore: 0.7 })
+        })
+    })
+
+    describe('featureChanges', () => {
+        const explanation = (...names: string[]): ModelExplanationFieldApi => ({
+            top_features: names.map((name) => ({
+                name,
+                importance: 1,
+                direction: FeatureDirectionEnumApi.Positive,
+            })),
+        })
+
+        it.each([
+            ['same features', explanation('a', 'b'), explanation('b', 'a'), { added: [], dropped: [] }],
+            ['added and dropped', explanation('a', 'c'), explanation('a', 'b'), { added: ['c'], dropped: ['b'] }],
+            ['run without importances', {}, explanation('a'), { added: [], dropped: [] }],
+            ['champion without importances', explanation('a'), {}, { added: [], dropped: [] }],
+        ])('%s', (_name, run, champion, expected) => {
+            expect(featureChanges(run, champion)).toEqual(expected)
         })
     })
 })
