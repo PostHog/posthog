@@ -172,6 +172,50 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
     }
 }
 
+#[derive(Debug)]
+pub struct OwnedProduceRecord {
+    pub topic: String,
+    pub key: Option<String>,
+    pub payload: String,
+    pub headers: Vec<(String, Option<String>)>,
+}
+
+impl OwnedProduceRecord {
+    pub fn header(&self, key: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_deref())
+    }
+}
+
+impl From<&ProduceRecord> for OwnedProduceRecord {
+    fn from(record: &ProduceRecord) -> Self {
+        use rdkafka::message::{Headers, OwnedHeaders};
+
+        // Headers travel to the broker as bytes, so read them back the way a
+        // consumer would rather than trusting the typed struct.
+        let wire: OwnedHeaders = record.headers.clone().into();
+        let headers = (0..wire.count())
+            .map(|i| {
+                let header = wire.get(i);
+                (
+                    header.key.to_owned(),
+                    header
+                        .value
+                        .map(|v| String::from_utf8_lossy(v).into_owned()),
+                )
+            })
+            .collect();
+        Self {
+            topic: record.topic.to_string(),
+            key: record.key.clone(),
+            payload: String::from_utf8_lossy(&record.payload).into_owned(),
+            headers,
+        }
+    }
+}
+
 /// Mock Kafka producer for testing - captures all sent records.
 ///
 /// Two failure modes, both keyed on the 0-based send index:
@@ -215,6 +259,17 @@ impl MockKafkaProducer {
     /// Get all records that were sent
     pub fn get_records(&self) -> Vec<ProduceRecord> {
         self.records.lock().unwrap().clone()
+    }
+
+    pub fn with_records<R>(&self, f: impl FnOnce(&[OwnedProduceRecord]) -> R) -> R {
+        let records: Vec<OwnedProduceRecord> = self
+            .records
+            .lock()
+            .unwrap()
+            .iter()
+            .map(OwnedProduceRecord::from)
+            .collect();
+        f(&records)
     }
 
     /// Clear all captured records
