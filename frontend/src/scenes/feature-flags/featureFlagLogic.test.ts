@@ -1504,6 +1504,22 @@ describe('featureFlagLogic', () => {
             }).toMatchValues({ activeTab: expectedTab })
         })
 
+        it('offers the notifications tab only while its rollout flag is on', async () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS], {
+                [FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]: true,
+            })
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.featureFlag(1)}?tab=notifications`)
+            }).toMatchValues({ activeTab: FeatureFlagsTab.NOTIFICATIONS })
+
+            // Without the flag the tab is gone and the deep link clamps to overview
+            await expectLogic(logic, () => {
+                enabledFeaturesLogic.actions.setFeatureFlags([], {})
+            }).toMatchValues({ selectedTab: FeatureFlagsTab.NOTIFICATIONS, activeTab: FeatureFlagsTab.OVERVIEW })
+            expect(logic.values.availableTabs).not.toContain(FeatureFlagsTab.NOTIFICATIONS)
+        })
+
         it('opens the history tab when the page loads with ?activity already in the URL', async () => {
             logic.unmount()
             router.actions.push(`${urls.featureFlag(1)}?activity=42`)

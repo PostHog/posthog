@@ -53,6 +53,23 @@ ROLLOUT_FULLY_ROLLED_OUT = "fully_rolled_out"
 ROLLOUT_NOT_ROLLED_OUT = "not_rolled_out"
 ROLLOUT_PARTIAL = "partial"
 
+# Why a flag counts as stale. The stale-flags health check and the `$feature_flag_stale` event both
+# write these into payloads that webhook consumers read, so the values and the rule that picks
+# between them (`stale_evidence`) live here, next to `filter_stale_flags`.
+# `last_called_at` exists and predates the stale threshold. The column only records received
+# `$feature_flag_called` events, so it says nothing about evaluations that send no event.
+EVIDENCE_NOT_CALLED_RECENTLY = "not_called_recently"
+# No call evidence at all; the flag is old enough and its configuration serves a fixed
+# result. This says nothing about whether SDKs still evaluate the flag.
+EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA = "fully_rolled_out_without_usage_data"
+
+
+def stale_evidence(flag: FeatureFlag) -> tuple[str, datetime]:
+    """The evidence class of a flag `filter_stale_flags` selected, and the date that evidence points at."""
+    if flag.last_called_at is None:
+        return EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA, flag.created_at
+    return EVIDENCE_NOT_CALLED_RECENTLY, flag.last_called_at
+
 
 def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) -> QuerySet:
     """Hide archived flags unless the caller explicitly asked for them.

@@ -103,6 +103,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
+        case 'feature-flag-alerts':
+            return [
+                {
+                    label: 'Feature flag became stale',
+                    value: '$feature_flag_stale',
+                },
+            ]
         default:
             return [
                 {

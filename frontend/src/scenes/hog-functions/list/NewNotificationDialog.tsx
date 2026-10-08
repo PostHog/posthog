@@ -7,32 +7,30 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { HogFunctionSubTemplateIdType } from '~/types'
-
 import {
     DESTINATION_OPTIONS,
     NewNotificationDialogLogicProps,
+    NotificationTriggerOption,
     newNotificationDialogLogic,
 } from './newNotificationDialogLogic'
 
 export interface NewNotificationDialogProps {
-    /** The sub-template ID that defines the filters, name, and message templates */
-    subTemplateId: HogFunctionSubTemplateIdType
+    /** With more than one, the dialog asks which */
+    triggers: NotificationTriggerOption[]
     /** Callback fired after a notification is successfully created */
     onCreated: () => void
     /** Dialog title shown in the modal header */
     title?: string
-    /** Override the default filters used by the sub-template */
-    filtersOverride?: NewNotificationDialogLogicProps['filtersOverride']
+    scopeLabel?: NewNotificationDialogLogicProps['scopeLabel']
 }
 
 export function NewNotificationDialog({
-    subTemplateId,
+    triggers,
     onCreated,
     title = 'New notification',
-    filtersOverride,
+    scopeLabel,
 }: NewNotificationDialogProps): JSX.Element {
-    const logicProps: NewNotificationDialogLogicProps = { subTemplateId, onCreated, filtersOverride }
+    const logicProps: NewNotificationDialogLogicProps = { triggers, onCreated, scopeLabel }
     const logic = newNotificationDialogLogic(logicProps)
 
     const {
@@ -74,6 +72,23 @@ export function NewNotificationDialog({
                 enableFormOnSubmit
             >
                 <div className="flex flex-col gap-4">
+                    {triggers.length > 1 && (
+                        <Field name="trigger" label="Trigger">
+                            {({ value, onChange }) => (
+                                <LemonSelect
+                                    value={value}
+                                    onChange={onChange}
+                                    options={triggers.map((trigger) => ({
+                                        value: trigger.subTemplateId,
+                                        label: trigger.label,
+                                    }))}
+                                    fullWidth
+                                    data-attr="new-notification-trigger"
+                                />
+                            )}
+                        </Field>
+                    )}
+
                     <Field name="destination" label="Destination">
                         {({ value, onChange }) => (
                             <LemonSelect

@@ -2153,7 +2153,7 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
-        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        availableTabs: (featureFlag: FeatureFlagType, props: any, enabledFeatures: FeatureFlagsSet) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
         editorKind: (
             props: any,
@@ -4775,8 +4775,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         props: [() => [(_, props) => props], (props) => props],
         // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
         availableTabs: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+            (s) => [s.featureFlag, s.props, s.enabledFeatures],
+            (
+                featureFlag: FeatureFlagType,
+                props: FeatureFlagLogicProps,
+                enabledFeatures: FeatureFlagsSet
+            ): FeatureFlagsTab[] => {
                 const tabs = [FeatureFlagsTab.OVERVIEW]
                 // Projects (copy), Schedule and Testing read or rewrite the v1 document.
                 const v1 = isV1FeatureFlagConfig(featureFlag.filters)
@@ -4788,6 +4792,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 if (featureFlag.id) {
                     tabs.push(FeatureFlagsTab.HISTORY)
+                    // Same gate as the project-wide tab on the flags list
+                    if (enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]) {
+                        tabs.push(FeatureFlagsTab.NOTIFICATIONS)
+                    }
                 }
                 if (featureFlag.can_edit) {
                     tabs.push(FeatureFlagsTab.PERMISSIONS)
