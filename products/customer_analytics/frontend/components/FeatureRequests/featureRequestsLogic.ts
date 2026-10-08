@@ -253,7 +253,6 @@ const EMPTY_FEATURE_REQUEST_EDIT_FORM: FeatureRequestEditFormValues = {
     requestPriority: null,
 }
 
-// kea-forms types an array field's error as one entry per item, but this message covers the whole list.
 function listError(message: string | undefined): string[] | undefined {
     return message as unknown as string[] | undefined
 }
