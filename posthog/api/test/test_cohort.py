@@ -4428,6 +4428,22 @@ email@example.org,
             "Missing required keys for behavioral filter: event_type",
         )
 
+    @parameterized.expand(
+        [
+            ("non_list_values", {"properties": {"type": "OR", "values": 5}}),
+            ("non_object_filters", [1]),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_static_cohort_with_malformed_filters_is_a_validation_error(self, _name, filters, patch_capture):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "static", "is_static": True, "filters": filters}
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+
     def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}

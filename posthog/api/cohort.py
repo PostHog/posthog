@@ -668,10 +668,18 @@ REALTIME_TARGETING_ENABLED_CONTEXT_KEY = "realtime_targeting_enabled"
 ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY = "allow_hidden_event_criteria"
 
 
-def _flat_properties(filters: object) -> list[Property]:
-    # validate_filters returns a static cohort's filters unparsed when they hold no criteria, so they can be any JSON.
+def _is_empty_filters(filters: object) -> bool:
+    if not filters:
+        return True
     properties = filters.get("properties") if isinstance(filters, dict) else None
-    return parse_property_group_data(properties).flat if isinstance(properties, dict) and properties else []
+    return isinstance(properties, dict) and isinstance(properties.get("values", []), list)
+
+
+def _flat_properties(filters: object) -> list[Property]:
+    # A static cohort saved before validate_filters checked the shape of empty filters can store any JSON.
+    if not isinstance(filters, dict) or not cohort_filters_have_values(filters):
+        return []
+    return parse_property_group_data(filters["properties"]).flat
 
 
 def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
@@ -1295,7 +1303,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         """
         cohort_will_be_static = self._cohort_will_be_static()
 
-        if cohort_will_be_static and not cohort_filters_have_values(raw):
+        if cohort_will_be_static and not cohort_filters_have_values(raw) and _is_empty_filters(raw):
             return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
