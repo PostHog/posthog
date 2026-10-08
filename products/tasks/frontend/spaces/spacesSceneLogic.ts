@@ -9,10 +9,11 @@ import { starredSpaces, todaySpacesLogic } from '~/layout/today/todaySpacesLogic
 import { Breadcrumb } from '~/types'
 
 import { taskChannelsContributorsRetrieve, tasksList } from '../generated/api'
-import { ChannelDTOApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
-import { SpacePresence, presenceBySpace } from './spacePresence'
+import { ChannelDTOApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
+import { PRESENCE_RECENT_WINDOW_MS, SpacePresence, presenceBySpace } from './spacePresence'
 
 const SPACE_PRESENCE_FETCH_LIMIT = 100
+const SPACE_PRESENCE_MAX_PAGES = 10
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export interface SpacesIndexLists {
@@ -132,12 +133,23 @@ export const spacesSceneLogic = kea<spacesSceneLogicType>([
                     if (!values.currentTeamId) {
                         return {}
                     }
-                    const response = await tasksList(String(values.currentTeamId), {
-                        ordering: '-last_activity_at',
-                        basic: true,
-                        limit: SPACE_PRESENCE_FETCH_LIMIT,
-                    })
-                    return presenceBySpace(response.results, Date.now())
+                    const now = Date.now()
+                    const tasks: TaskListItemApi[] = []
+                    for (let page = 0; page < SPACE_PRESENCE_MAX_PAGES; page++) {
+                        const response = await tasksList(String(values.currentTeamId), {
+                            ordering: '-last_activity_at',
+                            basic: true,
+                            limit: SPACE_PRESENCE_FETCH_LIMIT,
+                            offset: page * SPACE_PRESENCE_FETCH_LIMIT,
+                        })
+                        tasks.push(...response.results)
+                        const oldest = response.results[response.results.length - 1]?.last_activity_at
+                        // The list is newest first, so a page that reaches past the window holds the last faces.
+                        if (!response.next || !oldest || now - Date.parse(oldest) >= PRESENCE_RECENT_WINDOW_MS) {
+                            break
+                        }
+                    }
+                    return presenceBySpace(tasks, now)
                 },
             },
         ],
