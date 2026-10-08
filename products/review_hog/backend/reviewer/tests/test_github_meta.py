@@ -482,6 +482,40 @@ class TestFetchPrData:
         assert "yarn.lock" not in diff
         assert "=== src/module.py [modified] ===" in diff
 
+    @parameterized.expand(
+        [
+            ("found", None, "f" * 40),
+            ("compare_fails", GitHubAPIError("GitHub API GET returned 404: Not found", status=404), None),
+        ]
+    )
+    def test_merge_base_is_best_effort(
+        self,
+        mock_request: Mock,
+        mock_paginated: Mock,
+        _name: str,
+        compare_error: Exception | None,
+        expected: str | None,
+    ) -> None:
+        # Only a prompt that leaves a diff out reads the merge base, so a failed compare call must not fail the fetch.
+        _wire(mock_request, mock_paginated, _pr_json())
+        pr_response = mock_request.return_value
+
+        def request(method: str, path: str, **kwargs: Any) -> Mock:
+            if "/compare/" not in path:
+                return pr_response
+            if compare_error is not None:
+                raise compare_error
+            comparison = Mock()
+            comparison.json.return_value = {"merge_base_commit": {"sha": "f" * 40}}
+            return comparison
+
+        mock_request.side_effect = request
+
+        fetched = PRFetcher("owner", "repo", 123, token="test-token").fetch_pr_data(with_merge_base=True)
+
+        assert fetched.merge_base_sha == expected
+        assert fetched.pr_metadata.number == 123
+
     def test_missing_patch_recorded_explicitly_in_diff(self, mock_request: Mock, mock_paginated: Mock) -> None:
         # GitHub omits the patch for binary/large files — the snapshot keeps the header with a marker
         # rather than silently dropping the file.

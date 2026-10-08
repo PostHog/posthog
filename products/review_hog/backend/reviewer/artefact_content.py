@@ -325,6 +325,10 @@ class PRSnapshotArtefact(BaseModel):
         default=REVIEW_DESIGN_PIPELINE,
         description="The design the turn runs on (pipeline or single_agent), chosen at fetch.",
     )
+    merge_base_sha: str | None = Field(
+        default=None,
+        description="The commit GitHub computes the PR diff against. Fetched for single-agent turns only.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):

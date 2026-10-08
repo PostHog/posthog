@@ -2,6 +2,8 @@ import re
 import logging
 from typing import Any
 
+import requests
+
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 
@@ -254,6 +256,13 @@ class FetchedPR:
     pr_files: list[PRFile]
     # The reviewed files' point-in-time unified patch.
     diff: str
+    # The commit GitHub computes the diff against. None when it was not asked for or GitHub did not return it.
+    merge_base_sha: str | None = None
+
+
+def _merge_base_sha(comparison: dict[str, Any]) -> str | None:
+    sha = (comparison.get("merge_base_commit") or {}).get("sha")
+    return sha if isinstance(sha, str) else None
 
 
 def find_open_pr_for_branch(
@@ -366,7 +375,13 @@ def fetch_branch_compare(
         deletions=deletions,
         changed_files=len(files),
     )
-    return FetchedPR(pr_metadata=metadata, pr_comments=[], pr_files=pr_files, diff="\n\n".join(diff_sections))
+    return FetchedPR(
+        pr_metadata=metadata,
+        pr_comments=[],
+        pr_files=pr_files,
+        diff="\n\n".join(diff_sections),
+        merge_base_sha=_merge_base_sha(comparison),
+    )
 
 
 class PRFetcher:
@@ -474,11 +489,32 @@ class PRFetcher:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
         return pr_files, "\n\n".join(diff_sections)
 
-    def fetch_pr_data(self, *, review_tests_and_text: bool = False) -> FetchedPR:
+    def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
+        """The commit GitHub computes the PR's diff against, or None when the compare call fails.
+
+        Best-effort, because only a review that cannot show its whole diff reads it.
+        """
+        try:
+            comparison = github_api_request(
+                "GET",
+                f"/repos/{self.owner}/{self.repo}/compare/{base_branch}...{head_sha}",
+                token=self._token,
+                installation_id=self._installation_id,
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                # Only the merge base is needed, so ask for the smallest page of commits.
+                params={"per_page": 1},
+            ).json()
+        except (GitHubAPIError, GitHubRateLimitError, requests.RequestException) as error:
+            logger.warning("Could not read the merge base of PR #%s: %s", self.pr_number, type(error).__name__)
+            return None
+        return _merge_base_sha(comparison)
+
+    def fetch_pr_data(self, *, review_tests_and_text: bool = False, with_merge_base: bool = False) -> FetchedPR:
         """Fetch PR data from the GitHub API, returning everything in-process (no files).
 
         Returns a `FetchedPR` where ``diff`` is the reviewed files'
         point-in-time unified patch. ``review_tests_and_text`` keeps test and ``.txt`` files (`PRFilter`).
+        ``with_merge_base`` also reads the merge base, one more API call.
         """
         pr = github_api_request(
             "GET",
@@ -492,5 +528,16 @@ class PRFetcher:
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr_filter)
         pr_files, diff = self.fetch_pr_files(pr_filter, pr_parser)
+        merge_base_sha = (
+            self.fetch_merge_base_sha(base_branch=pr_metadata.base_branch, head_sha=pr_metadata.head_sha)
+            if with_merge_base and pr_metadata.head_sha
+            else None
+        )
         logger.info("PR data fetched successfully")
-        return FetchedPR(pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files, diff=diff)
+        return FetchedPR(
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            pr_files=pr_files,
+            diff=diff,
+            merge_base_sha=merge_base_sha,
+        )

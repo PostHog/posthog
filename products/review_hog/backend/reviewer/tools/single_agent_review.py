@@ -51,6 +51,10 @@ LENS_PRIORITY_FILE = SINGLE_AGENT_PROMPT_PATH / "lens_priority.md"
 # The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 
+# A full SHA-1 or SHA-256 commit id. The prompt puts the merge base into a shell command the session
+# runs, so only a value of this shape may reach it.
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
 _STORED_PRIORITY = {
     "P0": IssuePriority.MUST_FIX,
     "P1": IssuePriority.MUST_FIX,
@@ -78,7 +82,7 @@ class SingleAgentPrompt:
 
     `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
     to the reviewable files, and then to none: the file list marks each file it leaves out, and the
-    session reads those changes with git.
+    session reads those changes with git against `merge_base_sha`.
     """
 
     def __init__(
@@ -88,11 +92,13 @@ class SingleAgentPrompt:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         prior_findings: list[ReviewIssueFinding],
+        merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
     ) -> None:
         self.repository = repository
         self.pr_metadata = pr_metadata
+        self.merge_base_sha = merge_base_sha
         self.pr_files = pr_files
         self.prior_findings = prior_findings
         self.scope_files = scope_files
@@ -160,6 +166,11 @@ class SingleAgentPrompt:
         ]
         return json.dumps(covered, indent=2) if covered else None
 
+    def _base_sha(self) -> str | None:
+        """The merge base when it is a commit id, else None: the prompt then gives no git command."""
+        sha = self.merge_base_sha
+        return sha if sha is not None and _COMMIT_SHA.fullmatch(sha) else None
+
     def render(self) -> str:
         template, output_schema = load_template_and_schema(SINGLE_AGENT_PROMPT_DIR)
         in_scope = self._in_scope()
@@ -171,7 +182,7 @@ class SingleAgentPrompt:
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
-            BASE_BRANCH=self.pr_metadata.base_branch,
+            BASE_SHA=self._base_sha(),
             PR_TITLE=self.pr_metadata.title,
             PR_DESCRIPTION=self.pr_metadata.body.strip() or "(no description provided)",
             FILE_LIST=self._file_list(not_shown),

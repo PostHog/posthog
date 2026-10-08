@@ -10,7 +10,7 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
-from products.review_hog.backend.reviewer.persistence import load_review_arm
+from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
@@ -90,9 +90,11 @@ class TestFetchDecidesTheTier(BaseTest):
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
         # default runs every Flash turn without its lenses and no error shows it. Only the
         # single-agent design fetches test and `.txt` files, so the design must be known first.
+        # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
         pr_file = PRFile(filename="a.py", status="modified", additions=10, deletions=0)
+        merge_base_sha = "f" * 40
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
-            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[pr_file], diff=""
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[pr_file], diff="", merge_base_sha=merge_base_sha
         )
         meta = _fetch_and_persist(
             FetchPRDataInput(
@@ -107,9 +109,13 @@ class TestFetchDecidesTheTier(BaseTest):
         )
 
         assert meta.lens_chunk_count == expected_parts
+        single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
-            "review_tests_and_text": review_mode == REVIEW_MODE_FLASH
+            "review_tests_and_text": single_agent,
+            "with_merge_base": single_agent,
         }
+        snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
+        assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

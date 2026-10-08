@@ -274,7 +274,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   before dedup are not recorded. The choices are callable, so the new
   type needs no migration.
 - **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
-  to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the status
+  to the file list with a git command to read the changes. The command fetches the PR's merge base by its commit id
+  and diffs it against the head, which works in the sandbox's depth-1 clone; a three-dot diff against the base branch
+  fails there with no merge base, and a base branch name in a shell command is repository-controlled text. The
+  prompt renders only a full commit id. A PR past the lens part cap gets one line in the status
   comment, because a clean turn posts no review and a note in the review body would never show. A Flash turn never
   falls back to the pipeline for size: the lens parts cap keeps a big PR to a fixed number of sessions, and on big PRs
   the single-agent design matched the pipeline on high-severity findings with far fewer comments. The

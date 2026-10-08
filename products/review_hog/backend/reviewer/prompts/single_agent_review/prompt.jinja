@@ -33,7 +33,7 @@ Each line starts with `+` (added), `-` (removed), or a space (unchanged context)
 {{ DIFF|safe }}
 {% if DIFF_NOT_SHOWN %}
 
-The diff leaves out the files marked "diff not shown", because they do not fit in this prompt. Read their changes with git: fetch the base branch with `git fetch origin {{ BASE_BRANCH }}`, then run `git diff FETCH_HEAD...HEAD -- <path>`.
+The diff leaves out the files marked "diff not shown", because they do not fit in this prompt. {% if BASE_SHA %}Read their changes with git: run `git fetch --depth 1 origin {{ BASE_SHA }}` once, then `git diff {{ BASE_SHA }} HEAD -- <path>` for each file.{% else %}Read those files in the checkout. Their version before the pull request is not available.{% endif %}
 {% endif %}
 {% if COVERED_FINDINGS %}
 

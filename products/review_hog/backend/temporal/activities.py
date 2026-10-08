@@ -665,7 +665,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
     )
     logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)
-    review_tests_and_text = design_choice.design == REVIEW_DESIGN_SINGLE_AGENT
+    single_agent = design_choice.design == REVIEW_DESIGN_SINGLE_AGENT
     pr_number, pr_url = input.pr_number, input.pr_url
     if pr_number is None and input.head_branch:
         discovered = find_open_pr_for_branch(
@@ -681,7 +681,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=review_tests_and_text)
+        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=single_agent)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -694,7 +694,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             repository=input.repository,
             head_branch=input.head_branch or "",
             installation_id=installation_id,
-            review_tests_and_text=review_tests_and_text,
+            review_tests_and_text=single_agent,
         )
     head_sha = fetched.pr_metadata.head_sha or ""
     report_id = upsert_review_report(
@@ -749,8 +749,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=fetched.pr_comments,
         pr_files=fetched.pr_files,
         review_design=design_choice.design,
+        merge_base_sha=fetched.merge_base_sha,
     )
-    lens_plan = plan_lens_chunks(fetched.pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
+    lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     if already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or fetched.pr_metadata.state != "open")
     ):
@@ -1260,6 +1261,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
     return SingleAgentPrompt(
         repository=input.repository,
         pr_metadata=snapshot.pr_metadata,
+        merge_base_sha=snapshot.merge_base_sha,
         pr_files=snapshot.pr_files,
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index

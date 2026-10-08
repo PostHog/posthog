@@ -281,7 +281,11 @@ The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_co
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier
 turns' findings, and the finding format, plus a scope section for a lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS`
 (about 200K tokens) shrinks to the reviewable files, and then to the file list alone; the file list marks every file
-whose diff is left out, and the prompt says how to read it with git. There is no team slot: every team runs the same
+whose diff is left out, and the prompt says how to read it with git: fetch the PR's merge base by its commit id, then
+diff it against the head. The fetch activity reads the merge base from GitHub's compare API for a single-agent turn
+(`PRFetcher.fetch_merge_base_sha`) and keeps it on the `pr_snapshot`. The prompt puts it into the command only when it
+is a full commit id, so no text from the repository, such as a branch name, reaches the session's shell. Without one,
+the prompt tells the session to read those files at the head. There is no team slot: every team runs the same
 DevEx-owned prompts.
 
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
