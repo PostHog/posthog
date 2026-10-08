@@ -99,6 +99,7 @@ export interface MathSelectorProps {
     size?: LemonButtonProps['size']
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
+    excludedMathTypes?: ReadonlySet<string>
     query?: Record<string, any>
     fullWidth?: boolean
     truncateText?: { maxWidthClass: string }

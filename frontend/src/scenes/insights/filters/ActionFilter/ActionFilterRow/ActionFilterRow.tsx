@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { DefinitionView } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -61,6 +62,7 @@ import {
 import {
     FLAG_CALLS_SERIES_DESCRIPTION,
     FLAG_CALLS_SERIES_NAME,
+    FLAG_CALLS_UNSUPPORTED_MATH_TYPES,
     FLAG_EVALUATIONS_SERIES_FIELDS,
     flagCallsFiltersFromEventFilters,
 } from '../flagCallsSeries'
@@ -314,7 +316,23 @@ export function ActionFilterRow({
                     ...FLAG_EVALUATIONS_SERIES_FIELDS,
                 })
                 if (isEventsSeriesNode(node) && node.event === FEATURE_FLAG_CALLED_EVENT) {
-                    updateSeriesProperties(index, flagCallsFiltersFromEventFilters(node.properties))
+                    const flagCallsFilters = flagCallsFiltersFromEventFilters(node.properties)
+                    updateSeriesProperties(index, flagCallsFilters)
+                    const removedCount = (node.properties?.length ?? 0) - flagCallsFilters.length
+                    if (removedCount > 0) {
+                        lemonToast.info(
+                            `${FLAG_CALLS_SERIES_NAME} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
+                        )
+                    }
+                }
+                if (node.math && FLAG_CALLS_UNSUPPORTED_MATH_TYPES.has(node.math)) {
+                    updateSeriesMath(index, {
+                        math: undefined,
+                        math_group_type_index: undefined,
+                        math_property: undefined,
+                        math_property_type: undefined,
+                        math_hogql: undefined,
+                    })
                 }
                 return
             }
@@ -350,6 +368,7 @@ export function ActionFilterRow({
         [
             updateSeriesEntity,
             updateSeriesProperties,
+            updateSeriesMath,
             index,
             dataWarehousePopoverFields,
             dataWarehouseNodeKind,
@@ -664,6 +683,11 @@ export function ActionFilterRow({
                                                     mathAvailability={mathAvailability}
                                                     trendsDisplayCategory={trendsDisplayCategory}
                                                     allowedMathTypes={allowedMathTypes}
+                                                    excludedMathTypes={
+                                                        isFlagCallsSeries
+                                                            ? FLAG_CALLS_UNSUPPORTED_MATH_TYPES
+                                                            : undefined
+                                                    }
                                                     query={query || {}}
                                                     fullWidth
                                                     truncateText={{ maxWidthClass: 'max-w-full' }}

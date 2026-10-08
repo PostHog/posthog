@@ -6,6 +6,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,6 +26,7 @@ import { initKeaTests } from '~/test/init'
 import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
+    BaseMathType,
     EntityTypes,
     FilterType,
     HogQLMathType,
@@ -964,10 +967,12 @@ describe('ActionFilterRow', () => {
                 ...MOCK_DEFAULT_TEAM,
                 flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
             })
+            const infoToast = jest.spyOn(lemonToast, 'info')
             const eventsNode: SeriesNode = {
                 kind: NodeKind.EventsNode,
                 event: '$feature_flag_called',
                 name: '$feature_flag_called',
+                math: BaseMathType.WeeklyActiveUsers,
                 properties: [
                     {
                         key: '$feature_flag',
@@ -1008,6 +1013,7 @@ describe('ActionFilterRow', () => {
                 expect(lastCall?.[0]).toEqual(
                     expect.objectContaining({
                         table_name: 'posthog.flag_evaluations',
+                        math: undefined,
                         properties: [
                             {
                                 key: 'flag_key',
@@ -1026,6 +1032,36 @@ describe('ActionFilterRow', () => {
                     })
                 )
             })
+            expect(infoToast.mock.calls.map(([message]) => message)).toEqual([
+                'Feature flag called supports only flag key, response and SQL filters, so 2 other filters were removed.',
+            ])
+            infoToast.mockRestore()
+        })
+
+        it('leaves out math that trends computes from events', async () => {
+            const flagCallsNode: SeriesNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Feature flag called',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            }
+            const { logic } = setup([flagCallsNode])
+            renderRow(logic, { node: flagCallsNode, mathAvailability: MathAvailability.All })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+
+            expect(await screen.findByText('Unique users')).toBeInTheDocument()
+            for (const label of [
+                'Weekly active users',
+                'Monthly active users',
+                'First-ever occurrence',
+                'First occurrence matching filters',
+            ]) {
+                expect(screen.queryByText(label)).not.toBeInTheDocument()
+            }
         })
 
         it('reopens a flag calls series on the event and picks it again in the rebuilt menu', async () => {

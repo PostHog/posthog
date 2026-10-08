@@ -560,8 +560,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         where_expr: ast.Expr | None = None
         if not entity_is_dwh:
             where_expr = ast.And(exprs=self._arm_where_filters(entity, query_kind))
-        elif self.runner.group_type_index is not None:
-            where_expr = parse_expr("toString({actor}) != ''", {"actor": self.entity_actor_id_expr(entity)})
+        elif dwh_filters := self._dwh_arm_where_filters(entity, query_kind, timestamp_field):
+            where_expr = ast.And(exprs=dwh_filters)
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -892,6 +892,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         predicate = self._arm_scan_predicate(entity, query_kind)
         if not (isinstance(predicate, ast.Constant) and predicate.value is True):
             filters.append(predicate)
+        return filters
+
+    def _dwh_arm_where_filters(
+        self, entity: RetentionEntity, query_kind: Literal["start", "return"], timestamp_field: ast.Expr
+    ) -> list[ast.Expr]:
+        """The warehouse counterpart of _arm_where_filters. Every aggregate that a warehouse arm computes already
+        conditions on its entity and the query window. These filters therefore drop only rows that no aggregate reads."""
+        filters: list[ast.Expr] = []
+        # A first-time start arm finds the first start row of each actor across all time.
+        # It reads rows outside the window.
+        if query_kind == "return" or not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            filters.append(self.events_timestamp_filter(field=timestamp_field))
+        predicate = self._arm_scan_predicate(entity, query_kind)
+        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+            filters.append(predicate)
+        if self.runner.group_type_index is not None:
+            filters.append(parse_expr("toString({actor}) != ''", {"actor": self.entity_actor_id_expr(entity)}))
         return filters
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:

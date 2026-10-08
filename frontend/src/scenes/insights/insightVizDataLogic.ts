@@ -22,9 +22,13 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFil
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { insightReachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsTable'
+import {
+    FLAG_EVALUATIONS_TABLE,
+    insightReachesPastFlagEvaluationsRetention,
+} from 'scenes/feature-flags/flagEvaluationsTable'
 import {
     FLAG_CALLS_SERIES_NAME,
+    flagCallsBreakdownFromEventBreakdown,
     readsFlagCalls,
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
@@ -234,6 +238,7 @@ export interface insightVizDataLogicValues {
     funnelPathsFilter: FunnelPathsFilter | null | undefined
     funnelsFilter: FunnelsFilter | null | undefined
     goalLines: GoalLine[] | null | undefined
+    hasDataWarehouseEntity: boolean
     hasDataWarehouseSeries: boolean
     hasDetailedResultsTable: boolean
     hasFormula: boolean
@@ -1224,6 +1229,7 @@ export interface insightVizDataLogicMeta {
         hasDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
         ) => boolean
+        hasDataWarehouseEntity: (querySource: InsightQueryNode | null) => boolean
         hasOnlyDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
         ) => boolean
@@ -2365,6 +2371,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | undefined
             ): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
         ],
+        hasDataWarehouseEntity: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null): boolean => !!querySource && readsDataWarehouseTable(querySource),
+        ],
         hasOnlyDataWarehouseSeries: [
             (s) => [s.series],
             (
@@ -2958,6 +2968,17 @@ export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | n
     return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
+function readsDataWarehouseTable(query: InsightQueryNode): boolean {
+    const retentionEntities = isRetentionQuery(query)
+        ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
+        : []
+    return (
+        !!(query as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series?.some(
+            isAnyDataWarehouseNode
+        ) || retentionEntities.some((entity) => entity?.type === 'data_warehouse')
+    )
+}
+
 // The only breakdown types the trends backend resolves against a data warehouse series.
 const DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES = new Set<string>(['data_warehouse', 'hogql'])
 
@@ -3077,13 +3098,7 @@ const handleQuerySourceUpdateSideEffects = (
     // We do not support properties, filtering test accounts, and sampling for DWH nodes
     // Disable them if there are any. Check the query after the update, so a later edit cannot turn them on again.
     const nextQuery = { ...currentState, ...mergedUpdate } as InsightQueryNode
-    const nextRetentionEntities = isRetentionQuery(nextQuery)
-        ? [nextQuery.retentionFilter?.targetEntity, nextQuery.retentionFilter?.returningEntity]
-        : []
-    const hasDataWarehouseSeries =
-        !!(nextQuery as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series?.some(
-            isAnyDataWarehouseNode
-        ) || nextRetentionEntities.some((entity) => entity?.type === 'data_warehouse')
+    const hasDataWarehouseSeries = readsDataWarehouseTable(nextQuery)
     const hasFiltersOrTestAccounts = !!nextQuery.filterTestAccounts || parseProperties(nextQuery.properties).length > 0
     if (hasDataWarehouseSeries && (hasFiltersOrTestAccounts || (nextQuery as TrendsQuery).samplingFactor != null)) {
         if (hasFiltersOrTestAccounts) {
@@ -3180,8 +3195,21 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    const breakdownFilter = (('breakdownFilter' in mergedUpdate ? mergedUpdate : currentState) as TrendsQuery)
+    let breakdownFilter = (('breakdownFilter' in mergedUpdate ? mergedUpdate : currentState) as TrendsQuery)
         .breakdownFilter
+    if (
+        kind === NodeKind.TrendsQuery &&
+        maybeChangedSeries?.length &&
+        maybeChangedSeries.every(
+            (series) => isDataWarehouseNode(series) && series.table_name === FLAG_EVALUATIONS_TABLE
+        )
+    ) {
+        const flagCallsBreakdownFilter = flagCallsBreakdownFromEventBreakdown(breakdownFilter)
+        if (flagCallsBreakdownFilter !== breakdownFilter) {
+            breakdownFilter = flagCallsBreakdownFilter
+            ;(mergedUpdate as TrendsQuery).breakdownFilter = flagCallsBreakdownFilter
+        }
+    }
     // A trends insight that mixes event and data warehouse series cannot have a breakdown.
     const mixesEventAndDataWarehouseSeries =
         kind === NodeKind.TrendsQuery &&

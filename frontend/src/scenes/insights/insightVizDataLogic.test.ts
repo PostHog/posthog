@@ -467,6 +467,20 @@ describe('insightVizDataLogic', () => {
                 toasts: [expect.stringMatching(/^Feature flag called doesn't support this breakdown/)],
             },
             {
+                name: 'a flag response breakdown when a trends series changes to flag calls',
+                breakdownFilter: { breakdown_type: 'event', breakdown: '$feature_flag_response' },
+                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: { breakdown_type: 'data_warehouse', breakdown: 'response' },
+                toasts: [],
+            },
+            {
+                name: 'multiple breakdowns with a flag key one when a trends series changes to flag calls',
+                breakdownFilter: { breakdowns: [{ type: 'event', property: '$feature_flag' }] },
+                series: [{ ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
+                expected: { breakdowns: [{ type: 'data_warehouse', property: 'flag_key' }] },
+                toasts: [],
+            },
+            {
                 name: 'a flag calls breakdown when an event series joins a flag calls series',
                 breakdownFilter: { breakdown_type: 'data_warehouse', breakdown: 'flag_key' },
                 series: [pageviewSeries, { ...flagCallsNode, kind: NodeKind.DataWarehouseNode }],
@@ -520,6 +534,23 @@ describe('insightVizDataLogic', () => {
             expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
         })
 
+        it('counts funnel flag calls by the funnel aggregation expression', () => {
+            const update = (source: Record<string, unknown>): void =>
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.FunnelsQuery,
+                    ...source,
+                } as QuerySourceUpdate)
+            const target = (): string | undefined =>
+                (builtInsightVizDataLogic.values.querySource as any).series[0].aggregation_target_field
+
+            update({ series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] })
+            update({ funnelsFilter: { funnelAggregateByHogQL: 'properties.$session_id' } })
+            expect(target()).toEqual('properties.$session_id')
+
+            update({ funnelsFilter: { funnelAggregateByHogQL: undefined } })
+            expect(target()).toEqual('person_id')
+        })
+
         it('does not toast on an edit of a saved trends insight whose mixed series left empty properties', () => {
             builtInsightDataLogic.actions.setQuery({
                 kind: NodeKind.InsightVizNode,
@@ -548,6 +579,7 @@ describe('insightVizDataLogic', () => {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: false,
             })
+            expect(builtInsightVizDataLogic.values.hasDataWarehouseEntity).toBe(true)
         })
     })
 

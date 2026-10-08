@@ -6,6 +6,7 @@ import {
 import { getHogQLValue } from 'scenes/insights/filters/aggregationTarget'
 
 import {
+    BreakdownFilter,
     DataWarehouseNode,
     FunnelsDataWarehouseNode,
     InsightQueryNode,
@@ -13,7 +14,14 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { AnyPropertyFilter, DataWarehousePropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    DataWarehousePropertyFilter,
+    GroupMathType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 export const FLAG_CALLS_SERIES_NAME: string = CORE_FILTER_DEFINITIONS_BY_GROUP.events[FEATURE_FLAG_CALLED_EVENT].label
 
@@ -37,6 +45,16 @@ export const FLAG_EVALUATIONS_SERIES_FIELDS: Required<
     created_at_field: 'timestamp',
 }
 
+/** Trends computes these maths from events for every series. On a flag calls series they would count events, not flag calls. */
+export const FLAG_CALLS_UNSUPPORTED_MATH_TYPES: ReadonlySet<string> = new Set<string>([
+    BaseMathType.WeeklyActiveUsers,
+    BaseMathType.MonthlyActiveUsers,
+    BaseMathType.FirstTimeForUser,
+    BaseMathType.FirstMatchingEventForUser,
+    GroupMathType.FirstTimeForGroup,
+    GroupMathType.FirstMatchingEventForGroup,
+])
+
 export function readsFlagCalls(query: InsightQueryNode): boolean {
     const nodes: unknown[] =
         query.kind === NodeKind.RetentionQuery
@@ -47,10 +65,13 @@ export function readsFlagCalls(query: InsightQueryNode): boolean {
     return nodes.some((node) => (node as { table_name?: string } | undefined)?.table_name === FLAG_EVALUATIONS_TABLE)
 }
 
-/** Sets the actor column of each flag calls series to the query's aggregation: a group key, or the person. */
+/** Sets the actor column of each flag calls series to the query's aggregation: a group key, the funnel's SQL expression, or the person. */
 export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query: Q): Q {
     const groupTypeIndex = 'aggregation_group_type_index' in query ? query.aggregation_group_type_index : null
-    const target = getHogQLValue(groupTypeIndex)
+    // The flag_evaluations row carries the event's properties.
+    // An expression such as properties.$session_id reads the same value there as on events.
+    const aggregateByHogQL = query.kind === NodeKind.FunnelsQuery ? query.funnelsFilter?.funnelAggregateByHogQL : null
+    const target = getHogQLValue(groupTypeIndex, aggregateByHogQL)
     const retarget = <T>(node: T): T => {
         const fields = node as { table_name?: string; aggregation_target_field?: string } | null | undefined
         return fields?.table_name === FLAG_EVALUATIONS_TABLE &&
@@ -113,4 +134,30 @@ export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[]
         }
         return [filter]
     })
+}
+
+/** Rewrites event breakdowns on the flag properties onto the flag_evaluations columns. Other breakdowns stay as they are. */
+export function flagCallsBreakdownFromEventBreakdown(
+    breakdownFilter: BreakdownFilter | undefined
+): BreakdownFilter | undefined {
+    if (!breakdownFilter) {
+        return breakdownFilter
+    }
+    if (breakdownFilter.breakdowns?.length) {
+        const breakdowns = breakdownFilter.breakdowns.map((breakdown) => {
+            const column =
+                (breakdown.type ?? 'event') === 'event'
+                    ? FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY[String(breakdown.property)]
+                    : undefined
+            return column ? { ...breakdown, type: 'data_warehouse' as const, property: column } : breakdown
+        })
+        return breakdowns.some((breakdown, index) => breakdown !== breakdownFilter.breakdowns?.[index])
+            ? { ...breakdownFilter, breakdowns }
+            : breakdownFilter
+    }
+    const column =
+        (breakdownFilter.breakdown_type ?? 'event') === 'event' && typeof breakdownFilter.breakdown === 'string'
+            ? FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY[breakdownFilter.breakdown]
+            : undefined
+    return column ? { ...breakdownFilter, breakdown_type: 'data_warehouse', breakdown: column } : breakdownFilter
 }
