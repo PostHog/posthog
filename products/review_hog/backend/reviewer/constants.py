@@ -200,6 +200,15 @@ FLASH_LENSES: dict[str, FlashLens] = {
 }
 
 
+def is_single_agent_pass(pass_number: int) -> bool:
+    """Whether a persisted review result came from a single-agent session, the main one or a lens.
+
+    A Full turn can run on the same arm as the single-agent sessions, so the arm stamp alone cannot keep
+    the two designs' results apart at one head. The reserved passes can.
+    """
+    return pass_number >= SINGLE_AGENT_PASS_NUMBER
+
+
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
     if reasoning_effort == ReasoningEffort.XHIGH.value:
         return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)

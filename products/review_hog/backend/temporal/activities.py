@@ -1143,7 +1143,13 @@ def _prepare_review_prompt(
     review_arm: ReviewArm,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
-    done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm)
+    done = load_perspective_results(
+        team_id=team_id,
+        report_id=report_id,
+        head_sha=head_sha,
+        review_arm=review_arm,
+        review_design=REVIEW_DESIGN_PIPELINE,
+    )
     if (pass_number, chunk_id) in done:
         return None
     snapshot = load_pr_snapshot(
@@ -1289,7 +1295,11 @@ async def _run_single_agent_session(
     """
     arm = SINGLE_AGENT_FLASH_ARM
     done = await database_sync_to_async(load_perspective_results, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_arm=arm
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        review_arm=arm,
+        review_design=REVIEW_DESIGN_SINGLE_AGENT,
     )
     if (pass_number, chunk_id) in done:
         logger.info("Reusing the persisted %s result for this turn", step_name)
@@ -1377,7 +1387,7 @@ def _combine_and_clean(
     team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
 ) -> list[Issue]:
     perspective_results = load_perspective_results(
-        team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm
+        team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm, review_design=review_design
     )
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=review_design)
     pr_files = snapshot.pr_files if snapshot is not None else []

@@ -21,11 +21,14 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     DEFAULT_VALIDATION_ARM,
     FLASH_ARM,
+    FLASH_LENSES,
     REVIEW_ARMS_BY_TIER,
     REVIEW_DESIGN_PIPELINE,
     REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_FLASH_ARM,
+    SINGLE_AGENT_PASS_NUMBER,
     ReviewTier,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -974,7 +977,11 @@ class TestWorkingState(BaseTest):
         )
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=FLASH_ARM
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=FLASH_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
             )
             == {}
         )
@@ -984,7 +991,11 @@ class TestWorkingState(BaseTest):
         stronger_arm = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=stronger_arm
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=stronger_arm,
+                review_design=REVIEW_DESIGN_PIPELINE,
             )
             == {}
         )
@@ -996,13 +1007,21 @@ class TestWorkingState(BaseTest):
             review_arm=stronger_arm,
         )
         loaded = load_perspective_results(
-            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=FLASH_ARM
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            review_arm=FLASH_ARM,
+            review_design=REVIEW_DESIGN_PIPELINE,
         )
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb", review_arm=FLASH_ARM
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-bbb",
+                review_arm=FLASH_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
             )
             == {}
         )
@@ -1010,15 +1029,57 @@ class TestWorkingState(BaseTest):
         # turn's rows (it would skip its own reviewer entirely), and the reverse holds too.
         assert (
             load_perspective_results(
-                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=DEFAULT_REVIEW_ARM
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                review_arm=DEFAULT_REVIEW_ARM,
+                review_design=REVIEW_DESIGN_PIPELINE,
             )
             == {}
         )
         stronger_results = load_perspective_results(
-            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_arm=stronger_arm
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            review_arm=stronger_arm,
+            review_design=REVIEW_DESIGN_PIPELINE,
         )
         assert set(stronger_results) == {(1, 1)}
         assert stronger_results[(1, 1)].issues[0].id == "1-1-xhigh"
+
+    def test_perspective_results_of_one_arm_stay_apart_by_design(self) -> None:
+        # A Full turn and a single-agent Flash turn at one head can run on the same arm. Without the
+        # design filter, each turn's dedup would combine the other turn's findings.
+        lens_pass = FLASH_LENSES["contracts-security"].pass_number
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            results={
+                (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
+                (SINGLE_AGENT_PASS_NUMBER, 1): IssuesReview(issues=[_issue("2000-1-1")]),
+                (lens_pass, 2): IssuesReview(issues=[_issue("2002-2-1")]),
+            },
+            review_arm=SINGLE_AGENT_FLASH_ARM,
+        )
+
+        loaded = {
+            design: set(
+                load_perspective_results(
+                    team_id=self.team.id,
+                    report_id=self.report_id,
+                    head_sha="sha-aaa",
+                    review_arm=SINGLE_AGENT_FLASH_ARM,
+                    review_design=design,
+                )
+            )
+            for design in (REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT)
+        }
+
+        assert loaded == {
+            REVIEW_DESIGN_PIPELINE: {(1, 1)},
+            REVIEW_DESIGN_SINGLE_AGENT: {(SINGLE_AGENT_PASS_NUMBER, 1), (lens_pass, 2)},
+        }
 
 
 class TestPersistCommitSnapshot(BaseTest):

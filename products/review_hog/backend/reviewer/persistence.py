@@ -57,9 +57,11 @@ from products.review_hog.backend.reviewer.constants import (
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
     REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     ReviewArm,
     ReviewTier,
     is_below_human_tier,
+    is_single_agent_pass,
     resolve_review_arm,
     select_review_tier,
 )
@@ -422,21 +424,24 @@ def persist_perspective_results(
 
 
 def load_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm
+    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
 ) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
     tuple[int, int], IssuesReview
 ]:
-    """The (pass, chunk) reviews already computed with this arm (latest wins per key).
+    """The (pass, chunk) reviews this design already computed with this arm (latest wins per key).
 
     The cache is per commit, so another model or effort's findings must not skip this reviewer's work.
+    A Full turn and a single-agent Flash turn at one head can share an arm, so the design filter keeps
+    each turn from combining the other's findings.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
     review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
-        if content.review_config != review_config:
+        if content.review_config != review_config or is_single_agent_pass(content.pass_number) != single_agent:
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
