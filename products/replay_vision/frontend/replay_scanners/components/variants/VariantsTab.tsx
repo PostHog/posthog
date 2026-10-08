@@ -34,7 +34,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const { scoutConfigsForScanner, createTemplateKey, settingsSkillName, rollups } = useValues(scoutLogic)
     const { openCreateModal, openScoutSettings } = useActions(scoutLogic)
     const logic = scannerVariantsLogic({ scannerId })
-    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunInFlight } =
+    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunInFlight, now } =
         useValues(logic)
     const { loadReadout, setupAnalysisClicked, variantObservationsOpened, runAnalysisNow } = useActions(logic)
 
@@ -77,7 +77,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                       running: analysisRunInFlight,
                       lastRunStartedAt: analysisRollup?.latestRun?.started_at ?? null,
                       hasObservations: readout.window.total_observations > 0,
-                      now: Date.now(),
+                      now,
                   }),
           }
         : undefined

@@ -80,6 +80,8 @@ export function variantFilterOptions(
 /** The shortest time between two variant analysis runs that the Variants tab starts. */
 export const VARIANT_ANALYSIS_RUN_COOLDOWN_MS = 60 * 60 * 1000
 const ANALYSIS_RUN_POLL_MS = 30 * 1000
+// Moves the Run now cooldown forward while the tab stays open with nothing else re-rendering it.
+const CLOCK_TICK_MS = 30 * 1000
 // A scout run stops at about 16 minutes, so a run still going after this is not watched any longer.
 const ANALYSIS_RUN_WATCH_MS = 30 * 60 * 1000
 // The run's start time comes from the server clock.
@@ -130,6 +132,7 @@ export interface scannerVariantsLogicValues {
     analysisRunRequest: VariantAnalysisRunRequest | null
     analysisRunStarting: boolean
     analysisSkillName: string | null
+    now: number
     readout: ExperimentVariantsReadoutApi | null
     readoutFailed: boolean
     readoutLoading: boolean
@@ -160,6 +163,9 @@ export interface scannerVariantsLogicActions {
         request: VariantAnalysisRunRequest
     }
     checkAnalysisRun: () => {
+        value: true
+    }
+    clockTick: () => {
         value: true
     }
     loadReadout: () => any
@@ -234,6 +240,7 @@ export const scannerVariantsLogic = kea<scannerVariantsLogicType>([
         analysisRunStarted: (request: VariantAnalysisRunRequest) => ({ request }),
         analysisRunSettled: true,
         checkAnalysisRun: true,
+        clockTick: true,
     }),
 
     loaders(({ props }) => ({
@@ -246,7 +253,8 @@ export const scannerVariantsLogic = kea<scannerVariantsLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(() => ({
+        now: [Date.now(), { clockTick: () => Date.now() }],
         readoutFailed: [false, { loadReadout: () => false, loadReadoutFailure: () => true }],
         analysisRunStarting: [
             false,
@@ -257,7 +265,7 @@ export const scannerVariantsLogic = kea<scannerVariantsLogicType>([
             null as VariantAnalysisRunRequest | null,
             { analysisRunStarted: (_, { request }) => request, analysisRunSettled: () => null },
         ],
-    }),
+    })),
 
     selectors(({ props }) => ({
         analysisSkillName: [
@@ -395,8 +403,13 @@ export const scannerVariantsLogic = kea<scannerVariantsLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadReadout()
+        actions.clockTick()
+        cache.disposables.add(() => {
+            const interval = window.setInterval(() => actions.clockTick(), CLOCK_TICK_MS)
+            return () => window.clearInterval(interval)
+        }, 'clockTick')
         // The scout's runs may have loaded before this tab opened, with a run already in progress.
         actions.checkAnalysisRun()
     }),
