@@ -77,8 +77,10 @@ REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
 # (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 
-# A Flash PR above either limit falls back to the pipeline, because the single agent receives the
-# whole diff in one prompt. Both count only the reviewable files that fetch keeps.
+# While the switch is on, a Flash PR above either limit falls back to the pipeline. Both limits count
+# only the reviewable files that fetch keeps. The single-agent design reviews a PR of any size (larger
+# lens parts, a trimmed main diff), so turning the switch off sends every Flash PR to it.
+FLASH_LARGE_PR_FALLBACK_TO_PIPELINE = True
 FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
 FLASH_SINGLE_AGENT_MAX_FILES = 40
 
@@ -98,14 +100,15 @@ class ReviewDesignChoice:
 def select_review_design(
     review_mode: str, *, changed_lines: int, changed_files: int, kill_switch_on: bool
 ) -> ReviewDesignChoice:
-    """The design one turn runs on: the single agent for a Flash turn that fits in one prompt."""
+    """The design one turn runs on: the single agent for a Flash turn, unless the size fallback sends it back."""
     if review_mode != REVIEW_MODE_FLASH:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
     if kill_switch_on:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
     if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
-    if changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES:
+    too_large = changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES
+    if FLASH_LARGE_PR_FALLBACK_TO_PIPELINE and too_large:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_SIZE_FALLBACK)
     return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
 

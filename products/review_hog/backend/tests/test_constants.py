@@ -82,6 +82,16 @@ class TestSelectReviewDesign:
         choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=True)
         assert (choice.design, choice.reason) == (REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_REASON_KILL_SWITCH)
 
+    def test_switching_off_the_size_fallback_keeps_a_large_flash_turn_on_the_single_agent(self) -> None:
+        with patch("products.review_hog.backend.reviewer.constants.FLASH_LARGE_PR_FALLBACK_TO_PIPELINE", False):
+            choice = select_review_design(
+                REVIEW_MODE_FLASH,
+                changed_lines=FLASH_SINGLE_AGENT_MAX_CHANGED_LINES + 1,
+                changed_files=FLASH_SINGLE_AGENT_MAX_FILES + 1,
+                kill_switch_on=False,
+            )
+            assert choice.design == REVIEW_DESIGN_SINGLE_AGENT
+
     def test_the_code_default_moves_every_flash_turn_back_to_the_pipeline(self) -> None:
         with patch("products.review_hog.backend.reviewer.constants.FLASH_DESIGN_DEFAULT", REVIEW_DESIGN_PIPELINE):
             choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=False)
