@@ -403,11 +403,6 @@ posthog.Team mcp_store.MCPGatewayServer.team reverse-accessor(gateway_servers) 1
 posthog.Team mcp_store.MCPOrgRule.team reverse-accessor(org_rules) 1
 posthog.Team mcp_store.MCPServiceAccount.team reverse-accessor(mcp_service_accounts) 1
 posthog.Team mcp_store.TeamMCPGatewayConfig.team reverse-accessor(mcp_gateway_config) 1
-posthog.Team messaging.MessageCategory.team reverse-accessor(messagecategory_set) 1
-posthog.Team messaging.MessageRecipientPreference.team reverse-accessor(messagerecipientpreference_set) 1
-posthog.Team messaging.MessageSuppression.team reverse-accessor(messagesuppression_set) 1
-posthog.Team messaging.MessageTemplate.team reverse-accessor(messagetemplate_set) 1
-posthog.Team messaging.OptOutSyncConfig.team reverse-accessor(optoutsyncconfig) 1
 posthog.Team posthog_ai.AgentMemory.team reverse-accessor(agent_memories) 1
 posthog.Team posthog_ai.CoreMemory.team reverse-accessor(corememory) 1
 posthog.Team product_analytics.InsightViewed.team reverse-accessor(insightviewed_set) 1
@@ -499,10 +494,6 @@ posthog.User mcp_store.MCPServerInstallation.created_by reverse-accessor(mcpserv
 posthog.User mcp_store.MCPServerInstallation.user reverse-accessor(mcp_server_installations) 1
 posthog.User mcp_store.MCPServerInstallationTool.created_by reverse-accessor(mcpserverinstallationtool_set) 1
 posthog.User mcp_store.MCPServerTemplate.created_by reverse-accessor(mcpservertemplate_set) 1
-posthog.User messaging.MessageCategory.created_by reverse-accessor(messagecategory_set) 1
-posthog.User messaging.MessageRecipientPreference.created_by reverse-accessor(messagerecipientpreference_set) 1
-posthog.User messaging.MessageSuppression.created_by reverse-accessor(messagesuppression_set) 1
-posthog.User messaging.MessageTemplate.created_by reverse-accessor(messagetemplate_set) 1
 posthog.User notebooks.Notebook.last_modified_by reverse-accessor(modified_notebooks) 1
 posthog.User notifications.NotificationArchiveState.user reverse-accessor(notification_archive_states) 1
 posthog.User notifications.NotificationReadState.user reverse-accessor(notification_read_states) 1
