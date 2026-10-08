@@ -17,7 +17,7 @@ import { AnyPropertyFilter, DataWarehousePropertyFilter, PropertyFilterType, Pro
 
 export const FLAG_CALLS_SERIES_NAME: string = CORE_FILTER_DEFINITIONS_BY_GROUP.events[FEATURE_FLAG_CALLED_EVENT].label
 
-/** Replaces the event's core description, which says that queries on the event stop returning results. */
+/** Replaces the event's core description on insight pickers where picking the event builds a flag calls series. */
 export const FLAG_CALLS_SERIES_DESCRIPTION = `Sent by PostHog SDKs each time a feature flag is evaluated.
 
 Insights include calls from the last ${FLAG_EVALUATIONS_RETENTION_DAYS} days. Filter or break down by \`flag_key\` and \`response\`.`
