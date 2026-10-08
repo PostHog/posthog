@@ -17,6 +17,7 @@ from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_TABLE
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE
 from posthog.dags.warehouse_object_reads_daily import (
     ROLLUP_START_DATE,
+    insert_rollup_into_staging,
     warehouse_object_reads_daily_job,
     warehouse_object_reads_daily_schedule,
 )
@@ -24,6 +25,8 @@ from posthog.models import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+ROLLUP_MODULE = "posthog.dags.warehouse_object_reads_daily"
 
 
 @pytest.fixture(autouse=True)
@@ -94,11 +97,11 @@ def clear_archive(client: Client) -> None:
     client.execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_TABLE}")
 
 
-def run_rollup(cluster: ClickhouseCluster, day: date) -> None:
+def run_rollup(cluster: ClickhouseCluster, day: date, *, succeeds: bool = True) -> None:
     result = warehouse_object_reads_daily_job.execute_in_process(
-        partition_key=day.isoformat(), resources={"cluster": cluster}
+        partition_key=day.isoformat(), resources={"cluster": cluster}, raise_on_error=False
     )
-    assert result.success
+    assert result.success is succeeds
 
 
 def insert_archive_rows(rows: list[dict[str, Any]], client: Client) -> None:
@@ -187,9 +190,20 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
         ]
     )
     subject_ids = [view_id, nested_view_id, table_id, joined_table_id]
-    for _ in range(2):
+    run_rollup(cluster, day)
+    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
+
+    def insert_twice(*args: Any) -> None:
+        insert_rollup_into_staging(*args)
+        insert_rollup_into_staging(*args)
+
+    with patch(f"{ROLLUP_MODULE}.insert_rollup_into_staging", side_effect=insert_twice):
         run_rollup(cluster, day)
-        assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
+    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
+
+    with patch(f"{ROLLUP_MODULE}.insert_rollup_into_staging"):
+        run_rollup(cluster, day, succeeds=False)
+    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
 
     cluster.any_host(clear_archive).result()
     run_rollup(cluster, day)

@@ -67,7 +67,7 @@ def get_partitions(
     filter_by_partition_window: bool = False,
     node_role: NodeRole = NodeRole.DATA,
 ) -> list[str]:
-    partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
+    partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE database = currentDatabase() AND table = '{table_name}' AND active = 1"
 
     if filter_by_partition_window and context.partition_time_window:
         start_datetime, end_datetime = context.partition_time_window

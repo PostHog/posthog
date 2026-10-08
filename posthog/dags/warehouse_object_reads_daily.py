@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from django.conf import settings
 
 import dagster
+from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
@@ -30,7 +31,10 @@ QUERY_LOG_ARCHIVE_TABLE = "query_log_archive"
 TEMPORAL_QUERY_KIND = "temporal"
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 600
-NO_MEMORY_LIMIT = 0
+ONE_GIB = 1024**3
+MAX_MEMORY_USAGE_BYTES = 8 * ONE_GIB
+SPILL_GROUP_BY_AFTER_BYTES = 2 * ONE_GIB
+MAX_THREADS = 8
 ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
 SCHEDULE_HOUR_UTC = 7
@@ -75,9 +79,9 @@ def _archive_branch_sql(
     *,
     read_kind: ReadKind,
     subject_kind: SubjectKind,
-    subject_id: str,
-    workflow_id: str,
-    read_alone: str,
+    subject_id_column: str,
+    workflow_id_column: str,
+    read_alone_expression: str,
     array_join: str,
     extra_filter: str,
 ) -> str:
@@ -87,8 +91,8 @@ def _archive_branch_sql(
         toDate(%(day)s) AS day,
         '{read_kind.value}' AS read_kind,
         '{subject_kind.value}' AS subject_kind,
-        {subject_id} AS subject_id,
-        {workflow_id} AS workflow_id,
+        {subject_id_column} AS subject_id,
+        {workflow_id_column} AS workflow_id,
         lc_kind,
         lc_product,
         lc_feature,
@@ -101,7 +105,7 @@ def _archive_branch_sql(
         query_duration_ms,
         read_bytes,
         event_time,
-        {read_alone} AS read_alone
+        {read_alone_expression} AS read_alone
     FROM {QUERY_LOG_ARCHIVE_TABLE}
     {array_join}
     WHERE {ARCHIVE_ROW_FILTER}{extra_filter}"""
@@ -111,9 +115,9 @@ def _subject_reads_sql(subject_kind: SubjectKind) -> str:
     return _archive_branch_sql(
         read_kind=ReadKind.READ,
         subject_kind=subject_kind,
-        subject_id=READ_SUBJECT_ID,
-        workflow_id="''",
-        read_alone=f"{DIRECTLY_READ_IDS} = [{READ_SUBJECT_ID}]",
+        subject_id_column=READ_SUBJECT_ID,
+        workflow_id_column="''",
+        read_alone_expression=f"{DIRECTLY_READ_IDS} = [{READ_SUBJECT_ID}]",
         array_join=f"ARRAY JOIN log_comment.{SUBJECT_ID_TAGS[subject_kind]}::Array(String) AS {READ_SUBJECT_ID}",
         extra_filter="",
     )
@@ -122,24 +126,30 @@ def _subject_reads_sql(subject_kind: SubjectKind) -> str:
 REFRESH_READS_SQL = _archive_branch_sql(
     read_kind=ReadKind.REFRESH,
     subject_kind=SubjectKind.SAVED_QUERY,
-    subject_id=MATERIALIZED_SAVED_QUERY_ID,
-    workflow_id="lc_temporal__workflow_id",
-    read_alone="false",
+    subject_id_column=MATERIALIZED_SAVED_QUERY_ID,
+    workflow_id_column="lc_temporal__workflow_id",
+    read_alone_expression="false",
     array_join="",
     extra_filter=f"\n        AND {REFRESH_ROW_FILTER}",
 )
+
+ROLLUP_SOURCE_SQL = f"""{_subject_reads_sql(SubjectKind.SAVED_QUERY)}
+UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
+UNION ALL{REFRESH_READS_SQL}
+"""
 
 INSERT_ROLLUP_SQL = f"""
 INSERT INTO {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
 SELECT
     {", ".join(SORT_KEY_COLUMNS)},
     {", ".join(AGGREGATE_COLUMNS)}
-FROM ({_subject_reads_sql(SubjectKind.SAVED_QUERY)}
-UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
-UNION ALL{REFRESH_READS_SQL}
-)
+FROM ({ROLLUP_SOURCE_SQL})
 GROUP BY {", ".join(SORT_KEY_COLUMNS)}
 """
+
+COUNT_ROLLUP_SOURCE_ROWS_SQL = f"SELECT count() FROM ({ROLLUP_SOURCE_SQL})"
+
+TRUNCATE_STAGING_SQL = f"TRUNCATE TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}"
 
 
 def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
@@ -151,17 +161,34 @@ def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
     }
 
 
+def _rollup_query_settings(context: dagster.OpExecutionContext) -> dict[str, str | int]:
+    return {
+        **settings_with_log_comment(context),
+        "max_bytes_before_external_group_by": SPILL_GROUP_BY_AFTER_BYTES,
+        "max_threads": MAX_THREADS,
+    }
+
+
 def insert_rollup_into_staging(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
     day: date,
 ) -> None:
-    cluster.any_host_by_roles(
+    def stage_day(client: Client) -> None:
+        client.execute(TRUNCATE_STAGING_SQL)
+        client.execute(INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=_rollup_query_settings(context))
+
+    cluster.any_host_by_roles(stage_day, [ROLLUP_NODE_ROLE]).result()
+
+
+def count_rollup_source_rows(context: dagster.OpExecutionContext, cluster: ClickhouseCluster, day: date) -> int:
+    [[source_rows]] = cluster.any_host_by_roles(
         lambda client: client.execute(
-            INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=settings_with_log_comment(context)
+            COUNT_ROLLUP_SOURCE_ROWS_SQL, _day_query_parameters(day), settings=_rollup_query_settings(context)
         ),
         [ROLLUP_NODE_ROLE],
     ).result()
+    return source_rows
 
 
 def refuse_to_run_beside_another_rollup(context: dagster.OpExecutionContext) -> None:
@@ -190,7 +217,8 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
         filter_by_partition_window=True,
         node_role=ROLLUP_NODE_ROLE,
     )
-    if staged_partitions:
+    day_partition = day.strftime(PARTITION_ID_FORMAT)
+    if staged_partitions == [day_partition]:
         swap_partitions_from_staging(
             context,
             cluster,
@@ -199,6 +227,17 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
             node_role=ROLLUP_NODE_ROLE,
         )
         return
+    if staged_partitions:
+        raise dagster.Failure(
+            description=f"Staging holds partitions {staged_partitions}, not only {day_partition}. "
+            "Nothing was published."
+        )
+    source_rows = count_rollup_source_rows(context, cluster, day)
+    if source_rows:
+        raise dagster.Failure(
+            description=f"The archive has {source_rows} reads for {day}, but staging is empty. "
+            "The published day was kept. Run the day again."
+        )
     drop_day_partition(cluster, day)
 
 
@@ -238,7 +277,7 @@ def rollup_warehouse_object_reads_for_day(
         "cluster": SatelliteClickhouseClusterResource(
             satellite_cluster=settings.CLICKHOUSE_AUX_CLUSTER,
             max_execution_time=MAX_EXECUTION_TIME_SECONDS,
-            max_memory_usage=NO_MEMORY_LIMIT,
+            max_memory_usage=MAX_MEMORY_USAGE_BYTES,
         )
     },
     tags={"owner": JobOwners.TEAM_DATA_MODELING.value, "dagster/max_runtime": MAX_RUNTIME_SECONDS, **CONCURRENCY_TAG},
