@@ -25,7 +25,10 @@ import tenacity
 from urllib3.util.retry import Retry
 
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    NO_REQUEST_TIMEOUT,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -204,7 +207,7 @@ def _bespoke(
 
 DETECTION_CASES = [
     ("bounded_call_with_a_safe_point_per_page_passes", _bespoke(safe_point=True), set()),
-    ("request_with_no_timeout", _bespoke(timeout=None, safe_point=True), {TIMEOUT}),
+    ("request_with_no_timeout", _bespoke(timeout=NO_REQUEST_TIMEOUT, safe_point=True), {TIMEOUT}),
     ("request_with_no_read_timeout", _bespoke(timeout=(10, None), safe_point=True), {TIMEOUT}),
     ("retries_that_pass_the_budget", _bespoke(attempts=20, safe_point=True), {STALL_BUDGET}),
     ("retries_inside_the_budget_pass", _bespoke(attempts=5, safe_point=True), set()),
