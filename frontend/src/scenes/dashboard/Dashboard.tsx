@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -201,7 +202,7 @@ function DashboardScene({
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
 
-            {dashboardFailedToLoad ? (
+            {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState
                     title={
                         internetConnectionIssue
@@ -220,6 +221,24 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
+                    {dashboardFailedToLoad && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={
+                                placement === DashboardPlacement.Export
+                                    ? undefined
+                                    : {
+                                          children: 'Try again',
+                                          onClick: retryDashboardLoad,
+                                          loading: dashboardLoading || dashboardStreaming,
+                                          'data-attr': 'dashboard-load-retry',
+                                      }
+                            }
+                        >
+                            This dashboard couldn't finish loading.
+                        </LemonBanner>
+                    )}
                     <DashboardRetentionBanner />
                     <DashboardQueryScanBanner />
 

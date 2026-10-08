@@ -1702,6 +1702,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     let metadataReceived = false
+                    const preserveTiles = retry && !!values.dashboard?.tiles?.length
+                    let retriedDashboard: DashboardType | null = null
                     cache.disposables.dispose('dashboardStream')
                     cache.dashboardStreamActive = true
 
@@ -1717,17 +1719,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         (data) => {
                             if (data.type === 'metadata') {
                                 metadataReceived = true
-                                actions.loadDashboardMetadataSuccess(
-                                    getQueryBasedDashboard(data.dashboard as DashboardType)
-                                )
+                                if (preserveTiles) {
+                                    // Keep readable tiles until a complete replacement is available, even if retry fails.
+                                    retriedDashboard = { ...data.dashboard, tiles: [...(data.dashboard.tiles ?? [])] }
+                                } else {
+                                    actions.loadDashboardMetadataSuccess(
+                                        getQueryBasedDashboard(data.dashboard as DashboardType)
+                                    )
+                                }
                             } else if (data.type === 'tile') {
-                                actions.receiveTileFromStream(data)
+                                if (retriedDashboard) {
+                                    retriedDashboard.tiles.push(data.tile)
+                                } else {
+                                    actions.receiveTileFromStream(data)
+                                }
                             }
                         },
                         // onComplete callback
                         () => {
                             cache.dashboardStreamActive = false
                             if (metadataReceived) {
+                                if (retriedDashboard) {
+                                    actions.loadDashboardMetadataSuccess(getQueryBasedDashboard(retriedDashboard))
+                                }
                                 actions.tileStreamingComplete()
                             } else {
                                 actions.tileStreamingFailure(
@@ -1751,8 +1765,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         { pauseOnPageHidden: false }
                     )
 
-                    // Return null - metadata will update the dashboard
-                    return null
+                    return preserveTiles ? values.dashboard : null
                 },
                 saveEditModeChanges: async ({ scope }, breakpoint) => {
                     cache.dashboardChangesPersisted = false

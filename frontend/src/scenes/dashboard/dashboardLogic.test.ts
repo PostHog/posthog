@@ -2634,6 +2634,7 @@ describe('dashboardLogic', () => {
                     if (metadata) {
                         streamTilesSpy.mock.calls[0][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
                         streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: TEXT_TILE })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 99 } })
                     }
                     const onError = streamTilesSpy.mock.calls[0][4]
                     await expectLogic(logic, () =>
@@ -2652,10 +2653,20 @@ describe('dashboardLogic', () => {
                     await expectLogic(logic, recover).toFinishAllListeners()
                     expect(streamTilesSpy).toHaveBeenCalledTimes(2)
                     expect(disposeStream).toHaveBeenCalledTimes(1)
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                    }
 
                     await expectLogic(logic, () => {
                         streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
                         streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: TEXT_TILE })
+                    }).toFinishAllListeners()
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                        expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    }
+
+                    await expectLogic(logic, () => {
                         streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 6 } })
                         streamTilesSpy.mock.calls[1][3]()
                     }).toFinishAllListeners()
