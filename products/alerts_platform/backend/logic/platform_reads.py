@@ -106,4 +106,4 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
         .filter(configuration_id=configuration_id, grouping_key=grouping_key)
         .first()
     )
-    return instance_view(alert, alert.configuration.check_status) if alert is not None else None
+    return instance_view(alert, alert.configuration) if alert is not None else None

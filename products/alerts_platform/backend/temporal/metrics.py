@@ -93,6 +93,22 @@ def increment_state_transition(source: str, from_state: str, to_state: str) -> N
     ).add(1)
 
 
+def increment_groups_over_cap(source: str, count: int) -> None:
+    """Groups an outcome reported past its configuration's `max_instances`. A source admits groups
+    before it reports them, so a nonzero count means a source skipped that step."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_groups_over_cap_total",
+        "Groups dropped at record time because the configuration had no room for another instance",
+    ).add(count)
+
+
+def increment_instances_reaped(source: str, count: int) -> None:
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_instances_reaped_total",
+        "Idle alert instances deleted so their configuration can admit new groups",
+    ).add(count)
+
+
 def increment_deliveries_deferred(source: str, count: int) -> None:
     """Deliveries a batch decided on but could not carry inside its activity payload bound.
 

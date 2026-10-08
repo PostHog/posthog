@@ -140,6 +140,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
     # reader knows whether this firing was ever announced.
     firing_started_at = models.DateTimeField(null=True, blank=True)
+    # The last check that returned this group. Reaping reads it to free the slot of a group that
+    # stopped appearing. Null for a row no check has recorded since the column existed.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "alerts_platformalert"

@@ -108,16 +108,27 @@ class GroupingMode(StrEnum):
     BY_RESULT_LABELS = "by_result_labels"
 
 
+class OnOverflow(StrEnum):
+    # The only mode, because a cap that drops groups silently reads the same as nothing being wrong.
+    DEGRADE_VISIBLE = "degrade_visible"
+
+
+DEFAULT_MAX_INSTANCES: Final = 100
+
+
 @frozen
 class Grouping:
     """How a configuration splits its results into instances.
 
     `keys` names the result labels whose values make a group's key, so it is empty for a single
-    instance and required for grouping by labels.
+    instance and required for grouping by labels. `max_instances` bounds how many instance rows a
+    configuration holds, which bounds the messages one check can post.
     """
 
     mode: GroupingMode = GroupingMode.SINGLE
     keys: tuple[str, ...] = ()
+    max_instances: int = DEFAULT_MAX_INSTANCES
+    on_overflow: OnOverflow = OnOverflow.DEGRADE_VISIBLE
 
     def __post_init__(self) -> None:
         if self.mode == GroupingMode.SINGLE and self.keys:
@@ -126,13 +137,33 @@ class Grouping:
             raise ValueError("grouping by result labels needs at least one key")
         if len(set(self.keys)) != len(self.keys):
             raise ValueError("a grouping names each key once")
+        if self.max_instances < 1:
+            raise ValueError("max_instances must be at least 1")
 
     @classmethod
     def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
-        return cls(mode=GroupingMode(stored.get("mode", GroupingMode.SINGLE)), keys=tuple(stored.get("keys", ())))
+        return cls(
+            mode=GroupingMode(stored.get("mode", GroupingMode.SINGLE)),
+            keys=tuple(stored.get("keys", ())),
+            max_instances=int(stored.get("max_instances", DEFAULT_MAX_INSTANCES)),
+            on_overflow=OnOverflow(stored.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
+        )
 
     def to_stored(self) -> dict[str, Any]:
-        return {"mode": self.mode.value, "keys": list(self.keys)}
+        return {
+            "mode": self.mode.value,
+            "keys": list(self.keys),
+            "max_instances": self.max_instances,
+            "on_overflow": self.on_overflow.value,
+        }
+
+
+@frozen
+class GroupAdmission:
+    """Which of a check's groups the configuration has room for, and how many it turned away."""
+
+    admitted: tuple[str, ...]
+    overflowed: int
 
 
 @frozen
@@ -172,6 +203,26 @@ class PlatformAlertCheckInput:
     snooze_until: datetime | None
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
+
+    def admit(self, grouping_keys: Sequence[str]) -> GroupAdmission:
+        """The groups a check may report, from keys in the source's priority order.
+
+        A group that already has an instance is always admitted, so an open group can still
+        resolve. New groups fill what `max_instances` leaves, front first.
+        """
+        existing = {instance.grouping_key for instance in self.instances}
+        room = max(self.grouping.max_instances - len(existing), 0)
+        admitted: list[str] = []
+        overflowed = 0
+        for key in dict.fromkeys(grouping_keys):
+            if key in existing:
+                admitted.append(key)
+            elif room > 0:
+                admitted.append(key)
+                room -= 1
+            else:
+                overflowed += 1
+        return GroupAdmission(admitted=tuple(admitted), overflowed=overflowed)
 
     def instance(self, grouping_key: str = "") -> InstanceCheckState:
         """The instance for a group, or the state a group with no instance starts from."""
@@ -389,6 +440,9 @@ class EvaluationAnnouncement:
     # whole evaluation, and every group in one announcement saw the same count.
     consecutive_failures: int
     transitions: tuple[AnnouncedTransition, ...]
+    # Groups the configuration had no room for. The last message names them, so a cap never drops
+    # a group without anyone being told.
+    overflowed: int = 0
 
 
 @frozen
@@ -423,6 +477,7 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    overflowed: int = 0
 
 
 @frozen

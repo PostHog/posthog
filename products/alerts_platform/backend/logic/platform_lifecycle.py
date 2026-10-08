@@ -5,8 +5,9 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -23,7 +24,12 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
     source_condition,
 )
-from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
+from products.alerts_platform.backend.facade.platform_metrics import (
+    increment_groups_over_cap,
+    increment_history_rows_dropped,
+    increment_instances_reaped,
+    safe_record,
+)
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
@@ -72,9 +78,33 @@ def _instances(team_id: int, keys: Collection[_InstanceKey]) -> dict[_InstanceKe
 def _alerts_for_write(
     team_id: int, wanted: Mapping[_InstanceKey, PlatformAlertConfiguration]
 ) -> dict[_InstanceKey, PlatformAlert]:
-    """The runtime rows, creating any group that has none yet."""
+    """The runtime rows, creating any group that has none yet while its configuration has room.
+
+    A group past `max_instances` gets no row, and so no write and no history. A source admits
+    groups before it reports them, so this is the backstop for one that did not.
+    """
+    configuration_ids = {key.configuration_id for key in wanted}
+    held: dict[str, int] = {}
+    for configuration_id in (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration_id__in=configuration_ids)
+        .values_list("configuration_id", flat=True)
+    ):
+        held[str(configuration_id)] = held.get(str(configuration_id), 0) + 1
     existing = _instances(team_id, wanted.keys())
-    missing = [key for key in wanted if key not in existing]
+    missing: list[_InstanceKey] = []
+    over_cap: dict[str, int] = {}
+    for key in wanted:
+        if key in existing:
+            continue
+        configuration = wanted[key]
+        if held.get(key.configuration_id, 0) >= Grouping.from_stored(configuration.grouping).max_instances:
+            over_cap[configuration.source_kind] = over_cap.get(configuration.source_kind, 0) + 1
+            continue
+        held[key.configuration_id] = held.get(key.configuration_id, 0) + 1
+        missing.append(key)
+    for source_kind, count in over_cap.items():
+        safe_record(increment_groups_over_cap, source_kind, count)
     if missing:
         # ignore_conflicts leans on the unique constraint, so a concurrent cycle creating the
         # same row is not an error. `for_team` because these models are fail-closed and a
@@ -89,6 +119,41 @@ def _alerts_for_write(
         )
         existing.update(_instances(team_id, missing))
     return existing
+
+
+# Long enough that a group which resolves and fires again inside a day keeps its cooldown.
+REAP_AFTER: Final = timedelta(hours=24)
+
+
+def _reap(team_id: int, configurations: Sequence[PlatformAlertConfiguration], now: datetime) -> None:
+    """Deletes instances that hold a slot and nothing else, so a stale group frees its place.
+
+    Only an instance that is not firing, not muted, and that no check returned for longer than both
+    `REAP_AFTER` and its cooldown. A configuration whose checks fail returns no groups, so its
+    instances look unseen without being gone, and none of them is reaped while it is not OK.
+    """
+    healthy = {str(c.id): c for c in configurations if c.check_status == PlatformAlertConfiguration.CheckStatus.OK}
+    if not healthy:
+        return
+    candidates = (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(
+            configuration_id__in=list(healthy), state=PlatformAlert.State.NOT_FIRING, last_seen_at__lt=now - REAP_AFTER
+        )
+        .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+        .values_list("id", "configuration_id", "last_seen_at")
+    )
+    reaped: dict[str, list[UUID]] = {}
+    for alert_id, configuration_id, last_seen_at in candidates:
+        configuration = healthy[str(configuration_id)]
+        if configuration.snooze_until is not None and configuration.snooze_until > now:
+            continue
+        if last_seen_at is None or last_seen_at >= now - timedelta(minutes=configuration.cooldown_minutes):
+            continue
+        reaped.setdefault(configuration.source_kind, []).append(alert_id)
+    for source_kind, ids in reaped.items():
+        PlatformAlert.objects.for_team(team_id).filter(id__in=ids).delete()
+        safe_record(increment_instances_reaped, source_kind, len(ids))
 
 
 def suppressed() -> Q:
@@ -303,7 +368,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             for group in outcome.groups:
-                alert = alerts[_InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)]
+                alert = alerts.get(
+                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+                )
+                if alert is None:
+                    continue
+                alert.last_seen_at = now
                 # Before either row is mutated, so the history row keeps the state the check found.
                 rows.append(_event_row(configuration, alert, outcome, group, _check_state(configuration, alert), now))
                 if group.notified:
@@ -334,11 +404,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             )
 
         PlatformAlert.objects.for_team(team_id).bulk_update(
-            list(alerts.values()), ["state", "last_notified_at", "firing_started_at"]
+            list(alerts.values()), ["state", "last_notified_at", "firing_started_at", "last_seen_at"]
         )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["check_status", "consecutive_failures", "enabled", "next_check_at"]
         )
+        _reap(team_id, configurations, now)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: _record_history(team_id, rows))

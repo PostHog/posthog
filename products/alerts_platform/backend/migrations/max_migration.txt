@@ -1,1 +1,1 @@
-0011_move_snooze_onto_configuration
+0012_platformalert_last_seen_at

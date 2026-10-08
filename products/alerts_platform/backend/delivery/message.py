@@ -134,6 +134,7 @@ def build_message(
     *,
     team_id: int,
     incident_action: IncidentAction | None = None,
+    overflowed: int = 0,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -155,13 +156,20 @@ def build_message(
     description = describe(announcement.source, project_id=project_id, transition=transition)
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
-        details = _failure_details(transition, announcement.consecutive_failures)
+        details = list(_failure_details(transition, announcement.consecutive_failures))
     else:
-        details = description.details or _breach_details(transition)
+        details = list(description.details or _breach_details(transition))
+    if overflowed:
+        details.append(
+            MessageDetail(
+                label="Untracked groups",
+                value=f"{pluralize(overflowed, 'more group')} not tracked because this alert is at its group limit",
+            )
+        )
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
-        details=details,
+        details=tuple(details),
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
         source=announcement.source,
