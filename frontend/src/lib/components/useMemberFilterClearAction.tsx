@@ -4,7 +4,7 @@ import { IconX } from '@posthog/icons'
 
 import { SideAction } from 'lib/lemon-ui/LemonButton'
 
-export function useClearSelectionSideAction(
+export function useMemberFilterClearAction(
     hasSelection: boolean,
     onClear: () => void
 ): { triggerRef: RefObject<HTMLButtonElement>; sideAction: SideAction | null } {

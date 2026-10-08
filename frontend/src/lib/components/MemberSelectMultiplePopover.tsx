@@ -6,7 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
-import { useClearSelectionSideAction } from './useClearSelectionSideAction'
+import { useMemberFilterClearAction } from './useMemberFilterClearAction'
 
 export type MemberSelectMultiplePopoverProps = {
     /** Currently selected member user ids. */
@@ -36,7 +36,7 @@ export function MemberSelectMultiplePopover({
 
     const hasSelection = value.length > 0
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === me?.user.id
-    const { triggerRef, sideAction } = useClearSelectionSideAction(hasSelection, () => onChange([]))
+    const { triggerRef, sideAction } = useMemberFilterClearAction(hasSelection, () => onChange([]))
 
     return (
         <LemonDropdown

@@ -9,7 +9,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { UserBasicType } from '~/types'
 
 import { MemberSelectMultipleOptions } from './MemberSelectMultipleOptions'
-import { useClearSelectionSideAction } from './useClearSelectionSideAction'
+import { useMemberFilterClearAction } from './useMemberFilterClearAction'
 
 export type MemberMultiSelectProps = {
     defaultLabel?: string
@@ -61,7 +61,7 @@ export function MemberMultiSelect({
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
-    const { triggerRef, sideAction } = useClearSelectionSideAction(selectedCount > 0, () => _onChange([]))
+    const { triggerRef, sideAction } = useMemberFilterClearAction(selectedCount > 0, () => _onChange([]))
 
     const buttonLabel = ((): string => {
         if (selectedCount === 0) {
