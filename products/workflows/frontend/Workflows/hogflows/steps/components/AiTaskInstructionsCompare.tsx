@@ -50,6 +50,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
     const comparedPrompt =
         selectedVersion === null ? findAiTaskPrompt(originalWorkflow.actions, actionId) : selectedRevisionPrompt
     const versionName = selectedVersion === null ? 'the live version' : `v${selectedVersion}`
+    const versionSubject = selectedVersion === null ? 'The live version' : versionName
 
     return (
         <div className="flex flex-col gap-2 rounded border p-2" data-attr="workflow-ai-task-compare">
@@ -60,6 +61,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     value={selectedVersion}
                     onChange={selectVersion}
                     loading={revisionsResponseLoading}
+                    aria-label="Version to compare with"
                     options={[
                         { value: null, label: `Live version (v${originalWorkflow.version})` },
                         ...revisions
@@ -84,25 +86,35 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     </LemonButton>
                 </div>
             )}
-            {selectedVersion !== null && revisionLoadFailed ? (
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-danger">Could not load {versionName}.</span>
-                    <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
-                        Try again
-                    </LemonButton>
-                </div>
-            ) : comparedPrompt === undefined ? (
-                <LemonSkeleton className="h-24 w-full" />
-            ) : comparedPrompt === null ? (
-                <span className="text-sm text-secondary">This step isn't in {versionName}.</span>
-            ) : comparedPrompt === currentPrompt ? (
-                <span className="text-sm text-secondary">No differences from {versionName}.</span>
-            ) : (
-                // Keeps a failed editor load inside this box, so the rest of the step panel stays usable.
-                <ErrorBoundary>
-                    <InstructionsDiff before={comparedPrompt} after={currentPrompt} />
-                </ErrorBoundary>
-            )}
+            {/* A fixed height keeps the Instructions field below in place while the diff follows each keystroke. */}
+            <div className="h-64 overflow-auto">
+                {selectedVersion !== null && revisionLoadFailed ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm text-danger">Could not load {versionName}.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
+                            Try again
+                        </LemonButton>
+                    </div>
+                ) : comparedPrompt === undefined ? (
+                    <LemonSkeleton className="h-24 w-full" />
+                ) : comparedPrompt === null ? (
+                    <span className="text-sm text-secondary">
+                        {versionSubject} has no AI task instructions for this step.
+                    </span>
+                ) : comparedPrompt === currentPrompt ? (
+                    <span className="text-sm text-secondary">No differences from {versionName}.</span>
+                ) : (
+                    <div className="flex flex-col gap-1">
+                        <span className="text-xs text-secondary">
+                            Removed lines are from {versionName}. Added lines are the current instructions.
+                        </span>
+                        {/* Keeps a failed editor load inside this box, so the rest of the step panel stays usable. */}
+                        <ErrorBoundary>
+                            <InstructionsDiff before={comparedPrompt} after={currentPrompt} />
+                        </ErrorBoundary>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }

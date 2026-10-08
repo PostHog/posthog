@@ -20,7 +20,8 @@ export interface AiTaskInstructionsCompareLogicProps {
 
 /** The step's instructions in a list of actions, or null when the step is not an AI task there. */
 export function findAiTaskPrompt(actions: HogFlowAction[] | undefined, actionId: string): string | null {
-    const action = actions?.find((candidate) => candidate.id === actionId)
+    // Version snapshots are stored as loose JSON, so the actions list is checked before use.
+    const action = Array.isArray(actions) ? actions.find((candidate) => candidate?.id === actionId) : undefined
     return action && isAiTaskStep(action) ? getAiTaskPrompt(action) : null
 }
 
@@ -144,8 +145,9 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
         revisionsResponse: [
             null as PaginatedHogFlowRevisionBasicListApi | null,
             {
+                // 500 is the endpoint's page limit.
                 loadRevisions: async () =>
-                    await hogFlowsRevisionsList(String(values.currentTeamIdStrict), props.workflowId),
+                    await hogFlowsRevisionsList(String(values.currentTeamIdStrict), props.workflowId, { limit: 500 }),
             },
         ],
         revision: [
