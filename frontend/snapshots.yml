@@ -13094,6 +13094,10 @@ snapshots:
         hash: v1.k794b7964.926bab41fb78cabf70493f52b629520842bcdb6fd7e0a838babb178ad948c67f.6Q9grGAgt0DLOh0YWKUgIOuHlFvn0gDCeHHOrqdav7g
     scenes-app-replay-vision--home-watch-feed-empty--light:
         hash: v1.k794b7964.71ae84e0d38203d5860ee8feb2a633a339e79de59b03b514807c7493517486fb.3NLgnN7g1YbjscaN_XzQhxSoqltm99utfh3_1E_29J8
+    scenes-app-replay-vision--home-watch-feed-grid--dark:
+        hash: v1.k794b7964.b6c0021cb654a1959c5f31038f0d0bfc677d02e14feee183cd6c4e116db5242b.z8lywqGVYD1SrmfpwUCvjNguFhzC69zsQh8dHfKnhGM
+    scenes-app-replay-vision--home-watch-feed-grid--light:
+        hash: v1.k794b7964.eef70399f888f57b020a2ec2df31807c2ab0fab72d763576aa997d792a869677.Q2y0D347yvVcCTX-e9lPPuFzqH1fcfpoXQqwc087OWk
     scenes-app-replay-vision--home-watch-feed-jev-arm--dark:
         hash: v1.k794b7964.68e5ee597c3499f4df7de4dfe3db661e339fa8d2e30ef1c569959d86bd430305.v0bBkJTYcpwECQvdW_vQaJWpcwoVQpVn2Kqav6mrVuY
     scenes-app-replay-vision--home-watch-feed-jev-arm--light:
