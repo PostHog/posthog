@@ -74,7 +74,7 @@ export interface visualReviewRunsSceneLogicActions {
         payload?: any
     }
     setActiveTab: (tab: ReviewState) => {
-        tab: ReviewState
+        tab: VisualReviewReposRunsListReviewState
     }
     setPage: (page: number) => {
         page: number

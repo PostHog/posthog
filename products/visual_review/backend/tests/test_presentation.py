@@ -1020,9 +1020,15 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         other_state = self.client.get(self._runs_url(review_state="processing", search="feature"))
         self.assertEqual(self._branches(other_state.json()), set())
 
-    @parameterized.expand([("repo_runs", "_runs_url"), ("team_runs", "_team_runs_url")])
-    def test_unknown_review_state_is_rejected(self, _name: str, url_builder: str):
-        response = self.client.get(getattr(self, url_builder)(review_state="approved"))
+    @parameterized.expand(
+        [
+            ("repo_runs_unknown", "_runs_url", "approved"),
+            ("repo_runs_empty", "_runs_url", ""),
+            ("team_runs_unknown", "_team_runs_url", "approved"),
+        ]
+    )
+    def test_unknown_review_state_is_rejected(self, _name: str, url_builder: str, review_state: str):
+        response = self.client.get(getattr(self, url_builder)(review_state=review_state))
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("needs_review", str(response.json()))

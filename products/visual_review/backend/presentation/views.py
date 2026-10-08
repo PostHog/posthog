@@ -115,7 +115,7 @@ REVIEW_STATE_PARAMETER = OpenApiParameter(
 def _parse_review_state(request: Request) -> RunReviewFilter | None:
     """Reject an unknown review state, so a typo returns a 400 instead of every run."""
     value = request.query_params.get("review_state")
-    if not value:
+    if value is None:
         return None
     try:
         return RunReviewFilter(value)
