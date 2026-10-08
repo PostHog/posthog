@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
 use crate::ordering::OrderingGuarantee;
+use crate::pipeline::{self, Address, Lane};
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -111,6 +112,25 @@ impl Destination {
         }
     }
 
+    /// The output address this destination publishes to. `None` for `Drop`,
+    /// which is never published.
+    pub fn address(&self) -> Option<Address> {
+        let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
+        match self {
+            Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
+            Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
+            Self::Overflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
+            Self::AiEvents => lane(pipeline::Pipeline::Ai, Lane::Main),
+            Self::AiEventsOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
+            Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
+            Self::HeatmapMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
+            Self::ClientIngestionWarning => lane(pipeline::Pipeline::Warnings, Lane::Main),
+            Self::Dlq => Some(Address::Dlq),
+            Self::Custom(topic) => Some(Address::Custom(topic.clone())),
+            Self::Drop => None,
+        }
+    }
+
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
     /// so admin-configured topic names never become label values.
     pub fn as_tag(&self) -> &'static str {
@@ -133,6 +153,7 @@ impl Destination {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
+    use crate::sinks::registry::Destination as Output;
 
     #[test]
     fn is_analytics_pipeline_true_for_main_and_historical() {
@@ -151,6 +172,28 @@ mod destination_tests {
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
+    }
+
+    /// Each v1 destination publishes to the output that carried its topic
+    /// before v1 joined the outputs layer.
+    #[rstest::rstest]
+    #[case(Destination::AnalyticsMain, Some(Output::AnalyticsMain))]
+    #[case(Destination::AnalyticsHistorical, Some(Output::AnalyticsHistorical))]
+    #[case(Destination::Overflow, Some(Output::AnalyticsOverflow))]
+    #[case(Destination::Dlq, Some(Output::Dlq))]
+    #[case(Destination::Custom("admin_topic".into()), Some(Output::Custom("admin_topic".into())))]
+    #[case(Destination::ExceptionErrorTracking, Some(Output::ErrorTrackingMain))]
+    #[case(Destination::HeatmapMain, Some(Output::HeatmapsMain))]
+    #[case(Destination::ClientIngestionWarning, Some(Output::ClientWarningsMain))]
+    #[case(Destination::AiEvents, Some(Output::AiMain))]
+    #[case(Destination::AiEventsOverflow, Some(Output::AiOverflow))]
+    #[case(Destination::Drop, None)]
+    fn address_selects_the_destinations_output(
+        #[case] destination: Destination,
+        #[case] expected: Option<Output>,
+    ) {
+        let output = destination.address().and_then(Output::for_address);
+        assert_eq!(output, expected);
     }
 
     /// Exhaustive: every variant's tag is non-empty, stable, and unique.
