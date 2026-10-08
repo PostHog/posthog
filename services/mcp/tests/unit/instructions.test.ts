@@ -136,6 +136,7 @@ describe('buildToolDomainsBlock', () => {
             'estimate',
             'fail',
             'freeze',
+            'invoke',
             'launch',
             'migrate',
             'move',

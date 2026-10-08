@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -114,6 +114,37 @@ export const CanvasesPartialUpdateBody = () => zod
             .describe('Task currently generating this canvas, or null to clear it.'),
     })
     .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
+
+/**
+ * Invoke one registered action verb as the viewer.
+ *
+ * The canvas must declare the verb in capabilities.posthog.actions (the
+ * reviewed permission boundary); the write itself runs with the viewer's
+ * own permissions, exactly as if they acted in the app.
+ */
+export const CanvasesActionsInvokeParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesActionsInvokeBodyVerbMax = 64
+
+export const CanvasesActionsInvokeBody = () => zod
+    .object({
+        verb: zod
+            .string()
+            .max(canvasesActionsInvokeBodyVerbMax)
+            .describe("Registered verb to invoke, e.g. 'tasks.create'."),
+        payload: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe("Verb-specific arguments, validated against the verb's payload schema."),
+    })
+    .describe('Payload for invoking one action verb.')
 
 /**
  * Read the canvas's build lifecycle: live pointers plus recent builds.
@@ -1805,6 +1836,17 @@ export const CanvasesValidateCreateBody = () => zod
             .describe('The candidate source project to validate.'),
     })
     .describe('Payload for validating a candidate source project without publishing it.')
+
+/**
+ * List the action registry: every verb a canvas may declare and invoke.
+ */
+export const CanvasesActionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
