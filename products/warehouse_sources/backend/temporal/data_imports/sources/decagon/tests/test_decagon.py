@@ -453,6 +453,11 @@ class TestArticleTables:
                 "2 of them are named 'articles' ('result.articles', 'backup.articles')",
             ),
             (
+                "a_top_level_and_a_nested_list_carrying_the_configured_name",
+                {"articles": [{"id": 1}], "result": {"articles": [{"id": 2}]}},
+                "2 of them are named 'articles' ('articles', 'result.articles')",
+            ),
+            (
                 "two_lists_carrying_the_configured_name_and_one_carrying_the_primary_key",
                 {"result": {"articles": [{"slug": "bad"}]}, "backup": {"articles": [{"id": 2}]}},
                 "2 of them are named 'articles' ('result.articles', 'backup.articles')",

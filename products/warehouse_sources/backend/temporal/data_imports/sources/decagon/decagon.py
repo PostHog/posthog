@@ -252,12 +252,12 @@ def _resolve_rows(
     list whose items carry this endpoint's primary keys. A response holding lists that
     match neither fails the sync rather than reading as an empty page.
     """
-    items = data.get(config.data_key)
-    if isinstance(items, list):
-        return _ListCandidate(path=config.data_key, items=items, parent=data)
-
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
+    # A top-level list with the configured name is only safe when no nested list shares the name.
+    if len(same_key) == 1 and same_key[0].path == config.data_key:
+        return same_key[0]
+
     row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
     # An empty list reads the same as a renamed key that returned no rows, so the primary
     # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
