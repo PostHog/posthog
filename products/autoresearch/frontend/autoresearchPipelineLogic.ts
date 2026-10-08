@@ -674,7 +674,6 @@ export interface autoresearchPipelineLogicMeta {
         ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
-        champion: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
@@ -1158,11 +1157,6 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     users: usersByDecile.get(decile) ?? 0,
                 }))
             },
-        ],
-        champion: [
-            (s) => [s.models],
-            (models: AutoresearchModelApi[]): AutoresearchModelApi | null =>
-                models.find((m) => m.role === AutoresearchModelRoleEnumApi.Champion) ?? null,
         ],
         defaultTab: [
             (s) => [s.pipeline],
