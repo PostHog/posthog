@@ -14,14 +14,17 @@ export interface ModelChoice {
   name: string;
 }
 
-// Sends a pi RPC to one run's sandbox; the caller fills in the host and project.
-export type PiCommand = (input: {
-  taskId: string;
-  runId: string;
-  id?: string;
-  method: "pi/rpc";
-  params: { command: unknown };
-}) => Promise<{ success: boolean; result?: unknown; error?: string }>;
+// Sends a command to one run's sandbox; the caller fills in the host and project.
+export type PiCommand = (
+  input: {
+    taskId: string;
+    runId: string;
+    id?: string;
+  } & (
+    | { method: "pi/rpc"; params: { command: unknown } }
+    | { method: "cancel" }
+  ),
+) => Promise<{ success: boolean; result?: unknown; error?: string }>;
 
 // pi's thinking level: how much the model reasons before it answers.
 export type Effort = Parameters<PiRemoteRpcClient["setThinkingLevel"]>[0];
@@ -155,7 +158,15 @@ export function piControl(
       return response.result;
     },
   });
-  return controlOf(client, (command) => client.bash(command));
+  return {
+    ...controlOf(client, (command) => client.bash(command)),
+    // A Claude Code sandbox has no pi RPC, so the stop goes as the command every sandbox agent takes.
+    abort: async () => {
+      const response = await send({ taskId, runId, method: "cancel" });
+      if (!response.success)
+        throw new Error(response.error ?? "The run did not stop");
+    },
+  };
 }
 
 // The same model, command and stop controls over any pi RPC client, cloud or local.
