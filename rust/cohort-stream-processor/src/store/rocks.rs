@@ -31,7 +31,8 @@ use super::keys::{
     STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
-    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
+    BehavioralKey, Keyspace, Meta, OutputVersionFloorKey, PersonPrefix, PersonRecordKey,
+    META_SCHEMA_VERSION,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
@@ -871,6 +872,22 @@ impl CohortStore {
 
     pub fn get_tombstone(&self, key: &TombstoneKey) -> Result<Option<Vec<u8>>, StoreError> {
         self.get(Cf::MergeTombstones, &key.encode())
+    }
+
+    /// Read one partition's output-version floor in microseconds; `None` when no tenure stored one.
+    pub fn get_output_version_floor(&self, partition_id: u16) -> Result<Option<i64>, StoreError> {
+        let Some(bytes) = self.get(Cf::Meta, &OutputVersionFloorKey(partition_id).encode())? else {
+            return Ok(None);
+        };
+        let bytes: [u8; 8] = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| StoreError::ValueDecode {
+                kind: "output_version_floor",
+                expected: 8,
+                actual: bytes.len(),
+            })?;
+        Ok(Some(i64::from_be_bytes(bytes)))
     }
 
     /// Clear one outbox slot once its transfer is acked.

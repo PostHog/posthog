@@ -247,6 +247,60 @@ impl Keyspace for Meta {
     }
 }
 
+/// `cf_meta` key prefix for [`OutputVersionFloorKey`]: shares no prefix with [`META_SCHEMA_VERSION`].
+const OUTPUT_VERSION_FLOOR_PREFIX: &[u8] = b"output_version_floor/";
+const OUTPUT_VERSION_FLOOR_KEY_LEN: usize = OUTPUT_VERSION_FLOOR_PREFIX.len() + 2;
+
+/// `cf_meta[b"output_version_floor/" ++ partition_id u16]` → a big-endian `i64` of microseconds. It is
+/// the highest `last_updated` a worker for the partition reserved before it emitted, so a later
+/// tenure starts its output clock above every version the earlier one emitted.
+///
+/// It lives in `cf_meta`, not in a partitioned CF, so no partition scan or GC sees it and a binary
+/// without this key opens the store unchanged. A partition wipe does not reclaim it. A stale floor is
+/// harmless: it is a lower bound, and wall time takes over once it passes it.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct OutputVersionFloorKey(pub u16);
+
+impl OutputVersionFloorKey {
+    pub fn encode(&self) -> [u8; OUTPUT_VERSION_FLOOR_KEY_LEN] {
+        let mut out = [0u8; OUTPUT_VERSION_FLOOR_KEY_LEN];
+        out[..OUTPUT_VERSION_FLOOR_PREFIX.len()].copy_from_slice(OUTPUT_VERSION_FLOOR_PREFIX);
+        out[OUTPUT_VERSION_FLOOR_PREFIX.len()..].copy_from_slice(&self.0.to_be_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, OUTPUT_VERSION_FLOOR_KEY_LEN, "output_version_floor")?;
+        if !bytes.starts_with(OUTPUT_VERSION_FLOOR_PREFIX) {
+            return Err(StoreError::UnknownKey {
+                kind: "output_version_floor",
+            });
+        }
+        Ok(Self(u16::from_be_bytes(array2(
+            &bytes[OUTPUT_VERSION_FLOOR_PREFIX.len()..],
+        ))))
+    }
+}
+
+/// The per-partition output-version floors. Bound to `cf_meta`, so it is not partitioned.
+pub struct OutputVersionFloors;
+
+impl sealed::Sealed for OutputVersionFloors {}
+
+impl Keyspace for OutputVersionFloors {
+    const CF: Cf = Cf::Meta;
+    const PARTITIONED: bool = false;
+    type Key = OutputVersionFloorKey;
+
+    fn encode(key: &OutputVersionFloorKey) -> Vec<u8> {
+        key.encode().to_vec()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<OutputVersionFloorKey, StoreError> {
+        OutputVersionFloorKey::decode(bytes)
+    }
+}
+
 /// The smallest byte string strictly greater than every extension of `prefix`: increment the last
 /// byte below `0xFF`, dropping the trailing `0xFF` run. Returns `None` for an all-`0xFF` prefix, which
 /// has no such bound — the caller supplies a length-based sentinel that exceeds every key.
