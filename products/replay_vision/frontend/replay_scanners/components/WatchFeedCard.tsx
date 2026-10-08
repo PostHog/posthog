@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -401,7 +401,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                 {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
                     the border between two rows. */}
                 <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
-                    <span className="block h-px w-36 bg-border-bold" aria-hidden />
+                    <LemonDivider className="m-0 w-36" />
                     <p className="m-0 flex items-start gap-1.5 text-sm text-secondary">
                         <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
                         <span className="line-clamp-2">
