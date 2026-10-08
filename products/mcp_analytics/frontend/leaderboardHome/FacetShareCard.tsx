@@ -10,6 +10,7 @@ import { ChartTooltip } from '../dashboard/ChartTooltip'
 import { formatNumber } from '../dashboard/formatters'
 import { ShareBarChart, type ShareBarRow } from '../dashboard/ShareBarChart'
 import { hasKnownLabels, topFacetRows, type WindowFacetRow } from './leaderboardShares'
+import { NoDataMessage } from './NoDataMessage'
 
 const MAX_ROWS = 8
 
@@ -67,7 +68,7 @@ export function FacetShareCard({
                 loading={loading}
                 isEmpty={rows.length === 0}
                 skeleton={<Skeleton className="h-48 w-full" />}
-                empty={<div className="py-6 text-center text-[12px] text-secondary">No data in this date range.</div>}
+                empty={<NoDataMessage />}
             >
                 <ShareBarChart
                     rows={chartRows}

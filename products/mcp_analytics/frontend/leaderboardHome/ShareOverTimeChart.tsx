@@ -14,6 +14,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { type ShareSeries } from './leaderboardShares'
+import { NoDataMessage } from './NoDataMessage'
 
 export function ShareOverTimeChart({
     title,
@@ -68,7 +69,7 @@ export function ShareOverTimeChart({
                 loading={loading}
                 isEmpty={series.every((s) => s.data.every((value) => value === 0))}
                 skeleton={<Skeleton className="min-h-[300px] flex-1" />}
-                empty={<div className="py-6 text-center text-[12px] text-secondary">No data in this date range.</div>}
+                empty={<NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
                     <TimeSeriesBarChart series={chartSeries} labels={labels} config={config} theme={theme} />

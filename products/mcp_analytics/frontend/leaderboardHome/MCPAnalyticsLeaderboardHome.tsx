@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,8 +22,10 @@ import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
 import { mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
+import { Section } from './Section'
 import { ShareOverTimeChart } from './ShareOverTimeChart'
 import { TrendLineCard } from './TrendLineCard'
+import { TwoColumns } from './TwoColumns'
 
 const formatErrorRateTick = (value: number): string => formatPercentage(value, { compact: true })
 
@@ -280,17 +282,4 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             </Section>
         </div>
     )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
-    return (
-        <section className="flex min-w-0 flex-col gap-4" data-quill>
-            <h2 className="mb-0 text-xl font-semibold text-primary">{title}</h2>
-            {children}
-        </section>
-    )
-}
-
-function TwoColumns({ children }: { children: ReactNode }): JSX.Element {
-    return <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">{children}</div>
 }

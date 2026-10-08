@@ -12,6 +12,7 @@ import { Skeleton } from '@posthog/quill-primitives'
 import { useChartConfig } from 'lib/charts/hooks'
 
 import { Card, CardState } from '../dashboard/Card'
+import { NoDataMessage } from './NoDataMessage'
 
 export interface TrendLine {
     key: string
@@ -65,7 +66,7 @@ export function TrendLineCard({
                 loading={loading}
                 isEmpty={isEmpty}
                 skeleton={<Skeleton className="min-h-[240px] flex-1" />}
-                empty={<div className="py-6 text-center text-[12px] text-secondary">No data in this date range.</div>}
+                empty={<NoDataMessage />}
             >
                 <div className="flex min-h-[240px] flex-1 flex-col">
                     <TimeSeriesLineChart series={series} labels={labels} config={config} theme={theme} />
