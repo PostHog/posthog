@@ -1,46 +1,36 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
-import * as moneyPng from '@posthog/brand/hoggies/png/money'
-import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
-
-import { pngHoggie } from 'lib/brand/hoggies'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { detectedSourcesLogic } from 'products/marketing_analytics/frontend/dashboard/detectedSourcesLogic'
+import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashboard/SearchConsoleSource'
+import { SourceOnboardingScan } from 'products/marketing_analytics/frontend/dashboard/SourceOnboardingScan'
+
 import { MarketingAnalyticsSourceStatusBanner } from '../../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
-import { ConversionGoalsConfiguration } from '../../web-analytics/tabs/marketing-analytics/frontend/components/settings/ConversionGoalsConfiguration'
 import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { marketingAnalyticsSettingsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
+import { setupPlanLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { AddSourceStep } from './AddSourceStep'
-import { MarketingOnboardingStep, marketingOnboardingLogic } from './marketingOnboardingLogic'
-import { MarketingWizardStepper } from './MarketingWizardStepper'
+import { marketingOnboardingLogic } from './marketingOnboardingLogic'
 
-const HedgehogMoney = pngHoggie(moneyPng)
-
-interface OnboardingProps {
-    completeOnboarding: () => void
-}
-
-export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element {
+export function Onboarding({ completeOnboarding }: { completeOnboarding: () => void }): JSX.Element {
     const { reportMarketingAnalyticsOnboardingViewed, reportMarketingAnalyticsOnboardingCompleted } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    useValues(detectedSourcesLogic({ teamId: currentTeamId ?? 0 }))
+    const { setupPlan, setupPlanLoading, visibleSuggestions, sourceScanDisabledReason } = useValues(setupPlanLogic)
+    const { rescanSources } = useActions(setupPlanLogic)
+    const { showManualSources } = useValues(marketingOnboardingLogic)
+    const { setShowManualSources } = useActions(marketingOnboardingLogic)
     const { hasSources } = useValues(marketingAnalyticsLogic)
-    const { currentStep } = useValues(marketingOnboardingLogic)
-    const { setStep, goToNextStep } = useActions(marketingOnboardingLogic)
-
-    // If user has sources and is on welcome, skip to add-source
-    useEffect(() => {
-        if (hasSources && currentStep === 'welcome') {
-            setStep('add-source')
-        }
-    }, [hasSources, currentStep, setStep])
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sourceOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]
 
     useOnMountEffect(() => {
         reportMarketingAnalyticsOnboardingViewed()
@@ -56,100 +46,31 @@ export function Onboarding({ completeOnboarding }: OnboardingProps): JSX.Element
         completeOnboarding()
     }
 
-    const handleStepClick = (step: MarketingOnboardingStep): void => {
-        if (step === 'done') {
-            handleComplete()
-        } else {
-            setStep(step)
-        }
-    }
-
-    const handleNextStep = (): void => {
-        if (currentStep === 'conversion-goals') {
-            handleComplete()
-        } else {
-            goToNextStep()
-        }
-    }
-
     return (
-        <div className="space-y-6">
-            <MarketingWizardStepper currentStep={currentStep} onStepClick={handleStepClick} />
-
-            {currentStep === 'welcome' && <WelcomeStep onContinue={() => setStep('add-source')} />}
-
-            {currentStep === 'add-source' && (
-                <>
-                    <MarketingAnalyticsSourceStatusBanner />
-                    <AddSourceStep onContinue={handleNextStep} hasSources={hasSources} />
-                </>
-            )}
-
-            {currentStep === 'conversion-goals' && (
-                <ConversionGoalsStep onContinue={handleComplete} onSkip={handleComplete} />
-            )}
-        </div>
-    )
-}
-
-function WelcomeStep({ onContinue }: { onContinue: () => void }): JSX.Element {
-    return (
-        <ProductIntroduction
-            thingName="marketing integration"
-            titleOverride="Welcome to Marketing analytics"
-            description="Track your marketing campaigns performance across all your ad platforms. Connect your data sources to see spend, conversions, and ROI in one place."
-            action={onContinue}
-            actionElementOverride={
-                <LemonButton type="primary" onClick={onContinue} sideIcon={<IconArrowRight />}>
-                    Get started
-                </LemonButton>
-            }
-            isEmpty={true}
-            docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-            customHog={HedgehogMoney}
-        />
-    )
-}
-
-function ConversionGoalsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }): JSX.Element {
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const hasConversionGoals = conversion_goals.length > 0
-
-    return (
-        <LemonCard hoverEffect={false}>
-            <div className="space-y-4">
-                <div>
-                    <h3 className="text-lg font-semibold mb-1">Configure conversion goals</h3>
-                    <p className="text-sm text-muted-alt">
-                        Define what actions count as conversions to measure your campaign effectiveness.
-                    </p>
-                </div>
-
-                <ConversionGoalsConfiguration hideTitle hideDescription />
-
-                <div className="flex justify-end gap-2 pt-4 border-t border-primary">
-                    {!hasConversionGoals && (
-                        <LemonButton type="secondary" onClick={onSkip}>
-                            I'll configure later
-                        </LemonButton>
+        <div className="space-y-4">
+            <MarketingAnalyticsSourceStatusBanner />
+            {!sourceOnboardingEnabled || showManualSources ? (
+                <AddSourceStep
+                    onContinue={handleComplete}
+                    hasSources={hasSources}
+                    onBack={sourceOnboardingEnabled ? () => setShowManualSources(false) : undefined}
+                />
+            ) : (
+                <SourceOnboardingScan
+                    loading={setupPlanLoading && !setupPlan}
+                    failed={!setupPlan && !setupPlanLoading}
+                    suggestions={visibleSuggestions.filter(
+                        (suggestion) =>
+                            suggestion.kind === 'connect_source' && suggestion.apply?.op === 'open_source_wizard'
                     )}
-                    <LemonButton
-                        type="primary"
-                        onClick={onContinue}
-                        sideIcon={<IconArrowRight />}
-                        disabledReason={!hasConversionGoals ? 'Add at least one conversion goal' : undefined}
-                    >
-                        Continue
-                    </LemonButton>
-                </div>
-
-                <div className="text-center">
-                    <p className="text-xs text-muted-alt">
-                        You can always configure conversion goals later in{' '}
-                        <Link to="/settings/environment-marketing-analytics">settings</Link>
-                    </p>
-                </div>
-            </div>
-        </LemonCard>
+                    onManual={() => setShowManualSources(true)}
+                    onContinue={handleComplete}
+                    onRescan={rescanSources}
+                    rescanLoading={setupPlanLoading}
+                    rescanDisabledReason={sourceScanDisabledReason}
+                />
+            )}
+            <SearchConsoleSource />
+        </div>
     )
 }

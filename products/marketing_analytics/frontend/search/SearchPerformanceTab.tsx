@@ -18,7 +18,11 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
-export function SearchPerformanceTab(): JSX.Element {
+export function SearchPerformanceTab({
+    showSourceSuggestions = true,
+}: {
+    showSourceSuggestions?: boolean
+}): JSX.Element {
     const {
         dataWarehouseSources,
         dataWarehouseSourcesLoading,
@@ -78,7 +82,7 @@ export function SearchPerformanceTab(): JSX.Element {
                 </LemonBanner>
             ) : (
                 <>
-                    {!hasActiveFilters && <SearchSourceSuggestions />}
+                    {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
                     {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
                             key={sourceId}

@@ -195,7 +195,7 @@ export function AddSourceStep({ onContinue, hasSources, onBack }: AddSourceStepP
                         sideIcon={<IconArrowRight />}
                         data-attr="marketing-onboarding-continue"
                     >
-                        {hasSources ? 'Continue' : 'Skip for now'}
+                        {hasSources ? 'Continue to dashboard' : 'Skip for now'}
                     </LemonButton>
                 )}
             </div>
