@@ -55,13 +55,6 @@ impl EventBuffer {
         }
     }
 
-    fn add_event(&mut self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let json = serde_json::to_string(&event.event)?;
-        self.add_line(json.as_bytes());
-        Ok(())
-    }
-
-    /// One JSON body per line. Serialized JSON holds no raw newline.
     fn add_line(&mut self, body: &[u8]) {
         self.event_bytes.extend_from_slice(body);
         self.event_bytes.push(b'\n');
@@ -279,42 +272,46 @@ impl Inner {
     }
 }
 
-#[async_trait]
-impl PublishEvents for S3Sink {
-    #[instrument(skip_all)]
-    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl S3Sink {
+    async fn write_lines<B: AsRef<[u8]>>(
+        &self,
+        bodies: impl ExactSizeIterator<Item = B> + Send,
+    ) -> Result<(), CaptureError> {
+        // An idle buffer never flushes, so waiting on it would never return.
+        if bodies.len() == 0 {
+            return Ok(());
+        }
         let mut buffer = self.inner.buffer.lock().await;
-        for event in events {
-            buffer.add_event(event)?;
+        for body in bodies {
+            buffer.add_line(body.as_ref());
         }
         let mut rx = buffer.tx.subscribe();
         drop(buffer);
         rx.recv()
             .await
-            .map_err(|_| CaptureError::NonRetryableSinkError)?
+            .unwrap_or(Err(CaptureError::NonRetryableSinkError))
+    }
+}
+
+#[async_trait]
+impl PublishEvents for S3Sink {
+    #[instrument(skip_all)]
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        let bodies = events
+            .iter()
+            .map(|event| serde_json::to_vec(&event.event))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.write_lines(bodies.iter()).await
     }
 }
 
 #[async_trait]
 impl PublishPrepared for S3Sink {
-    /// The prepared payload is the event's JSON body, written as one line.
-    /// Every event in the batch shares its buffer flush's result.
     #[instrument(skip_all)]
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
-        // An idle buffer never flushes, so waiting on it would never return.
-        if events.is_empty() {
-            return Vec::new();
-        }
-        let mut buffer = self.inner.buffer.lock().await;
-        for event in &events {
-            buffer.add_line(&event.payload);
-        }
-        let mut rx = buffer.tx.subscribe();
-        drop(buffer);
-        let flushed = rx
-            .recv()
-            .await
-            .unwrap_or(Err(CaptureError::NonRetryableSinkError));
+        let flushed = self
+            .write_lines(events.iter().map(|event| &event.payload))
+            .await;
         events
             .iter()
             .map(|event| match &flushed {
@@ -393,20 +390,6 @@ mod tests {
                 distinct_id_truncated_from: None,
             },
         }
-    }
-
-    #[test]
-    fn prepared_and_event_routes_write_the_same_line() {
-        let event = create_test_event();
-        let body = serde_json::to_vec(&event.event).unwrap();
-
-        let mut from_event = EventBuffer::new();
-        from_event.add_event(event).unwrap();
-        let mut from_prepared = EventBuffer::new();
-        from_prepared.add_line(&body);
-
-        assert_eq!(from_prepared.event_bytes, from_event.event_bytes);
-        assert_eq!(from_prepared.event_count, 1);
     }
 
     #[tokio::test]
