@@ -12,5 +12,6 @@ class ReviewHogConfig(AppConfig):
 
         receivers.connect()
         # The repository receivers must connect in every process, so that a write from a shell or a
-        # management command is logged too, not only a write from the API.
-        from products.review_hog.backend import activity_logging  # noqa: F401, PLC0415
+        # management command is logged too, not only a write from the API. The same applies to the
+        # receivers that clear the cached repository names the webhook handler reads.
+        from products.review_hog.backend import activity_logging, automatic_review_rules  # noqa: F401, PLC0415

@@ -24,6 +24,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
+from products.review_hog.backend.automatic_review_rules import AddedRepositoryNames
 from products.review_hog.backend.automatic_reviews import enqueue_authored_pr_review
 from products.review_hog.backend.models import ReviewRepository, ReviewRepositoryPerson, ReviewUserSettings
 from products.review_hog.backend.tasks import process_authored_pr_event
@@ -34,6 +35,7 @@ _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
+_REVIEWHOG_TEAM_ID = 7
 
 
 def _dispatch_count(outcome: str) -> float:
@@ -62,8 +64,12 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     def setUp(self) -> None:
         reset_consumer_registry()
         caches[INGRESS_DEDUP_CACHE_ALIAS].clear()
+        caches["default"].clear()
         self.addCleanup(reset_consumer_registry)
         self.addCleanup(caches[INGRESS_DEDUP_CACHE_ALIAS].clear)
+        self.addCleanup(caches["default"].clear)
+        self.enterContext(override_settings(REVIEWHOG_TEAM_IDS=[_REVIEWHOG_TEAM_ID]))
+        caches["default"].set(AddedRepositoryNames.cache_key(_REVIEWHOG_TEAM_ID), frozenset({"posthog/posthog"}))
         self.factory = RequestFactory()
         self.view = build_webhook_view(build_github_provider("posthog"))
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
@@ -91,8 +97,6 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             ("opened", True, "PostHog/posthog"),
             ("synchronize", False, "PostHog/posthog"),
             ("synchronize", True, "PostHog/posthog"),
-            # Whether a repository is added needs the database, so the task decides it.
-            ("opened", False, "PostHog/posthog-js"),
         ]
     )
     @patch(_QUEUE)
@@ -135,6 +139,37 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
         assert response.status_code == expected_status
         enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("added", "PostHog/posthog", [_REVIEWHOG_TEAM_ID], False, True),
+            ("not_added", "PostHog/posthog-js", [_REVIEWHOG_TEAM_ID], False, False),
+            ("no_team", "PostHog/posthog", [], False, False),
+            ("cache_error_fails_open", "PostHog/posthog-js", [_REVIEWHOG_TEAM_ID], True, True),
+        ]
+    )
+    @patch(_QUEUE)
+    def test_only_added_repositories_enqueue(
+        self,
+        _name: str,
+        repository: str,
+        team_ids: list[int],
+        cache_error: bool,
+        expected_enqueue: bool,
+        enqueue: MagicMock,
+    ) -> None:
+        self.enterContext(override_settings(REVIEWHOG_TEAM_IDS=team_ids))
+        if cache_error:
+            self.enterContext(
+                patch(
+                    "products.review_hog.backend.automatic_review_rules.cache.get_or_set",
+                    side_effect=ConnectionError("redis down"),
+                )
+            )
+
+        assert self._post(json.dumps(_payload(repository=repository)).encode()).status_code == 202
+
+        assert enqueue.called == expected_enqueue
 
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
