@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendarif
     CalendarificClient,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.source import CalendarificSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendarific import (
     CalendarificSourceConfig,
@@ -37,25 +36,6 @@ def http() -> Iterator[responses.RequestsMock]:
 
 def client(country: str = " us ", year: str = " 2026 ") -> CalendarificClient:
     return CalendarificClient(CalendarificSourceConfig(api_key=API_KEY, country=country, year=year), "v2")
-
-
-@pytest.mark.parametrize("endpoint", ["holidays", "countries", "languages"])
-@pytest.mark.parametrize("empty", [False, True])
-def test_full_refresh_reads_one_complete_response(http: responses.RequestsMock, endpoint: str, empty: bool) -> None:
-    rows = [] if empty else [{"name": "Example record"}, {"name": "Another example record"}]
-    http.get(f"{BASE_URL}/{endpoint}", json={"meta": {"code": 200}, "response": {endpoint: rows}})
-
-    result = client().source_response(endpoint, 1, "test-job")
-    pages = cast(Iterable[Iterable[Any]], result.items())
-    assert [row for page in pages for row in page] == rows
-    assert len(http.calls) == 1
-    request = http.calls[0].request
-    assert request.method == "GET"
-    assert "Authorization" not in request.headers
-    expected = {"api_key": [API_KEY]}
-    if endpoint == "holidays":
-        expected.update({"country": ["US"], "year": ["2026"]})
-    assert parse_qs(urlsplit(request.url).query) == expected
 
 
 @pytest.mark.parametrize("schema_name", [None, "holidays", "countries", "languages"])
@@ -130,15 +110,6 @@ def test_other_http_errors_are_not_reported_as_invalid_credentials(http: respons
     with pytest.raises(HTTPError):
         client().validate_credentials(1, None)
     assert len(http.calls) == 1
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_errors_use_framework_retries(http: responses.RequestsMock, status: int) -> None:
-    http.get(f"{BASE_URL}/holidays", status=status, json={"meta": {"code": status}, "response": []})
-    http.get(f"{BASE_URL}/holidays", json={"meta": {"code": 200}, "response": {"holidays": []}})
-    with patch.object(RESTClient._send_request.retry, "sleep", return_value=None):  # type: ignore[attr-defined]
-        assert client().validate_credentials(1, None) == (True, None)
-    assert len(http.calls) == 2
 
 
 @pytest.mark.parametrize("endpoint", ["holidays", "countries", "languages"])

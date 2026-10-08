@@ -32,7 +32,9 @@ export async function invokeMcpTool(
         body: { args },
     })
     if (!result.success) {
-        throw result.error_type ? new MCPToolResultError(result.content, result.error_type) : new Error(result.content)
+        throw result.error_type
+            ? new MCPToolResultError(result.content, result.error_type, result.error_code ?? undefined)
+            : new Error(result.content)
     }
     return result
 }

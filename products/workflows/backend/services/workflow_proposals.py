@@ -6,9 +6,14 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
+from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
+from django.utils import timezone
+
 from posthog.api.app_metrics2 import fetch_app_metric_totals
 
-from products.workflows.backend.facade.contracts import ProposalChanges
+from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
+from products.workflows.backend.facade.enums import WorkflowProposalStatus
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -33,6 +38,105 @@ PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
 
 
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
+
+
+def _to_record(proposal: WorkflowProposal) -> WorkflowProposalRecord:
+    return WorkflowProposalRecord(
+        id=proposal.id,
+        title=proposal.title,
+        rationale=proposal.rationale,
+        content=proposal.content,
+        evidence=proposal.evidence,
+        step_id=proposal.step_id,
+        base_version=proposal.base_version,
+        status=WorkflowProposalStatus(proposal.status),
+        source_id=proposal.source_id,
+        created_at=proposal.created_at,
+        resolved_at=proposal.resolved_at,
+        resolved_by=proposal.resolved_by,
+        applied_version=proposal.applied_version,
+    )
+
+
+def _proposals(hog_flow_id: UUID, status: str | None) -> QuerySet[WorkflowProposal]:
+    applied_only = status == WorkflowProposal.Status.APPLIED
+    ordering = ("-applied_version", "-created_at", "-pk") if applied_only else ("-created_at", "-pk")
+    queryset = WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id).order_by(*ordering)
+    if status:
+        queryset = queryset.filter(status=status)
+    return queryset
+
+
+def count_proposals(*, hog_flow_id: UUID, status: str | None) -> int:
+    return _proposals(hog_flow_id, status).count()
+
+
+def list_proposals(*, hog_flow_id: UUID, status: str | None, offset: int, limit: int) -> list[WorkflowProposalRecord]:
+    queryset = _proposals(hog_flow_id, status).select_related("resolved_by")
+    return [_to_record(proposal) for proposal in queryset[offset : offset + limit]]
+
+
+def get_proposal(*, team_id: int, hog_flow_id: UUID, proposal_id: UUID) -> WorkflowProposalRecord | None:
+    proposal = (
+        WorkflowProposal.objects.select_related("resolved_by")
+        .filter(team_id=team_id, hog_flow_id=hog_flow_id, id=proposal_id)
+        .first()
+    )
+    return _to_record(proposal) if proposal is not None else None
+
+
+def get_proposal_by_source_id(*, hog_flow_id: UUID, source_id: str) -> WorkflowProposalRecord | None:
+    proposal = WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id, source_id=source_id).first()
+    return _to_record(proposal) if proposal is not None else None
+
+
+def create_proposal(
+    *,
+    hog_flow_id: UUID,
+    title: str,
+    rationale: str,
+    content: dict[str, Any],
+    evidence: dict[str, Any],
+    step_id: str | None,
+    base_version: int,
+    source_id: str | None,
+) -> CreatedWorkflowProposal:
+    proposal = WorkflowProposal(
+        hog_flow_id=hog_flow_id,
+        title=title,
+        rationale=rationale,
+        content=content,
+        evidence=evidence,
+        step_id=step_id,
+        base_version=base_version,
+        source_id=source_id,
+    )
+    try:
+        with transaction.atomic():
+            proposal.save()
+    except IntegrityError:
+        existing = (
+            WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id, source_id=source_id).first() if source_id else None
+        )
+        if existing is None:
+            raise
+        return CreatedWorkflowProposal(proposal=_to_record(existing), created=False)
+    return CreatedWorkflowProposal(proposal=_to_record(proposal), created=True)
+
+
+def lock_proposal(*, team_id: int, proposal_id: UUID) -> WorkflowProposalRecord:
+    return _to_record(WorkflowProposal.objects.select_for_update().get(team_id=team_id, id=proposal_id))
+
+
+def resolve_proposal(
+    *, team_id: int, proposal_id: UUID, status: WorkflowProposalStatus, resolved_by_id: int | None
+) -> WorkflowProposalRecord:
+    proposal = WorkflowProposal.objects.get(team_id=team_id, id=proposal_id)
+    proposal.status = status
+    proposal.resolved_at = timezone.now()
+    proposal.resolved_by_id = resolved_by_id
+    proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+    return _to_record(proposal)
 
 
 # How far past the applied version the after side will look for versions that kept the change.
@@ -391,6 +495,12 @@ def _write_leaf(item: dict, path: tuple[str, ...], value: Any) -> None:
             return
         item = nested
     item[path[-1]] = value
+
+
+def apply_approved_proposals_for_flow(hog_flow: HogFlow) -> None:
+    WorkflowProposal.objects.filter(hog_flow=hog_flow, status=WorkflowProposal.Status.APPROVED).update(
+        status=WorkflowProposal.Status.APPLIED, applied_version=hog_flow.version
+    )
 
 
 def unstage_proposals_for_flow(hog_flow: HogFlow) -> None:

@@ -21,7 +21,7 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -238,12 +238,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
-#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
-#                          suggestion loop and the shared rating on observations. Scanning spends
-#                          the organization's credits, and delete is PERMANENT (it takes the
-#                          scanner's observations with it), so this scope alone misses the bar the
-#                          others meet. One scope object covers the whole surface, so the two
-#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the shared
+#                          rating on observations. Scanning spends the organization's credits,
+#                          and delete is PERMANENT (it takes the scanner's observations with it),
+#                          so this scope alone misses the bar the others meet. One scope object
+#                          covers the whole surface, so the two exclusions live in
+#                          `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
 #   customer_task:write    Every Customer analytics task in the scout's project: create, update
 #                          (status, due date, assignee, linked account) and archive. There is no
@@ -688,7 +688,7 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=user.email,
                 user_uuid=str(user.uuid),
@@ -698,7 +698,10 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
             call_site="wizard_mint",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
+        logger.exception("security_access_check_site_failed", call_site="wizard_mint")
+        refused = False
+    if refused:
+        raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
 
     app = get_wizard_app()
 

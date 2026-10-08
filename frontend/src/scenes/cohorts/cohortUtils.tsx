@@ -37,6 +37,10 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import {
+    cohortAudienceProperties,
+    messageAudienceUrl,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
@@ -706,4 +710,29 @@ export const COHORT_MATCHING_DAYS = {
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
+}
+
+function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+    if ('values' in group && Array.isArray(group.values)) {
+        return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).some(hasBehavioralCriteria)
+    }
+    return group.type === BehavioralFilterKey.Behavioral
+}
+
+/** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */
+export function cohortBroadcastDisabledReason(cohort: CohortType): string | null {
+    if (typeof cohort.id !== 'number') {
+        return 'Save the cohort first'
+    }
+    if (cohort.deleted) {
+        return 'Restore the cohort first'
+    }
+    if (!cohort.is_static && cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+        return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
+    }
+    return null
+}
+
+export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
+    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
 }

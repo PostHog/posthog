@@ -38,8 +38,7 @@ class TestScoutTrialEvaluationReport(SimpleTestCase):
             created_at=datetime.now(UTC),
             request=request,
             request_hash="synthetic-request-hash",
-            rubric_document={"revision": 3},
-            rubric_reference_context=_reference_context(),
+            rubric_document={"revision": 3, "reference_context": _reference_context().model_dump(mode="json")},
             rubric_reference_generation_id=str(uuid4()),
             criteria=[
                 TrialEvaluationCriterion(

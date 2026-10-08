@@ -25,6 +25,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -90,6 +91,7 @@ import {
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
@@ -143,7 +145,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
-    resolveSharedMetric,
+    sharedMetricEffectiveQuery,
     sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
@@ -230,6 +232,11 @@ export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null
     }
 }
 
+/** The release conditions modal saves the flag through the flag API, then patches only `feature_flag` in. */
+function replacesFlagWithoutHealth(update: Partial<Experiment>): boolean {
+    return 'feature_flag' in update && !('health' in update)
+}
+
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -289,6 +296,31 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
         ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
     )
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
+function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
+    const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
+        ({ query }) => query?.uuid === uuid
+    )
+    return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
+}
+
+/**
+ * kea-loaders turns a rejected loader into a failure action, so awaiting `asyncActions.updateExperiment()` does
+ * not throw. Call this right after dispatching `updateExperiment`: it awaits the queued request of that dispatch
+ * and returns whether the save succeeded. The loader still owns error reporting and conflict recovery.
+ */
+async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean> {
+    const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
+    if (!updatePromise) {
+        return false
+    }
+    try {
+        await updatePromise
+        return true
+    } catch {
+        return false
+    }
 }
 
 // Max concurrent metric queries to avoid overwhelming the celery queue's
@@ -1646,7 +1678,9 @@ export const experimentLogic = kea<experimentLogicType>([
             { ...NEW_EXPERIMENT } as Experiment,
             {
                 setExperiment: (state, { experiment }) => {
-                    return { ...state, ...experiment }
+                    const updated = { ...state, ...experiment }
+                    // Findings about the previous flag would show a stale banner until the next load.
+                    return replacesFlagWithoutHealth(experiment) ? { ...updated, health: undefined } : updated
                 },
                 setExposureCriteria: (
                     state,
@@ -1817,7 +1851,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
                     const newMetric = {
-                        ...resolveSharedMetric(savedMetric),
+                        ...sharedMetricEffectiveQuery(savedMetric),
                         uuid: newUuid,
                         name,
                     }
@@ -1884,7 +1918,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                removeMetricBreakdown: (state, { uuid, index }) => {
+                removeMetricBreakdown: (state, { uuid, index, breakdown }) => {
                     /**
                      * Check if the UUID belongs to a shared metric
                      * Shared Metric types are confusing. The query property
@@ -1896,13 +1930,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     )
 
                     if (savedMetricIndex !== -1) {
-                        // Handle shared metric - update saved_metrics metadata
+                        // Handle shared metric - update saved_metrics metadata. The scene shows the breakdowns
+                        // of the link's effective_query, which only the API resolves, so that list can differ
+                        // from metadata.breakdowns until the save returns. Remove the breakdown by value, so
+                        // that an index into the shown list never removes a different breakdown.
                         const savedMetric = savedMetrics[savedMetricIndex]
+                        const breakdowns = savedMetric.metadata?.breakdowns || []
+                        const position = breakdowns.findIndex((candidate) => objectsEqual(candidate, breakdown))
                         savedMetrics[savedMetricIndex] = {
                             ...savedMetric,
                             metadata: {
                                 ...savedMetric.metadata,
-                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
+                                breakdowns: breakdowns.filter((_, i) => i !== position),
                             },
                         }
 
@@ -3412,7 +3451,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
@@ -3435,6 +3474,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Adding a breakdown changes how the metric is computed, so re-run results. The recalculation
             // flow reuses the current window (metric_config_change), so this breakdown recomputes on its
@@ -3448,7 +3491,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
@@ -3471,6 +3514,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this reuses the current window (metric_config_change), so this metric
@@ -3508,14 +3555,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * figure out if it's a primary metric
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             /**
              * updating a breakdown limit triggers a recalculation.
@@ -3553,14 +3601,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * find if the updated metris is primary
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
             /**
              * updating a breakdown limit triggers a recalculation.
              */
@@ -3944,6 +3993,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // The server computes the same warning (products/experiments/backend/health/checks/flag_state.py)
+                // for people with the experiment-health-findings flag. The rules below cover everyone else.
+                if (experiment.health) {
+                    return experimentWarningFromHealth(experiment.health)
+                }
+
                 // A deleted flag distributes no traffic, so flag-state warnings don't apply.
                 if (experiment.feature_flag?.deleted) {
                     return null

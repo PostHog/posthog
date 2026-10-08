@@ -123,19 +123,6 @@
     }
 }
 
-.TodayPhoneHeader__title {
-    opacity: 0;
-    transition:
-        opacity 200ms var(--today-ease),
-        transform 200ms var(--today-ease);
-    transform: translateY(4px);
-
-    .TodayPhoneHeader[data-scrolled='true'] & {
-        opacity: 1;
-        transform: none;
-    }
-}
-
 .TodayShell--phone {
     display: contents;
 }
@@ -210,8 +197,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     .TodayShell__scrim,
     .TodayShell__drawer,
     .TodayShell__page,
-    .TodayPhoneHeader,
-    .TodayPhoneHeader__title {
+    .TodayPhoneHeader {
         transition: none;
     }
 }

@@ -4,6 +4,7 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
@@ -319,6 +320,16 @@ class CreateExternalDataJobModelActivityOutputs:
     # source's first completed sync does. Defaults True so a payload that predates the field still
     # schedules the activity its history recorded.
     source_templates_needed: bool = True
+    # True when the workflow runs the import again itself after a worker hand-off, so the hand-off
+    # uses no retry attempt. Read from settings here because a workflow must not: the value is
+    # recorded with this activity's result, so a replay takes the same branch. Defaults False so a
+    # payload that predates the field keeps the single import execution its history recorded.
+    import_handoffs_are_free: bool = False
+    # Runs of this schema that failed since its last completed run, this one excluded. The workflow
+    # turns it into the import's retry cap (`retry_limits.import_retry_budget`). Read here because a
+    # workflow must not read the DB, and recorded with this activity's result so a replay picks the
+    # same cap. Defaults to 0 so a payload that predates the field keeps the full cap.
+    failed_runs_in_a_row: int = 0
 
 
 @activity.defn
@@ -438,6 +449,9 @@ def create_external_data_job_model_activity(
             lambda: billing_limit_reached(job, source, inputs.team_id, logger)
         )
 
+        # Read before this run's own outcome can move it, so it is not counted against itself.
+        failed_runs_in_a_row = schema.failed_runs_in_a_row
+
         source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
             ExternalDataJob.objects.filter(
                 team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
@@ -462,6 +476,8 @@ def create_external_data_job_model_activity(
             billing_limit_checked=True,
             hit_billing_limit=hit_billing_limit,
             source_templates_needed=source_templates_needed,
+            import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,
+            failed_runs_in_a_row=failed_runs_in_a_row,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's

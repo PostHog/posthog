@@ -415,6 +415,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             signals_count: 0,
         },
         prompt_question: null,
+        prompt_valence: null,
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_8f3k2j',
@@ -431,9 +432,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
                 id: '00000000-0000-0000-0000-0000000000f1',
                 kind: 'thumbnail',
                 asset_id: 4001,
-                description: null,
                 video_start_ms: 24000,
-                video_end_ms: null,
             },
         ],
         ...overrides,
@@ -558,6 +557,7 @@ const observationDetail = observation({
 // keep the one-paragraph reasoning most scans produce.
 const monitorObservationDetail = observation({
     prompt_question: 'Did the user struggle to complete checkout?',
+    prompt_valence: 'bad',
     id: '00000000-0000-0000-0000-0000000000d2',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
     recording_subject_email: 'bob@example.com',
@@ -1073,7 +1073,9 @@ const meta: Meta = {
 }
 export default meta
 
-export const ScannersList: StoryObj = {}
+export const ScannersList: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
 const emptyProjectDecorators = [
@@ -1098,26 +1100,20 @@ const emptyProjectDecorators = [
 
 export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
 }
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home-redesign experiment's test arm lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-}
+// The home page lands on the What to watch feed.
+export const HomeWatchFeed: StoryObj = {}
 
 const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
 
 // The same feed as thumbnail cards, each closing with why the recording was picked.
 export const HomeWatchFeedGrid: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
     // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
     // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
     // later feed story renders as a grid too.
@@ -1207,9 +1203,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
@@ -1227,9 +1220,6 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const HomeWatchFeedEmpty: StoryObj = {
@@ -1238,9 +1228,6 @@ export const HomeWatchFeedEmpty: StoryObj = {
             get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const SummarizerOverview: StoryObj = {
@@ -1478,21 +1465,24 @@ const classifierObservationDetail = observationDetailFor(
     'Which friction patterns appear in this session?'
 )
 
-const scorerObservationDetail = observationDetailFor(
-    {
-        ...scorerOverviewScanner,
-        scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
-    },
-    '00000000-0000-0000-0000-0000000000d5',
-    {
-        score: 8.5,
-        label: 'buying intent',
-        confidence: 0.41,
-        reasoning:
-            'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
-    },
-    'How strong is the buying intent in this session?'
-)
+const scorerObservationDetail: ReplayObservationApi = {
+    ...observationDetailFor(
+        {
+            ...scorerOverviewScanner,
+            scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
+        },
+        '00000000-0000-0000-0000-0000000000d5',
+        {
+            score: 8.5,
+            label: 'buying intent',
+            confidence: 0.41,
+            reasoning:
+                'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
+        },
+        'How strong is the buying intent in this session?'
+    ),
+    prompt_valence: 'good',
+}
 
 const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
     parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
@@ -1906,6 +1896,7 @@ export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inli
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
@@ -2148,6 +2139,33 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
     ],
 }
 

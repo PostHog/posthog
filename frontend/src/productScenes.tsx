@@ -51,6 +51,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
     AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
+    BusinessIntelligenceHome: () => import('../../products/business_intelligence/frontend/BIWorksheetsScene'),
     BusinessIntelligence: () => import('../../products/business_intelligence/frontend/BusinessIntelligenceScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>

@@ -76,13 +76,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_single_page_without_token_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([{"id": "1"}, {"id": "2"}], None)})
-        assert rows == [{"id": "1"}, {"id": "2"}]
-        # No next page token, so we stop without persisting resume state.
-        assert manager.saved == []
-
     def test_follows_page_token_until_exhausted(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         pages: dict[str | None, tuple[list[dict], str | None]] = {
@@ -99,12 +92,6 @@ class TestGetRows:
         # The initial (token=None) page must never be fetched on resume.
         rows = self._collect(manager, monkeypatch, {"tok-99": ([{"id": "5"}], None)})
         assert rows == [{"id": "5"}]
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {None: ([], None)})
-        assert rows == []
-        assert manager.saved == []
 
 
 class TestGetPayslipRows:
@@ -215,12 +202,6 @@ class TestFetchPage(_ResponseSessionMixin):
         with pytest.raises(PayFitRetryableError):
             _fetch_page_unwrapped(session, "/companies/c/collaborators", "collaborators", None, {}, MagicMock())
 
-    def test_first_page_sends_max_results_and_extra_params_without_token(self) -> None:
-        session = self._session_returning(200, {"absences": [], "meta": {}})
-        _fetch_page_unwrapped(session, "/companies/c/absences", "absences", None, {"status": "all"}, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"maxResults": PAGE_SIZE, "status": "all"}
-
     def test_subsequent_page_sends_next_page_token(self) -> None:
         session = self._session_returning(200, self._EMPTY)
         _fetch_page_unwrapped(session, "/companies/c/collaborators", "collaborators", "tok-42", {}, MagicMock())
@@ -244,20 +225,6 @@ class TestFetchPayslips(_ResponseSessionMixin):
 
 
 class TestGetCompanyId(_ResponseSessionMixin):
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_returns_company_id_for_active_token(self, mock_session: MagicMock) -> None:
-        session = self._session_returning(200, {"active": True, "company_id": "company-1"})
-        mock_session.return_value = session
-        assert get_company_id("payfit-key") == "company-1"
-        args, kwargs = session.post.call_args
-        assert args[0] == payfit.PAYFIT_INTROSPECT_URL
-        assert kwargs["json"] == {"token": "payfit-key"}
-        # The introspection body carries the raw API key, so the exchange must stay out of HTTP
-        # sample capture and must not follow redirects with the credential.
-        session_kwargs = mock_session.call_args.kwargs
-        assert session_kwargs["capture"] is False
-        assert session_kwargs["allow_redirects"] is False
-
     @parameterized.expand(
         [
             ("inactive_token", 200, {"active": False}),
@@ -344,13 +311,6 @@ class TestCheckSchemaAccess(_ResponseSessionMixin):
         mock_session.return_value = self._session_with(self._ACTIVE, endpoint_status)
         valid, _message = check_schema_access("payfit-key", "contracts")
         assert valid is expected_valid
-
-    @patch(f"{payfit.__name__}.make_tracked_session")
-    def test_missing_scope_message_names_the_scope(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session_with(self._ACTIVE, 403)
-        valid, message = check_schema_access("payfit-key", "absences")
-        assert valid is False
-        assert message is not None and "time:read" in message
 
     @patch(f"{payfit.__name__}.make_tracked_session")
     def test_payslips_probe_uses_collaborators_dependency(self, mock_session: MagicMock) -> None:

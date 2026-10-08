@@ -5111,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -6144,6 +6143,45 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
+        "BIConditionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "filters": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BIConditionGroup"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "enum": ["AND", "OR"],
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "filters", "groups"],
+            "type": "object"
+        },
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
@@ -6158,6 +6196,11 @@
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
+                },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
                 },
                 "dateField": {
                     "anyOf": [
@@ -6181,6 +6224,30 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
+                "resultFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
+                "resultFilters": {
+                    "items": {
+                        "$ref": "#/definitions/BIResultFilter"
+                    },
+                    "type": "array"
+                },
+                "rowFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
                 },
                 "rows": {
                     "items": {
@@ -6254,6 +6321,9 @@
                 "id": {
                     "type": "string"
                 },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -6315,9 +6385,92 @@
             ],
             "type": "string"
         },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
+        },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
             "type": "number"
+        },
+        "BIResultFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                },
+                "operator": {
+                    "enum": [
+                        "equals",
+                        "not_equals",
+                        "greater_than",
+                        "less_than",
+                        "greater_than_or_equal",
+                        "less_than_or_equal",
+                        "between",
+                        "is_set",
+                        "is_not_set"
+                    ],
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "measureIndex", "operator", "value"],
+            "type": "object"
         },
         "BISort": {
             "additionalProperties": false,
@@ -6342,6 +6495,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -6401,8 +6558,14 @@
                 "customExpression": {
                     "type": "string"
                 },
+                "display": {
+                    "$ref": "#/definitions/ChartSettingsDisplay"
+                },
                 "field": {
                     "$ref": "#/definitions/BIField"
+                },
+                "formatting": {
+                    "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
                     "type": "string"
@@ -17529,6 +17692,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17563,7 +17727,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
@@ -18662,6 +18826,20 @@
                         }
                     ],
                     "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
+                },
+                "metricFilters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MetricsQueryFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
                 },
                 "properties": {
                     "anyOf": [
@@ -29314,7 +29492,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -50842,7 +51020,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

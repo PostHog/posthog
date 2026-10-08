@@ -47,6 +47,12 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
+from products.autoresearch.backend.training.realized_context import (
+    RealizedContext,
+    RealizedDate,
+    RelatedPipeline,
+    build_realized_context,
+)
 from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
@@ -155,10 +161,10 @@ def _describe_training_sample(sample: TrainingSample | None) -> str:
     return clause
 
 
-def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: str, today_iso: str) -> str:
-    """The Finalize step that builds the report notebook, indented to sit inside the brief."""
+def _report_notebook_step(pipeline: AutoresearchPipeline, *, today_iso: str) -> str:
+    """The Finalize step that creates the report notebook, indented to sit inside the brief."""
     step = textwrap.dedent(f"""
-        3. **Build the report notebook** — a live copy of the report whose numbers come from SQL
+        3. **Create the report notebook** — a live copy of the report whose numbers come from SQL
            cells, so a reader can check them and re-run them after scoring. `report.md` stays the
            fallback: write it first, whatever happens in this step.
 
@@ -168,27 +174,40 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            Create exactly ONE notebook with `notebooks-create-markdown`. Title it
            `<pipeline name> · model report · {today_iso}`, where the pipeline name is
            {_wrap_untrusted(pipeline.name)}. Change and run only this notebook. Never update,
-           delete, or run any other notebook.
+           delete, or run any other notebook. Put only the **TL;DR** and **What it predicts**
+           sections in it now, with the same content as `report.md`. You add the cells in step 5,
+           after the run completes, because this run's model row does not exist until then.
 
-           Build it in this order, with markdown prose between the cells:
-           - **TL;DR** and **What it predicts** — the same content as `report.md`.
+           Keep the notebook's `short_id` for the next step.""")
+    return textwrap.indent(step, " " * 8)
+
+
+def _report_notebook_cells_step(pipeline: AutoresearchPipeline, *, training_run_id: str) -> str:
+    """The step after complete that fills the report notebook, indented to sit inside the brief."""
+    step = textwrap.dedent(f"""
+        5. **Fill the report notebook** — do this step only if you created the notebook in step 3
+           and the complete call succeeded. Complete writes this run's model row, so the cells
+           below now read real data.
+
+           Add these cells with `notebooks-add-cell`, in this order, with markdown prose between them:
            - **How training went** — a SQL cell over `system.autoresearch_iterations` where
              `training_run_id = '{training_run_id}'`, then a Python cell that plots holdout AUC by
              iteration and marks kept and discarded iterations.
            - **How well it works** — a SQL cell over `system.autoresearch_models` where
              `pipeline_id = '{pipeline.pk}'`: role, holdout AUC, realized AUC, calibration error,
              and lift@10/@20 from `metrics` when present. Explain them in plain words.
-           - **What drives it** — a Python cell that charts the feature importances and direction
-             in `model_explanation` of this run's model row
-             (`source_training_run_id = '{training_run_id}'`), then prose on the intuition behind
-             each top feature.
+           - **What drives it** — a SQL cell that reads `model_explanation` of this run's model row
+             in `system.autoresearch_models` (`source_training_run_id = '{training_run_id}'`), then a
+             Python cell that charts the feature importances and direction, then prose on the
+             intuition behind each top feature.
            - **Live performance** — a SQL cell over `events` where
              `event = 'autoresearch_prediction'` and
              `properties.$autoresearch_pipeline_id = '{pipeline.pk}'`, then Python cells for the
              score histogram and the realized vs predicted rate by decile. A new model has no
              predictions yet, so these cells must handle an empty result: print a clear message
              such as "No predictions yet. Re-run after the first scoring run." and do not fail.
-           - **How it was built** and **Caveats and recommended use** — prose.
+           - **How it was built** and **Caveats and recommended use** — prose. Include the line
+             from `report.md` on how this run used the realized results.
 
            Rules for every cell:
            - Every number comes from a SQL cell. Do not type metrics into Python or prose tables.
@@ -198,9 +217,7 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            - One figure per Python cell. The kernel keeps at most 8 figures and about 3 MB of
              images per cell.
            - Do not call `notebooks-configure-compute`. Use the default kernel.
-           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.
-
-           Keep the notebook's `short_id` for the next step.""")
+           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.""")
     return textwrap.indent(step, " " * 8)
 
 
@@ -212,6 +229,7 @@ def build_agent_description(
     training_sample: TrainingSample | None = None,
     report_notebook: bool = False,
     unscorable_champion: UnscorableChampion | None = None,
+    realized_context: RealizedContext | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -236,6 +254,7 @@ def build_agent_description(
 
     sample_clause = _describe_training_sample(training_sample)
     unscorable_clause = _describe_unscorable_champion(unscorable_champion)
+    realized_clause = _describe_realized_context(realized_context)
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -243,9 +262,11 @@ def build_agent_description(
     complete_step = 3
     notebook_step = ""
     notebook_field = ""
+    notebook_cells_step = ""
     if report_notebook:
         complete_step = 4
-        notebook_step = _report_notebook_step(pipeline, training_run_id=training_run_id, today_iso=today_iso)
+        notebook_step = _report_notebook_step(pipeline, today_iso=today_iso)
+        notebook_cells_step = "\n" + _report_notebook_cells_step(pipeline, training_run_id=training_run_id)
         notebook_field = (
             "\n           - `report_notebook_short_id`: the `short_id` of the notebook from step 3. Omit it\n"
             "             if you skipped step 3 or the notebook does not exist."
@@ -309,7 +330,7 @@ def build_agent_description(
            `model_spec`). Mine all this before you iterate: reuse the features and transforms that
            won, act on a prior `recommended_next` when sensible, and do NOT re-try approaches already
            in `dead_ends`. In each iteration's `agent_description`, cite which prior learning you are
-           building on or deliberately avoiding.
+           building on or deliberately avoiding.{realized_clause}
 
         If no champion exists you are establishing the baseline — aim for AUC > 0.6.{unscorable_clause}
 
@@ -319,7 +340,7 @@ def build_agent_description(
         labeler that produces, for each user in the training population, exactly one
         labeled example:
 
-          T0_user   = a per-user deterministic random point in their history
+          T0_user   = a per-user deterministic random UTC midnight in their history
           label     = 1 if {target.inline_ref} fires in [T0_user, T0_user + {pipeline.horizon_days}), else 0
 
         Features for each user MUST be computed strictly as of THAT user's T0 — never
@@ -369,10 +390,10 @@ def build_agent_description(
         **Hard rules:**
 
         1. Select `FROM {{anchors}} a` — the framework supplies columns `(person_id, cutoff_ts)`.
-           At training cutoff_ts is per-user T0. At inference cutoff_ts is the start of the prediction
-           date in UTC (midnight) for every person. Same SQL, two tables. A feature derived from the
-           cutoff's time of day or hour varies in training but is constant at scoring. It teaches the
-           model nothing it can use, so it is not worth building.
+           At training cutoff_ts is per-user T0, a UTC midnight. At inference cutoff_ts is the start of
+           the prediction date in UTC (midnight) for every person. Same SQL, two tables. Both cutoffs
+           fall at midnight, so a feature derived from the cutoff's hour or time of day is constant and
+           teaches the model nothing. Do not build one.
         2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
         3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
         4. Output `a.person_id AS distinct_id` as the FIRST column, always. Then list the feature
@@ -431,10 +452,9 @@ def build_agent_description(
         whole inference population, under a query time limit. A query that passes training can fail
         at scoring, so a feature must earn its cost in AUC.
         - For long windows, aggregate to daily (or hourly) counts per person in a subquery before
-          you join. A training cutoff falls at any time of day, so the bucket that holds it also holds
-          events after it: join only whole buckets (`day < toStartOfDay(fromUnixTimestamp(a.cutoff_ts))`),
-          and read the part of the cutoff's day before the cutoff from raw events, with the strict `<`
-          of rule 2.
+          you join. Every cutoff is a UTC midnight, so a UTC day bucket never holds events after it:
+          bucket with `toStartOfDay(e.timestamp, 'UTC')` and join `day < fromUnixTimestamp(a.cutoff_ts)`.
+          Pass `'UTC'`, because without it the day starts in the project timezone.
         - Keep windows short on high-volume events such as `$pageview`, and filter on event names early.
         - Read person properties from the snapshot stored on each event, `poe.properties.*`, and take
           the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
@@ -628,7 +648,8 @@ def build_agent_description(
            - **What drives it** — the top features, their direction, and the *intuition* behind
              each, not just a number. Ground this in the importances `train.py` computed (write them
              to its `output.json`), not from memory.
-           - **How it was built** — the winning approach and the notable dead-ends, briefly.
+           - **How it was built** — the winning approach and the notable dead-ends, briefly. Add
+             one line on how the realized results in Step 0 changed what this run tried.
            - **Caveats & recommended use** — when to rely on it and when not to.
 
            Charts: use ```mermaid``` code fences — they render inline and stay portable. Colors are
@@ -664,7 +685,7 @@ def build_agent_description(
            Also pass `model_explanation`, which the model card charts. Use exactly this shape:
            `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
            List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is
-           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.
+           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.{notebook_cells_step}
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.
@@ -715,6 +736,131 @@ def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: in
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
+
+_REALIZED_GUIDANCE = """
+
+4. **Read how the models perform as served.** The backend computed the results below from the
+   validated prediction dates. Realized AUC is the AUC of a served model against the outcomes
+   that happened. Use it to find what kind of problem this pipeline has. It is not a target.
+   - Compare the gap with the interval first. When the holdout AUC is inside the realized
+     interval, the gap is noise.
+   - A steady gap on every date suggests holdout optimism. Prefer simpler models and pooled
+     cross-validation to small holdout gains.
+   - A gap that changes with the weekday or the date suggests drift or seasonality. When related
+     pipelines show the same pattern, the cause is shared.
+   - A gap that starts right after a promotion suggests train/serve skew. Check that each feature
+     computes the same way at scoring as at training.
+   - A mean score far from the base rate while the ranking holds is a base-rate shift, not a
+     ranking problem.
+   - Use the realized results to choose a direction. Then judge each iteration on holdout and
+     cross-validation, as before. Do not try a change and check it against the realized results:
+     the holdout of this run covers the same recent dates, so that tunes against the holdout.
+"""
+
+
+def _describe_realized_context(context: RealizedContext | None) -> str:
+    if context is None:
+        return ""
+    if context.is_empty:
+        body = (
+            "\nNo realized results yet: no prediction date of this pipeline or a related pipeline has been validated."
+        )
+    else:
+        body = "\n" + _wrap_untrusted("\n" + _realized_tables(context) + "\n")
+    # Indented to the brief's level, because the brief is dedented after this text goes in.
+    return textwrap.indent(_REALIZED_GUIDANCE + body, " " * 8)
+
+
+def _realized_tables(context: RealizedContext) -> str:
+    lines = [
+        "### This pipeline",
+        "",
+        "gap = holdout AUC - realized AUC. A positive gap means the model ranks worse as served.",
+    ]
+    for model in context.models:
+        heading = f"**{model.label}**: holdout AUC {_fmt(model.holdout_score)}"
+        if model.promoted_on is not None:
+            heading += f", promoted {model.promoted_on.isoformat()}"
+        lines += ["", heading]
+        if not model.dates:
+            lines.append("No validated dates yet.")
+            continue
+        lines += [
+            "",
+            "| date | weekday | realized AUC (95% interval) | gap | holdout in interval | positives / scored | mean score / base rate |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_auc(d)} | {_fmt_gap(d)}"
+            f" | {_fmt_inside(d)} | {d.n_positive} / {d.n_scored} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
+            for d in model.dates
+        ]
+    if context.related:
+        lines += [
+            "",
+            "### Related pipelines",
+            "",
+            "Their AUCs do not compare with this pipeline, because the horizon or the target differs.",
+            "Read only the shape of the gap and the calibration, for the model that served each date.",
+        ]
+        for related in context.related:
+            lines += ["", _related_heading(related), ""]
+            lines += [
+                "| date | weekday | gap | holdout in interval | mean score / base rate |",
+                "|---|---|---|---|---|",
+            ]
+            lines += [
+                f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_gap(d)}"
+                f" | {_fmt_inside(d)} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
+                for d in related.dates
+            ]
+    return "\n".join(lines)
+
+
+def _related_heading(related: RelatedPipeline) -> str:
+    return (
+        f"**{related.name}** ({related.relation}, target `{related.target_event}`, horizon"
+        f" {related.horizon_days} days, latest realized result {related.latest_date.isoformat()})"
+    )
+
+
+def _fmt(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
+
+
+# Online validation stores rates to 4 decimals. With 3, a rare target's miscalibration reads as 0.000 / 0.000.
+def _fmt_rate(value: float | None) -> str:
+    return "-" if value is None else f"{value:.4f}"
+
+
+def _fmt_auc(d: RealizedDate) -> str:
+    if d.realized_auc is None:
+        return "no AUC (one class)"
+    if d.realized_auc_ci_low is None or d.realized_auc_ci_high is None:
+        return _fmt(d.realized_auc)
+    return f"{_fmt(d.realized_auc)} ({_fmt(d.realized_auc_ci_low)}-{_fmt(d.realized_auc_ci_high)})"
+
+
+def _fmt_gap(d: RealizedDate) -> str:
+    if d.realized_auc is None or d.holdout_score is None:
+        return "-"
+    return f"{d.holdout_score - d.realized_auc:+.3f}"
+
+
+def _fmt_inside(d: RealizedDate) -> str:
+    if d.holdout_score is None or d.realized_auc_ci_low is None or d.realized_auc_ci_high is None:
+        return "-"
+    return "yes" if d.realized_auc_ci_low <= d.holdout_score <= d.realized_auc_ci_high else "no"
+
+
+def _realized_context_for_brief(pipeline: AutoresearchPipeline) -> RealizedContext | None:
+    """A read that fails leaves the realized results out rather than failing the launch."""
+    try:
+        return build_realized_context(pipeline)
+    except Exception:
+        logger.warning("autoresearch_realized_context_unread", pipeline_id=str(pipeline.pk), exc_info=True)
+        return None
 
 
 def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
@@ -825,6 +971,7 @@ def run_training(
             training_sample=_training_sample_for_brief(pipeline),
             report_notebook=report_notebook,
             unscorable_champion=_unscorable_champion_for_brief(pipeline),
+            realized_context=_realized_context_for_brief(pipeline),
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"

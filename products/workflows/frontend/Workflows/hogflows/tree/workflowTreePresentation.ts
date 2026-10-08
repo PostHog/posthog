@@ -89,3 +89,49 @@ export function getWorkflowTreeBranchSummary(node: WorkflowTreeNode, branch: Wor
     const destination = node.joinAction ? `Continue to: ${node.joinAction.name}` : getPathDestination(branch.sequence)
     return `${count} ${count === 1 ? 'step' : 'steps'} · ${destination}`
 }
+
+export function getWorkflowTreeBranchKey(edge: HogFlowEdge): string {
+    return `${edge.from}-${edge.type}-${edge.index ?? 'continue'}`
+}
+
+export interface WorkflowTreeBranchGroup {
+    occurrenceKey: string
+    branchKeys: string[]
+}
+
+function collectBranchGroups(
+    sequence: WorkflowTreeSequence,
+    path: HogFlowEdge[],
+    groups: WorkflowTreeBranchGroup[]
+): void {
+    for (const node of sequence.nodes) {
+        if (node.branches.length) {
+            groups.push({
+                occurrenceKey: getWorkflowTreeOccurrenceKey(node.action.id, path),
+                branchKeys: node.branches.map((branch) => getWorkflowTreeBranchKey(branch.edge)),
+            })
+        }
+        for (const branch of node.branches) {
+            collectBranchGroups(branch.sequence, [...path, branch.edge], groups)
+        }
+    }
+}
+
+/** Every branching step in the tree, including the ones nested inside a path. */
+export function getWorkflowTreeBranchGroups(sequence: WorkflowTreeSequence): WorkflowTreeBranchGroup[] {
+    const groups: WorkflowTreeBranchGroup[] = []
+    collectBranchGroups(sequence, [], groups)
+    return groups
+}
+
+export function areAllWorkflowTreeBranchesCollapsed(
+    groups: WorkflowTreeBranchGroup[],
+    viewStates: Record<string, WorkflowTreeNodeViewState>
+): boolean {
+    return (
+        groups.length > 0 &&
+        groups.every((group) =>
+            group.branchKeys.every((branchKey) => viewStates[group.occurrenceKey]?.collapsedBranches?.has(branchKey))
+        )
+    )
+}

@@ -289,10 +289,6 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 actions.setStep('budget')
             }
         },
-        // The self-driving toggle moved onto the configure step; old links still resolve.
-        [urls.replayVisionScannerSelfDriving(':id')]: ({ id }) => {
-            router.actions.replace(urls.replayVisionScannerConfigure(id || 'new'))
-        },
     })),
 
     afterMount(({ actions }) => {

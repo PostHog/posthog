@@ -22,8 +22,15 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, MultivariateFlagVariant } from '~/types'
+import {
+    Experiment,
+    ExperimentStatus,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    MultivariateFlagVariant,
+} from '~/types'
 
+import type { ExperimentHealthFindingApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import { ExperimentWarning, experimentLogic } from './experimentLogic'
@@ -673,6 +680,13 @@ describe('experimentLogic', () => {
                 source: { kind: NodeKind.EventsNode, event: '$pageview' },
             },
             metadata: { type: 'primary', breakdowns: [breakdown], breakdown_limit: 20 },
+            effective_query: {
+                uuid: 'shared-metric-uuid',
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                breakdownFilter: { breakdowns: [breakdown], breakdown_limit: 20 },
+            },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
 
@@ -1388,7 +1402,15 @@ describe('experimentLogic', () => {
             expect(updatedMetric.breakdownFilter?.breakdowns).toEqual([{ property: '$os', type: 'event' }])
         })
 
-        it('should remove breakdown from shared metric metadata', () => {
+        const browserBreakdown: Breakdown = { property: '$browser', type: 'event' }
+        const osBreakdown: Breakdown = { property: '$os', type: 'event' }
+
+        it.each([
+            ['the shown breakdown', [browserBreakdown, osBreakdown], 0, browserBreakdown, [osBreakdown]],
+            // The scene shows the last saved effective_query, so before the first removal saves, $os is still
+            // shown at index 1 while the link metadata already holds it at index 0.
+            ['the shown breakdown while an earlier removal is unsaved', [osBreakdown], 1, osBreakdown, []],
+        ])('should remove %s from shared metric metadata', (_name, linkBreakdowns, shownIndex, shown, expected) => {
             const testExperiment: Experiment = {
                 ...experiment,
                 saved_metrics: [
@@ -1403,12 +1425,13 @@ describe('experimentLogic', () => {
                             metric_type: ExperimentMetricType.MEAN,
                             source: { kind: NodeKind.EventsNode, event: '$pageview' },
                         },
-                        metadata: {
-                            type: 'primary',
-                            breakdowns: [
-                                { property: '$browser', type: 'event' } satisfies Breakdown,
-                                { property: '$os', type: 'event' } satisfies Breakdown,
-                            ],
+                        metadata: { type: 'primary', breakdowns: linkBreakdowns },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
                         },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
@@ -1417,12 +1440,9 @@ describe('experimentLogic', () => {
             }
 
             logic.actions.setExperiment(testExperiment)
-            const breakdownToRemove: Breakdown = { property: '$browser', type: 'event' }
-            logic.actions.removeMetricBreakdown('shared-metric-uuid', 0, breakdownToRemove)
+            logic.actions.removeMetricBreakdown('shared-metric-uuid', shownIndex, shown)
 
-            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([
-                { property: '$os', type: 'event' },
-            ])
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual(expected)
         })
 
         it('should include breakdowns when preparing shared metrics for loading', () => {
@@ -1446,6 +1466,13 @@ describe('experimentLogic', () => {
                                 { property: '$browser', type: 'event' } satisfies Breakdown,
                                 { property: '$os', type: 'event' } satisfies Breakdown,
                             ],
+                        },
+                        effective_query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
                         },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
@@ -1557,6 +1584,13 @@ describe('experimentLogic', () => {
                                 { property: '$os', type: 'event' } satisfies Breakdown,
                             ],
                         },
+                        effective_query: {
+                            uuid: 'secondary-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                            breakdownFilter: { breakdowns: [browserBreakdown, osBreakdown] },
+                        },
                         created_at: '2024-01-01T00:00:00Z',
                     } satisfies ExperimentSavedMetric,
                 ],
@@ -1624,6 +1658,57 @@ describe('experimentLogic', () => {
             logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
 
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
+        })
+
+        it.each([
+            ['reloads the section of a shared primary metric', true, ['loadPrimaryMetricsResults']],
+            ['skips the reload when the save fails', false, []],
+        ])('adding a breakdown %s', async (_name, saveSucceeds, reloaded) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary' },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+            logic.actions.setExperiment(testExperiment)
+            if (saveSucceeds) {
+                jest.spyOn(api, 'update').mockResolvedValue(testExperiment)
+            } else {
+                jest.spyOn(api, 'update').mockRejectedValue(new Error('network down'))
+            }
+            const reloads = ['loadPrimaryMetricsResults', 'loadSecondaryMetricsResults', 'refreshExperimentResults']
+
+            await expectLogic(logic, () => {
+                logic.actions.updateMetricBreakdown('shared-metric-uuid', browserBreakdown)
+            })
+                .toDispatchActions(reloaded)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(reloads.filter((action) => !reloaded.includes(action)))
         })
     })
 
@@ -2449,13 +2534,46 @@ describe('experimentLogic', () => {
                 ...overrides,
             }) as Experiment
 
+        const healthFinding = (
+            code: ExperimentHealthFindingApi['code'],
+            subcode: string | null,
+            evidence: ExperimentHealthFindingApi['evidence'] = {}
+        ): ExperimentHealthFindingApi => ({
+            code,
+            subcode,
+            severity: 'warning',
+            title: '',
+            detail: '',
+            evidence,
+            actions: [],
+            diagnostic_ref: null,
+        })
+
+        const flag = (
+            active: boolean,
+            filters: FeatureFlagFilters,
+            overrides: Partial<FeatureFlagBasicType> = {}
+        ): FeatureFlagBasicType => ({
+            id: 1,
+            team_id: 1,
+            key: 'flag',
+            name: '',
+            filters,
+            deleted: false,
+            active,
+            ensure_experience_continuity: null,
+            ...overrides,
+        })
+
+        const running = { start_date: '2020-01-01', end_date: undefined }
+
         it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
             {
                 desc: 'running experiment with active flag and normal rollout',
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2464,7 +2582,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: { key: 'running_but_flag_disabled' },
             },
@@ -2473,7 +2591,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
             },
@@ -2482,7 +2600,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2491,12 +2609,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag',
-                        active: true,
-                        filters: zeroRolloutShippedVariantFilters,
-                    } as any,
+                    feature_flag: flag(true, zeroRolloutShippedVariantFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2505,7 +2618,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2514,7 +2627,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2523,7 +2636,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2532,7 +2645,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: null,
             },
@@ -2542,7 +2655,7 @@ describe('experimentLogic', () => {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
                     archived: true,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2551,7 +2664,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'not_started_but_multiple_variants_rolled_out' },
             },
@@ -2560,7 +2673,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2569,7 +2682,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2578,13 +2691,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
                 },
                 expected: null,
             },
@@ -2593,19 +2700,71 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
+                },
+                expected: null,
+            },
+            {
+                desc: 'server finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                },
+                expected: { key: 'running_but_flag_disabled' },
+            },
+            {
+                desc: 'server without a finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [] },
+                },
+                expected: null,
+            },
+            {
+                desc: 'server shipped-variant finding carries the variant key',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, shippedVariantFilters),
+                    health: {
+                        findings: [
+                            healthFinding('no_metric', null),
+                            healthFinding('variant_shipped_while_running', 'running_but_single_variant_shipped', {
+                                variant_key: 'test',
+                            }),
+                        ],
+                    },
+                },
+                expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
+            },
+            {
+                desc: 'server finding of another code is no flag-state warning',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [healthFinding('no_metric', null)] },
                 },
                 expected: null,
             },
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+
+        it('applies the local rules after a local flag write makes the server findings stale', () => {
+            logic.actions.setExperiment(
+                createExperiment({
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [] },
+                })
+            )
+            expect(logic.values.experimentWarning).toBeNull()
+
+            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+
+            expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
         })
     })
 
