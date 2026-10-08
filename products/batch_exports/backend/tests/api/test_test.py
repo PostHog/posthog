@@ -48,6 +48,14 @@ def test_can_get_test_for_destination(client: HttpClient, destination: str, orga
     assert all("name" in step and "description" in step for step in destination_test["steps"])
 
 
+def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient, organization, team, user):
+    client.force_login(user)
+
+    response = client.get(f"/api/projects/{team.pk}/batch_exports/test", {"destination": "Postgres"})
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
 TEST_ROOT_BUCKET = "test-destination-tests"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
@@ -219,7 +227,7 @@ def test_run_test_step_rejects_destination_type_change(
     }
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
+        "products.batch_exports.backend.destination_tests.get_destination_test"
     ) as mock_get_destination_test:
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
@@ -404,7 +412,7 @@ def test_can_run_databricks_test_step_for_new_destination(
     client.force_login(user)
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
+        "products.batch_exports.backend.destination_tests.get_destination_test"
     ) as mock_get_destination_test:
         test_step = DatabricksEstablishConnectionTestStep()
         test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)

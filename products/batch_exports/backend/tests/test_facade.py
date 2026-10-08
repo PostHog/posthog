@@ -10,7 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import User
+from posthog.models import Integration, User
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
@@ -361,3 +361,23 @@ def test_creating_and_deleting_a_batch_export_manages_its_temporal_schedule(team
     assert BatchExport.objects.get(id=detail.id).deleted is True
     with pytest.raises(temporalio.service.RPCError):
         _describe_schedule(temporal, str(detail.id))
+
+
+def test_destination_test_step_refuses_an_integration_from_another_team(team, organization):
+    other_team = create_team(organization=organization)
+    integration = Integration.objects.create(
+        team=other_team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="example-server-hostname",
+        config={"server_hostname": "example-server-hostname"},
+        sensitive_config={"client_id": "fake-client-id", "client_secret": "fake-client-secret"},
+    )
+
+    with pytest.raises(Integration.DoesNotExist):
+        api.run_destination_test_step(
+            team.pk,
+            destination_type="Databricks",
+            config={"http_path": "fake-http-path", "catalog": "catalog", "schema": "schema", "table_name": "events"},
+            integration_id=integration.id,
+            step=0,
+        )

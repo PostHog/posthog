@@ -739,7 +739,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.temporal.destinations.constants",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.destination_tests",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.filters",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.hogql_source",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.models.batch_export",

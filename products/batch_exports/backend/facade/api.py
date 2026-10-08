@@ -21,7 +21,7 @@ those may be imported from here.
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -30,6 +30,9 @@ from django.db.models.functions import Coalesce
 
 import structlog
 
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend import destination_tests
 from products.batch_exports.backend.billing import exclude_non_billable_runs
 from products.batch_exports.backend.filters import validate_batch_export_filters
 from products.batch_exports.backend.models.batch_export import (
@@ -55,6 +58,7 @@ __all__ = [
     "create_workflows_backfill_export",
     "delete_batch_export",
     "delete_batch_exports_for_teams",
+    "describe_destination_test",
     "get_batch_export_by_name",
     "get_latest_completed_run",
     "get_latest_run",
@@ -65,6 +69,7 @@ __all__ = [
     "list_batch_exports_using_integration",
     "list_latest_failed_runs",
     "list_supported_intervals",
+    "run_destination_test_step",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -133,6 +138,24 @@ def _to_detail(batch_export: BatchExport) -> contracts.BatchExportDetail:
         exclude_events=tuple(config.get("exclude_events") or ()),
         include_events=tuple(config.get("include_events") or ()),
     )
+
+
+def _to_destination_test_step(
+    step: destination_tests.base.DestinationTestStep,
+) -> contracts.DestinationTestStep:
+    result = None
+    if step.result is not None:
+        result = contracts.DestinationTestStepResult(status=str(step.result.status), message=step.result.message)
+    return contracts.DestinationTestStep(name=step.name, description=step.description, result=result)
+
+
+def _get_destination_test(destination_type: str) -> destination_tests.base.DestinationTest:
+    try:
+        return destination_tests.get_destination_test(destination=destination_type)
+    except ValueError as e:
+        raise contracts.UnsupportedDestinationTestError(
+            f"No connection test for destination {destination_type!r}"
+        ) from e
 
 
 def _to_backfill_summary(backfill: BatchExportBackfill) -> contracts.BatchExportBackfillSummary:
@@ -414,3 +437,39 @@ def backfill_batch_export(
 def list_supported_intervals() -> tuple[str, ...]:
     """Return the intervals a batch export may be scheduled on."""
     return tuple(interval for interval, _ in BATCH_EXPORT_INTERVALS)
+
+
+def describe_destination_test(destination_type: str) -> contracts.DestinationTest:
+    """Return the steps of a destination's connection test, with no step run."""
+    destination_test = _get_destination_test(destination_type)
+    return contracts.DestinationTest(steps=tuple(_to_destination_test_step(step) for step in destination_test.steps))
+
+
+def run_destination_test_step(
+    team_id: int,
+    *,
+    destination_type: str,
+    config: Mapping[str, Any],
+    integration_id: int | None,
+    step: int,
+) -> contracts.DestinationTestStep:
+    """Run one step of a destination's connection test, and return that step with its result.
+
+    ``config`` is a destination config that already passed validation. The step reaches the
+    destination over the network. When the destination authenticates through an integration,
+    the integration's config and secrets override any key of the same name in ``config``.
+    """
+    destination_test = _get_destination_test(destination_type)
+
+    test_configuration = dict(config)
+    if integration_id is not None:
+        integration = Integration.objects.get(id=integration_id, team_id=team_id)
+        test_configuration = {
+            **test_configuration,
+            **integration.config,
+            **integration.sensitive_config,
+            "integration": integration,
+        }
+
+    destination_test.configure(**test_configuration)
+    return _to_destination_test_step(destination_test.run_step(step))

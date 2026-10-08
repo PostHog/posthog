@@ -42,8 +42,8 @@ from posthog.security.url_validation import (
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.batch_exports.backend.destination_tests import get_destination_test
-from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
@@ -1094,6 +1094,18 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
+    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
+        destination = serializer.validated_data["destination"]
+        integration: Integration | None = destination.get("integration")
+        result = batch_exports_api.run_destination_test_step(
+            self.team_id,
+            destination_type=destination["type"],
+            config=destination["config"],
+            integration_id=integration.id if integration else None,
+            step=step,
+        )
+        return response.Response(dataclasses.asdict(result))
+
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         destination = request.query_params.get("destination", None)
@@ -1101,11 +1113,11 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return response.Response(status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            destination_test = get_destination_test(destination=destination)
-        except ValueError:
+            destination_test = batch_exports_api.describe_destination_test(destination)
+        except UnsupportedDestinationTestError:
             return response.Response(status=status.HTTP_404_NOT_FOUND)
 
-        return response.Response(destination_test.as_dict())
+        return response.Response(dataclasses.asdict(destination_test))
 
     @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -1114,25 +1126,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -1153,22 +1147,4 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)
