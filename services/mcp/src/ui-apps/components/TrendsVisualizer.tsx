@@ -106,8 +106,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         )
     }
 
-    // ActionsBarValue is aggregated totals per series (no days[]) — a horizontal bar, not a time series.
-    if (displayType === 'ActionsBarValue') {
+    // ActionsBarValue and ActionsProportionBar are aggregated totals per series (no days[]) — a horizontal bar, not a time series.
+    if (displayType === 'ActionsBarValue' || displayType === 'ActionsProportionBar') {
         const items = results.map((item, i) => ({
             label: getSeriesLabel(item, i),
             value: item.aggregated_value,
