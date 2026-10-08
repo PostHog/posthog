@@ -22,8 +22,7 @@ export function normalizeIp(raw: string): string | undefined {
     return isIP(ip) ? ip : undefined
 }
 
-/** The client address the way Django reads it with TRUST_ALL_PROXIES: the left-most X-Forwarded-For
- * entry, or the socket address when the header is absent. */
+/** The left-most X-Forwarded-For entry, as Django reads it with TRUST_ALL_PROXIES. */
 export function clientIp(req: IncomingMessage): string | undefined {
     const header = req.headers['x-forwarded-for']
     const forwarded = (Array.isArray(header) ? header.join(',') : (header ?? ''))

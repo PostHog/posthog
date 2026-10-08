@@ -141,7 +141,6 @@ export class PushApiServer implements NodeServer {
         }
         const geoip = await new GeoIPService(this.config.MMDB_FILE_LOCATION).get()
         // An unreadable database places no address, which lets every request through, as Django does.
-        // The startup check makes that case visible instead of silent.
         if (!geoip.city('8.8.8.8')) {
             logger.error('push-api could not load the GeoIP database, so blocked regions are not enforced', {
                 location: this.config.MMDB_FILE_LOCATION,
