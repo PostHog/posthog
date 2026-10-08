@@ -39,8 +39,8 @@ export function ComposerHeader({
             </span>
             <span className="font-semibold shrink-0">{isPrivate ? 'Private note' : getReplyDestination(channel)}</span>
             {detail ? (
-                <Tooltip title={detail}>
-                    <span className="truncate text-secondary min-w-0">{detail}</span>
+                <Tooltip title={<span className="ph-no-capture">{detail}</span>}>
+                    <span className="ph-no-capture truncate text-secondary min-w-0">{detail}</span>
                 </Tooltip>
             ) : null}
             {statusLabel ? <span className="ml-auto shrink-0 text-secondary">Ticket status: {statusLabel}</span> : null}
@@ -135,7 +135,9 @@ export function SendMenu({
                             <ReplyIcon isPrivate={isPrivate} channel={channel} />
                             {isPrivate ? 'Private note' : getReplyDestination(channel)}
                         </div>
-                        <div className="font-semibold">{isPrivate ? 'Only your team will see this.' : audience}</div>
+                        <div className="ph-no-capture font-semibold">
+                            {isPrivate ? 'Only your team will see this.' : audience}
+                        </div>
                         {statusLabel ? (
                             <div className="text-xs text-secondary">Ticket status is {statusLabel}.</div>
                         ) : null}
