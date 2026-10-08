@@ -224,8 +224,8 @@ tools:
 
             Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
             disabled, or when a release condition targets a deleted cohort (remove that condition with
-            `update-feature-flag`). Returns 409 when an approval policy gates enabling. Enabling an already-enabled
-            flag succeeds and changes nothing, so retrying is safe.
+            `update-feature-flag`). Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag
+            succeeds and changes nothing, so retrying is safe.
 
 
             `feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags
