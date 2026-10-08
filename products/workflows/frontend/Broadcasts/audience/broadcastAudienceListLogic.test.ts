@@ -59,20 +59,33 @@ describe('broadcastAudienceListLogic', () => {
         ])
     })
 
-    it('creates no cohort for a CSV the import would reject', async () => {
+    it.each([
+        {
+            file: 'a CSV the import would reject',
+            content: 'name,company\nAda,Acme\n',
+            error: 'The file needs a column named email, distinct_id or person_id.',
+        },
+        {
+            // "Zoë" in Windows-1252, which the cohort import can't decode after it saves the cohort.
+            file: 'a CSV that is not UTF-8',
+            content: new Uint8Array([
+                ...new TextEncoder().encode('email\nzo'),
+                0xeb,
+                ...new TextEncoder().encode('@example.com\n'),
+            ]),
+            error: 'This file isn\'t saved as UTF-8. Save it as "CSV UTF-8" and upload it again.',
+        },
+    ])('creates no cohort for $file', async ({ content, error }) => {
         const logic = broadcastAudienceListLogic({ id: 'new' })
         logic.mount()
         logic.actions.openListModal()
-        logic.actions.setFile(new File(['name,company\nAda,Acme\n'], 'people.csv', { type: 'text/csv' }))
+        logic.actions.setFile(new File([content], 'people.csv', { type: 'text/csv' }))
 
         await expectLogic(logic, () => {
             logic.actions.createListCohort()
         })
             .toDispatchActions(['createListCohortFinished'])
-            .toMatchValues({
-                isListModalOpen: true,
-                createError: 'The file needs a column named email, distinct_id or person_id.',
-            })
+            .toMatchValues({ isListModalOpen: true, createError: error })
 
         expect(createdCohorts).toEqual(0)
         expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual([])
