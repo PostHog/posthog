@@ -97,6 +97,10 @@ from policy import OwnershipSource
             id="stripe-connector-not-billing",
         ),
         pytest.param(
+            ["products/growth/backend/temporal/signup_enrichment/workflow.py"],
+            id="signup-enrichment-not-auth",
+        ),
+        pytest.param(
             ["frontend/package.json"],
             id="manifest-without-lockfile-not-deps",
         ),
@@ -153,6 +157,11 @@ def test_no_false_positive(files: list[str]) -> None:
             ["frontend/src/scenes/authentication/passwordResetLogic.ts"],
             "auth",
             id="authentication-scene-tree",
+        ),
+        pytest.param(
+            ["products/growth/backend/temporal/signup_enrichment/trigger.py"],
+            "auth",
+            id="signup-enrichment-trigger-runs-in-signup-request",
         ),
         pytest.param(
             ["posthog/api/login.py"],
