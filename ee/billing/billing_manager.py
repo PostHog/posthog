@@ -25,7 +25,9 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -95,6 +97,21 @@ class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class BillingManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner.name.strip() or "your partner"
+        super().__init__(
+            f"Billing for this organization is managed by {partner_name}. "
+            f"Contact {partner_name} to change your plan or payment details."
+        )
+
+
+def raise_if_billing_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingManagedByPartnerError(partner)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -871,6 +888,23 @@ class BillingManager:
     def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "forecast/")
 
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
+
     def get_organization_invoices(
         self,
         organization: Organization,
@@ -1011,7 +1045,10 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
+            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
         """
+        raise_if_billing_managed_by_partner(organization)
+
         # Validate that organization has the integration if billing_provider is specified
         if billing_provider:
             from posthog.models import OrganizationIntegration
@@ -1035,6 +1072,18 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def authorize_with_shared_payment_token(self, organization: Organization, shared_payment_token: str) -> None:
+        raise_if_billing_managed_by_partner(organization)
+
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+            json={"shared_payment_token": shared_payment_token},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200, 201))
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

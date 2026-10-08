@@ -13,17 +13,25 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils/guards'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import {
+    InsertInNotebookPlaylistButton,
+    MenuActions,
+    PinToPlaylistButton,
+    PlayerMetaLinks,
+} from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { PlayerInspectorButton } from './PlayerInspectorButton'
 import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
+import { InspectDOM, SetPlaybackSpeed, usePlayerChromeMenuItems } from './PlayerMetaTopSettings'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean; isWebUrl: boolean } {
@@ -78,7 +86,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                 </span>
                 {isWebUrl ? (
                     <Tooltip title={`Click to open url: ${urlToUse}`}>
-                        <Link to={urlToUse} target="_blank" className="truncate">
+                        <Link data-attr="player-meta-open-url" to={urlToUse} target="_blank" className="truncate">
                             {urlToUse}
                         </Link>
                     </Tooltip>
@@ -92,7 +100,33 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
-export function PlayerMeta(): JSX.Element {
+function PlayerMetaConsolidatedControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+    const {
+        sessionRecordingId,
+        logicProps: { withSidebar, mode },
+    } = useValues(sessionRecordingPlayerLogic)
+    const chromeItems = usePlayerChromeMenuItems()
+    const isSharing = mode === SessionRecordingPlayerMode.Sharing
+
+    return (
+        <div className="flex items-center gap-0.5">
+            {!isSharing && sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
+            <SetPlaybackSpeed />
+            {withSidebar && <InspectDOM />}
+            {!isSharing && (
+                <>
+                    <InsertInNotebookPlaylistButton size={size} />
+                    <PinToPlaylistButton />
+                    <PlayerShareMenu />
+                </>
+            )}
+            {withSidebar && <PlayerInspectorButton />}
+            {!withSidebar && <PlayerPersonMeta />}
+        </div>
+    )
+}
+
+export function PlayerMeta({ consolidated = false }: { consolidated?: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -183,8 +217,14 @@ export function PlayerMeta(): JSX.Element {
                     )}
                     <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    <PlayerMetaLinks size={size} />
-                    <PlayerPersonMeta />
+                    {consolidated ? (
+                        <PlayerMetaConsolidatedControls size={size} />
+                    ) : (
+                        <>
+                            <PlayerMetaLinks size={size} />
+                            <PlayerPersonMeta />
+                        </>
+                    )}
                 </div>
             </div>
         </DraggableToNotebook>

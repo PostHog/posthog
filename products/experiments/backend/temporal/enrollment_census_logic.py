@@ -28,14 +28,14 @@ CENSUS_WINDOW_DAYS = 14
 # A team must have this many direct-scan reads in the window for precomputation to have
 # enough repeat traffic to amortize its builds. Nightly recalculation counts, deliberately:
 # recalc is where precompute saves the most.
-MIN_DIRECT_READS = 50
+MIN_DIRECT_READS = 30
 
 # Pain thresholds. Any one qualifies a team (given MIN_DIRECT_READS).
-SLOW_READ_MS = 15_000
+SLOW_READ_MS = 8_000
 SLOW_READ_FRACTION = 0.10
-TOTAL_READ_BYTES_THRESHOLD = 5 * 10**12  # 5 TB rescanned per window
+TOTAL_READ_BYTES_THRESHOLD = 2 * 10**12  # 2 TB rescanned per window
 HARD_FAILURE_CODES = (159, 241)  # TIMEOUT_EXCEEDED, MEMORY_LIMIT_EXCEEDED
-HARD_FAILURES_THRESHOLD = 5
+HARD_FAILURES_THRESHOLD = 3
 
 # A single read this large means the team's full-window scans approach the per-query byte
 # cap, so precompute build INSERTs over the same events likely would too. Enrolling such a
@@ -181,10 +181,10 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
     """Per team: running experiment count and scheduled metric count across them.
 
-    Mirrors iter_metric_dicts (inline primary + secondary + saved-metric links, filtered by
+    Mirrors discover_experiment_metrics (inline primary + secondary + saved-metric links, filtered by
     the shared is_scheduled_metric predicate) so the projected build load matches what
     nightly recalculation would actually schedule. Counts in two bulk queries instead of
-    calling iter_metric_dicts per experiment, so a team running thousands of experiments
+    resolving the metrics of each experiment, so a team running thousands of experiments
     cannot amplify the census into thousands of saved-metric queries.
     """
     load: dict[int, TeamRunningLoad] = {}

@@ -9,17 +9,17 @@ with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
     from products.replay_vision.backend.temporal.activities.observation_media import (
-        finalize_observation_thumbnail_activity,
-        prepare_observation_thumbnail_activity,
+        finalize_observation_media_activity,
+        prepare_observation_media_activity,
     )
     from products.replay_vision.backend.temporal.constants import STATE_ACTIVITY_RETRY, STATE_ACTIVITY_SCHEDULE_TO_CLOSE
     from products.replay_vision.backend.temporal.media_types import (
         MEDIA_WORKFLOW_NAME,
         THUMBNAIL_SCHEDULE_TO_CLOSE,
-        ExtractThumbnailActivityOutput,
-        FinalizeObservationThumbnailInputs,
+        ExtractThumbnailsActivityOutput,
+        FinalizeObservationMediaInputs,
         ObservationMediaInputs,
-        PrepareObservationThumbnailOutput,
+        PrepareObservationMediaOutput,
     )
 
 _THUMBNAIL_TIMEOUT = dt.timedelta(minutes=5)
@@ -33,14 +33,15 @@ _THUMBNAIL_RETRY = common.RetryPolicy(
 
 @wf.defn(name=MEDIA_WORKFLOW_NAME)
 class ObservationMediaWorkflow(PostHogWorkflow):
-    """Render the media that illustrates one succeeded observation. Today that is a single thumbnail."""
+    """Render the media that illustrates one succeeded observation: its thumbnail and one frame per summary chapter."""
 
     inputs_cls = ObservationMediaInputs
 
     @wf.run
     async def run(self, inputs: ObservationMediaInputs) -> None:
-        prepared: PrepareObservationThumbnailOutput = await wf.execute_activity(
-            prepare_observation_thumbnail_activity,
+        wf.deprecate_patch("replay-vision-media-batch-2026-10")
+        prepared: PrepareObservationMediaOutput = await wf.execute_activity(
+            prepare_observation_media_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=30),
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -48,7 +49,7 @@ class ObservationMediaWorkflow(PostHogWorkflow):
         )
 
         raw_result = await wf.execute_activity(
-            "extract-thumbnail",
+            "extract-thumbnails",
             prepared.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=_THUMBNAIL_TIMEOUT,
@@ -57,14 +58,12 @@ class ObservationMediaWorkflow(PostHogWorkflow):
         )
 
         await wf.execute_activity(
-            finalize_observation_thumbnail_activity,
-            FinalizeObservationThumbnailInputs(
+            finalize_observation_media_activity,
+            FinalizeObservationMediaInputs(
                 team_id=inputs.team_id,
                 observation_id=inputs.observation_id,
-                media_asset_id=prepared.media_asset_id,
-                video_start_ms=prepared.video_start_ms,
-                rec_start_ms=prepared.rec_start_ms,
-                result=ExtractThumbnailActivityOutput.model_validate(raw_result),
+                frames=prepared.frames,
+                result=ExtractThumbnailsActivityOutput.model_validate(raw_result),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,

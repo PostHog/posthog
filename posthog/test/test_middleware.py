@@ -31,6 +31,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import (
     ActivityLoggingMiddleware,
+    Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
     per_request_logging_context_middleware,
@@ -395,6 +396,19 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
             "posthog.middleware.per_request_logging_context_middleware"
         )
+
+
+class TestFix204Middleware(SimpleTestCase):
+    def test_no_content_response_has_no_body_or_content_length(self) -> None:
+        def get_response(request: HttpRequest) -> HttpResponse:
+            response = HttpResponse(b'{"ok": true}', status=204, content_type="application/json")
+            response.headers["Content-Length"] = str(len(response.content))
+            return response
+
+        response = Fix204Middleware(get_response)(RequestFactory().post("/"))
+
+        assert response.content == b""
+        assert "Content-Length" not in response.headers
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
@@ -1113,7 +1127,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
@@ -2362,6 +2375,12 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "access_blocked",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "access_blocked"),
+                "/login?error_code=access_blocked",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2450,6 +2469,15 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ("/signup", "next=/connect/vercel/link", None, "unsafe-none"),
         ("/signup", "", None, "same-origin"),
         ("/signup", "next=/dashboard", None, "same-origin"),
+        ("/organization/confirm-creation", "next=/connect/vercel/link?session=abc", None, "unsafe-none"),
+        ("/organization/confirm-creation", "next=/dashboard", None, "same-origin"),
+        (
+            "/verify_email/00000000-0000-0000-0000-000000000001",
+            "next=/connect/vercel/link?session=abc",
+            None,
+            "unsafe-none",
+        ),
+        ("/verify_email/00000000-0000-0000-0000-000000000001", "next=/dashboard", None, "same-origin"),
         ("/complete/github-link/", "", None, "same-origin"),
         ("/complete/slack-link/", "", None, "same-origin"),
         ("/login/not-a-backend/", "", None, "same-origin"),
@@ -2472,6 +2500,10 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         "signup-next-oauth",
         "signup-no-next",
         "signup-next-non-oauth",
+        "confirm-creation-next-oauth",
+        "confirm-creation-next-non-oauth",
+        "verify-email-next-oauth",
+        "verify-email-next-non-oauth",
         "linking-complete-github",
         "linking-complete-slack",
         "login-unknown-backend",

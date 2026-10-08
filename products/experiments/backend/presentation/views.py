@@ -96,7 +96,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentFlagCleanupTaskSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -121,6 +123,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -148,9 +151,6 @@ from products.experiments.backend.setup_context import (
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     SetupContextInputs,
     build_setup_context,
-)
-from products.experiments.backend.temporal.models import (
-    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1361,8 +1361,14 @@ class EnterpriseExperimentsViewSet(
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
         responses={
-            200: ExperimentMetricsRecalculationSerializer,
-            201: ExperimentMetricsRecalculationSerializer,
+            200: ExperimentMetricsRecalculationJobSerializer,
+            201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1375,7 +1381,8 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1398,43 +1405,18 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.get("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(
-                            recalculation_id=recalculation_id,
-                            fairness_key=str(experiment.team.organization_id),
-                        ),
-                        id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-                # where only discovery ran, the rollback wins deliberately: the mark_started and
-                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
-                # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
-                    team=self.team,
-                    id=recalculation_id,
-                    status=ExperimentMetricsRecalculation.Status.PENDING,
-                    query_to__isnull=True,
-                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+            start_metrics_recalculation_workflow(
+                str(result["id"]),
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
 
         return Response(
-            ExperimentMetricsRecalculationSerializer(result).data,
+            ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if is_existing else 201,
         )
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
     @action(
         methods=["GET"],
         detail=True,
@@ -1449,7 +1431,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1457,12 +1439,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            if active_run is not None:
-                fallback["active_run"] = active_run
-            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+            return Response(_serialize_latest(fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_recalculation(active, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -1481,7 +1461,7 @@ class EnterpriseExperimentsViewSet(
                 ),
             )
         ],
-        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+        responses={200: ExperimentMetricsRecalculationRunSerializer, 404: None},
     )
     @action(
         methods=["GET"],
@@ -1497,7 +1477,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1886,10 +1866,14 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
+def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    return payload
+
+
+def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
-    return ExperimentMetricsRecalculationSerializer(payload).data
+    return ExperimentMetricsRecalculationLatestSerializer(payload).data

@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 from posthog.schema import ExperimentEventExposureConfig, MultipleVariantHandling
 
 from posthog.hogql import ast
@@ -9,7 +7,7 @@ from posthog.hogql.property import property_to_expr
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
-from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext, MaturityGate
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -54,28 +52,30 @@ class ExposureQueryBuilder:
 
     The builder takes the experiment-level invariants via ``ExperimentQueryContext``
     plus the narrow inputs that depend on the current metric/precomputation state:
-    the optional ``breakdown_injector``, a ``maturity_having_builder`` callable
-    (which produces the maturity HAVING clause for a given timestamp expression),
-    and the optional ``preaggregation_job_ids`` used to read from the precomputed
-    exposures table instead of scanning events.
+    the optional ``breakdown_injector``, the ``maturity`` gate of the current build
+    with the metric's ``maturity_window_seconds`` (the window starts at the entity's
+    first exposure), and the optional ``preaggregation_job_ids`` used to read from
+    the precomputed exposures table instead of scanning events.
     """
 
     def __init__(
         self,
         context: ExperimentQueryContext,
         breakdown_injector: BreakdownInjector | None = None,
-        maturity_having_builder: Callable[[str], ast.Expr | None] | None = None,
+        maturity: MaturityGate | None = None,
+        maturity_window_seconds: int = 0,
         preaggregation_job_ids: list[str] | None = None,
     ):
         self.context = context
         self.breakdown_injector = breakdown_injector
-        self.maturity_having_builder = maturity_having_builder
+        self.maturity = maturity
+        self.maturity_window_seconds = maturity_window_seconds
         self.preaggregation_job_ids = preaggregation_job_ids
 
-    def _maturity_having(self, timestamp_expr: str = "timestamp") -> ast.Expr | None:
-        if self.maturity_having_builder is None:
+    def _maturity_having(self, first_exposure_time: ast.Expr) -> ast.Expr | None:
+        if self.maturity is None:
             return None
-        return self.maturity_having_builder(timestamp_expr)
+        return self.maturity.condition(first_exposure_time, self.maturity_window_seconds)
 
     def timeseries_query(self) -> ast.SelectQuery:
         """Daily exposure counts per variant. Each entity counts once, on its first exposure day."""
@@ -299,13 +299,23 @@ class ExposureQueryBuilder:
             return event_or_action_to_filter(self.context.team, self.context.activation_config)
         return self.build_exposure_event_predicate()
 
-    def select_query(self) -> ast.SelectQuery:
+    def reads_precomputed(self) -> bool:
+        """
+        Whether select_query() reads the precomputed exposures table. Job ids alone do not
+        decide it: activation mode and breakdowns scan events even when job ids are set.
+        """
         # Activation mode never reads precomputed exposures: the per-day cache is built from
         # the flag predicate alone and cannot express the cross-day flag→activation ordering.
         if self.context.activation_config is not None:
+            return False
+        return bool(self.preaggregation_job_ids) and not self.context.breakdowns
+
+    def select_query(self) -> ast.SelectQuery:
+        if self.context.activation_config is not None:
             return self._build_activation_exposure_select_query()
 
-        if self.preaggregation_job_ids and not self.context.breakdowns:
+        if self.reads_precomputed():
+            assert self.preaggregation_job_ids is not None
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
         return self._build_exposure_select_query()
@@ -426,7 +436,7 @@ class ExposureQueryBuilder:
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         # Filter out users whose conversion window hasn't elapsed yet
-        maturity_having = self._maturity_having()
+        maturity_having = self._maturity_having(parse_expr("min(timestamp)"))
         if maturity_having is not None:
             if exposure_query.having is None:
                 exposure_query.having = maturity_having
@@ -478,7 +488,7 @@ class ExposureQueryBuilder:
 
         # Filter out users whose conversion window hasn't elapsed yet, anchored on
         # first exposure
-        maturity_having = self._maturity_having(timestamp_expr="t.first_exposure_time")
+        maturity_having = self._maturity_having(parse_expr("min(t.first_exposure_time)"))
         if maturity_having is not None:
             if query.having is None:
                 query.having = maturity_having

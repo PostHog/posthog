@@ -15,6 +15,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -616,6 +619,8 @@ def _stop_at_page_limit(
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
     resumable_source_manager.save_state(resume_state)
+    # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+    resumable_source_manager.safe_point()
     raise LangSmithPageLimitError(message)
 
 
@@ -835,6 +840,7 @@ def _get_examples_rows(
     start_index, resume_offset = _examples_start_position(resumable_source_manager, dataset_ids, logger)
 
     pages = 0
+    dataset_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index in range(start_index, len(dataset_ids)):
         dataset_id = dataset_ids[index]
         is_last_dataset = index == len(dataset_ids) - 1
@@ -843,8 +849,9 @@ def _get_examples_rows(
         else:
             offset = 0
             # Checkpoint the dataset boundary before reading it, so a crash resumes at this dataset
-            # rather than re-reading the previous one.
-            resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=dataset_id, offset=0))
+            # rather than re-reading the previous one. The batcher can hold examples of the previous
+            # dataset, and a checkpoint at this dataset skips them.
+            yield from dataset_checkpoint.save(LangSmithResumeConfig(dataset_id=dataset_id, offset=0))
 
         while True:
             page_offset = offset

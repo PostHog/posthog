@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 
-from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.serializers import ChangeRequestSerializer
 
 
@@ -29,6 +29,20 @@ class ApprovalHandlingMixin:
                     "required_approvers": exc.required_approvers,
                 },
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        if isinstance(exc, ApprovalDetectionFailed):
+            # The gate refused because it could not classify the change, which is a server-side
+            # failure rather than a rejected request. Carry the reason, or the caller sees a bare
+            # 500 and cannot tell a refusal from a crash.
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": "approval_detection_failed",
+                    "status": "approval_detection_failed",
+                    "message": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         if isinstance(exc, PolicyConflict):

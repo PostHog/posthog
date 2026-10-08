@@ -122,6 +122,7 @@ describe('buildToolDomainsBlock', () => {
         const trailingActions = [
             'archive',
             'calculate',
+            'cancel',
             'claim',
             'complete',
             'copy',
@@ -132,6 +133,8 @@ describe('buildToolDomainsBlock', () => {
             'emit',
             'enable',
             'end',
+            'estimate',
+            'fail',
             'freeze',
             'launch',
             'migrate',
@@ -151,6 +154,7 @@ describe('buildToolDomainsBlock', () => {
             'transfer',
             'unarchive',
             'unfreeze',
+            'upload',
         ]
         const tools = trailingActions.map((action, index) => ({
             name: `resource${index}-${action}`,

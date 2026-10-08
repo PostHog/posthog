@@ -11,6 +11,8 @@ Usage:
     python manage.py llm_gateway_team clear-allowance 42
     python manage.py llm_gateway_team refresh 42
     python manage.py llm_gateway_team status 42
+    python manage.py llm_gateway_team project-quota 42
+    python manage.py llm_gateway_team project-quota --all
 
 The admission fields and llm_gateway_overspend_allowance_usd live on Team.
 enabled_at/revoked_at project into the dedicated llm_gateway_policy blob;
@@ -22,12 +24,21 @@ handlers. The gateway admits a team only when enabled_at is set and revoked_at i
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
+from posthog.storage.team_llm_gateway_quota_cache import (
+    AI_GATEWAY_QUOTA_BUCKETS,
+    get_team_quota_blob,
+    project_team_quota,
+    quota_blob_ttl_remaining,
+    reconcile_quota_projection,
+    team_llm_gateway_quota_hypercache,
+)
 
 _VERBS = (
     ("enable", "set llm_gateway_enabled_at to now (idempotent: no-op if already set)"),
@@ -38,6 +49,7 @@ _VERBS = (
     ("clear-allowance", "clear llm_gateway_overspend_allowance_usd (unset → gateway falls back to its default)"),
     ("refresh", "rewrite the team's policy cache entry from current DB state (no field change)"),
     ("status", "print the team's current admission state"),
+    ("project-quota", "write or clear the team's llm_gateway_quota blob from the quota zsets and org state"),
 )
 
 
@@ -48,13 +60,20 @@ class Command(BaseCommand):
         sub = parser.add_subparsers(dest="action", required=True, metavar="action")
         for verb, desc in _VERBS:
             p = sub.add_parser(verb, help=desc)
+            if verb == "project-quota":
+                p.add_argument("team", nargs="?", help="team id (integer) or api_token")
+                p.add_argument("--all", action="store_true", help="reconcile every limited or projected team")
+                continue
             p.add_argument("team", help="team id (integer) or api_token")
             if verb == "set-allowance":
                 p.add_argument("usd", help="allowance in USD, e.g. 5 or 5.000000 (0–10000, max 6 dp)")
 
     def handle(self, *args: Any, **opts: Any) -> None:
-        team = _resolve_team(opts["team"])
         action = opts["action"]
+        if action == "project-quota":
+            self._project_quota(opts)
+            return
+        team = _resolve_team(opts["team"])
         if action == "status":
             _print_status(self.stdout, team)
             return
@@ -84,6 +103,27 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): {action} ok"))
         self.stdout.write(f"  before: {before}")
         self.stdout.write(f"  after:  {after}")
+
+    def _project_quota(self, opts: dict[str, Any]) -> None:
+        if not settings.AI_GATEWAY_REDIS_URL:
+            raise CommandError("project-quota needs AI_GATEWAY_REDIS_URL; quota projection is off")
+        if opts.get("all"):
+            if opts.get("team"):
+                raise CommandError("project-quota takes a team or --all, not both")
+            counts = reconcile_quota_projection()
+            self.stdout.write(self.style.SUCCESS(f"quota projection reconciled: {counts}"))
+            return
+        if not opts.get("team"):
+            raise CommandError("project-quota needs a team id or api_token, or --all")
+        team = _resolve_team(opts["team"])
+        written = project_team_quota(team)
+        if written is None:
+            raise CommandError(f"team {team.id} ({team.api_token}): project-quota failed; see the captured error")
+        verb = "written" if written else "cleared"
+        self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): project-quota {verb}"))
+        self.stdout.write(f"  key: {team_llm_gateway_quota_hypercache.get_cache_key(team)}")
+        self.stdout.write(f"  blob: {get_team_quota_blob(team)}")
+        self.stdout.write(f"  ttl_seconds: {quota_blob_ttl_remaining(team)}")
 
 
 def _resolve_team(arg: str) -> Team:
@@ -161,3 +201,9 @@ def _print_status(stdout: Any, team: Team) -> None:
     stdout.write(f"  enabled_at: {team.llm_gateway_enabled_at}")
     stdout.write(f"  revoked_at: {team.llm_gateway_revoked_at}")
     stdout.write(f"  overspend_allowance_usd: {team.llm_gateway_overspend_allowance_usd}")
+    from ee.billing.quota_limiting import get_team_limited_until  # noqa: PLC0415
+
+    limited = get_team_limited_until(team.api_token, AI_GATEWAY_QUOTA_BUCKETS)
+    for bucket in AI_GATEWAY_QUOTA_BUCKETS:
+        stdout.write(f"  {bucket}: {'limited until ' + str(limited[bucket]) if bucket in limited else 'open'}")
+    stdout.write(f"  quota_blob: {get_team_quota_blob(team)}")

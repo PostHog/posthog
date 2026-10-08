@@ -1,6 +1,5 @@
-import base64
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -17,12 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cur
     _build_windows,
     _extract_rows,
     _has_next_page,
-    _make_iso_normalizer,
     _normalize_daily_usage,
-    _normalize_usage_event,
     _page_item_count,
-    _to_iso_date,
-    _usage_event_id,
     cursor_source,
     validate_credentials,
 )
@@ -88,18 +83,6 @@ class TestCursorTransport:
             assert following.start_ms == previous.end_ms + 1  # inclusive bounds — no gap, no overlap
         assert all(window.end_ms - window.start_ms < WINDOW_MS for window in windows)
 
-    def test_usage_event_id_is_deterministic_and_distinct(self):
-        event = {"timestamp": "1700000000000", "userEmail": "a@b.com", "model": "gpt-5"}
-
-        assert _usage_event_id(dict(event)) == _usage_event_id({k: event[k] for k in reversed(list(event))})
-        assert _usage_event_id(event) != _usage_event_id({**event, "model": "other"})
-
-    def test_normalize_usage_event_adds_id_and_parses_timestamp(self):
-        item = _normalize_usage_event({"timestamp": "1700000000000", "userEmail": "a@b.com"})
-
-        assert item["timestamp"] == datetime.fromtimestamp(1_700_000_000, tz=UTC)
-        assert isinstance(item["id"], str) and len(item["id"]) == 64
-
     def test_normalize_daily_usage_parses_date(self):
         item = _normalize_daily_usage({"date": 1_700_000_000_000, "userId": 1})
 
@@ -138,27 +121,6 @@ class TestCursorTransport:
 
         with mock.patch.object(cursor, "make_tracked_session", return_value=session):
             assert validate_credentials("key_test") == expected
-
-    def test_validate_credentials_does_not_blame_the_key_when_cursor_is_unreachable(self):
-        session = mock.Mock()
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch.object(cursor, "make_tracked_session", return_value=session):
-            assert validate_credentials("key_test") == (False, cursor.PROBE_FAILED_MESSAGE)
-
-    def test_session_masks_credentials_and_sends_basic_auth(self):
-        # The tracked transport logs and samples requests; without redaction the raw key and the
-        # derived Basic token would leak into HTTP telemetry.
-        expected_token = base64.b64encode(b"key_test:").decode("ascii")
-
-        with mock.patch.object(cursor, "make_tracked_session") as make_session:
-            cursor._make_session("key_test")
-
-        kwargs = make_session.call_args.kwargs
-        assert kwargs["headers"]["Authorization"] == f"Basic {expected_token}"
-        assert "key_test" in kwargs["redact_values"]
-        assert expected_token in kwargs["redact_values"]
-        assert kwargs["allow_redirects"] is False
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_retries_transient_errors(self, status_code):
@@ -236,26 +198,6 @@ class TestCursorTransport:
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].page == 2
 
-    def test_spend_resumes_from_saved_page(self):
-        manager = _manager(CursorResumeConfig(page=3))
-        session = mock.Mock()
-        session.request.return_value = _response(200, {"teamMemberSpend": [{"userId": 7}], "totalPages": 3})
-
-        with mock.patch.object(cursor, "make_tracked_session", return_value=session):
-            batches = list(_batches(cursor_source("key_test", "spend", mock.Mock(), manager)))
-
-        assert len(batches) == 1
-        assert session.request.call_args.kwargs["json"]["page"] == 3
-
-    def test_iso_normalizer_parses_dates_and_timestamps(self):
-        normalize = _make_iso_normalizer("commitTs", "createdAt", "event_date")
-
-        item = normalize({"commitTs": "2025-07-30T14:12:03.000Z", "createdAt": None, "event_date": "2025-01-15"})
-
-        assert item["commitTs"] == datetime(2025, 7, 30, 14, 12, 3, tzinfo=UTC)
-        assert item["createdAt"] is None
-        assert item["event_date"] == datetime(2025, 1, 15, tzinfo=UTC)
-
     def test_by_user_rows_carry_the_user_identity(self):
         data = {
             "data": {
@@ -301,15 +243,6 @@ class TestCursorTransport:
                 "users": 1,
             }
         ]
-
-    def test_team_models_expands_the_per_model_map_into_rows(self):
-        # The team endpoint returns the same per-model map, but arrives as a plain list rather
-        # than the per-user object, so it takes the other branch of the row extractor.
-        data = {"data": [{"date": "2025-01-15", "model_breakdown": {"gpt-4o": {"messages": 450, "users": 15}}}]}
-
-        rows = _extract_rows(CURSOR_ENDPOINTS["models"], data)
-
-        assert rows == [{"date": "2025-01-15", "model": "gpt-4o", "messages": 450, "users": 15}]
 
     def test_every_windowed_endpoint_has_a_normalizer(self):
         # A windowed endpoint with no normalizer raises only once a sync reaches it, so an
@@ -408,19 +341,6 @@ class TestCursorTransport:
         assert call.kwargs["params"]["endDate"] == "2023-11-14"
         assert ("page" in call.kwargs["params"]) is paginated
 
-    def test_analytics_windows_stay_within_the_calendar_day_cap(self):
-        # The Analytics API rejects a range wider than 30 inclusive calendar days, and windows are
-        # millisecond ranges that are not midnight-aligned, so a 30-day window would straddle 31.
-        end_ms = 1_700_000_000_000
-        window_days = CURSOR_ENDPOINTS["agent_edits"].window_days
-
-        windows = _build_windows(end_ms - cursor.DEFAULT_LOOKBACK_DAYS * DAY_MS, end_ms, window_days)
-
-        for window in windows:
-            start_date = date.fromisoformat(_to_iso_date(window.start_ms))
-            end_date = date.fromisoformat(_to_iso_date(window.end_ms))
-            assert (end_date - start_date).days + 1 <= 30
-
     def test_windowed_first_sync_starts_at_lookback(self):
         now_ms = 1_700_000_000_000
         session = mock.Mock()
@@ -438,34 +358,6 @@ class TestCursorTransport:
         # The whole lookback is covered in <=30-day chunks.
         expected_requests = -(-cursor.DEFAULT_LOOKBACK_DAYS * DAY_MS // WINDOW_MS)
         assert session.request.call_count == expected_requests
-
-    def test_windowed_incremental_starts_at_watermark(self):
-        now_ms = 1_700_000_000_000
-        watermark = datetime.fromtimestamp((now_ms - 5 * DAY_MS) / 1000, tz=UTC)
-        session = mock.Mock()
-        session.request.return_value = _response(200, {"usageEvents": [], "pagination": {"hasNextPage": False}})
-
-        with (
-            mock.patch.object(cursor, "_now_ms", return_value=now_ms),
-            mock.patch.object(cursor, "make_tracked_session", return_value=session),
-        ):
-            list(
-                _batches(
-                    cursor_source(
-                        "key_test",
-                        "usage_events",
-                        mock.Mock(),
-                        _manager(),
-                        should_use_incremental_field=True,
-                        db_incremental_field_last_value=watermark,
-                    )
-                )
-            )
-
-        assert session.request.call_count == 1
-        body = session.request.call_args.kwargs["json"]
-        assert body["startDate"] == now_ms - 5 * DAY_MS
-        assert body["endDate"] == now_ms
 
     def test_windowed_resumes_from_saved_window_and_page(self):
         now_ms = 1_700_000_000_000

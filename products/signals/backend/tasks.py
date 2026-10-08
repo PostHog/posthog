@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -988,6 +989,22 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def refresh_signal_scout_background_bands() -> None:
+    """Daily: recompute which projects can get a background scout, and their activity band.
+
+    Runs here rather than on the coordinator tick, because it reads a week of fleet-wide event
+    volume and activity bands do not change by the half hour.
+    """
+    outcome = refresh_background_bands()
+    logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
 
 
 @shared_task(

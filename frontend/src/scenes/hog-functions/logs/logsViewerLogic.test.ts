@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,10 +11,15 @@ import { LogEntryLevel } from '~/types'
 
 import {
     buildGroupedLogsQuery,
+    groupedLogsSliceRows,
     groupLogs,
+    LOG_GROUP_MAX_SLICE_ROWS,
+    LOG_GROUP_ROWS_PER_GROUP,
+    LOG_GROUP_TOTAL_LOGS_LIMIT,
     LogEntry,
     LogEntryParams,
     logsViewerLogic,
+    shouldRetryGroupedLogsWithoutSlice,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
 
@@ -204,7 +210,107 @@ describe('logsViewerLogic', () => {
             const firstPage = buildGroupedLogsQuery(makeParams(), 10, 0)
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
-            expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+            expect(
+                firstPage
+                    .replace('OFFSET 0', 'OFFSET 10')
+                    .replace(`LIMIT ${10 * LOG_GROUP_ROWS_PER_GROUP}`, `LIMIT ${20 * LOG_GROUP_ROWS_PER_GROUP}`)
+            ).toEqual(secondPage)
+        })
+
+        it.each([
+            { description: 'first page', args: [10, 0], expected: `LIMIT ${10 * LOG_GROUP_ROWS_PER_GROUP}` },
+            { description: 'later page', args: [10, 20], expected: `LIMIT ${30 * LOG_GROUP_ROWS_PER_GROUP}` },
+        ] as { description: string; args: [number, number]; expected: string }[])(
+            'newest-first groups a slice of the newest rows sized for offset + limit groups ($description)',
+            ({ args, expected }) => {
+                const query = buildGroupedLogsQuery(makeParams({ order: 'DESC' }), ...args)
+
+                expect(query).toContain('FROM (')
+                expect(query).toContain(expected)
+            }
+        )
+
+        it.each([
+            { description: 'oldest-first', params: { order: 'ASC' as const }, args: [10, 0] },
+            {
+                description: 'pages past the slice cap',
+                params: {},
+                args: [10, LOG_GROUP_MAX_SLICE_ROWS / LOG_GROUP_ROWS_PER_GROUP],
+            },
+        ] as { description: string; params: Partial<LogEntryParams>; args: [number, number] }[])(
+            'uses the full GROUP BY for $description',
+            ({ params, args }) => {
+                const request = makeParams(params)
+
+                expect(groupedLogsSliceRows(request, ...args)).toBeNull()
+                expect(buildGroupedLogsQuery(request, ...args)).not.toContain('FROM (')
+            }
+        )
+    })
+
+    describe('shouldRetryGroupedLogsWithoutSlice', () => {
+        const entriesFor = (instanceIds: string[], linesEach: number = 1): LogEntry[] =>
+            instanceIds.flatMap((id) =>
+                Array.from({ length: linesEach }, (_, i) =>
+                    makeEntry(id, `2024-01-15 10:00:${String(i % 60).padStart(2, '0')}`)
+                )
+            )
+
+        it.each([
+            { description: 'a full page of groups', ids: 10, linesEach: 1, expected: false },
+            { description: 'a short page', ids: 3, linesEach: 1, expected: true },
+            { description: 'an empty page', ids: 0, linesEach: 1, expected: true },
+            {
+                description: 'a short page that hit the line cap',
+                ids: 2,
+                linesEach: LOG_GROUP_TOTAL_LOGS_LIMIT / 2,
+                expected: false,
+            },
+        ])('$description -> retry: $expected', ({ ids, linesEach, expected }) => {
+            const instanceIds = Array.from({ length: ids }, (_, i) => `instance-${i}`)
+
+            expect(shouldRetryGroupedLogsWithoutSlice(entriesFor(instanceIds, linesEach), 10)).toBe(expected)
+        })
+    })
+
+    describe('grouped logs loading', () => {
+        const rowsFor = (instanceCount: number): any[][] =>
+            Array.from({ length: instanceCount }, (_, i) => [`instance-${i}`, '2024-01-15 10:00:00', 'info', 'msg'])
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { description: 'a full sliced page is used as is', firstPageInstances: 10, expectedQueries: 1 },
+            {
+                description: 'a short sliced page is re-run with the full GROUP BY',
+                firstPageInstances: 3,
+                expectedQueries: 2,
+            },
+        ])('$description', async ({ firstPageInstances, expectedQueries }) => {
+            const querySpy = jest
+                .spyOn(api, 'queryHogQL')
+                .mockResolvedValueOnce({ results: rowsFor(firstPageInstances) } as any)
+                .mockResolvedValue({ results: rowsFor(3) } as any)
+
+            const logic = logsViewerLogic({ sourceType: 'hog_function', sourceId: 'fn-1', disableUrlSync: true })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadGroupedLogsSuccess'])
+
+            const groupedQueries = querySpy.mock.calls
+                .map(([query]) => String(query))
+                .filter((query) => query.includes('GROUP BY instance_id'))
+            expect(groupedQueries).toHaveLength(expectedQueries)
+            expect(groupedQueries[0]).toContain('FROM (')
+            if (expectedQueries === 2) {
+                expect(groupedQueries[1]).not.toContain('FROM (')
+            }
+            logic.unmount()
         })
     })
 

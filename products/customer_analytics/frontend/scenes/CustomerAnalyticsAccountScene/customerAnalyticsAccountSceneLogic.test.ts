@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -18,6 +19,8 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyDataLogic } from './accountPropertyDataLogic'
+import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import { scene } from './CustomerAnalyticsAccountScene'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 import {
@@ -41,6 +44,7 @@ const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+const ACCOUNT_VIEW_TAB = 'view:11111111-2222-4333-8444-555555555555'
 const PROJECT_ID = 999
 const account: AccountApi = {
     id: ACCOUNT_ID,
@@ -114,6 +118,43 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.accountLoadError).toBeNull()
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
     })
+
+    it.each([false, true])(
+        'keeps widget saves and editor drafts when a stale read finishes (external route: %s)',
+        async (externalRoute) => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+            if (externalRoute) {
+                router.actions.push(urls.customerAnalyticsAccountByExternalId(account.external_id!))
+                mountExternalIdLogic(account.external_id!)
+            } else {
+                mountLogic()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('website_domain', 'draft.example.com')
+            const pending = createDeferred<AccountApi>()
+            const retrieve = externalRoute ? mockAccountsByExternalIdRetrieve : mockAccountsRetrieve
+            retrieve.mockClear().mockReturnValueOnce(pending.promise)
+            logic.actions.loadAccount()
+            try {
+                await waitFor(() => expect(retrieve).toHaveBeenCalledTimes(1))
+                accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, {
+                    ...account,
+                    properties: { website_domain: 'saved.example.com', billing_id: 'saved-billing' },
+                })
+            } finally {
+                pending.resolve(account)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.account?.properties).toEqual({
+                website_domain: 'saved.example.com',
+                billing_id: 'saved-billing',
+            })
+            expect(logic.values.accountForm.website_domain).toBe('draft.example.com')
+            expect(logic.values.accountEditorOpen).toBe(true)
+        }
+    )
 
     it('loads a UUID account while the account scene flag is disabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {
@@ -276,11 +317,17 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     })
 
     describe('account editor', () => {
+        let shared: ReturnType<typeof accountPropertyDataLogic.build>
+
         beforeEach(async () => {
+            shared = accountPropertyDataLogic({ projectId: PROJECT_ID, accountId: ACCOUNT_ID })
+            shared.mount()
             mockAccountsRetrieve.mockResolvedValue(account)
             mountLogic()
             await expectLogic(logic).toFinishAllListeners()
         })
+
+        afterEach(() => shared.unmount())
 
         it('saves only edited fields without replacing concurrent or unrelated properties', async () => {
             const currentAccount = {
@@ -333,6 +380,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     email_domains: ['example.com'],
                 },
             })
+            expect(shared.values.account).toEqual(updatedAccount)
             expect(logic.values.accountEditorOpen).toBe(false)
             expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Renamed account')
         })
@@ -698,9 +746,18 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
             expect(capture).toHaveBeenCalledWith(AccountsEvents.TabViewed, { tab: 'usage' })
 
+            logic.actions.setActiveTab(ACCOUNT_VIEW_TAB)
+
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, ACCOUNT_VIEW_TAB))
+            )
+            expect(logic.values.requestedTab).toBe(ACCOUNT_VIEW_TAB)
+
             logic.actions.setActiveTab('notes')
 
-            expect(router.values.location.pathname).toBe(urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID)))
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'notes'))
+            )
             expect(router.values.currentLocation.searchParams).toEqual(searchParams)
             expect(router.values.currentLocation.hashParams).toEqual(hashParams)
         })

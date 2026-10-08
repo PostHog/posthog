@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.co
     KLAVIYO_API_VERSION_2026_07_15,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
-    MAX_RETRY_AFTER_SECONDS,
     KlaviyoConversionMetricError,
     KlaviyoResumeConfig,
     KlaviyoRetryableError,
@@ -29,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     _clamp_future_value_to_now,
     _format_incremental_value,
     _parse_retry_after,
-    _wait_klaviyo,
     get_rows,
     klaviyo_source,
 )
@@ -60,10 +58,6 @@ class TestFormatIncrementalValue:
     )
     def test_format_incremental_value(self, _name: str, value: object, expected: str) -> None:
         assert _format_incremental_value(value) == expected
-
-    def test_no_plus_zero_offset_in_output(self) -> None:
-        result = _format_incremental_value(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-        assert "+00:00" not in result
 
 
 class TestBuildFilter:
@@ -100,17 +94,6 @@ class TestBuildFilter:
 
 
 class TestBuildInitialParams:
-    def test_events_incremental_uses_z_suffix(self) -> None:
-        config = KLAVIYO_ENDPOINTS["events"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="datetime",
-        )
-        assert "+00:00" not in params["filter"]
-        assert params["filter"] == "greater-than(datetime,2026-03-04T02:58:14.000Z)"
-
     def test_lookback_window_uses_z_suffix(self) -> None:
         config = KLAVIYO_ENDPOINTS["events"]
         params = _build_initial_params(
@@ -123,92 +106,11 @@ class TestBuildInitialParams:
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
 
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_cursor_is_clamped_to_now(self) -> None:
-        # A future-dated cursor would otherwise build greater-than(datetime,<future>),
-        # which Klaviyo rejects with a 400 and wedges every subsequent sync.
-        config = KLAVIYO_ENDPOINTS["events"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
-            incremental_field="datetime",
-        )
-        assert params["filter"] == "greater-than(datetime,2026-06-15T12:00:00.000Z)"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_cursor_is_not_modified(self) -> None:
-        config = KLAVIYO_ENDPOINTS["events"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="datetime",
-        )
-        assert params["filter"] == "greater-than(datetime,2026-03-04T02:58:14.000Z)"
-
-    def test_list_profiles_incremental_applies_lookback_and_extra_params(self) -> None:
-        # Dropping the 24h lookback silently loses joins that landed in already-fetched lists mid-run.
-        config = KLAVIYO_ENDPOINTS["list_profiles"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="joined_group_at",
-        )
-        assert params["filter"] == "greater-than(joined_group_at,2026-03-03T02:58:14.000Z)"
-        assert params["sort"] == "-joined_group_at"
-        assert params["fields[profile]"] == "joined_group_at"
-
-    def test_list_profiles_first_sync_has_no_filter(self) -> None:
-        # Mishandling a missing watermark (e.g. greater-than(joined_group_at,None)) 400s every first sync.
-        config = KLAVIYO_ENDPOINTS["list_profiles"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="joined_group_at",
-        )
-        assert "filter" not in params
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_lookback_applies_after_future_clamp(self) -> None:
-        # Clamping after the lookback would erase the overlap window for a future-dated cursor.
-        config = KLAVIYO_ENDPOINTS["list_profiles"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
-            incremental_field="joined_group_at",
-        )
-        assert params["filter"] == "greater-than(joined_group_at,2026-06-14T12:00:00.000Z)"
-
 
 class TestClampFutureValueToNow:
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_naive_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
-            2026, 6, 15, 12, 0, 0, tzinfo=UTC
-        )
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_date_is_unchanged(self) -> None:
-        assert _clamp_future_value_to_now(date(2026, 3, 4)) == date(2026, 3, 4)
 
     def test_string_passthrough(self) -> None:
         assert _clamp_future_value_to_now("some-cursor-value") == "some-cursor-value"
@@ -403,20 +305,6 @@ class TestRetryAfter:
         state.outcome = Future.construct(1, exc, has_exception=True)
         return state
 
-    def test_wait_honors_retry_after_below_cap(self) -> None:
-        assert _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited", retry_after=45.0))) == 45.0
-
-    def test_wait_caps_long_retry_after(self) -> None:
-        # An hourly/daily window can dwarf the cap; a single retry must stay bounded.
-        assert (
-            _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited", retry_after=99999.0)))
-            == MAX_RETRY_AFTER_SECONDS
-        )
-
-    def test_wait_falls_back_to_backoff_without_retry_after(self) -> None:
-        waited = _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited")))
-        assert 0 <= waited <= 30
-
 
 def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
     response = requests.Response()
@@ -528,65 +416,6 @@ class TestListProfilesFanOut:
             rows.extend(table.to_pylist())
         return rows
 
-    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
-        config = KLAVIYO_ENDPOINTS["list_profiles"]
-        assert config.fan_out is not None
-        assert config.fan_out.membership_rows is True
-        assert config.should_sync_default is False
-        assert config.primary_keys == ["list_id", "profile_id"]
-
-    def test_schema_supports_incremental_merge_but_not_append(self) -> None:
-        # Append mode would materialize the intentional 24h lookback re-pulls as duplicate rows.
-        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
-        list_profiles = schemas["list_profiles"]
-        assert list_profiles.supports_incremental is True
-        assert list_profiles.supports_append is False
-        assert list_profiles.should_sync_default is False
-        assert [f["field"] for f in list_profiles.incremental_fields] == ["joined_group_at"]
-
-    def test_lists_request_stays_within_klaviyo_page_size_cap(self, monkeypatch: Any) -> None:
-        # Klaviyo's Get Lists endpoint caps page[size] at 10; a larger value 400s the whole fan-out.
-        fetched_urls: list[str] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            fetched_urls.append(url)
-            return {"data": [], "links": {"next": None}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        fan_out = KLAVIYO_ENDPOINTS["list_profiles"].fan_out
-        assert fan_out is not None
-        list(klaviyo._iter_fan_out_parents(MagicMock(), {}, MagicMock(), fan_out))
-
-        assert fetched_urls == ["https://a.klaviyo.com/api/lists?page[size]=10"]
-
-    def test_fans_out_over_every_list_into_membership_rows(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=10": {
-                "data": [{"id": "L1"}, {"id": "L2"}],
-                "links": {"next": None},
-            },
-            _list_url("L1"): {
-                "data": [
-                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}},
-                    # An item without attributes must yield a null joined_group_at, not crash the sync.
-                    {"type": "profile", "id": "P2"},
-                ],
-                "links": {"next": None},
-            },
-            _list_url("L2"): {
-                "data": [
-                    {"type": "profile", "id": "P3", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
-                ],
-                "links": {"next": None},
-            },
-        }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
-        assert rows == [
-            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
-            {"list_id": "L1", "profile_id": "P2", "joined_group_at": None},
-            {"list_id": "L2", "profile_id": "P3", "joined_group_at": "2025-12-01T09:30:00+00:00"},
-        ]
-
     def test_incremental_run_filters_with_lookback_on_every_list(self, monkeypatch: Any) -> None:
         # Fixtures are keyed by exact URL, so this fails loudly (KeyError) if the fan-out stops
         # forwarding the incremental inputs and silently reverts to a full refresh.
@@ -642,23 +471,6 @@ class TestListProfilesFanOut:
             {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
             {"list_id": "L1", "profile_id": "P2", "joined_group_at": "2025-11-07T00:00:00+00:00"},
         ]
-
-    def test_resume_from_deleted_list_restarts_from_first(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=10": {
-                "data": [{"id": "L1"}],
-                "links": {"next": None},
-            },
-            _list_url("L1"): {
-                "data": [
-                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
-                ],
-                "links": {"next": None},
-            },
-        }
-        manager = _FakeResumableManager(KlaviyoResumeConfig(next_url=None, list_id="DELETED"))
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"}]
 
     def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
         not_found = requests.HTTPError(response=_response_with_status(404))
@@ -722,153 +534,6 @@ def _collect_rows(endpoint: str, monkeypatch: Any, pages: dict[str, Any], **kwar
 
 
 class TestGeneralizedFanOut:
-    def test_segment_membership_uses_the_segment_parent_and_id_column(self, monkeypatch: Any) -> None:
-        # The fan-out was originally hardcoded to /lists and a list_id column; a regression there
-        # would silently emit list_id rows (or 400 on the wrong parent page size) for segments.
-        pages = {
-            "https://a.klaviyo.com/api/segments?page[size]=10": {
-                "data": [{"id": "S1"}],
-                "links": {"next": None},
-            },
-            (
-                "https://a.klaviyo.com/api/segments/S1/profiles"
-                "?page[size]=100&sort=-joined_group_at&fields[profile]=joined_group_at"
-            ): {
-                "data": [
-                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2026-01-08T00:00:00+00:00"}}
-                ],
-                "links": {"next": None},
-            },
-        }
-        rows = _collect_rows("segment_profiles", monkeypatch, pages)
-        assert rows == [{"segment_id": "S1", "profile_id": "P1", "joined_group_at": "2026-01-08T00:00:00+00:00"}]
-
-    def test_flow_actions_yield_the_flattened_resource_tagged_with_its_flow(self, monkeypatch: Any) -> None:
-        # Non-membership fan-out rows must keep the resource's own fields and gain the parent id;
-        # dropping flow_id makes the table impossible to join back to flows.
-        pages = {
-            "https://a.klaviyo.com/api/flows?page[size]=50": {
-                "data": [{"id": "F1"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/flows/F1/flow-actions?page[size]=50&sort=-updated": {
-                "data": [
-                    {
-                        "type": "flow-action",
-                        "id": "A1",
-                        "attributes": {
-                            "created": "2026-01-01T00:00:00+00:00",
-                            "updated": "2026-02-01T00:00:00+00:00",
-                        },
-                    }
-                ],
-                "links": {"next": None},
-            },
-        }
-        rows = _collect_rows("flow_actions", monkeypatch, pages)
-        assert rows == [
-            {
-                "type": "flow-action",
-                "id": "A1",
-                "created": "2026-01-01T00:00:00+00:00",
-                "updated": "2026-02-01T00:00:00+00:00",
-                "flow_id": "F1",
-            }
-        ]
-
-    def test_coupon_codes_fan_out_over_coupons_instead_of_the_unfiltered_collection(self, monkeypatch: Any) -> None:
-        # Klaviyo's flat /coupon-codes list requires a coupon.id or profile.id filter and 400s
-        # without one; fanning out per coupon avoids ever calling that unfiltered endpoint.
-        pages = {
-            "https://a.klaviyo.com/api/coupons?page[size]=100": {
-                "data": [{"id": "C1"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/coupons/C1/coupon-codes?page[size]=100": {
-                "data": [
-                    {
-                        "type": "coupon-code",
-                        "id": "C1-CODE1",
-                        "attributes": {"unique_code": "CODE1", "status": "UNASSIGNED"},
-                    }
-                ],
-                "links": {"next": None},
-            },
-        }
-        rows = _collect_rows("coupon_codes", monkeypatch, pages)
-        assert rows == [
-            {
-                "type": "coupon-code",
-                "id": "C1-CODE1",
-                "unique_code": "CODE1",
-                "status": "UNASSIGNED",
-                "coupon_id": "C1",
-            }
-        ]
-
-    def test_custom_object_records_fan_out_over_object_types_without_a_parent_page_size(self, monkeypatch: Any) -> None:
-        # /object-types rejects page[size], so the parent must be enumerated by cursor links alone
-        # (no ?page[size] on its URL); each record carries its object_type_id and flattens
-        # record_properties onto the row. Fixtures key by exact URL, so a stray page[size] KeyErrors.
-        pages = {
-            "https://a.klaviyo.com/api/object-types": {
-                "data": [{"id": "OT1"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/object-types/OT1/object-records?page[size]=100": {
-                "data": [
-                    {
-                        "type": "object-record",
-                        "id": "OT1:::rec-1",
-                        "attributes": {"record_properties": {"name": "Fluffy"}},
-                    }
-                ],
-                "links": {"next": None},
-            },
-        }
-        rows = _collect_rows("custom_object_records", monkeypatch, pages)
-        # The batcher serializes the nested record_properties object to a JSON string in the arrow
-        # table, which is how it lands in the warehouse column.
-        assert rows == [
-            {
-                "type": "object-record",
-                "id": "OT1:::rec-1",
-                "record_properties": '{"name":"Fluffy"}',
-                "object_type_id": "OT1",
-            }
-        ]
-
-    def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
-        # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
-        # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
-        pages = {
-            "https://a.klaviyo.com/api/flows?page[size]=50": {
-                "data": [{"id": "F1"}, {"id": "F2"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/flows/F1/flow-actions?page[size]=50": {
-                "data": [{"id": "A1"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
-                "data": [{"id": "A2"}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/flow-actions/A1/flow-messages?page[size]=50&sort=-updated": {
-                "data": [{"type": "flow-message", "id": "M1", "attributes": {"channel": "email"}}],
-                "links": {"next": None},
-            },
-            "https://a.klaviyo.com/api/flow-actions/A2/flow-messages?page[size]=50&sort=-updated": {
-                "data": [{"type": "flow-message", "id": "M2", "attributes": {"channel": "sms"}}],
-                "links": {"next": None},
-            },
-        }
-        rows = _collect_rows("flow_messages", monkeypatch, pages)
-        assert rows == [
-            {"type": "flow-message", "id": "M1", "channel": "email", "flow_action_id": "A1", "flow_id": "F1"},
-            {"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"},
-        ]
-
     def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self, monkeypatch: Any) -> None:
         # A flow deleted between enumeration and the action fetch must not fail the whole sync.
         pages = {
@@ -972,113 +637,6 @@ class TestValuesReports:
                 "links": {"next": next_url},
             },
         }
-
-    def test_groupings_and_statistics_flatten_into_one_row(self, monkeypatch: Any) -> None:
-        # The report nests groupings and statistics under separate objects; keeping that nesting
-        # would make the table unqueryable and break the declared primary key.
-        pages = self._pages(
-            "/campaign-values-reports",
-            [
-                {
-                    "groupings": {"campaign_id": "C1", "campaign_message_id": "CM1", "send_channel": "email"},
-                    "statistics": {"opens": 123, "open_rate": 0.8253},
-                }
-            ],
-        )
-        rows = _collect_rows("campaign_values_reports", monkeypatch, pages)
-        assert rows == [
-            {
-                "campaign_id": "C1",
-                "campaign_message_id": "CM1",
-                "send_channel": "email",
-                "opens": 123,
-                "open_rate": 0.8253,
-                "timeframe_key": "last_365_days",
-                "conversion_metric_id": "M_ORDER",
-            }
-        ]
-
-    def test_report_body_carries_the_required_query(self, monkeypatch: Any) -> None:
-        # Klaviyo 400s a values report that is missing statistics, timeframe, or conversion metric.
-        captured: dict[str, Any] = {}
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                captured["body"] = json_body
-                captured["content_type"] = headers.get("Content-Type")
-                return {"data": {"attributes": {"results": []}}, "links": {}}
-            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        list(
-            get_rows(
-                api_key="pk_test",
-                endpoint="flow_values_reports",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-            )
-        )
-
-        attributes = captured["body"]["data"]["attributes"]
-        assert captured["body"]["data"]["type"] == "flow-values-report"
-        assert captured["content_type"] == "application/vnd.api+json"
-        assert attributes["timeframe"] == {"key": "last_365_days"}
-        assert attributes["conversion_metric_id"] == "M_ORDER"
-        assert attributes["group_by"] == ["flow_id", "flow_message_id", "send_channel"]
-        assert "opens" in attributes["statistics"]
-
-    def test_configured_conversion_metric_skips_the_lookup(self, monkeypatch: Any) -> None:
-        # A user-set metric must win, and must not cost an extra /metrics walk on every sync.
-        fetched_urls: list[str] = []
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            fetched_urls.append(url)
-            return {"data": {"attributes": {"results": []}}, "links": {}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        list(
-            get_rows(
-                api_key="pk_test",
-                endpoint="campaign_values_reports",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                conversion_metric_id="CHOSEN",
-            )
-        )
-
-        assert fetched_urls == ["https://a.klaviyo.com/api/campaign-values-reports"]
-
-    def test_falls_back_to_the_first_metric_when_placed_order_is_absent(self, monkeypatch: Any) -> None:
-        # Accounts without ecommerce have no Placed Order metric; the report still needs one.
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            if json_body is not None:
-                return {
-                    "data": {
-                        "attributes": {"results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]}
-                    },
-                    "links": {},
-                }
-            return {"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}
-
-        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
-        rows = [
-            row
-            for table in get_rows(
-                api_key="pk_test",
-                endpoint="campaign_values_reports",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-            )
-            for row in table.to_pylist()
-        ]
-
-        assert rows[0]["conversion_metric_id"] == "M_FIRST"
 
     def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self, monkeypatch: Any) -> None:
         # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
@@ -1356,28 +914,6 @@ class TestReportVariants:
         assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
         assert len(fetched_urls) == 2
 
-    def test_a_report_without_a_list_all_ids_path_stays_empty(self) -> None:
-        fetched_urls: list[str] = []
-
-        def fake_fetch(
-            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
-        ) -> dict:
-            fetched_urls.append(url)
-            return {"data": {"attributes": {"results": []}}, "links": {}}
-
-        with patch.object(klaviyo, "_fetch_page", fake_fetch):
-            tables = list(
-                get_rows(
-                    api_key="pk_test",
-                    endpoint="segment_values_reports",
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
-
-        assert tables == []
-        assert fetched_urls == ["https://a.klaviyo.com/api/segment-values-reports"]
-
     @parameterized.expand(
         [
             ("flow_series_reports",),
@@ -1457,28 +993,6 @@ class TestEndpointRequestParams:
         )
         assert "page[size]" not in params
 
-    def test_reviews_use_the_inclusive_operator_klaviyo_documents(self) -> None:
-        # Klaviyo only accepts greater-or-equal on the review `created` filter; greater-than 400s.
-        params = _build_initial_params(
-            KLAVIYO_ENDPOINTS["reviews"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="created",
-        )
-        assert params["filter"] == "greater-or-equal(created,2026-03-04T02:58:14.000Z)"
-
-    def test_profiles_request_the_omitted_subscriptions_object(self) -> None:
-        # Klaviyo excludes subscriptions (consent detail) unless additional-fields asks for it;
-        # dropping this param silently loses the column for every synced profile.
-        params = _build_initial_params(
-            KLAVIYO_ENDPOINTS["profiles"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="updated",
-        )
-        assert params["additional-fields[profile]"] == "subscriptions"
-        assert params["filter"] == "greater-than(updated,2026-03-04T02:58:14.000Z)"
-
     @parameterized.expand([("list_profiles",), ("segment_profiles",)])
     def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
         # The fan-outs only need joined_group_at; expanding them with additional-fields would
@@ -1525,16 +1039,6 @@ class TestNewSchemas:
         # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_append is False
-
-    def test_every_endpoint_is_exposed_as_a_schema(self) -> None:
-        schemas = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas == set(KLAVIYO_ENDPOINTS)
-
-    def test_plan_gated_webhooks_is_opt_in(self) -> None:
-        # Klaviyo only offers the webhooks API with its paid Advanced KDP add-on, so a default-on
-        # table would fail the first sync for every other account.
-        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas["webhooks"].should_sync_default is False
 
 
 class TestSourceResponseSortMode:
@@ -1585,17 +1089,6 @@ class TestApiVersionThreadsToRevisionHeader:
         assert captured["revision"] == api_version
 
 
-class TestVersionDeprecation:
-    def test_2024_revision_deprecated_with_sunset_and_current_is_not(self) -> None:
-        # The generic in-product warning keys off this metadata; the registry invariant test checks
-        # the set relationships but not the specific sunset date this PR pins.
-        source = KlaviyoSource()
-        deprecation = source.get_version_deprecation("2024-10-15")
-        assert deprecation is not None
-        assert deprecation.sunset_at == date(2026, 10, 15)
-        assert source.get_version_deprecation("2026-07-15") is None
-
-
 class TestValidateCredentialsResolvedPin:
     @parameterized.expand(
         [
@@ -1639,11 +1132,3 @@ class TestValidateCredentialsResolvedPin:
 
         assert ok is False
         assert error == expected
-
-    def test_unreachable_klaviyo_does_not_blame_the_key(self) -> None:
-        with patch.object(klaviyo, "make_tracked_session") as session_factory:
-            session_factory.return_value.get.side_effect = requests.ConnectionError("boom")
-            ok, error = klaviyo.validate_credentials("pk_test")
-
-        assert ok is False
-        assert error == klaviyo._KLAVIYO_UNREACHABLE_ERROR

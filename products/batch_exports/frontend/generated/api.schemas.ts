@@ -13,9 +13,9 @@
  * * `sessions` - Sessions
  * * `hogql` - Hogql
  */
-export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
+export type BatchExportModelEnumApi = (typeof BatchExportModelEnumApi)[keyof typeof BatchExportModelEnumApi]
 
-export const ModelEnumApi = {
+export const BatchExportModelEnumApi = {
     Events: 'events',
     Persons: 'persons',
     Sessions: 'sessions',
@@ -42,10 +42,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationDestinationEnumApi =
-    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
+export type BatchExportDestinationTypeEnumApi =
+    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-export const BatchExportDestinationDestinationEnumApi = {
+export const BatchExportDestinationTypeEnumApi = {
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
     Snowflake: 'Snowflake',
@@ -471,7 +471,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationDestinationEnumApi
+    type: BatchExportDestinationTypeEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
@@ -845,6 +845,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -861,6 +863,8 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
@@ -884,7 +888,7 @@ export interface BatchExportApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi | BlankEnumApi | null
+    model?: BatchExportModelEnumApi | BlankEnumApi | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.
@@ -1714,7 +1718,7 @@ export interface BatchExportRequestApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination: BatchExportDestinationRequestApi
     /** How often the batch export should run.
@@ -1880,7 +1884,7 @@ export interface PatchedBatchExportRequestApi {
      * * `persons` - Persons
      * * `sessions` - Sessions
      * * `hogql` - Hogql */
-    model?: ModelEnumApi
+    model?: BatchExportModelEnumApi
     /** Destination configuration. Required integration_id is enforced per destination type. */
     destination?: BatchExportDestinationRequestApi
     /** How often the batch export should run.

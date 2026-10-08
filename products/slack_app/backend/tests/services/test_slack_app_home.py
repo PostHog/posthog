@@ -28,6 +28,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
@@ -38,6 +39,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_CHANNEL_WELCOME_MODE,
     ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
@@ -455,6 +457,7 @@ class TestRenderHomeView:
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
+            channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
         )
 
         # Equality both ways: an unroutable control fails on the left, and a card that
@@ -519,6 +522,37 @@ class TestThreadFollowupsPicker:
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
         assert (row.untagged_followup_mode if row else None) == expected
         assert mock_slack_client.views_publish.called
+
+
+class TestChannelWelcomePicker:
+    def test_card_is_hidden_from_non_admins(self):
+        view = render_home_view(is_admin=False, channel_welcome_mode=ChannelWelcomeMode.CHANNEL)
+        assert ACTION_SET_CHANNEL_WELCOME_MODE not in _action_ids(view)
+
+    @pytest.mark.parametrize(
+        "is_admin,picked,expected",
+        [
+            (True, ChannelWelcomeMode.OFF.value, ChannelWelcomeMode.OFF.value),
+            (True, ChannelWelcomeMode.INVITER.value, ChannelWelcomeMode.INVITER.value),
+            (True, "something-else", None),
+            # A stale view or a hand-crafted payload must not change a workspace setting.
+            (False, ChannelWelcomeMode.OFF.value, None),
+        ],
+    )
+    def test_pick_is_stored_on_the_workspace_row_for_admins_only(
+        self, slack_integration, mock_slack_client, flag_on, is_admin, picked, expected
+    ):
+        payload = _block_action_payload(
+            action_id=ACTION_SET_CHANNEL_WELCOME_MODE, slack_user_id="U001", selected_value=picked
+        )
+        with patch(
+            "products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=is_admin
+        ):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).first()
+        assert (row.channel_welcome_mode if row else None) == expected
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").exists()
 
 
 class TestLinkedAccountsCard:
@@ -1135,6 +1169,18 @@ class TestHandleAppHomeOpened:
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
+
+    def test_home_opened_is_attributed_to_the_resolved_posthog_user(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch("products.slack_app.backend.services.slack_app_home.capture_slack_event") as mock_capture:
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        assert mock_capture.call_args.args[1] == "slack app home opened"
+        assert mock_capture.call_args.kwargs["posthog_user"] == opener
 
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(

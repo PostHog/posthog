@@ -21,6 +21,8 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
@@ -28,6 +30,7 @@ from products.review_hog.backend.temporal.activities import (
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
+    GatePushInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -83,6 +86,9 @@ class StubResolvePRWorkflow:
         StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
 
 
+_TURN_MARKER = ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234")
+
+
 def _stage_kwargs() -> dict:
     return {
         "team_id": 1,
@@ -120,6 +126,9 @@ async def _run_full_review_pr_workflow(
     review_authored_prs: bool = False,
     already_completed: bool = False,
     pr_open: bool = True,
+    automatic_reviewed_head_sha: str | None = None,
+    gate_skips: bool = False,
+    fail_gate: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -181,6 +190,18 @@ async def _run_full_review_pr_workflow(
             empty_diff=empty_diff,
             already_completed=already_completed,
             pr_open=pr_open,
+            automatic_reviewed_head_sha=automatic_reviewed_head_sha,
+        )
+
+    gate_calls: list[str] = []
+
+    @activity.defn(name="gate_push_activity")
+    async def gate_push(input: GatePushInput) -> PushGateDecision:
+        gate_calls.append(input.previous_head_sha)
+        if fail_gate:
+            raise ApplicationError("compare exploded", non_retryable=True)
+        return PushGateDecision(
+            skip=gate_skips, would_skip=gate_skips, reason="merge_only" if gate_skips else "system_one_above_threshold"
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -205,6 +226,12 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="generate_schemas_activity")
     async def gen_schemas(input) -> None:
         return None
+
+    marker_calls: dict[str, ReviewHogMarker | None] = {}
+
+    @activity.defn(name="record_turn_marker_activity")
+    async def record_marker(input) -> ReviewHogMarker:
+        return _TURN_MARKER
 
     @activity.defn(name="split_chunks_activity")
     async def split(input) -> list[int]:
@@ -292,15 +319,19 @@ async def _run_full_review_pr_workflow(
         receipt_calls.append((input.outcome, input.review_url))
         return None
 
+    status_posts: list[str] = []
+
     @activity.defn(name="post_status_comment_activity")
     async def post_status(input: StatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
+        status_posts.append(input.report_id)
         return None
 
     @activity.defn(name="finalize_status_comment_activity")
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        marker_calls["status"] = input.marker
         return None
 
     @activity.defn(name="fail_status_comment_activity")
@@ -324,6 +355,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        marker_calls["track"] = input.marker
         return None
 
     @activity.defn(name="track_review_started_activity")
@@ -349,9 +381,11 @@ async def _run_full_review_pr_workflow(
             activities=[
                 validate_integration,
                 fetch,
+                gate_push,
                 resolve_acting_user,
                 sync_skills,
                 gen_schemas,
+                record_marker,
                 split,
                 load_perspectives,
                 select_perspectives,
@@ -426,6 +460,9 @@ async def _run_full_review_pr_workflow(
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
         "efforts": effort_calls,
+        "markers": marker_calls,
+        "gate": gate_calls,
+        "status_posts": status_posts,
     }
 
 
@@ -512,6 +549,8 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+    # The marker recorded at turn start reaches the completed event and the comment footer intact.
+    assert recorded["markers"] == {"track": _TURN_MARKER, "status": _TURN_MARKER}
 
 
 @pytest.mark.asyncio
@@ -608,6 +647,42 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
     )
     assert bool(recorded["review"]) is expected_review
     assert bool(recorded["publish"]) is expected_review
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger_source,reviewed_head,gate_skips,fail_gate,expected_gate,expected_review",
+    [
+        ("automatic", None, True, False, [], True),
+        ("label", "sha0", True, False, [], True),
+        ("manual", "sha0", True, False, [], True),
+        ("automatic", "sha0", True, False, ["sha0"], False),
+        ("automatic", "sha0", False, False, ["sha0"], True),
+        # A broken gate must not silence automatic reviews.
+        ("automatic", "sha0", True, True, ["sha0"], True),
+    ],
+)
+async def test_push_gate_judges_only_automatic_follow_ups(
+    trigger_source: str,
+    reviewed_head: str | None,
+    gate_skips: bool,
+    fail_gate: bool,
+    expected_gate: list[str],
+    expected_review: bool,
+) -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source=trigger_source,
+        review_mode="flash",
+        review_authored_prs=True,
+        automatic_reviewed_head_sha=reviewed_head,
+        gate_skips=gate_skips,
+        fail_gate=fail_gate,
+    )
+    assert recorded["gate"] == expected_gate
+    assert bool(recorded["review"]) is expected_review
+    assert bool(recorded["status_posts"]) is expected_review
+    assert bool(recorded["track_started"]) is expected_review
 
 
 @pytest.mark.asyncio

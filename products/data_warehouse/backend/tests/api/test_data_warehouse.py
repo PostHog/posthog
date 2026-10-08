@@ -250,6 +250,94 @@ class TestDataWarehouseAPI(APIBaseTest):
         # The source scene keys on a prefixed id, so a bare UUID renders a broken page.
         self.assertEqual(syncs[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
 
+    def test_data_health_issues_reports_the_sync_type(self) -> None:
+        # A webhook table is pushed to, never pulled, so a caller about scheduled imports needs
+        # to tell it apart rather than calling it stopped.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="hook-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="messages",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = [issue for issue in results if issue["type"] == "external_data_sync"]
+        self.assertEqual(len(syncs), 1)
+        self.assertEqual(syncs[0]["sync_type"], "webhook")
+
+    def test_completed_activity_filters_by_kind(self) -> None:
+        # Without a kind filter a team with many failing views fills every page with them, and a
+        # caller that only wants imports sees none of its own runs.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        both = self.client.get(f"{endpoint}?outcome=failed&kind=all").json()["results"]
+        imports = self.client.get(f"{endpoint}?outcome=failed&kind=import").json()["results"]
+        models = self.client.get(f"{endpoint}?outcome=failed&kind=model").json()["results"]
+
+        self.assertTrue(all(row["type"] != "Materialized view" for row in imports))
+        self.assertTrue(all(row["type"] == "Materialized view" for row in models))
+        self.assertEqual(len(both), len(imports) + len(models))
+
+    def test_completed_activity_all_outcome_returns_both(self) -> None:
+        # The ETL runs list shows every sync, not only the failures, so a caller needs one
+        # request that spans both rather than two it has to merge.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="both-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=0, status="Failed"
+        )
+
+        statuses = {row["status"] for row in self.client.get(f"{endpoint}?outcome=all").json()["results"]}
+
+        self.assertIn("Completed", statuses)
+        self.assertIn("Failed", statuses)
+
+    def test_completed_activity_reports_the_source_id(self) -> None:
+        # Without this the runs list cannot link a run back to its source.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="link-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+
+        results = self.client.get(f"{endpoint}?outcome=completed&kind=import").json()["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source_id"], str(source.id))
+
+    def test_completed_activity_rejects_an_unknown_kind(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        response = self.client.get(f"{endpoint}?kind=nonsense")
+        self.assertEqual(response.status_code, 400)
+
     def test_data_health_issues_links_a_failed_source_with_a_prefixed_id(self) -> None:
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
         source = ExternalDataSource.objects.create(
@@ -554,6 +642,27 @@ class TestDataWarehouseAPI(APIBaseTest):
         types = [activity["type"] for activity in data["results"]]
         self.assertIn("Stripe", types)
         self.assertIn("Materialized view", types)
+
+    def test_activity_uses_pipeline_id_for_schema_less_jobs(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        running_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.RUNNING
+        )
+        completed_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.COMPLETED
+        )
+
+        running_response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/running_activity?kind=import")
+        completed_response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/completed_activity?kind=import"
+        )
+
+        self.assertEqual(running_response.json()["results"][0]["id"], str(running_job.id))
+        self.assertEqual(running_response.json()["results"][0]["source_id"], str(source.id))
+        self.assertEqual(completed_response.json()["results"][0]["id"], str(completed_job.id))
+        self.assertEqual(completed_response.json()["results"][0]["source_id"], str(source.id))
 
     def test_completed_activity_returns_only_completed_jobs(self):
         """Test completed_activity endpoint returns only jobs with status 'Completed'"""
