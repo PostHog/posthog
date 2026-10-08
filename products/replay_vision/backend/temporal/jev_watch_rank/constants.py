@@ -25,9 +25,7 @@ MAX_JUDGED_PER_SCANNER = 100
 MAX_JUDGE_ATTEMPTS = 3
 # TODO: Team 2 is PostHog's own team, pinned first while the jev ranker runs as an internal shadow
 # test, so it can never fall past the team cap. When the experiment opens to other teams: remove the
-# pin, give the caps fair rotation, and make watch_feed_ranker return the default arm where
-# decisions_available_here() is false, so a region without the decision service can never land on
-# the jev arm. Enrollment is team-targeted and US-only until then.
+# pin and give the caps fair rotation. Enrollment is team-targeted until then.
 PINNED_TEAM_IDS = (2,)
 # Bound one sweep. The flag gates per team, so at experiment scale these caps are slack; they exist
 # so a misconfigured flag rollout cannot turn the sweep into an unbounded flag-check or Jev fan-out.

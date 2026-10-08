@@ -49,7 +49,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.models import PropertyType, effective_project_id_expr, group_type_index_key_expr
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
     build_markdown_notebook_content,
@@ -103,17 +103,29 @@ def detect_group_property_type(value):
     return PropertyType.String
 
 
-def create_property_definition(team_id: int, group_type_index: int, property_name: str, property_value):
+def create_property_definition(
+    team_id: int, project_id: int, group_type_index: int, property_name: str, property_value
+):
     """Create or update PostgreSQL PropertyDefinition for group property"""
     property_type = detect_group_property_type(property_value)
     is_numerical = property_type == PropertyType.Numeric
 
-    PropertyDefinition.objects.update_or_create(
-        team_id=team_id,
+    # Match on the key of posthog_propdef_proj_uniq. Then the lookup is a single index seek, and it finds a
+    # definition that another environment of the project created, so the insert cannot violate that constraint.
+    PropertyDefinition.objects.alias(
+        effective_project_id=effective_project_id_expr(),
+        group_type_index_key=group_type_index_key_expr(),
+    ).filter(effective_project_id=project_id, group_type_index_key=group_type_index).update_or_create(
         name=property_name,
         type=PropertyDefinition.Type.GROUP,
-        group_type_index=group_type_index,
         defaults={
+            "property_type": property_type.value,
+            "is_numerical": is_numerical,
+        },
+        create_defaults={
+            "team_id": team_id,
+            "project_id": project_id,
+            "group_type_index": group_type_index,
             "property_type": property_type.value,
             "is_numerical": is_numerical,
         },
@@ -523,6 +535,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         for prop_name, prop_value in group.group_properties.items():
             create_property_definition(
                 team_id=self.team.pk,
+                project_id=self.team.project_id,
                 group_type_index=group.group_type_index,
                 property_name=prop_name,
                 property_value=prop_value,
@@ -641,6 +654,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
             create_property_definition(
                 team_id=self.team.pk,
+                project_id=self.team.project_id,
                 group_type_index=group.group_type_index,
                 property_name=property_key,
                 property_value=property_value,

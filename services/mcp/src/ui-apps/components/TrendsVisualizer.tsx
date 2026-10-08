@@ -4,8 +4,10 @@ import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 import {
     BarChart as BarValueChart,
+    buildYTickFormatter,
     ciRanges,
     DefaultTooltip,
+    PieChart,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
@@ -33,6 +35,7 @@ import {
     defaultChartType,
     displayForChartType,
     isBarFamily,
+    pieViewFromTrendsFilter,
     resolveChartView,
     supportsPercentStack,
 } from './chartSettingsConfig'
@@ -120,6 +123,29 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                         labels={items.map((item) => item.label)}
                         theme={theme}
                         config={barConfig}
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    if (displayType === 'ActionsPie' || displayType === 'ActionsDonut') {
+        const slices = results.map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: colorAt(i),
+        }))
+        const pieView = pieViewFromTrendsFilter(query?.trendsFilter, displayType === 'ActionsDonut')
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full h-[400px]">
+                    <PieChart
+                        series={slices}
+                        theme={theme}
+                        config={pieView.config}
+                        valueFormatter={buildYTickFormatter(pieView.valueFormat)}
                     />
                 </div>
             </div>

@@ -198,6 +198,25 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
+
+- **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
+  marker. A pipeline finding's `suggestion` joins its body with one space. The `### {title}` heading, the
+  "Should fix · category" line, the "Suggested fix" header, and the GitHub suggestion block are gone. The body's
+  "Other findings" section uses the same heading, then the file and lines, then the same paragraph, with no collapsed
+  blocks and no category.
+- **Why.** Every published finding is meant to be fixed, so a "should fix" label adds nothing, and the category does
+  not change what the author does. Coding agents read most of these comments and apply the fix from the wording, so
+  the suggestion block added length without value. `suggestion_code` stays stored on the finding for a later UI. The
+  comment stays plain text, so it reads the same in email notifications.
+- **P level.** A single-agent finding shows its own P0-P3 while that level still folds into the effective priority
+  (validator override first, as before). A validator override or a dedup survivor raised by a more severe duplicate
+  shows the mapped level instead: `must_fix` P1, `should_fix` P2, `consider` P3. Pipeline findings always map.
+- **Matching.** `find_finding_comment` accepts the whole first line as `**P{n} · {title}**` for P0-P3 or as the old
+  `### {title}`, so comments already on open PRs still match. The level is not checked, because it can change after
+  publish. The resolution stage finds ReviewHog threads by the hidden marker, and the body-only fallback copies the
+  comment text, so neither depends on the heading.
+
 ### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
 
 - **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts
