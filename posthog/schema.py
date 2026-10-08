@@ -120,6 +120,8 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
+    ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -143,6 +145,7 @@ from posthog.schema_enums import (
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
     GroupMathType as GroupMathType,
+    GroupTypeIndex as GroupTypeIndex,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -1512,6 +1515,15 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: GroupTypeIndex = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
+
+
 class ExperimentExposureEstimateConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2072,6 +2084,10 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
     clicks: float
     conversions: float | None = None
     cost: float | None = None
@@ -2080,11 +2096,19 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     ctr: float | None = None
     impressions: float
     position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
     )
     clicks: float
     conversions: float | None = None
@@ -2100,6 +2124,10 @@ class MarketingAnalyticsSearchRow(BaseModel):
     platform: Platform
     position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchSource(BaseModel):
@@ -5614,6 +5642,16 @@ class ExperimentApiEventSource(BaseModel):
     properties: list[EventPropertyFilter] | None = Field(
         default=None,
         description="Event property filters to narrow which events are counted.",
+    )
+
+
+class ExperimentApiPropertyBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiPropertyBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
     )
 
 
@@ -18364,9 +18402,39 @@ class EventsQueryResponse(BaseModel):
     )
 
 
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown] | None = Field(
+        default=None,
+        description="Properties to break the metric results down by.",
+        max_length=3,
+    )
+
+
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: ExperimentApiBreakdownAttributionType | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics with breakdowns: which step the breakdown value is read"
+            " from. 'all_events' is not supported for experiment funnels."
+        ),
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is 'step', the 0-indexed step to attribute from."),
+    )
+    breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
+        default=None,
+        description=("Break the metric results down by up to 3 event, person, session or group properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
