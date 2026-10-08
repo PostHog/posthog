@@ -506,6 +506,34 @@ class WorkflowAccessDenied(Exception):
 
 
 @frozen
+class WorkflowEditState:
+    """A workflow's stored fields, as the serializer validates an edit against them.
+
+    Unlike ``Workflow``, it carries the encrypted secret inputs: validation recovers a secret the
+    editor sent back masked from these maps. Both stay out of ``repr``. Presentation reads it only
+    to validate an edit and never returns it.
+    """
+
+    id: UUID
+    team_id: int
+    name: str | None
+    status: str
+    version: int
+    origin_product: str | None
+    created_by: "User | None"
+    updated_at: datetime
+    trigger: Any
+    edges: list[dict[str, Any]] | dict[str, Any]
+    actions: list[dict[str, Any]] | dict[str, Any]
+    abort_action: str | None
+    variables: list[dict[str, Any]] | None
+    draft: dict[str, Any] | None
+    draft_updated_at: datetime | None
+    encrypted_inputs: dict[str, Any] | None = field(default=None, repr=False)
+    draft_encrypted_inputs: dict[str, Any] | None = field(default=None, repr=False)
+
+
+@frozen
 class WorkflowActor:
     """Who made a workflow change, for its activity log entry. ``team_id`` is the project the request
     came through. ``user`` carries the core ``User`` row, as ``log_activity`` takes it."""

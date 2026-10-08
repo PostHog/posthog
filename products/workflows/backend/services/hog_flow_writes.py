@@ -7,12 +7,18 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from products.workflows.backend.facade.contracts import WorkflowHasNoDraft, WorkflowStale, WorkflowWriteResult
+from products.workflows.backend.facade.contracts import (
+    WorkflowEditState,
+    WorkflowHasNoDraft,
+    WorkflowStale,
+    WorkflowWriteResult,
+)
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, ROW_SCOPED_TRIGGER_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.action_redirects import compute_action_redirects
 from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
+from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
     strip_content_secrets,
@@ -375,11 +381,11 @@ def edit_workflow_content(
     hog_flow_id: UUID,
     stage_if_active: bool,
     base_updated_at: Optional[str],
-    edit: Callable[[list[dict], list[dict]], dict],
+    edit: Callable[[WorkflowEditState, list[dict], list[dict]], dict],
     changes_graph: bool,
 ) -> WorkflowWriteResult:
-    """Apply a surgical edit under the row lock. `edit` receives the actions and edges it builds on
-    (the staged draft's when the edit stages) and returns the validated fields to write."""
+    """Apply a surgical edit under the row lock. `edit` receives the locked workflow, and the actions and
+    edges it builds on (the staged draft's when the edit stages), and returns the validated fields to write."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
 
@@ -404,7 +410,7 @@ def edit_workflow_content(
             base_actions = list(locked.actions or [])
             base_edges = list(locked.edges or [])
 
-        validated_data = edit(base_actions, base_edges)
+        validated_data = edit(to_edit_state(locked), base_actions, base_edges)
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
         if route_to_draft:
@@ -436,10 +442,10 @@ def publish_draft(
     user_id: Optional[int],
     hog_flow_id: UUID,
     previewed_value: str,
-    validate: Callable[[dict], dict],
+    validate: Callable[[WorkflowEditState, dict], dict],
 ) -> WorkflowWriteResult:
-    """Promote the staged draft to the live config. `validate` receives the draft content and returns
-    the validated fields to write."""
+    """Promote the staged draft to the live config. `validate` receives the locked workflow and the draft
+    content, and returns the validated fields to write."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if not locked.draft:
@@ -450,7 +456,7 @@ def publish_draft(
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
         # The draft goes back through the normal serializer so publish revalidates strictly and
         # recompiles bytecode - a stored blob is never trusted to be execution-ready.
-        validated_data = validate(dict(locked.draft))
+        validated_data = validate(to_edit_state(locked), dict(locked.draft))
         _refresh_action_redirects(locked, before_update, validated_data.get("actions"))
         bump = _stage_revision_bump(locked, before_update, validated_data)
         # Validation recovered the draft's secrets (from the merged live+draft encrypted maps), and
