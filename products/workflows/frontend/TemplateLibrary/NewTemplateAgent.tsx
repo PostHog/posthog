@@ -10,7 +10,7 @@ import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { NEW_TEMPLATE_HANDOFF } from './newTemplateHandoff'
 import { NEW_TEMPLATE_SUGGESTIONS, PICKED_TEMPLATE_PROMPT } from './templateAgentContext'
 import { TemplateStartingPointCard } from './TemplateStartingPointCard'
-import { MessageTemplate } from './types'
+import type { MessageTemplateListItem } from './types'
 
 // The library lists every saved template; the row shows the newest few so the prompt cards stay in view.
 const STARTING_POINT_LIMIT = 8
@@ -22,7 +22,7 @@ export function NewTemplateAgent(): JSX.Element {
     const { fillComposer } = useActions(aiFirstHandoffLogic(NEW_TEMPLATE_HANDOFF))
     const { templates, templatesLoading } = useValues(messageTemplatesLogic)
 
-    const pickTemplate = (template: MessageTemplate): void => {
+    const pickTemplate = (template: MessageTemplateListItem): void => {
         setPickedTemplate(template)
         fillComposer(PICKED_TEMPLATE_PROMPT)
     }

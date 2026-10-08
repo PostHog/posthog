@@ -4,7 +4,8 @@ from typing import Any
 from django.db import models, transaction
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -90,9 +91,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
+class MessageTemplateContentTemplating(models.TextChoices):
+    LIQUID = "liquid", "liquid"
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["liquid"],
+        choices=MessageTemplateContentTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
@@ -178,6 +183,28 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
         instance = MessageTemplate.objects.create(**validated_data, team_id=team_id, created_by=request.user)
         return instance
+
+
+class EmailTemplateListSerializer(EmailTemplateSerializer):
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields.pop("design")
+        return fields
+
+
+class MessageTemplateListContentSerializer(MessageTemplateContentSerializer):
+    email = EmailTemplateListSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Email message content for template previews. The editable design is available on the detail endpoint.",
+    )
+
+
+class MessageTemplateListSerializer(MessageTemplateSerializer):
+    content = MessageTemplateListContentSerializer(
+        required=False,
+        help_text="Template content for previews. The editable design is available on the detail endpoint.",
+    )
 
 
 class EmailTemplateDesignOperation(models.TextChoices):
@@ -282,6 +309,19 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_design",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set to false to omit editable email designs from list responses. Defaults to true.",
+            ),
+        ]
+    )
+)
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -295,6 +335,11 @@ class MessageTemplatesViewSet(
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list" and self.request.query_params.get("include_design", "true").lower() == "false":
+            return MessageTemplateListSerializer
+        return MessageTemplateSerializer
 
     def safely_get_queryset(self, queryset):
         return (

@@ -180,6 +180,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.logs.backend.presentation.views.alerts_api.LogsAlertViewSet",
     "products.managed_migrations.backend.api.batch_imports.BatchImportViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
+    "products.messaging.backend.api.message_templates.MessageTemplatesViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPFeedbackViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPIntentClusterViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPMissingCapabilityViewSet",

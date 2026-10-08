@@ -1201,9 +1201,15 @@ function generateToolCode(
 
     const injectBody = config.inject_body ?? {}
     const injectBodyEntries = Object.entries(injectBody)
+    const injectQueryEntries = Object.entries(config.inject_query ?? {})
+    for (const [key] of injectQueryEntries) {
+        if (composition.queryParamNames.includes(key)) {
+            throw new Error(`Injected query parameter "${key}" must be excluded from tool inputs`)
+        }
+    }
     const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
     const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
-    const hasQuery = composition.queryParamNames.length > 0
+    const hasQuery = composition.queryParamNames.length > 0 || injectQueryEntries.length > 0
 
     if (hasBody) {
         handlerBody += `        const body: Record<string, unknown> = {}\n`
@@ -1235,8 +1241,8 @@ function generateToolCode(
         handlerBody += `            body,\n`
     }
     if (hasQuery) {
-        const queryAssignments = composition.queryParamNames
-            .map((qn) => {
+        const queryAssignments = [
+            ...composition.queryParamNames.map((qn) => {
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
                 // json.loads()-style contract), which DRF CSV filters can't parse.
@@ -1246,8 +1252,11 @@ function generateToolCode(
                     return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
                 return `                ${qn}: params.${qn},`
-            })
-            .join('\n')
+            }),
+            ...injectQueryEntries.map(
+                ([key, value]) => `                ${JSON.stringify(key)}: ${JSON.stringify(value)},`
+            ),
+        ].join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
     }
     handlerBody += `        })\n`
@@ -1312,7 +1321,7 @@ function generateToolCode(
     // alone doesn't touch params, so don't count it here.
     const paramsUsed =
         composition.bodyFieldNames.length > 0 ||
-        hasQuery ||
+        composition.queryParamNames.length > 0 ||
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
         !!selectableExtension
