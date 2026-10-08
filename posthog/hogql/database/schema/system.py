@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -6,6 +10,8 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -13,6 +19,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
+
+if TYPE_CHECKING:
+    from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.context import HogQLContext
 
 
 class IngestionWarningsTable(Table):
@@ -254,6 +264,55 @@ source_sync_jobs: PostgresTable = PostgresTable(
     },
 )
 
+endpoints: PostgresTable = PostgresTable(
+    name="data_modeling_endpoints",
+    postgres_table_name="endpoints_endpoint",
+    predicates=[parse_expr("deleted != true")],
+    access_scope="endpoint",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])]),
+            isolate_scope=True,
+        ),
+        "current_version": IntegerDatabaseField(name="current_version"),
+        "derived_from_insight": StringDatabaseField(name="derived_from_insight"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "last_executed_at": DateTimeDatabaseField(name="last_executed_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
+            isolate_scope=True,
+        ),
+    },
+)
+
+
+def _join_endpoint_versions_to_endpoints(
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    join_expr = ast.JoinExpr(table=ast.Field(chain=["system", "data_modeling_endpoints"]))
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[join_to_add.from_table, "endpoint_id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "id"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
 endpoint_versions: PostgresTable = PostgresTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
@@ -272,29 +331,11 @@ endpoint_versions: PostgresTable = PostgresTable(
             name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
         ),
         "columns": StringJSONDatabaseField(name="columns"),
-    },
-)
-
-endpoints: PostgresTable = PostgresTable(
-    name="data_modeling_endpoints",
-    postgres_table_name="endpoints_endpoint",
-    predicates=[parse_expr("deleted != true")],
-    access_scope="endpoint",
-    fields={
-        "id": StringDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "name": StringDatabaseField(name="name"),
-        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
-        "is_active": ExpressionField(
-            name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
+        "endpoint": LazyJoin(
+            from_field=["endpoint_id"],
+            join_table=endpoints,
+            join_function=_join_endpoint_versions_to_endpoints,
         ),
-        "current_version": IntegerDatabaseField(name="current_version"),
-        "derived_from_insight": StringDatabaseField(name="derived_from_insight"),
-        "created_at": DateTimeDatabaseField(name="created_at"),
-        "updated_at": DateTimeDatabaseField(name="updated_at"),
-        "last_executed_at": DateTimeDatabaseField(name="last_executed_at"),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
     },
 )
 
@@ -590,42 +631,55 @@ early_access_features: PostgresTable = PostgresTable(
 
 
 class SystemTables(TableNode):
+    """System tables backed by PostgreSQL, accessible via `system.<table_name>` in HogQL.
+
+    Uses model_post_init instead of class-level defaults to avoid Pydantic's deep-copy
+    behavior which strips LazyJoin fields (they contain Callable attributes that
+    don't survive deep copy).
+    """
+
     name: str = "system"
-    children: dict[str, TableNode] = {
-        "activity_logs": TableNode(name="activity_logs", table=activity_logs),
-        "actions": TableNode(name="actions", table=actions),
-        "alerts": TableNode(name="alerts", table=alerts),
-        "annotations": TableNode(name="annotations", table=annotations),
-        "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
-        "cohorts": TableNode(name="cohorts", table=cohorts),
-        "dashboards": TableNode(name="dashboards", table=dashboards),
-        "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
-        "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
-        "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
-        "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
-        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
-        "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
-        "error_tracking_issue_assignments": TableNode(
-            name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
-        ),
-        "error_tracking_issue_fingerprints": TableNode(
-            name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
-        ),
-        "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
-        "early_access_features": TableNode(name="early_access_features", table=early_access_features),
-        "experiments": TableNode(name="experiments", table=experiments),
-        "exports": TableNode(name="exports", table=exports),
-        "feature_flags": TableNode(name="feature_flags", table=feature_flags),
-        "groups": TableNode(name="groups", table=groups),
-        "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
-        "hog_flows": TableNode(name="hog_flows", table=hog_flows),
-        "hog_functions": TableNode(name="hog_functions", table=hog_functions),
-        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
-        "insight_variables": TableNode(name="insight_variables", table=insight_variables),
-        "insights": TableNode(name="insights", table=insights),
-        "notebooks": TableNode(name="notebooks", table=notebooks),
-        "source_schemas": TableNode(name="source_schemas", table=source_schemas),
-        "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
-        "surveys": TableNode(name="surveys", table=surveys),
-        "teams": TableNode(name="teams", table=teams),
-    }
+
+    def model_post_init(self, __context: Any) -> None:
+        self.children = {
+            "activity_logs": TableNode(name="activity_logs", table=activity_logs),
+            "actions": TableNode(name="actions", table=actions),
+            "alerts": TableNode(name="alerts", table=alerts),
+            "annotations": TableNode(name="annotations", table=annotations),
+            "cohort_calculation_history": TableNode(
+                name="cohort_calculation_history", table=cohort_calculation_history
+            ),
+            "cohorts": TableNode(name="cohorts", table=cohorts),
+            "dashboards": TableNode(name="dashboards", table=dashboards),
+            "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
+            "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
+            "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
+            "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+            "data_modeling_endpoint_versions": TableNode(
+                name="data_modeling_endpoint_versions", table=endpoint_versions
+            ),
+            "data_modeling_endpoints": TableNode(name="data_modeling_endpoints", table=endpoints),
+            "error_tracking_issue_assignments": TableNode(
+                name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
+            ),
+            "error_tracking_issue_fingerprints": TableNode(
+                name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
+            ),
+            "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
+            "early_access_features": TableNode(name="early_access_features", table=early_access_features),
+            "experiments": TableNode(name="experiments", table=experiments),
+            "exports": TableNode(name="exports", table=exports),
+            "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+            "groups": TableNode(name="groups", table=groups),
+            "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+            "hog_flows": TableNode(name="hog_flows", table=hog_flows),
+            "hog_functions": TableNode(name="hog_functions", table=hog_functions),
+            "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
+            "insight_variables": TableNode(name="insight_variables", table=insight_variables),
+            "insights": TableNode(name="insights", table=insights),
+            "notebooks": TableNode(name="notebooks", table=notebooks),
+            "source_schemas": TableNode(name="source_schemas", table=source_schemas),
+            "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+            "surveys": TableNode(name="surveys", table=surveys),
+            "teams": TableNode(name="teams", table=teams),
+        }

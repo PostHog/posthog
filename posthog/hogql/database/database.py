@@ -420,6 +420,10 @@ class Database(BaseModel):
             if self._is_helper_function_table(join_table):
                 return True
 
+            if isinstance(join_table, PostgresTable):
+                # System tables are namespaced as "system.<name>" in allowed_table_names
+                return join_table.name in allowed_table_names or f"system.{join_table.name}" in allowed_table_names
+
             if not isinstance(join_table.name, str):
                 return True
 
@@ -563,18 +567,14 @@ class Database(BaseModel):
             fields_dict = {field.name: field for field in fields}
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
-        # System tables
+        # System tables — use table.fields (not get_asterisk) to include LazyJoin fields
         system_tables = [] if self._is_direct_query() else self.get_system_table_names()
         for table_key in system_tables:
             if include_only and table_key not in include_only:
                 continue
 
-            system_field_input: dict[str, Any] = {}
             table = self.get_table(table_key)
-            if isinstance(table, FunctionCallTable):
-                system_field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                system_field_input = table.fields
+            system_field_input: dict[str, Any] = table.fields
 
             fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -1766,14 +1766,21 @@ def serialize_fields(
                 type = DatabaseSerializedFieldType.LAZY_TABLE
                 id = None
 
+            # Use get_asterisk keys to exclude hidden fields, LazyJoins, and FieldTraversers
+            visible_fields = list(resolved_table.get_asterisk().keys())
+
+            table_name: str = resolved_table.to_printed_hogql()
+            if isinstance(resolved_table, PostgresTable):
+                table_name = f"system.{table_name}"
+
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
                     hogql_value=hogql_value,
                     type=type,
                     schema_valid=schema_valid,
-                    table=field.resolve_table(context).to_printed_hogql(),
-                    fields=list(field.resolve_table(context).fields.keys()),
+                    table=table_name,
+                    fields=visible_fields,
                     id=id or field_key,
                 )
             )

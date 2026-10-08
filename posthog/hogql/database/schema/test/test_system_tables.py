@@ -4,6 +4,14 @@ from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    ExpressionField,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    TableNode,
+)
+from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -318,6 +326,111 @@ SYSTEM_TABLE_FACTORIES = [
     ("surveys", _create_survey),
     ("teams", _create_team),
 ]
+
+
+def _mock_join_function(join_to_add, context, node):
+    from posthog.hogql import ast as _ast
+
+    join_expr = _ast.JoinExpr(table=_ast.Field(chain=["system", "mock_parents"]))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = _ast.JoinConstraint(
+        expr=_ast.CompareOperation(
+            op=_ast.CompareOperationOp.Eq,
+            left=_ast.Field(chain=[join_to_add.from_table, "parent_id"]),
+            right=_ast.Field(chain=[join_to_add.to_table, "id"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
+def _build_mock_system_tables(database):
+    """Inject mock parent/child PostgresTable pair into the system node for testing LazyJoin."""
+    from posthog.hogql import ast as _ast
+    from posthog.hogql.database.models import LazyJoin
+
+    parent_table = PostgresTable(
+        name="mock_parents",
+        postgres_table_name="test_mock_parents",
+        fields={
+            "id": StringDatabaseField(name="id"),
+            "team_id": IntegerDatabaseField(name="team_id"),
+            "label": StringDatabaseField(name="label"),
+            "_active": BooleanDatabaseField(name="active", hidden=True),
+            "active": ExpressionField(
+                name="active",
+                expr=_ast.Call(name="toInt", args=[_ast.Field(chain=["_active"])]),
+                isolate_scope=True,
+            ),
+        },
+    )
+    child_table = PostgresTable(
+        name="mock_children",
+        postgres_table_name="test_mock_children",
+        fields={
+            "id": StringDatabaseField(name="id"),
+            "team_id": IntegerDatabaseField(name="team_id"),
+            "parent_id": StringDatabaseField(name="parent_id"),
+            "value": IntegerDatabaseField(name="value"),
+            "parent": LazyJoin(
+                from_field=["parent_id"],
+                join_table=parent_table,
+                join_function=_mock_join_function,
+            ),
+        },
+    )
+    system_node = database.tables.children.get("system")
+    system_node.children["mock_parents"] = TableNode(name="mock_parents", table=parent_table)
+    system_node.children["mock_children"] = TableNode(name="mock_children", table=child_table)
+
+
+class TestSystemTableLazyJoin(BaseTest):
+    def _setup_db(self):
+        db = Database.create_for(team=self.team)
+        _build_mock_system_tables(db)
+        return db
+
+    def _compile(self, sql, db=None):
+        if db is None:
+            db = self._setup_db()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        return query
+
+    def test_lazy_join_compiles_to_left_join(self):
+        query = self._compile("SELECT c.value, c.parent.label FROM system.mock_children AS c")
+        assert "LEFT JOIN" in query
+        assert "c__parent" in query
+
+    def test_lazy_join_asterisk_with_expression_fields(self):
+        query = self._compile("SELECT c.id, c.parent.* FROM system.mock_children AS c")
+        assert "LEFT JOIN" in query
+        assert "c__parent" in query
+
+    def test_lazy_join_where_on_joined_field(self):
+        query = self._compile("SELECT c.id FROM system.mock_children AS c WHERE c.parent.label = 'foo'")
+        assert "LEFT JOIN" in query
+        assert "c__parent" in query
+        assert "label" in query
+
+    def test_lazy_join_with_predicate_on_parent_table(self):
+        from posthog.hogql.parser import parse_expr as _parse_expr
+
+        db = self._setup_db()
+        parent_table = db.get_table(["system", "mock_parents"])
+        parent_table.predicates = [_parse_expr("active != 0")]
+
+        query = self._compile(
+            "SELECT c.id, c.parent.label FROM system.mock_children AS c",
+            db=db,
+        )
+        assert "LEFT JOIN" in query
+        assert "active" in query
 
 
 class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
