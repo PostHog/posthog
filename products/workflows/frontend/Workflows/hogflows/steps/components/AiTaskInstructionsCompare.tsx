@@ -5,6 +5,8 @@ import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
 import { InstructionsDiff } from '../../../InstructionsDiff'
 import { workflowLogic } from '../../../workflowLogic'
 import { aiTaskInstructionsCompareLogic, findAiTaskPrompt } from './aiTaskInstructionsCompareLogic'
@@ -12,11 +14,18 @@ import { aiTaskInstructionsCompareLogic, findAiTaskPrompt } from './aiTaskInstru
 export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): JSX.Element | null {
     const { logicProps, originalWorkflow, workflow } = useValues(workflowLogic)
     const logic = aiTaskInstructionsCompareLogic({ workflowId: logicProps.id ?? 'new', actionId })
-    const { isOpen, selectedVersion, revisions, revisionsResponseLoading, selectedRevisionPrompt, revisionLoadFailed } =
-        useValues(logic)
-    const { setOpen, selectVersion } = useActions(logic)
+    const {
+        isOpen,
+        selectedVersion,
+        revisions,
+        revisionsResponseLoading,
+        revisionsLoadFailed,
+        selectedRevisionPrompt,
+        revisionLoadFailed,
+    } = useValues(logic)
+    const { setOpen, selectVersion, loadRevision, loadRevisions } = useActions(logic)
 
-    // A workflow has versions only once it has gone live.
+    // The default comparison is with the live version, and only an active workflow runs one.
     if (!originalWorkflow || originalWorkflow.status !== 'active') {
         return null
     }
@@ -31,7 +40,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     onClick={() => setOpen(true)}
                     data-attr="workflow-ai-task-compare-open"
                 >
-                    Compare with another version
+                    Compare instructions with another version
                 </LemonButton>
             </div>
         )
@@ -67,21 +76,32 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     Close
                 </LemonButton>
             </div>
-            {revisionLoadFailed ? (
+            {revisionsLoadFailed && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-danger">Could not load past versions.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadRevisions()}>
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
+            {selectedVersion !== null && revisionLoadFailed ? (
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-danger">Could not load {versionName}.</span>
-                    <LemonButton size="xsmall" type="secondary" onClick={() => selectVersion(selectedVersion)}>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
                         Try again
                     </LemonButton>
                 </div>
             ) : comparedPrompt === undefined ? (
                 <LemonSkeleton className="h-24 w-full" />
             ) : comparedPrompt === null ? (
-                <span className="text-sm text-secondary">This step has no instructions in {versionName}.</span>
+                <span className="text-sm text-secondary">This step isn't in {versionName}.</span>
             ) : comparedPrompt === currentPrompt ? (
                 <span className="text-sm text-secondary">No differences from {versionName}.</span>
             ) : (
-                <InstructionsDiff before={comparedPrompt} after={currentPrompt} />
+                // Keeps a failed editor load inside this box, so the rest of the step panel stays usable.
+                <ErrorBoundary>
+                    <InstructionsDiff before={comparedPrompt} after={currentPrompt} />
+                </ErrorBoundary>
             )}
         </div>
     )

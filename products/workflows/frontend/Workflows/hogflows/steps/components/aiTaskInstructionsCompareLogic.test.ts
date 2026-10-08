@@ -36,7 +36,7 @@ describe('aiTaskInstructionsCompareLogic', () => {
         expect(logic.values.selectedRevisionPrompt).toEqual(expected)
     })
 
-    it('reports a failed version load instead of loading forever', async () => {
+    it('reports a failed version load, and clears it on switching to the live version', async () => {
         useMocks({ get: { [REVISION_URL]: () => [500, { detail: 'error' }] } })
         initKeaTests()
         silenceKeaLoadersErrors()
@@ -46,5 +46,9 @@ describe('aiTaskInstructionsCompareLogic', () => {
         await expectLogic(logic, () => logic.actions.selectVersion(2)).toDispatchActions(['loadRevisionFailure'])
 
         expect(logic.values.revisionLoadFailed).toBe(true)
+
+        logic.actions.selectVersion(null)
+
+        expect(logic.values.revisionLoadFailed).toBe(false)
     })
 })

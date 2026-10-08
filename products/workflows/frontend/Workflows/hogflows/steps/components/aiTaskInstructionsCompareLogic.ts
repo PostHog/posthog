@@ -32,6 +32,7 @@ export interface aiTaskInstructionsCompareLogicValues {
     revisionLoadFailed: boolean
     revisionLoading: boolean
     revisions: HogFlowRevisionBasicApi[]
+    revisionsLoadFailed: boolean
     revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null
     revisionsResponseLoading: boolean
     selectedRevisionPrompt: string | null | undefined
@@ -82,8 +83,12 @@ export interface aiTaskInstructionsCompareLogicActions {
 export interface aiTaskInstructionsCompareLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        revisions: (revisionsResponse: any) => HogFlowRevisionBasicApi[]
-        selectedRevisionPrompt: (selectedVersion: any, revision: any, arg: any) => string | null | undefined
+        revisions: (revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null) => HogFlowRevisionBasicApi[]
+        selectedRevisionPrompt: (
+            selectedVersion: number | null,
+            revision: HogFlowRevisionApi | null,
+            arg: any
+        ) => string | null | undefined
     }
 }
 
@@ -122,8 +127,16 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
         revisionLoadFailed: [
             false,
             {
+                selectVersion: () => false,
                 loadRevision: () => false,
                 loadRevisionFailure: () => true,
+            },
+        ],
+        revisionsLoadFailed: [
+            false,
+            {
+                loadRevisions: () => false,
+                loadRevisionsFailure: () => true,
             },
         ],
     }),
@@ -138,8 +151,22 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
         revision: [
             null as HogFlowRevisionApi | null,
             {
-                loadRevision: async (version: number) =>
-                    await hogFlowsRevisionsRetrieve(String(values.currentTeamIdStrict), props.workflowId, version),
+                loadRevision: async (version: number, breakpoint) => {
+                    // A response for a version the user has since moved away from must not land, whether it
+                    // succeeded or failed, so each call checks the breakpoint once its request settles.
+                    try {
+                        const revision = await hogFlowsRevisionsRetrieve(
+                            String(values.currentTeamIdStrict),
+                            props.workflowId,
+                            version
+                        )
+                        breakpoint()
+                        return revision
+                    } catch (error) {
+                        breakpoint()
+                        throw error
+                    }
+                },
             },
         ],
     })),
