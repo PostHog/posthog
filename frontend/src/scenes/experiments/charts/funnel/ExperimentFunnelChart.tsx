@@ -29,9 +29,8 @@ import type { VariantFunnelMeta } from './types'
 /** Step label at index 0 — the frontend-only step that precedes the backend's step numbering. */
 const EXPOSURE_STEP_LABEL = 'Experiment exposure'
 
-/** Fixed plot height. A wrapping step footer grows the card instead, because shrinking the plot would
- *  resize and wipe the canvas, and the footer would then reflow against the moved bars. */
-const PLOT_REGION_HEIGHT = 287
+/** Floor for the plot region so a tall step footer can't squeeze the bars out of the chart. */
+const MIN_PLOT_HEIGHT = 200
 
 /** Target width of one step's bars. Steps cluster at this width instead of stretching to fill the
  *  container, and shrink below it once the funnel is too wide to fit. */
@@ -111,7 +110,7 @@ export function ExperimentFunnelChart({
 
     const config = useMemo(
         () => ({
-            chartMinHeight: PLOT_REGION_HEIGHT,
+            chartMinHeight: MIN_PLOT_HEIGHT,
             maxBandRange: steps.length * STEP_BAND_WIDTH,
             // Cursor-anchored like the insights funnel, instead of the funnel default pinned to the band top.
             tooltip: { placement: 'cursor' as const },
@@ -152,9 +151,9 @@ export function ExperimentFunnelChart({
     )
 
     return embedded ? (
-        <div className="flex flex-col p-2">{chart}</div>
+        <div className="h-96 flex flex-col p-2">{chart}</div>
     ) : (
-        <LemonCard hoverEffect={false} className="flex flex-col p-2">
+        <LemonCard hoverEffect={false} className="h-96 flex flex-col p-2">
             {chart}
         </LemonCard>
     )
