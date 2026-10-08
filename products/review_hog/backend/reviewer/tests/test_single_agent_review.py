@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    FlashSelection,
     SingleAgentPrompt,
     compose_flash_findings,
     dedupe_flash_findings,
@@ -135,8 +137,22 @@ class TestComposeFlashFindings:
         # P3 that outranks a P1 or a comment past the cap is noise, a session that marks everything
         # must-fix floods the PR without the ceiling, and a large PR held to the one-part cap loses
         # real findings.
-        kept = compose_flash_findings(main, lens, lens_part_count=lens_part_count)
+        kept = compose_flash_findings(main, lens, lens_part_count=lens_part_count).kept
         assert [issue.id for issue in kept] == expected_ids
+
+    def test_cut_findings_drop_with_their_rank(self) -> None:
+        # The record of cut findings is how the cap gets judged later, so a cut finding without its
+        # rank, or a kept finding recorded as cut, misstates how close each one came to posting.
+        main = [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(1, 5)]
+        lens = [_issue("l1", IssuePriority.MUST_FIX, _LENS_SOURCE), _issue("l2", IssuePriority.CONSIDER, _LENS_SOURCE)]
+
+        selection = compose_flash_findings(main, lens, lens_part_count=1)
+
+        assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == [
+            ("m4", "cap", 5),
+            ("l2", "cap", 6),
+        ]
+        assert (selection.cap, selection.lens_part_count) == (4, 1)
 
 
 def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
@@ -147,17 +163,27 @@ def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
     )
 
 
+_PRIOR_KEY = "r1:a.py:10:flash-single-agent:2000-1-1"
+
+
 class TestDedupeFlashFindings:
     @staticmethod
-    async def _dedupe(pr_metadata: PRMetadata, issues: list[Issue], mock_llm: AsyncMock) -> list[Issue]:
+    async def _dedupe(
+        pr_metadata: PRMetadata,
+        issues: list[Issue],
+        mock_llm: AsyncMock,
+        *,
+        prior_findings: list[ReviewIssueFinding] | None = None,
+        pr_comments: list[PRComment] | None = None,
+    ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             return await dedupe_flash_findings(
                 team_id=1,
                 user_id=1,
                 issues=issues,
                 pr_metadata=pr_metadata,
-                pr_comments=[],
-                prior_findings=[],
+                pr_comments=pr_comments or [],
+                prior_findings=[(finding, None) for finding in prior_findings or []],
                 branch="feat",
                 repository="o/r",
                 lens_part_count=1,
@@ -181,7 +207,7 @@ class TestDedupeFlashFindings:
         lens = _issue("2002-1-1", IssuePriority.MUST_FIX, _LENS_SOURCE)
         mock_llm = _flash_dedup(llm_duplicate)
 
-        kept = await self._dedupe(pr_metadata, [main, lens], mock_llm)
+        kept = (await self._dedupe(pr_metadata, [main, lens], mock_llm)).kept
 
         assert [issue.id for issue in kept] == expected_ids
         assert mock_llm.call_count == 1
@@ -209,6 +235,48 @@ class TestDedupeFlashFindings:
     ) -> None:
         # Dedup keeps the more complete statement, not the more severe one, so without the raise a
         # P1 that repeats a P3 posts as a P3, or not at all once the cap cuts the P3.
-        kept = await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))
+        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))).kept
 
         assert [(issue.id, issue.priority) for issue in kept] == [(survivor_id, IssuePriority.MUST_FIX)]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "named,disposition,duplicate_of",
+        [
+            pytest.param("2000-1-1", "dedup_anchor", "2000-1-1", id="main_finding"),
+            pytest.param("2002-1-2", "dedup_sibling", "2002-1-2", id="lens_sibling"),
+            pytest.param(_PRIOR_KEY, "dedup_prior", _PRIOR_KEY, id="earlier_turn"),
+            pytest.param("77", "dedup_comment", "comment:77", id="pr_comment"),
+            pytest.param("nothing-shown", "dedup_unmatched", "nothing-shown", id="unknown_id"),
+        ],
+    )
+    async def test_a_dedup_drop_records_what_it_repeats(
+        self, pr_metadata: PRMetadata, named: str, disposition: str, duplicate_of: str
+    ) -> None:
+        # The dropped-findings record is how dedup gets judged later, so a drop filed under the wrong
+        # disposition, or pointing at the wrong finding, sends that judgment to the wrong place.
+        issues = [
+            _issue("2000-1-1", IssuePriority.SHOULD_FIX),
+            _issue("2002-1-1", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+            _issue("2002-1-2", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+        ]
+        prior = ReviewIssueFinding(
+            issue_key=_PRIOR_KEY,
+            run_index=1,
+            title="Earlier finding",
+            file="a.py",
+            lines=[LineRange(start=10)],
+            body="problem",
+            suggestion="",
+            priority=IssuePriority.SHOULD_FIX,
+        )
+        comment = PRComment(id=77, path="a.py", line=10, body="x", diff_hunk="", user="reviewer", created_at="c")
+        mock_llm = _flash_dedup(("2002-1-1", named))
+
+        selection = await self._dedupe(pr_metadata, issues, mock_llm, prior_findings=[prior], pr_comments=[comment])
+
+        [drop] = selection.dropped
+        recorded = drop.duplicate_of.id if isinstance(drop.duplicate_of, Issue) else drop.duplicate_of
+        assert (drop.issue.id, drop.disposition, recorded) == ("2002-1-1", disposition, duplicate_of)
+        # The dedup can only name an earlier finding it was shown with its key.
+        assert all(_PRIOR_KEY in call.kwargs["prompt"] for call in mock_llm.call_args_list)

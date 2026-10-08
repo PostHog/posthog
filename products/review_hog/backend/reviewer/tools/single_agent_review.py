@@ -12,7 +12,10 @@ import re
 import json
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -24,7 +27,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import Duplicate, deduplicate_issues
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
@@ -203,22 +206,66 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
     return issues
 
 
-def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> list[Issue]:
+@frozen
+class FlashSelection:
+    """The findings a single-agent turn keeps, and every finding it drops with the reason."""
+
+    kept: list[Issue]
+    dropped: list[DroppedIssue]
+    # The turn's finding cap, which must-fix findings can exceed, and the lens part count it grew with.
+    cap: int
+    lens_part_count: int
+
+
+def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first and the main review first on ties.
 
     Every must-fix (P0 or P1) finding is kept outside the cap (`flash_max_findings`), up to
     `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix
-    findings leave under the cap.
+    findings leave under the cap. The rest drop with their rank.
 
-    The caller persists only these. A persisted finding that never posts counts as already raised, so
-    every later turn would keep it off the PR too.
+    The caller persists only the kept findings. A persisted finding that never posts counts as already
+    raised, so every later turn would keep it off the PR too.
     """
     cap = flash_max_findings(lens_part_count)
     ranked = sorted([*main, *lens], key=lambda issue: priority_rank(issue.priority), reverse=True)
     must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
     must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
-    return [*must_fix, *others[: max(cap - len(must_fix), 0)]]
+    kept_ids = {issue.id for issue in [*must_fix, *others[: max(cap - len(must_fix), 0)]]}
+    return FlashSelection(
+        kept=[issue for issue in ranked if issue.id in kept_ids],
+        dropped=[
+            DroppedIssue(issue=issue, disposition="cap", rank=rank)
+            for rank, issue in enumerate(ranked, start=1)
+            if issue.id not in kept_ids
+        ],
+        cap=cap,
+        lens_part_count=lens_part_count,
+    )
+
+
+def _dropped_duplicate(
+    duplicate: Duplicate, *, turn_issues: dict[str, Issue], prior_keys: set[str], comment_ids: set[str]
+) -> DroppedIssue:
+    """Record a dedup drop with what it repeats, from the id the dedup named."""
+    named = duplicate.duplicate_of
+    target = turn_issues.get(named) if named is not None and named != duplicate.issue.id else None
+    if target is not None:
+        repeats_anchor = (
+            target.source_perspective == SINGLE_AGENT_SOURCE
+            and duplicate.issue.source_perspective != SINGLE_AGENT_SOURCE
+        )
+        return DroppedIssue(
+            issue=duplicate.issue,
+            disposition="dedup_anchor" if repeats_anchor else "dedup_sibling",
+            duplicate_of=target,
+        )
+    if named in prior_keys:
+        return DroppedIssue(issue=duplicate.issue, disposition="dedup_prior", duplicate_of=named)
+    if named in comment_ids:
+        return DroppedIssue(issue=duplicate.issue, disposition="dedup_comment", duplicate_of=f"comment:{named}")
+    return DroppedIssue(issue=duplicate.issue, disposition="dedup_unmatched", duplicate_of=named)
 
 
 def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> None:
@@ -252,7 +299,7 @@ async def dedupe_flash_findings(
     repository: str,
     lens_part_count: int,
     workflow_id_prefix: str | None = None,
-) -> list[Issue]:
+) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
     Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
@@ -289,12 +336,20 @@ async def dedupe_flash_findings(
             for_flash=True,
         ),
     )
-    _raise_survivors([*main_outcome.kept, *lens_outcome.kept], [*main_outcome.duplicates, *lens_outcome.duplicates])
-    kept = compose_flash_findings(main_outcome.kept, lens_outcome.kept, lens_part_count=lens_part_count)
+    duplicates = [*main_outcome.duplicates, *lens_outcome.duplicates]
+    _raise_survivors([*main_outcome.kept, *lens_outcome.kept], duplicates)
+    composed = compose_flash_findings(main_outcome.kept, lens_outcome.kept, lens_part_count=lens_part_count)
+    turn_issues = {issue.id: issue for issue in issues}
+    prior_keys = {finding.issue_key for finding, _ in prior_findings}
+    comment_ids = {str(comment.id) for comment in pr_comments if comment.id is not None}
+    dedup_drops = [
+        _dropped_duplicate(duplicate, turn_issues=turn_issues, prior_keys=prior_keys, comment_ids=comment_ids)
+        for duplicate in duplicates
+    ]
     logger.info(
         "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
-        len(kept),
+        len(composed.kept),
         len(main_outcome.kept),
         len(lens_outcome.kept),
     )
-    return kept
+    return replace(composed, dropped=[*dedup_drops, *composed.dropped])

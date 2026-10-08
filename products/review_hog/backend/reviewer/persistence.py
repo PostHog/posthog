@@ -14,6 +14,8 @@ Durable rows this layer writes:
   the turn's `head_sha` so resume reuses only the current head's work,
 - the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
   `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
+- a single-agent turn's findings that dedup or the cap dropped → `dropped_finding` artefacts, for
+  analysis only,
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
 - the rendered review body → `ReviewReport.report_markdown`.
 
@@ -40,6 +42,7 @@ from products.review_hog.backend.models import ReviewReport, ReviewReportArtefac
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkSetArtefact,
+    DroppedFindingArtefact,
     PerspectiveResultArtefact,
     PerspectiveSelectionArtefact,
     PRSnapshotArtefact,
@@ -62,7 +65,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -584,6 +587,67 @@ def replace_deduplicated_findings(
                 team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
             )
     return [issue.id for issue, _ in pairs]
+
+
+def replace_dropped_findings(
+    *,
+    team_id: int,
+    report_id: str,
+    run_index: int,
+    head_sha: str,
+    dropped: Sequence[DroppedIssue],
+    cap: int,
+    lens_part_count: int,
+) -> None:
+    """Replace an unfinished single-agent turn's record of the findings it did not keep.
+
+    A failed turn keeps its index, so a retry first retires the earlier attempt's rows, like
+    `replace_deduplicated_findings`; otherwise every attempt would count its drops again. Nothing that
+    publishes or feeds a later turn reads `dropped_finding` rows; they exist for analysis.
+    """
+    artefacts: list[DroppedFindingArtefact] = []
+    for drop in dropped:
+        pass_number, chunk_id, _number = drop.issue.id.split("-")
+        duplicate_of = drop.duplicate_of
+        try:
+            artefacts.append(
+                DroppedFindingArtefact(
+                    head_sha=head_sha,
+                    finding=_to_finding(drop.issue, run_index),
+                    pass_number=int(pass_number),
+                    chunk_id=int(chunk_id),
+                    disposition=drop.disposition,
+                    duplicate_of=_issue_key(duplicate_of, run_index)
+                    if isinstance(duplicate_of, Issue)
+                    else duplicate_of,
+                    rank=drop.rank,
+                    cap=cap,
+                    lens_part_count=lens_part_count,
+                )
+            )
+        except ValidationError as e:
+            logger.warning("Skipping dropped finding %s that failed durable validation: %s", drop.issue.id, e)
+    with transaction.atomic():
+        report = ReviewReport.objects.for_team(team_id).select_for_update().only("run_count").get(id=report_id)
+        if run_index <= report.run_count:
+            raise ValueError("Cannot replace dropped findings from a completed review turn")
+        rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+        )
+        stale_ids = []
+        for row in rows:
+            try:
+                content = parse_artefact_content(row.type, row.content)
+            except ArtefactContentValidationError:
+                continue
+            if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+                stale_ids.append(row.id)
+        if stale_ids:
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=report_id, id__in=stale_ids).delete()
+        for artefact in artefacts:
+            ReviewReportArtefact.append_dropped_finding(
+                team_id=team_id, report_id=report_id, content=artefact, attribution=ArtefactAttribution.system()
+            )
 
 
 def persist_verdicts(

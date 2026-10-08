@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
+    DropDisposition,
     IssuePriority,
     IssuesReview,
     LineRange,
@@ -89,6 +90,30 @@ class ReviewIssueFinding(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+
+class DroppedFindingArtefact(BaseModel):
+    """Content for a `dropped_finding` artefact: a single-agent finding the turn found but did not keep.
+
+    Analysis data only. Publishing, the status comment, outcome classification, `load_prior_findings`,
+    and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor keep a
+    later turn from raising the same problem. A retried turn replaces its rows by `finding.run_index`.
+    """
+
+    head_sha: str = Field(description="PR head commit the turn reviewed.")
+    finding: ReviewIssueFinding = Field(description="The full finding, as it would have persisted had it been kept.")
+    pass_number: int = Field(description="The session's reserved pass: 2000 for the main session, 2001+ for a lens.")
+    chunk_id: int = Field(description="The lens part the session reviewed (1 for the main session).")
+    disposition: DropDisposition = Field(description="Why the turn dropped the finding.")
+    duplicate_of: str | None = Field(
+        default=None,
+        description="For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment.",
+    )
+    rank: int | None = Field(
+        default=None, description="For a finding the cap cut, its 1-based position in the turn's ranked findings."
+    )
+    cap: int = Field(description="The turn's finding cap, which must-fix findings can exceed.")
+    lens_part_count: int = Field(description="How many parts the lens sessions split the PR into.")
 
 
 class ValidationVerdict(BaseModel):
@@ -320,6 +345,7 @@ ReviewWorkingStateContent = (
 )
 ReviewArtefactContent = (
     ReviewIssueFinding
+    | DroppedFindingArtefact
     | ValidationVerdict
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
@@ -332,6 +358,7 @@ ReviewArtefactContent = (
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
+    "dropped_finding": DroppedFindingArtefact,
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
     "thread_verdict": ThreadVerdictArtefact,

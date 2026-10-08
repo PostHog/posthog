@@ -300,6 +300,14 @@ optional `suggestion_code` posts as a GitHub suggestion block only when the inli
 range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
+Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
+written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
+with its `reported_priority`, the session's pass and part, the `disposition` (`dedup_prior`, `dedup_comment`,
+`dedup_anchor`, `dedup_sibling`, `dedup_unmatched`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
+rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
+`run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
+and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor suppress a later finding.
+
 A Flash turn of any size runs the single-agent design. The **pipeline design** (`reviewhog-flash-1-1`), the steps
 below, runs a Flash turn only when the `reviewhog-flash-pipeline-kill-switch` feature flag is on (organization-keyed,
 read in the fetch activity by `reviewer/feature_flags.py`). The flag moves Flash turns back to the pipeline without a
@@ -680,7 +688,8 @@ Per-run state by kind:
   raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
 - **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
   `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
-  watermark.
+  watermark. A single-agent turn also writes one `dropped_finding` artefact per finding that dedup or the cap
+  dropped (analysis only, see [Single-agent Flash](#single-agent-flash-the-flash-default)).
 - **Prompts / agent logs:** rendered in-process and sent to the sandbox; the full prompt + conversation is in
   the S3 agent log at `task_run.log_url` (the executor never copies it locally). Generated `prompts/<stage>/schema.json`
   are static package assets in the source tree, not per-run state.
@@ -702,8 +711,8 @@ IDOR rule) via `class X(UUIDModel, TeamScopedRootMixin)`:
   `trigger_source` provenance.
 - **`ReviewReportArtefact`** — the append-only work log mirroring `SignalReportArtefact`, with a funnel that
   derives `type` from the content-model class and maps `ArtefactAttribution` → `created_by_id` / `task_id`.
-  `ArtefactType`: `issue_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`, `note`, plus
-  the working-state types `chunk_set`, `perspective_result`, `perspective_selection`, `pr_snapshot`.
+  `ArtefactType`: `issue_finding`, `dropped_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`,
+  `note`, plus the working-state types `chunk_set`, `perspective_result`, `perspective_selection`, `pr_snapshot`.
 
 Content schemas (`reviewer/artefact_content.py`, pydantic): `ReviewIssueFinding` and `ValidationVerdict` are
 ReviewHog-owned; `Commit` / `CodeReference` / `TaskRunArtefact` / `NoteArtefact` are reused from the Signals leaf.

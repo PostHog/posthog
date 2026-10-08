@@ -94,6 +94,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdict,
     persist_verdicts,
     replace_deduplicated_findings,
+    replace_dropped_findings,
     upsert_review_report,
 )
 from products.review_hog.backend.reviewer.review_state import review_already_published
@@ -143,6 +144,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
     prunable_perspectives,
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    FlashSelection,
     SingleAgentPrompt,
     dedupe_flash_findings,
     issues_from_review,
@@ -1359,9 +1361,10 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
+    flash_selection: FlashSelection | None = None
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if single_agent:
-            survivors = await dedupe_flash_findings(
+            flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
                 issues=issues,
@@ -1373,6 +1376,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 lens_part_count=len(plan_lens_chunks(snapshot.pr_files).chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
+            survivors = flash_selection.kept
         else:
             outcome = await deduplicate_issues(
                 team_id=input.team_id,
@@ -1401,7 +1405,16 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         ),
         review_design=input.review_design,
     )
-    if single_agent:
+    if flash_selection is not None:
+        await database_sync_to_async(replace_dropped_findings, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            run_index=input.run_index,
+            head_sha=input.head_sha,
+            dropped=flash_selection.dropped,
+            cap=flash_selection.cap,
+            lens_part_count=flash_selection.lens_part_count,
+        )
         # No validator runs, so accept every survivor; body, publish, and telemetry all read verdict rows.
         await database_sync_to_async(persist_verdicts, thread_sensitive=False)(
             team_id=input.team_id,

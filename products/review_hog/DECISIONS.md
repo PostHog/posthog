@@ -241,6 +241,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   that dropped every P3: a P3 posts when the turn has room for it.
 - **Publishing.** Every kept finding posts inline. `review_priorities_for` and the status comment's low-priority list
   are removed.
+- **Dropped findings.** Every finding that dedup or the cap drops persists as a `dropped_finding` artefact with its
+  disposition, what it repeats, its rank and the cap, so a later analysis and a judge pass can measure what each rule
+  costs. A new artefact type, not a disposition column on `issue_finding`, because every reader of `issue_finding`
+  would then need a filter, and one missed filter would post a dropped finding or let it suppress a later turn. The
+  dispositions follow the dedup's own answer (`duplicate_of`); `dedup_unmatched` marks a dedup that named an id it was
+  never shown. Findings that scope cleaning drops before dedup are not recorded. The choices are callable, so the new
+  type needs no migration.
 - **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
   to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the status
   comment, because a clean turn posts no review and a note in the review body would never show. A Flash turn never

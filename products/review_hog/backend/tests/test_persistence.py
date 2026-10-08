@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ChunkSetArtefact,
+    DroppedFindingArtefact,
     PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
@@ -27,7 +28,13 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import (
+    DroppedIssue,
+    Issue,
+    IssuePriority,
+    IssuesReview,
+    LineRange,
+)
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -39,6 +46,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_review_arm,
     load_run_issues,
     load_run_validations,
+    load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
@@ -48,6 +56,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdict,
     persist_verdicts,
     replace_deduplicated_findings,
+    replace_dropped_findings,
     upsert_review_report,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
@@ -737,6 +746,64 @@ class TestLoadValidFindings(BaseTest):
             )
             == prior_rows
         )
+
+
+class TestReplaceDroppedFindings(BaseTest):
+    def test_a_retry_replaces_the_record_and_no_findings_reader_sees_it(self) -> None:
+        # A retried turn keeps its index, so a record that only appends counts every attempt's drops
+        # again. A dropped finding that a findings reader picks up would post, or keep a later turn
+        # from raising the same problem.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        kept = _issue("2000-1-1", title="kept", source_perspective="flash-single-agent")
+        cut = _issue("2002-1-1", file="b.py", title="cut", priority=IssuePriority.CONSIDER)
+        repeat = _issue("2001-2-1", title="repeat", reported_priority="P1", source_perspective="flash-lens-perf")
+
+        def record_turn(dropped: list[DroppedIssue]) -> None:
+            replace_deduplicated_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[kept],
+                run_index=1,
+                head_sha="sha-1",
+                review_mode=REVIEW_MODE_FLASH,
+                review_arm=FLASH_ARM,
+                validation_arm=None,
+            )
+            replace_dropped_findings(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                head_sha="sha-1",
+                dropped=dropped,
+                cap=6,
+                lens_part_count=2,
+            )
+
+        record_turn([DroppedIssue(issue=cut, disposition="cap", rank=7)])
+        record_turn([DroppedIssue(issue=repeat, disposition="dedup_anchor", duplicate_of=kept)])
+
+        rows = ReviewReportArtefact.objects.for_team(self.team.id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+        )
+        [dropped] = [_content_as(DroppedFindingArtefact, row.type, row.content) for row in rows]
+        assert (
+            dropped.finding.title,
+            dropped.finding.reported_priority,
+            dropped.pass_number,
+            dropped.chunk_id,
+            dropped.disposition,
+            dropped.duplicate_of,
+            (dropped.cap, dropped.lens_part_count),
+        ) == ("repeat", "P1", 2001, 2, "dedup_anchor", "r1:a.py:10:flash-single-agent:2000-1-1", (6, 2))
+        finalize_review_report(
+            team_id=self.team.id, report_id=report_id, body_markdown="b", run_index=1, head_sha="sha-1"
+        )
+        assert [f.title for f, _ in load_turn_findings(team_id=self.team.id, report_id=report_id, run_index=1)] == [
+            "kept"
+        ]
+        assert [
+            f.title for f in load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=2)
+        ] == ["kept"]
 
 
 class TestLoadRunValidations(BaseTest):
