@@ -2,9 +2,9 @@
 
 The trainer grades a candidate on a holdout cut from the same example set and then refits the
 shipped booster on train plus holdout, so `holdout_auc` grades the recipe rather than the model
-that ships. This module is the offline batch proxy for the number that is missing: each day it
-scores the reports born that day with the day's models, and grades those scores at each head's
-horizon against a snapshot the model could not have seen.
+that ships. This module grades the number that is missing: the scoring sweep's live scores of the
+reports born each day (`training/served.py`), at each head's horizon, against a snapshot the model
+could not have seen.
 
 The cohort, the label and the horizon come from the same `Head` definitions the trainer uses, so
 the unseen AUC is directly comparable to the holdout AUC of the same head and model version. Pure
@@ -12,26 +12,21 @@ functions over frames; `training/dag.py` owns the S3 and telemetry plumbing.
 """
 
 import datetime
-from collections.abc import Collection, Mapping, Sequence
-from dataclasses import field
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import xgboost as xgb
 from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
-    NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
-    Extras,
     FeatureSet,
 )
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.calibration import (
     CalibrationBucket,
     bucket_rows,
@@ -43,8 +38,8 @@ from products.signals.dags.inbox_ranking.training.classification import (
     ClassificationMetrics,
     classification_metrics,
 )
-from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask, state_rows
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
+from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask
+from products.signals.dags.inbox_ranking.training.heads import Head
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
@@ -53,12 +48,12 @@ POOL_NAME = "newborn"
 # definition puts two populations in one AUC series unless the older one keeps its own name.
 LEGACY_POOL_NAME = "sampled"
 
-UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
-# The scoring sweep's own birth-day scores of the same pool, in the same schema (`training/served.py`).
+# The scoring sweep's own birth-day scores of the newborn pool, one row set per model key
+# (`training/served.py`).
 SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
 
+# The role of a trained candidate on the training events, and of a scored row whose event names no role.
 CANDIDATE_ROLE = "candidate"
-CHAMPION_ROLE = "champion"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
@@ -99,48 +94,17 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
 
-# Report-state columns copied onto a scored event next to the scores, so a calibration read can
-# group on the raw inputs without joining the Parquet.
-FEATURE_INPUT_COLUMNS = (
-    "signal_count",
-    "total_weight",
-    "run_count",
-    "title_chars",
-    "summary_chars",
-    "priority",
-    "actionability",
-)
-
-
-@frozen
-class UnseenModel:
-    """One model to score the pool with, the feature set it was fit on, and the heads it can score.
-    Models that share a feature set share one matrix."""
-
-    model_name: str
-    model_version: str
-    model_role: str
-    feature_set: FeatureSet
-    boosters: Mapping[str, bytes]
-    # Of those heads, the ones whose holdout could be read. Carried onto every scored row, because
-    # the grade runs `horizon_days` later and has no metadata of the model that wrote the row.
-    readable_heads: frozenset[str] = frozenset()
-    # Per head, the threshold every later grade of these scores reads. Carried onto the scored rows
-    # for the same reason as `readable_heads`.
-    classification_thresholds: Mapping[str, float] = field(default_factory=dict)
-
 
 @frozen
 class ModelFamily:
-    """One family the training job fits and the unseen read grades: its name, and the feature set
-    its trainer fits. Every family is per-head XGBoost, so the learner is not a field yet; a
-    family with its own predict (the MMoE) adds one at the `UnseenModel` boundary."""
+    """One family the training job fits: its name, and the feature set its trainer fits. Every
+    family is per-head XGBoost, so the learner is not a field yet."""
 
     name: str
     feature_set: FeatureSet
 
 
-# The families the training job trains and the unseen read grades, in the order they are trained. A
+# The families the training job trains, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
 # writes its first candidate, and a family that fails costs its own series rather than every one.
 # The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
@@ -289,17 +253,6 @@ def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFra
     return newborn.loc[keep]
 
 
-def leaked_report_ids(pool: pd.DataFrame, example_report_ids: Collection[object]) -> list[str]:
-    """Pool reports a training example already covers.
-
-    Empty while every head horizon stays above zero. A non-empty result means the example builder
-    now reaches the partition day, so the read would grade a model on its own training data; the
-    caller fails the asset instead of publishing that number.
-    """
-    covered = set(example_report_ids)
-    return sorted(str(report_id) for report_id in pool.index if report_id in covered)
-
-
 def scored_pool(scores: pd.DataFrame) -> str:
     """The pool definition a scores object was written under.
 
@@ -314,11 +267,11 @@ def scored_pool(scores: pd.DataFrame) -> str:
 
 
 def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
-    """Whether a run that scored nothing may overwrite a partition's scores object.
+    """Whether a run that read no score may overwrite a partition's scores object.
 
-    A partition whose candidate sits under the pre-family models layout loads no model and so
-    scores nothing. Writing that empty result would destroy the rows the dt=D+horizon grade reads,
-    and those rows cannot be rebuilt once the state snapshot they came from ages out. An unknown
+    A run can read no score when the sweep was off or its events are not readable. Writing that
+    empty result would destroy the rows the dt=D+horizon grade reads, and those rows cannot be
+    rebuilt once the state snapshot they came from ages out. An unknown
     count (no object, or one written before the row-count stamp) is not a veto, which is the rule
     `partition_write_allowed` already applies to the emission log.
     """
@@ -341,120 +294,19 @@ def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
 def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
     """The families whose rows a rewrite of a partition's scores object would delete.
 
-    One object holds every family, and the write replaces it in full, so a run that scored fewer
+    One object holds every family, and the write replaces it in full, so a run that read fewer
     families than the object already holds removes the rest. That is the loss
-    `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
-    whenever its models or its set's side input are missing for the partition, so the partial case
-    is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
+    `empty_scores_write_allowed` refuses for a run that read nothing. Reading the object settles what it holds, which the row-count
     stamp alone cannot. A retired family's rows do not count: no re-run can produce them, so
     counting them would refuse every re-run of the days that hold them.
     """
     return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
 
 
-def score_pool(
-    pool: pd.DataFrame,
-    labels: pd.DataFrame,
-    models: Sequence[UnseenModel],
-    *,
-    snapshot_date: datetime.date,
-    extras: Extras = NO_EXTRAS,
-) -> pd.DataFrame:
-    """One row per (report, model, head) in SCORE_COLUMNS order, where a model is a
-    (model_name, model_version, model_role).
-
-    Features are built exactly as `build_examples` builds them, as of the end of the pool's day, so
-    a report scored here sees the same vector it would have seen as a training example. One matrix is built per feature set the
-    models declare, and every model on that set scores against it. `label_at_scoring` records
-    whether the head's outcome had already happened on the scoring day. Every pool row is a
-    newborn, so the grader keeps those rows rather than dropping them.
-    """
-    _, as_of = snapshot_bounds(snapshot_date.isoformat())
-    aligned_labels = labels.reindex(pool.index)
-    team_id = pool["report_team_id"] if "report_team_id" in pool else pd.Series(None, index=pool.index, dtype=object)
-    report_ids = pool.index.to_numpy()
-    team_ids = pd.to_numeric(team_id, errors="coerce").astype("Int64").to_numpy()
-    created_at = pd.to_datetime(pool["report_created_at"], utc=True).to_numpy()
-    age_hours = pool["report_age_hours"].astype(float).to_numpy()
-    matrices: dict[str, xgb.DMatrix] = {}
-    frames: list[pd.DataFrame] = []
-    for model in models:
-        feature_set = model.feature_set
-        if feature_set.name not in matrices:
-            matrices[feature_set.name] = xgb.DMatrix(
-                feature_set.build_matrix(state_rows(pool, feature_set), extras, as_of=as_of),
-                feature_names=list(feature_set.feature_names),
-            )
-        matrix = matrices[feature_set.name]
-        frames.extend(
-            pd.DataFrame(
-                {
-                    "report_id": report_ids,
-                    "team_id": team_ids,
-                    "report_created_at": created_at,
-                    "snapshot_date": snapshot_date,
-                    "pool": POOL_NAME,
-                    "model_name": model.model_name,
-                    "model_version": model.model_version,
-                    "model_role": model.model_role,
-                    "feature_schema_version": feature_set.schema_version,
-                    "head": head_name,
-                    "score": _predict(booster_ubj, matrix),
-                    "age_hours": age_hours,
-                    "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
-                    "head_readable": head_name in model.readable_heads,
-                    "classification_threshold": model.classification_thresholds.get(head_name, np.nan),
-                }
-            )
-            for head_name, booster_ubj in model.boosters.items()
-        )
-    if not frames:
-        return pd.DataFrame(columns=list(SCORE_COLUMNS))
-    return pd.concat(frames, ignore_index=True)[list(SCORE_COLUMNS)]
-
-
-def _predict(booster_ubj: bytes, matrix: xgb.DMatrix) -> np.ndarray:
-    booster = xgb.Booster()
-    booster.load_model(bytearray(booster_ubj))
-    return booster.predict(matrix)
-
-
 def scores_table(scores: pd.DataFrame) -> pa.Table:
     if scores.empty:
         return SCORES_SCHEMA.empty_table()
     return pa.Table.from_pandas(scores[list(SCORE_COLUMNS)], schema=SCORES_SCHEMA, preserve_index=False)
-
-
-def score_event_rows(scores: pd.DataFrame, pool: pd.DataFrame) -> list[dict[str, object]]:
-    """One dict per (report, model): every head's score as `p_<head>`, plus the raw feature inputs.
-
-    The Parquet is long so that a head can be added without a schema change; an event is wide so a
-    trends insight can aggregate a head's scores without a join.
-    """
-    columns = [column for column in FEATURE_INPUT_COLUMNS if column in pool]
-    inputs = {
-        report_id: {column: _plain(value) for column, value in row.items()}
-        for report_id, row in pool[columns].to_dict("index").items()
-    }
-    rows: dict[tuple[str, str, str], dict[str, object]] = {}
-    for record in scores.to_dict("records"):
-        key = (str(record["report_id"]), str(record["model_name"]), str(record["model_role"]))
-        if key not in rows:
-            rows[key] = {
-                "report_id": record["report_id"],
-                "team_id": _int_or_none(record["team_id"]),
-                "report_created_at": _isoformat_or_none(record["report_created_at"]),
-                "model_name": record["model_name"],
-                "model_version": record["model_version"],
-                "model_role": record["model_role"],
-                "feature_schema_version": record["feature_schema_version"],
-                "pool": POOL_NAME,
-                "unseen_pool": len(pool),
-                "age_hours": float(record["age_hours"]),
-                **inputs.get(record["report_id"], {}),
-            }
-        rows[key][f"p_{record['head']}"] = float(record["score"])
-    return list(rows.values())
 
 
 def missing_label_columns(labels: pd.DataFrame, head: Head) -> list[str]:
@@ -517,10 +369,8 @@ def head_grades(
 ) -> list[HeadGrade]:
     """The unseen read per model that scored this head, over the in-cohort rows.
 
-    Every family scores the whole pool, so a set whose side input covers few of the day's newborns
-    is graded partly on its missing branch. The example builder drops those rows, so the holdout
-    numbers never hold that population: read `mean_score` and `expected_calibration_error` per
-    `model_name`, with `<set>_pool_coverage` on the scores asset for how thin the day was.
+    A model key added to the manifest part of the way through the day scores only part of the pool,
+    so read each grade with `pool_coverage_by_model` on the scores asset.
     """
     grades: list[HeadGrade] = []
     for (model_name, model_version, model_role), scored in graded.groupby(
