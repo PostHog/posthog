@@ -1934,7 +1934,10 @@ class FeatureFlagSerializer(
         try:
             config_writes.reject_duplicate_json_keys(body)
         except ConfigValidationError as exc:
-            raise self._v2_validation_error(exc) from exc
+            # The repeated key can be anywhere in the body, so no field owns the error.
+            raise serializers.ValidationError(
+                [ErrorDetail(error.detail, code=error.code) for error in exc.errors]
+            ) from exc
 
     @staticmethod
     def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:

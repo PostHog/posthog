@@ -893,6 +893,7 @@ class TestV2RequestBytes(AdmittedV2TestCase):
         stored = copy.deepcopy(flag.filters)
         response = self.post_bytes(flag, body)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["attr"]) == ("invalid_input", None)
         assert f'"{key}"' in response.json()["detail"]
         flag.refresh_from_db()
         assert flag.filters == stored
@@ -977,13 +978,11 @@ class TestV2ValidationErrors(AdmittedV2TestCase):
         self, operation: str, code: str, attr: str, detail: str
     ) -> None:
         if operation == "create":
-            filters = config(
-                targeted(rule_id=None, value="yes"), rollout(rule_id=None, seed=None, rollout_percentage=150)
-            )
+            filters = config(rollout(rule_id=None, seed=None, value="yes", rollout_percentage=150))
             with admit_v2(self.team.id, creation=True):
                 response = self.post_flag({"key": "new-v2", "filters": filters})
         elif operation == "update":
-            filters = config(targeted(value="yes"), rollout(rollout_percentage=150))
+            filters = config(rollout(value="yes", rollout_percentage=150))
             response = self.patch_flag(self.flag(), {"version": 3, "filters": filters})
         else:
             response = self.patch_flag(
