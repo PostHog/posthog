@@ -1,9 +1,10 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import {
-    jevCardSentence,
-    jevRowTitle,
+    watchFeedRowSentence,
+    watchFeedRowTitle,
     observationKeyMomentMs,
     watchCardHeadline,
+    watchFeedRowWhy,
     watchReasonCopy,
     watchStartSeconds,
 } from './WatchFeedCard'
@@ -134,6 +135,37 @@ describe('WatchFeedCard helpers', () => {
         })
     })
 
+    describe('watchFeedRowWhy', () => {
+        it.each<{ name: string; reason: WatchFeedReasonApi; expected: string }>([
+            {
+                name: "leads with Jev's pick when it gave one",
+                reason: {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    watch_reason: 'churn_signal',
+                } as WatchFeedReasonApi,
+                expected: 'the user showed signs of churn or downgrading in this session.',
+            },
+            {
+                name: "explains a weighted-score row from its reason kind, never repeating the title's sentence",
+                reason: {
+                    kind: 'outlier_score',
+                    score: 9.5,
+                    window_mean: 5,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi,
+                expected: "scored 9.5, far from this scanner's recent average of 5.",
+            },
+            {
+                name: 'falls back to the kind copy for a reason this build does not know',
+                reason: { kind: 'jev_watchable', watch_reason: 'some_future_reason' } as unknown as WatchFeedReasonApi,
+                expected: 'the decision model judged this session worth watching.',
+            },
+        ])('$name', ({ reason, expected }) => {
+            expect(watchFeedRowWhy(reason)).toBe(expected)
+        })
+    })
+
     const observation = (scannerType: string | undefined, output: Record<string, unknown>): ReplayObservationApi =>
         ({
             scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
@@ -162,9 +194,9 @@ describe('WatchFeedCard helpers', () => {
         })
     })
 
-    describe('jevCardSentence', () => {
+    describe('watchFeedRowSentence', () => {
         it("prefers the scan's notability sentence over the derived headline", () => {
-            const sentence = jevCardSentence(
+            const sentence = watchFeedRowSentence(
                 observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
                 {
                     kind: 'jev_watchable',
@@ -176,7 +208,7 @@ describe('WatchFeedCard helpers', () => {
         })
 
         it('derives the headline when the reason carries no notability sentence', () => {
-            const sentence = jevCardSentence(
+            const sentence = watchFeedRowSentence(
                 observation('monitor', { reasoning: 'Retried the form twice. The submit then failed.' }),
                 { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi
             )
@@ -188,11 +220,13 @@ describe('WatchFeedCard helpers', () => {
                 scanner_snapshot: { name: 'Confused checkout', scanner_type: 'monitor' },
                 scanner_result: { model_output: {} },
             } as unknown as ReplayObservationApi
-            expect(jevCardSentence(bare, { kind: 'unviewed_recent' } as WatchFeedReasonApi)).toBe('Confused checkout')
+            expect(watchFeedRowSentence(bare, { kind: 'unviewed_recent' } as WatchFeedReasonApi)).toBe(
+                'Confused checkout'
+            )
         })
     })
 
-    describe('jevRowTitle', () => {
+    describe('watchFeedRowTitle', () => {
         const notable = {
             kind: 'jev_watchable',
             jev_probability: 0.9,
@@ -218,7 +252,7 @@ describe('WatchFeedCard helpers', () => {
                 expected: 'The card form rejected a valid card three times.',
             },
         ])('$name', ({ scannerType, output, expected }) => {
-            expect(jevRowTitle(observation(scannerType, output), notable)).toBe(expected)
+            expect(watchFeedRowTitle(observation(scannerType, output), notable)).toBe(expected)
         })
     })
 
