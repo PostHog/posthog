@@ -5,9 +5,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
@@ -16,6 +18,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade.testing import create_canvas
 from products.dashboards.backend.widget_registry import CANVAS_APP_WIDGET_TYPE, validate_widget_config
 from products.dashboards.backend.widgets.canvas_app import run_canvas_app_widget
@@ -23,8 +26,6 @@ from products.tasks.backend.models import Channel
 
 
 def _block_canvas_for_member(team: Team, canvas_id: UUID, member: User) -> None:
-    from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
-
     team.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
     team.organization.save()
     membership = OrganizationMembership.objects.get(organization=team.organization, user=member)
@@ -38,7 +39,7 @@ def _block_canvas_for_member(team: Team, canvas_id: UUID, member: User) -> None:
     cache.clear()
 
 
-class TestCanvasAppWidgetConfig(APIBaseTest):
+class TestCanvasAppWidgetConfig(SimpleTestCase):
     def test_config_defaults_to_unconfigured(self) -> None:
         validated = validate_widget_config(CANVAS_APP_WIDGET_TYPE, {})
         assert validated.get("canvasId") is None
@@ -56,8 +57,6 @@ class TestCanvasAppWidgetConfig(APIBaseTest):
         ]
     )
     def test_rejects_invalid_config(self, _name: str, config: dict[str, Any]) -> None:
-        from rest_framework.exceptions import ValidationError  # noqa: PLC0415
-
         with self.assertRaises(ValidationError):
             validate_widget_config(CANVAS_APP_WIDGET_TYPE, config)
 
