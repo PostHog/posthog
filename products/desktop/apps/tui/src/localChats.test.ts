@@ -43,6 +43,26 @@ describe("local chats", () => {
     ]);
   });
 
+  it("keeps a Claude chat's log and session id, and lists the chat by it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
+    const chats = new LocalChats(dir);
+    const log = chats.acpLog("task-3");
+    expect(log.load()).toEqual({ entries: [] });
+    log.append({ type: "acp_message", notification: { method: "a" } });
+    log.session("claude-abc");
+    log.append({ type: "acp_message", notification: { method: "b" } });
+    expect(chats.acpLog("task-3").load()).toEqual({
+      sessionId: "claude-abc",
+      entries: [
+        { type: "acp_message", notification: { method: "a" } },
+        { type: "acp_message", notification: { method: "b" } },
+      ],
+    });
+    expect([...chats.list().keys()]).toEqual(["task-3"]);
+    chats.archive("task-3");
+    expect(chats.acpLog("task-3").load()).toEqual({ entries: [] });
+  });
+
   it("remembers which agent a chat runs, through linking and clearing", () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
     writeFileSync(join(dir, "task-1.jsonl"), session("/work/repo", "Hi"));

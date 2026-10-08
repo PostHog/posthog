@@ -3,6 +3,7 @@ import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { AgentServiceEvent } from "@posthog/workspace-server/services/agent/schemas";
 import type { LocalAgent } from "./local";
+import type { AcpLog } from "./localChats";
 import type { PiControl } from "./models";
 import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
@@ -40,6 +41,7 @@ export class ClaudeLocalSession implements LocalAgent {
     private readonly agent: AgentService,
     private readonly input: ClaudeLocalInput,
     private readonly loggedIn: () => Promise<boolean>,
+    private readonly log?: Pick<AcpLog, "load" | "append" | "session">,
   ) {
     this.control = {
       models: unavailable,
@@ -70,17 +72,23 @@ export class ClaudeLocalSession implements LocalAgent {
     }): void => {
       if (taskRunId !== this.input.taskRunId) return;
       const message = payload as AcpMessage;
-      this.publish({
-        ...this.view,
-        entries: [
-          ...this.view.entries,
-          {
-            type: "acp_message",
-            timestamp: new Date(message.ts).toISOString(),
-            notification: message.message,
-          } as StoredLogEntry,
-        ],
-      });
+      const entry = {
+        type: "acp_message",
+        timestamp: new Date(message.ts).toISOString(),
+        notification: message.message,
+      } as StoredLogEntry;
+      this.log?.append(entry);
+      // Claude names its own session once the SDK is up; a reopen resumes that session.
+      const notification = message.message as {
+        method?: string;
+        params?: { sessionId?: string };
+      };
+      if (
+        notification.method === "_posthog/sdk_session" &&
+        notification.params?.sessionId
+      )
+        this.log?.session(notification.params.sessionId);
+      this.publish({ ...this.view, entries: [...this.view.entries, entry] });
     };
     const onPermission = (
       request: Omit<RequestPermissionRequest, "sessionId"> & {
@@ -101,21 +109,23 @@ export class ClaudeLocalSession implements LocalAgent {
         },
       ]);
     };
+    const saved = this.log?.load();
+    if (saved?.entries.length)
+      this.publish({ ...this.view, entries: saved.entries });
     this.agent.on(AgentServiceEvent.SessionEvent, onEvent);
     this.agent.on(AgentServiceEvent.PermissionRequest, onPermission);
     this.unsubscribe.push(
       () => this.agent.off(AgentServiceEvent.SessionEvent, onEvent),
       () => this.agent.off(AgentServiceEvent.PermissionRequest, onPermission),
     );
-    const { sessionId } = await this.agent.startSession({
+    const params = {
       taskId: this.input.taskId,
       taskRunId: this.input.taskRunId,
       repoPath: this.input.cwd,
       apiHost: this.input.apiHost,
       projectId: this.input.projectId,
-      adapter: "claude",
-      claudeModelAccess: "own-subscription",
-      runMode: "local",
+      adapter: "claude" as const,
+      claudeModelAccess: "own-subscription" as const,
       ...(this.input.model && { model: this.input.model }),
       ...(this.input.effort && {
         effort: this.input.effort as
@@ -125,7 +135,16 @@ export class ClaudeLocalSession implements LocalAgent {
           | "xhigh"
           | "max",
       }),
-    });
+    };
+    // A remembered session resumes where it left off; one Claude no longer has starts over, keeping the log shown.
+    const resumed = saved?.sessionId
+      ? await this.agent
+          .reconnectSession({ ...params, sessionId: saved.sessionId })
+          .catch(() => null)
+      : null;
+    const { sessionId } =
+      resumed ??
+      (await this.agent.startSession({ ...params, runMode: "local" }));
     this.sessionId = sessionId;
     this.publish({
       ...this.view,
