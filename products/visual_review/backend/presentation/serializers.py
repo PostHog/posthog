@@ -143,6 +143,13 @@ class SnapshotSerializer(DataclassSerializer):
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
     row_shift = RowShiftSerializer(allow_null=True, required=False)
+    is_quarantined = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a quarantine covered this snapshot when the run was last gated, so its diff did not "
+            "block the pull request. It keeps that value after the quarantine ends or a new one starts."
+        ),
+    )
 
     class Meta:
         dataclass = Snapshot
@@ -725,7 +732,9 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
         help_text=(
             "Whether to include snapshots whose identifier is currently quarantined. "
             "Defaults to false: quarantined snapshots are excluded from results and reported "
-            "in quarantined_count instead, since they are noise when reviewing real changes."
+            "in quarantined_count instead, since they are noise when reviewing real changes. "
+            "This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag "
+            "holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
     )
     exclude_unchanged = serializers.BooleanField(
@@ -749,7 +758,9 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
             "Whether to list only the snapshots whose identifier is currently quarantined. "
             "Defaults to false. When true, `include_quarantined` is ignored and quarantined "
             "snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined "
-            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for."
+            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for. "
+            "This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an "
+            "older run it misses stories whose quarantine has ended since."
         ),
     )
 

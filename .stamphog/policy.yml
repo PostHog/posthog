@@ -72,8 +72,7 @@ deny:
                 - 'k8s'
                 - 'dockerfile'
                 - 'docker-compose'
-                - '\.github/workflows'
-                - '\.depot/workflows'
+                - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
                 - 'cloudflare'
@@ -81,6 +80,15 @@ deny:
                 - 'waf'
                 - '(?:^|/)bin/deploy'
                 - 'deploy\.sh'
+    ci_workflows:
+        description: 'GitHub Actions and Depot CI workflows.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. team-devex owns the workflows in .github/owners.yaml and edits them daily, so a hard deny sent every routine CI fix to a second devex engineer. infra_cicd also matches the workflows that CODEOWNERS assigns to team-security, and it exempts nobody, so those stay denied for every author.'
+        match:
+            paths:
+                - '\.github/workflows'
+                - '\.depot/workflows'
+        exempt_author_teams:
+            - 'team-devex'
     billing:
         description: 'Payments and billing.'
         rationale: 'subscription is excluded on purpose: in this repo it means scheduled insight/report deliveries, not payments. Real billing surfaces still match via the other words.'

@@ -1289,7 +1289,7 @@ const Content = ({
     showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
@@ -1364,16 +1364,18 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
+                    {showAgentHints ? (
+                        <WarehouseWizardHint
+                            className="max-w-140"
+                            fallback={
+                                <MCPUseCaseCard
+                                    surfaceKey="sql.execute"
+                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                    className="max-w-140"
+                                />
+                            }
+                        />
+                    ) : null}
                 </div>
             )
         }
@@ -1431,20 +1433,28 @@ const Content = ({
                 className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
-                </span>
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
+                {singleStatement ? (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    </span>
+                ) : (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
+                        multiple statements with <code>;</code> to run them independently.
+                    </span>
+                )}
+                {showAgentHints ? (
+                    <WarehouseWizardHint
+                        className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
+                    />
+                ) : null}
             </div>
         )
     }
