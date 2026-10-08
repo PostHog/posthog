@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { buildCanvasGenerationPrompt } from './canvasGenerationPrompt'
 import { canvasSceneLogic } from './canvasSceneLogic'
 
 const CANVAS_ID = 'canvas-1'
@@ -137,8 +138,18 @@ describe('canvasSceneLogic', () => {
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const search = new URL(request.url).searchParams.get('search') ?? ''
                     const tasks = [
-                        { id: 'task-failed-run', description: `- canvas id: "${CANVAS_ID}"` },
+                        {
+                            id: 'task-failed-run',
+                            description: buildCanvasGenerationPrompt({
+                                canvasId: CANVAS_ID,
+                                name: 'Weekly active users',
+                                spaceName: 'general',
+                                templateId: 'freeform',
+                                instruction: 'A chart of weekly active users',
+                            }),
+                        },
                         { id: 'task-mention', description: `Compare with ${CANVAS_ID}` },
+                        { id: 'task-quote', description: `Why does the prompt say - canvas id: "${CANVAS_ID}"?` },
                     ]
                     return [200, { next: null, results: tasks.filter((task) => task.description.includes(search)) }]
                 },

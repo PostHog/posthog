@@ -13,7 +13,7 @@ import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/ge
 
 import { canvasesVersionsRetrieve } from './generated/api'
 import type { CanvasApi } from './generated/api.schemas'
-import { canvasPromptTarget } from './scene/canvasGenerationPrompt'
+import { canvasPromptTarget, isCanvasGenerationPrompt } from './scene/canvasGenerationPrompt'
 
 export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role' | 'channel_type'>
 export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
@@ -119,12 +119,14 @@ export async function ownCanvasTaskIds(
         const page = await tasksList(projectId, {
             created_by: user.id,
             search: canvasPromptTarget(canvas.id),
-            basic: true,
             limit: VERSION_PAGE_SIZE,
             offset,
         })
+        // The search matches text anywhere, so only a real generation prompt for this canvas counts.
         for (const task of page.results) {
-            ids.add(task.id)
+            if ('description' in task && isCanvasGenerationPrompt(task.description, canvas.id)) {
+                ids.add(task.id)
+            }
         }
         if (!page.next) {
             break

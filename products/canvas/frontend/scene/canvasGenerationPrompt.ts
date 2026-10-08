@@ -18,6 +18,13 @@ export function canvasPromptTarget(canvasId: string): string {
     return `canvas id: "${escapeXmlAttr(canvasId)}"`
 }
 
+/** Whether a task's prompt is a generation prompt for this canvas: its instructions block names the canvas as the target. */
+export function isCanvasGenerationPrompt(description: string | null | undefined, canvasId: string): boolean {
+    const start = description?.indexOf(`<${CANVAS_INSTRUCTIONS_TAG}>`) ?? -1
+    const end = description?.indexOf(`</${CANVAS_INSTRUCTIONS_TAG}>`, start) ?? -1
+    return start >= 0 && end > start && description!.slice(start, end).includes(`- ${canvasPromptTarget(canvasId)}`)
+}
+
 export function buildCanvasGenerationPrompt(input: {
     canvasId: string
     name: string
