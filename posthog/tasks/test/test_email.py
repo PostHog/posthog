@@ -1097,6 +1097,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "[Alert] Data warehouse destination 'destination name' paused in project 'project name'"
         )
 
+    def test_send_warehouse_destination_paused_skips_members_without_destination_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("restricted@posthog.com")
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                assert (resource, level) == ("external_data_source", "viewer")
+                return self.user.email != "restricted@posthog.com"
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_warehouse_destination_paused(
+                self.team.id,
+                "0190a2b4-0000-0000-0000-000000000001",
+                "analytics postgres",
+                "The host name does not exist.",
+                "2026-01-01T00:00:00",
+            )
+
+        assert len(mocked_email_messages) == 1
+        assert [r["recipient"] for r in mocked_email_messages[0].to] == [self.user.email]
+
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         hog_function = HogFunction.objects.create(
