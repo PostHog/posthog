@@ -15,7 +15,7 @@ import {
     createMetricsIngestionPipeline,
     runMetricsIngestionPipeline,
 } from './metrics-ingestion-pipeline'
-import { METRICS_OUTPUT } from './outputs/outputs'
+import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT } from './outputs/outputs'
 import { MetricRecord } from './types'
 
 jest.mock('~/common/utils/logger', () => ({
@@ -159,6 +159,7 @@ describe('MetricsIngestionPipeline', () => {
         expect(produced[0].headers).toMatchObject({
             token: 'token-a',
             team_id: '1',
+            'retention-days': String(DEFAULT_METRICS_RETENTION_DAYS),
             record_count: '5',
             repacked_from: '2',
         })

@@ -85,7 +85,14 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
                         )
                         .gather()
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
-                        .concurrently((b) => b.pipe(createDecodeMetricsPacketStep()))
+                        .concurrently((b) =>
+                            b.pipe(
+                                createDecodeMetricsPacketStep({
+                                    maxRecords: repack.maxRecordsPerPacket,
+                                    maxDecompressedBytes: repack.maxBytesUncompressedPerPacket,
+                                })
+                            )
+                        )
                         // The whole batch must be in one chunk for a team's packets to meet in one group.
                         .gather()
                         .concurrentlyPerGroup(metricsRepackGroupKey, (group) =>

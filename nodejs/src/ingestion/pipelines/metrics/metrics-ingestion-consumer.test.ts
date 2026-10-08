@@ -58,12 +58,7 @@ describe('MetricsIngestionConsumer', () => {
                     mockProducer,
                     'test'
                 ),
-                [DLQ_OUTPUT]: new SingleIngestionOutput(
-                    DLQ_OUTPUT,
-                    KAFKA_METRICS_INGESTION_DLQ,
-                    mockProducer,
-                    'test'
-                ),
+                [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, KAFKA_METRICS_INGESTION_DLQ, mockProducer, 'test'),
             }),
         })
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests

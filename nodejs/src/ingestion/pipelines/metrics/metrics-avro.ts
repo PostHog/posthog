@@ -7,14 +7,6 @@ import { MetricRecord } from './types'
 /** zstd level 1, the same level the capture service writes with. */
 const ZSTD_COMPRESSION_LEVEL = 1
 
-const zstdCodecs = {
-    zstandard: (buf: Buffer, cb: (err: Error | null, out?: Buffer) => void): void => {
-        decompress(buf)
-            .then((inflated) => cb(null, inflated))
-            .catch(cb)
-    },
-}
-
 const zstdEncoders = {
     zstandard: (buf: Buffer, cb: (err: Error | null, out?: Buffer) => void): void => {
         compress(buf, ZSTD_COMPRESSION_LEVEL)
@@ -33,23 +25,68 @@ export interface DecodedMetricsPacket {
     records: MetricRecord[]
 }
 
+/** Caps applied while a packet decodes, so a highly compressible packet cannot expand without bound. */
+export interface MetricsPacketDecodeLimits {
+    maxRecords: number
+    maxDecompressedBytes: number
+}
+
+export class MetricsPacketTooLargeError extends Error {
+    override name = 'MetricsPacketTooLargeError'
+}
+
 /**
  * Decodes one Avro object container file (the value of a metrics Kafka
  * message) into its rows. The schema comes from the container header, so the
- * decoder never needs the schema compiled in.
+ * decoder never needs the schema compiled in. The decode stops with a
+ * `MetricsPacketTooLargeError` as soon as a limit is exceeded, before the
+ * remaining blocks inflate.
  */
-export function decodeMetricsPacket(buffer: Buffer): Promise<DecodedMetricsPacket> {
+export function decodeMetricsPacket(buffer: Buffer, limits?: MetricsPacketDecodeLimits): Promise<DecodedMetricsPacket> {
     return new Promise((resolve, reject) => {
         const records: MetricRecord[] = []
         let recordType: avro.Type | undefined
         let codec = 'null'
+        let decompressedBytes = 0
+        // avsc wraps codec errors, so the cap's own error is kept here to reject with.
+        let limitError: MetricsPacketTooLargeError | undefined
 
-        const decoder = new avro.streams.BlockDecoder({ codecs: zstdCodecs })
+        const stream = new Readable()
+        const decoder = new avro.streams.BlockDecoder({
+            codecs: {
+                zstandard: (buf: Buffer, cb: (err: Error | null, out?: Buffer) => void): void => {
+                    decompress(buf)
+                        .then((inflated) => {
+                            decompressedBytes += inflated.length
+                            if (limits && decompressedBytes > limits.maxDecompressedBytes) {
+                                limitError = new MetricsPacketTooLargeError(
+                                    `Metrics packet inflates past ${limits.maxDecompressedBytes} bytes`
+                                )
+                                cb(limitError)
+                                return
+                            }
+                            cb(null, inflated)
+                        })
+                        .catch(cb)
+                },
+            },
+        })
+        const fail = (error: Error): void => {
+            stream.unpipe(decoder)
+            decoder.destroy()
+            reject(limitError ?? error)
+        }
+
         decoder.on('metadata', (type: avro.Type, containerCodec?: string) => {
             recordType = type
             codec = containerCodec || 'null'
         })
         decoder.on('data', (record: MetricRecord) => {
+            if (limits && records.length >= limits.maxRecords) {
+                limitError = new MetricsPacketTooLargeError(`Metrics packet has more than ${limits.maxRecords} records`)
+                fail(limitError)
+                return
+            }
             records.push(record)
         })
         decoder.on('end', () => {
@@ -64,9 +101,8 @@ export function decodeMetricsPacket(buffer: Buffer): Promise<DecodedMetricsPacke
                 records,
             })
         })
-        decoder.on('error', reject)
+        decoder.on('error', fail)
 
-        const stream = new Readable()
         stream.on('error', reject)
         stream.push(buffer)
         stream.push(null)
