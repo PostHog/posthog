@@ -236,8 +236,6 @@ tools:
             id:
                 aliases:
                     - report_id
-        feature_flag: signals-reports-leave-reviewers
-        feature_flag_behavior: enable
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
