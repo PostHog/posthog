@@ -96,6 +96,52 @@ function formatMissingOrganizationContextMessage(): string {
     )
 }
 
+/**
+ * Thrown by `switch-project` and `switch-organization` when the request pins the
+ * context and carries no MCP session id. Nothing records the switch across
+ * requests, so the next request applies the pin again. Failing here tells the
+ * agent the truth instead of a success that the next call silently reverts.
+ */
+export class PinnedContextSwitchError extends Error {
+    constructor(pinned: { organizationId?: string | undefined; projectId?: string | undefined }) {
+        super(formatPinnedContextSwitchMessage(pinned))
+        this.name = 'PinnedContextSwitchError'
+    }
+}
+
+function formatPinnedContextSwitchMessage(pinned: {
+    organizationId?: string | undefined
+    projectId?: string | undefined
+}): string {
+    const target = pinned.projectId ? `project \`${pinned.projectId}\`` : `organization \`${pinned.organizationId}\``
+    return (
+        `This connection pins ${target} on every request and sends no MCP session id, so a switch cannot persist. ` +
+        'The next tool call would run against the pinned context again, so the switch was not applied.' +
+        '\n\n' +
+        `Keep working in the pinned ${pinned.projectId ? 'project' : 'organization'}, or ask the user to change the pin in the MCP client configuration ` +
+        '(the `project_id` / `organization_id` URL parameters or the `x-posthog-project-id` / `x-posthog-organization-id` headers).'
+    )
+}
+
+export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
+
+/**
+ * Thrown before any tool runs when an MCP session saved its project and
+ * organization selection under the store key that held only the session id.
+ * The server does not trust those values, because any credential can send the
+ * same session id, and it does not silently start over from the pin or the
+ * shared token selection either. A new session starts with a clean selection.
+ */
+export class McpSessionResetRequiredError extends Error {
+    constructor() {
+        super(
+            'This MCP session started before a PostHog MCP server update, and the server cannot restore its project and organization selection. ' +
+                'No tool ran. Reconnect the PostHog MCP server to start a new session, then try again.'
+        )
+        this.name = 'McpSessionResetRequiredError'
+    }
+}
+
 export interface PostHogValidationErrorOptions {
     detail: string
     attr: string | undefined
@@ -511,6 +557,7 @@ export function handleToolError(
     if (
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError ||
         (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
