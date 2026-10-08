@@ -17,7 +17,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.logs.backend.natural_language_query import (
+from products.logs.backend.facade.api import (
     NaturalLanguageQueryFailed,
     NaturalLanguageQueryUnavailable,
     is_valid_date,
