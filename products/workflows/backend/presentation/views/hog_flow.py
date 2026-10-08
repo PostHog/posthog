@@ -4363,6 +4363,10 @@ class HogFlowViewSet(
         return None
 
     def _test_invocation_reads_cohort_membership(self, request: Request) -> bool:
+        # Schema generation asks for the security requirement without URL kwargs or a request body.
+        workflow_id = self.kwargs.get("pk")
+        if workflow_id is None:
+            return False
         data = request.data if isinstance(request.data, dict) else {}
         configuration = data.get("configuration")
         if _actions_reference_cohorts(configuration.get("actions") if isinstance(configuration, dict) else None):
@@ -4371,7 +4375,7 @@ class HogFlowViewSet(
         # calls this hook again. The view checks access before it dispatches the test run.
         try:
             hog_flow = get_workflow_edit_state(
-                team_id=self.team_id, workflow_id=self.kwargs["pk"], user_access_control=None, required_level=None
+                team_id=self.team_id, workflow_id=workflow_id, user_access_control=None, required_level=None
             )
         except WorkflowNotFound:
             return False
