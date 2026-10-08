@@ -12,11 +12,10 @@ import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportH
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
-import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
+import { sessionPreview } from '~/layout/today/todayPreviewCards'
 import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
 import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelectionLogic'
-import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
@@ -28,7 +27,7 @@ import {
     reportMetricsFixture,
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -1057,25 +1056,6 @@ export const SessionHoverCard: Story = {
                 )}
                 onAction={noop}
                 onSubmenuOpenChange={noop}
-            />
-        </HoverCardFrame>
-    ),
-}
-
-export const SpaceHoverCard: Story = {
-    render: () => (
-        <HoverCardFrame>
-            <TodaySpaceHoverCard
-                preview={spacePreview(
-                    {
-                        ...SPACES[2],
-                        repositories: ['example-org/web', 'example-org/billing', 'example-org/api', 'example-org/docs'],
-                    } as ChannelDTOApi,
-                    'checkout',
-                    { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
-                    '2026-09-28T18:28:00Z'
-                )}
-                onAction={noop}
             />
         </HoverCardFrame>
     ),

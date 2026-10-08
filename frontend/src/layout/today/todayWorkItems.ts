@@ -266,21 +266,6 @@ export function unreadSessionIds(activity: TaskActivityDTOApi[]): Set<string> {
     return new Set(unreadSessionActivity(activity).map((row) => row.task_id as string))
 }
 
-export function unreadSpaceIds(activity: TaskActivityDTOApi[]): Set<string> {
-    return new Set(unreadSessionActivity(activity).flatMap((row) => (row.channel_id ? [row.channel_id] : [])))
-}
-
-export function unreadSessionCountsBySpace(activity: TaskActivityDTOApi[]): Record<string, number> {
-    const sessionsBySpace: Record<string, Set<string>> = {}
-    for (const row of unreadSessionActivity(activity)) {
-        if (row.channel_id) {
-            sessionsBySpace[row.channel_id] ??= new Set()
-            sessionsBySpace[row.channel_id].add(row.task_id as string)
-        }
-    }
-    return Object.fromEntries(Object.entries(sessionsBySpace).map(([spaceId, sessions]) => [spaceId, sessions.size]))
-}
-
 /**
  * What to send to mark a session read, or null when it has nothing unread.
  * `seen_before` is never earlier than the newest activity shown, so a client clock behind the server's still clears it.
