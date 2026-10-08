@@ -22,6 +22,7 @@ import type {
     DataQualityCheckTypeApi,
     DataQualityOutputColumnApi,
     DataQualityOutputSchemaApi,
+    QuestionPreviewApi,
     DataQualitySubjectApi,
 } from './generated/api.schemas'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
@@ -50,6 +51,11 @@ export interface CheckFormValues {
     rowCountMax: number | null
     maxAgeMinutes: number | null
     customSql: string
+    question: string
+    questionInputMode: 'column' | 'row'
+    questionColumns: string[]
+    minProbability: number | null
+    maxFailureRate: number | null
     lookbackHours: number | null
     toLookbackHours: number | null
 }
@@ -69,6 +75,11 @@ export const EMPTY_CHECK_FORM: CheckFormValues = {
     rowCountMax: null,
     maxAgeMinutes: null,
     customSql: '',
+    question: '',
+    questionInputMode: 'column',
+    questionColumns: [],
+    minProbability: 0.8,
+    maxFailureRate: 0,
     lookbackHours: null,
     toLookbackHours: null,
 }
@@ -112,8 +123,39 @@ function isWindow(hours: number | null): hours is number {
     return hours !== null && Number.isFinite(hours)
 }
 
+function questionPreviewIdentity(form: CheckFormValues, subject: DataQualitySubjectRef | null): string {
+    return JSON.stringify([
+        subject,
+        form.checkType,
+        form.question,
+        form.questionInputMode,
+        form.columnName,
+        [...form.questionColumns].sort(),
+    ])
+}
+
+interface QuestionEditorPreview {
+    identity: string
+    response: QuestionPreviewApi
+}
+
+function probabilityError(value: number | null): string | undefined {
+    return value === null || !Number.isFinite(value) || value < 0 || value > 1
+        ? 'Enter a number between 0 and 1.'
+        : undefined
+}
+
 function formToConfig(form: CheckFormValues): Record<string, unknown> {
     switch (form.checkType) {
+        case CheckTypeEnumApi.Question:
+            return {
+                question: form.question,
+                input_mode: form.questionInputMode,
+                columns: form.questionInputMode === 'row' ? [...form.questionColumns].sort() : [],
+                min_probability: form.minProbability,
+                max_failure_rate: form.maxFailureRate,
+            }
+
         case CheckTypeEnumApi.AcceptedValues:
             return { values: form.acceptedValues }
         case CheckTypeEnumApi.Relationships:
@@ -154,7 +196,7 @@ type CheckEditPayload = Parameters<typeof checksApi.partialUpdate>[1]
 export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolean): CheckCreatePayload {
     return {
         ...definitionPayload(form, requiresColumn),
-        severity: form.severity,
+        severity: form.checkType === CheckTypeEnumApi.Question ? DataQualityCheckSeverityEnumApi.Warn : form.severity,
         tags: form.tags,
         ...(form.name ? { name: form.name } : {}),
         ...(form.description ? { description: form.description } : {}),
@@ -186,7 +228,7 @@ export function checkEditPayload(
         // stopped supporting its check fails that. Send it only when the assertion actually changed,
         // so renaming a check or lowering its severity stays possible.
         ...(assertionChanged(definition, editingCheck) ? definition : {}),
-        severity: form.severity,
+        severity: form.checkType === CheckTypeEnumApi.Question ? DataQualityCheckSeverityEnumApi.Warn : form.severity,
         // Sent even when blank, unlike create: an edit is how metadata gets cleared.
         name: form.name,
         description: form.description,
@@ -198,6 +240,13 @@ export function checkToForm(check: DataQualityCheckApi): CheckFormValues {
     const config = check.config ?? {}
     return {
         ...EMPTY_CHECK_FORM,
+        question: typeof config.question === 'string' ? config.question : '',
+        questionInputMode: config.input_mode === 'row' ? 'row' : 'column',
+        questionColumns: Array.isArray(config.columns)
+            ? config.columns.filter((name): name is string => typeof name === 'string')
+            : [],
+        minProbability: typeof config.min_probability === 'number' ? config.min_probability : 0.8,
+        maxFailureRate: typeof config.max_failure_rate === 'number' ? config.max_failure_rate : 0,
         checkType: check.check_type,
         columnName: check.column_name ?? '',
         name: check.name ?? '',
@@ -227,6 +276,9 @@ function lookbackHoursError(hours: number | null): string | undefined {
 /** Which form field a config-level server error belongs beside, per check type. */
 function configFieldFor(checkType: CheckTypeEnumApi): keyof CheckFormValues | null {
     switch (checkType) {
+        case CheckTypeEnumApi.Question:
+            return 'question'
+
         case CheckTypeEnumApi.AcceptedValues:
             return 'acceptedValues'
         case CheckTypeEnumApi.Relationships:
@@ -305,6 +357,7 @@ export interface dataQualityCheckEditorLogicValues {
     checkTypes: DataQualityCheckTypeApi[]
     checkTypesError: boolean
     checkTypesLoading: boolean
+    currentQuestionPreview: QuestionPreviewApi | null
     customSqlEditorError: string | null
     customSqlPreview: CustomSqlPreview | null
     customSqlPreviewError: string | null
@@ -324,6 +377,13 @@ export interface dataQualityCheckEditorLogicValues {
     metricOutputSchemaLoading: boolean
     needsSubjectCatalog: boolean
     openedWithoutSubject: boolean
+    questionPreview: QuestionEditorPreview | null
+    questionPreviewDisabledReason: string | null
+    questionPreviewError: string | null
+    questionPreviewFailureRate: number | null
+    questionPreviewGeneration: number
+    questionPreviewLoading: boolean
+    questionPreviewPassed: boolean | null
     relationshipSubjects: RelationshipSubject[]
     relationshipTargetTimeColumn: string | null
     requiresColumn: boolean
@@ -407,6 +467,9 @@ export interface dataQualityCheckEditorLogicActions {
     requestClose: () => {
         value: true
     }
+    requestQuestionPreview: () => {
+        value: true
+    }
     resetCheckForm: (values?: CheckFormValues) => {
         values?: CheckFormValues
     }
@@ -423,6 +486,21 @@ export interface dataQualityCheckEditorLogicActions {
         payload?: any
     ) => {
         customSqlPreview: CustomSqlPreview | null
+        payload?: any
+    }
+    runQuestionPreview: (_: any) => any
+    runQuestionPreviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    runQuestionPreviewSuccess: (
+        questionPreview: QuestionEditorPreview | null,
+        payload?: any
+    ) => {
+        questionPreview: QuestionEditorPreview | null
         payload?: any
     }
     setCheckFormManualErrors: (errors: Record<string, any>) => {
@@ -493,6 +571,21 @@ export interface dataQualityCheckEditorLogicMeta {
             metricOutputSchema: DataQualityOutputSchemaApi | null
         ) => DataQualityOutputColumnApi[]
         availableColumns: (availableOutputSchema: DataQualityOutputColumnApi[]) => string[]
+        questionPreviewDisabledReason: (
+            checkForm: CheckFormValues,
+            subject: DataQualitySubjectRef | null,
+            availableColumns: string[]
+        ) => string | null
+        currentQuestionPreview: (
+            questionPreview: QuestionEditorPreview | null,
+            checkForm: CheckFormValues,
+            subject: DataQualitySubjectRef | null
+        ) => QuestionPreviewApi | null
+        questionPreviewPassed: (questionPreviewFailureRate: number | null, checkForm: CheckFormValues) => boolean | null
+        questionPreviewFailureRate: (
+            currentQuestionPreview: QuestionPreviewApi | null,
+            checkForm: CheckFormValues
+        ) => number | null
         customSqlSourceQuery: (checkForm: CheckFormValues) => HogQLQuery
         customSqlPreviewStale: (customSqlPreview: CustomSqlPreview | null, checkForm: CheckFormValues) => boolean
         customSqlPreviewVerdict: (customSqlPreview: CustomSqlPreview | null) => 'fail' | 'pass' | null
@@ -534,6 +627,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
     key((props: DataQualityCheckEditorLogicProps) => props.surface),
     path((key) => ['products', 'data_quality', 'frontend', 'dataQualityCheckEditorLogic', key]),
     actions({
+        requestQuestionPreview: true,
         loadCheckTypes: true,
         openEditor: (
             check: DataQualityCheckApi | null,
@@ -592,6 +686,36 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 },
             },
         ],
+        questionPreview: [
+            null as QuestionEditorPreview | null,
+            {
+                runQuestionPreview: async (_, breakpoint): Promise<QuestionEditorPreview | null> => {
+                    if (!values.subject || values.questionPreviewDisabledReason) {
+                        return values.questionPreview
+                    }
+                    const subject = values.subject
+                    const form = values.checkForm
+                    const identity = questionPreviewIdentity(form, subject)
+                    const generation = values.questionPreviewGeneration
+                    try {
+                        const response = await checksApi.questionPreview(subject, {
+                            column_name: form.questionInputMode === 'column' ? form.columnName : '',
+                            config: formToConfig(form),
+                        })
+                        breakpoint()
+                        return values.questionPreviewGeneration === generation && values.isOpen
+                            ? { identity, response }
+                            : null
+                    } catch (error) {
+                        breakpoint()
+                        if (values.questionPreviewGeneration !== generation || !values.isOpen) {
+                            return null
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
         customSqlPreview: [
             null as CustomSqlPreview | null,
             {
@@ -634,6 +758,69 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         ],
     })),
     reducers(({ props }) => ({
+        questionPreviewGeneration: [
+            0,
+            {
+                openEditor: (state) => state + 1,
+                closeEditor: (state) => state + 1,
+                setSubject: (state) => state + 1,
+                setCheckFormValue: (state, { name }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].includes(
+                        String(name)
+                    )
+                        ? state + 1
+                        : state,
+                setCheckFormValues: (state, { values }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].some(
+                        (name) => name in values
+                    )
+                        ? state + 1
+                        : state,
+            },
+        ],
+        questionPreview: [
+            null as QuestionEditorPreview | null,
+            {
+                setCheckFormValue: (state, { name }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].includes(
+                        String(name)
+                    )
+                        ? null
+                        : state,
+                setCheckFormValues: (state, { values }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].some(
+                        (name) => name in values
+                    )
+                        ? null
+                        : state,
+                openEditor: () => null,
+                closeEditor: () => null,
+                setSubject: () => null,
+            },
+        ],
+        questionPreviewError: [
+            null as string | null,
+            {
+                runQuestionPreview: () => null,
+                runQuestionPreviewSuccess: () => null,
+                runQuestionPreviewFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+                closeEditor: () => null,
+                setSubject: () => null,
+                setCheckFormValue: (state, { name }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].includes(
+                        String(name)
+                    )
+                        ? null
+                        : state,
+                setCheckFormValues: (state, { values }) =>
+                    ['checkType', 'question', 'questionInputMode', 'questionColumns', 'columnName'].some(
+                        (name) => name in values
+                    )
+                        ? null
+                        : state,
+            },
+        ],
         customSqlQueryKey: [`data-quality-check/${props.surface}`, {}],
         isOpen: [
             false,
@@ -864,8 +1051,29 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         form.name && !CHECK_NAME_PATTERN.test(form.name)
                             ? 'Use letters, numbers and underscores, starting with a letter.'
                             : undefined,
+                    question:
+                        form.checkType === CheckTypeEnumApi.Question &&
+                        (!form.question.trim() || new Blob([form.question]).size > 8192)
+                            ? 'Write a yes/no question of at most 8 KiB.'
+                            : undefined,
+                    questionColumns:
+                        form.checkType === CheckTypeEnumApi.Question &&
+                        form.questionInputMode === 'row' &&
+                        !form.questionColumns.length
+                            ? 'Select at least one field.'
+                            : undefined,
+                    minProbability:
+                        form.checkType === CheckTypeEnumApi.Question
+                            ? probabilityError(form.minProbability)
+                            : undefined,
+                    maxFailureRate:
+                        form.checkType === CheckTypeEnumApi.Question
+                            ? probabilityError(form.maxFailureRate)
+                            : undefined,
                     columnName:
-                        checkTypeByName[form.checkType]?.requires_column && !form.columnName
+                        (checkTypeByName[form.checkType]?.requires_column ||
+                            (form.checkType === CheckTypeEnumApi.Question && form.questionInputMode === 'column')) &&
+                        !form.columnName
                             ? 'Pick a column for this check.'
                             : undefined,
                     acceptedValues:
@@ -960,6 +1168,50 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         },
     })),
     selectors({
+        questionPreviewDisabledReason: [
+            (s) => [s.checkForm, s.subject, s.availableColumns],
+            (form: CheckFormValues, subject: DataQualitySubjectRef | null, columns: string[]): string | null => {
+                if (subject?.subjectType !== SubjectTypeEnumApi.Table || form.checkType !== CheckTypeEnumApi.Question) {
+                    return 'Choose a warehouse table and a question check.'
+                }
+                if (!form.question.trim() || new Blob([form.question]).size > 8192) {
+                    return 'Write a yes/no question of at most 8 KiB.'
+                }
+                const selected = form.questionInputMode === 'row' ? form.questionColumns : [form.columnName]
+                if (!selected.length || selected.some((name) => !columns.includes(String(name)))) {
+                    return 'Choose the fields to evaluate.'
+                }
+                return probabilityError(form.minProbability) ?? probabilityError(form.maxFailureRate) ?? null
+            },
+        ],
+        currentQuestionPreview: [
+            (s) => [s.questionPreview, s.checkForm, s.subject],
+            (
+                preview: QuestionEditorPreview | null,
+                form: CheckFormValues,
+                subject: DataQualitySubjectRef | null
+            ): QuestionPreviewApi | null =>
+                preview?.identity === questionPreviewIdentity(form, subject) ? preview.response : null,
+        ],
+        questionPreviewPassed: [
+            (s) => [s.questionPreviewFailureRate, s.checkForm],
+            (rate: number | null, form: CheckFormValues): boolean | null =>
+                rate === null || probabilityError(form.maxFailureRate) ? null : rate <= form.maxFailureRate!,
+        ],
+        questionPreviewFailureRate: [
+            (s) => [s.currentQuestionPreview, s.checkForm],
+            (preview: QuestionPreviewApi | null, form: CheckFormValues): number | null =>
+                preview?.examined_row_count && !probabilityError(form.minProbability)
+                    ? preview.inputs.reduce(
+                          (total, item) =>
+                              total +
+                              (item.probability === null || item.probability < form.minProbability!
+                                  ? item.row_count
+                                  : 0),
+                          0
+                      ) / preview.examined_row_count
+                    : null,
+        ],
         customSqlSourceQuery: [
             (s) => [s.checkForm],
             (checkForm: CheckFormValues): HogQLQuery => ({ kind: NodeKind.HogQLQuery, query: checkForm.customSql }),
@@ -982,7 +1234,9 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         requiresColumn: [
             (s) => [s.checkForm, s.checkTypeByName],
             (checkForm: CheckFormValues, checkTypeByName: Record<string, DataQualityCheckTypeApi>) =>
-                !!checkTypeByName[checkForm.checkType]?.requires_column,
+                checkForm.checkType === CheckTypeEnumApi.Question
+                    ? checkForm.questionInputMode === 'column'
+                    : !!checkTypeByName[checkForm.checkType]?.requires_column,
         ],
         needsSubjectCatalog: [
             (s) => [s.checkForm, s.requiresColumn, s.subjectColumns, s.subject],
@@ -999,7 +1253,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 subject === null ||
                 checkForm.checkType === CheckTypeEnumApi.Relationships ||
                 subject.subjectType === SubjectTypeEnumApi.PosthogTable ||
-                (requiresColumn && !subjectColumns.length),
+                ((requiresColumn || checkForm.checkType === CheckTypeEnumApi.Question) && !subjectColumns.length),
         ],
     }),
     listeners(({ props, values, actions }) => {
@@ -1011,6 +1265,11 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         }
 
         return {
+            requestQuestionPreview: () => {
+                if (!values.questionPreviewLoading && !values.questionPreviewDisabledReason) {
+                    actions.runQuestionPreview(undefined)
+                }
+            },
             openEditor: ({ check, subject }) => {
                 actions.resetCheckForm(
                     check

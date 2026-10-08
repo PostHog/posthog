@@ -7,6 +7,11 @@ the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler int
 data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
+
 from ..activity_logging import log_schedule_change
 from ..logic.checks import (
     checks_for_subject,
@@ -26,6 +31,9 @@ from ..logic.config import get_gate_config, set_gate_materialization_on_checks
 from ..logic.contracts import CompiledCheck, SubjectIdentity, SubjectRef
 from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
+from ..logic.jev_preview import QuestionPreviewRunner
+from ..logic.jev_progress import question_progress
+from ..logic.jev_question import QuestionConfig
 from ..logic.materialization import materialization_failure_summary
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
@@ -61,9 +69,11 @@ from ..logic.subject_access import (
 from ..logic.subject_schedules import runs_on_a_schedule
 from ..logic.subjects import resolve_metric_subjects, resolve_subject, selectable_subjects, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
-from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, SelectableSubject
+from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, QuestionPreview, SelectableSubject
 
 __all__ = [
+    "question_progress",
+    "preview_question",
     "log_schedule_change",
     "CheckSchedule",
     "ScheduleUnavailableError",
@@ -139,3 +149,18 @@ __all__ = [
     "without_denied_runs",
     "writable_subjects",
 ]
+
+
+def preview_question(
+    *, team: "Team", user: "User", subject_type: str, subject_uuid: str, column_name: str, config: dict[str, Any]
+) -> QuestionPreview:
+    parsed = QuestionConfig.model_validate(
+        validate_check(team, subject_type, subject_uuid, "question", column_name, config)
+    )
+    subject = resolve_subject(team.id, subject_type, subject_uuid)
+    try:
+        return QuestionPreviewRunner(
+            team=team, user=user, subject=subject, config=parsed, column_name=column_name
+        ).run()
+    except Exception:
+        raise CheckConfigError("Could not complete the question preview. Check your access and try again.") from None
