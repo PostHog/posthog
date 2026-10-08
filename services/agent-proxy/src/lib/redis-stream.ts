@@ -434,9 +434,15 @@ export class TaskRunRedisStream {
         await this.redis.set(getWatchedKey(this.streamKey), '1', 'EX', STREAM_WATCHED_TTL_SECONDS)
     }
 
-    // SET agent-active-key ('1'|'0') EX STREAM_TTL_SECONDS
-    async setAgentActive(active: boolean): Promise<void> {
-        await this.redis.set(getAgentActiveKey(this.streamKey), active ? '1' : '0', 'EX', this.timeout)
+    async setAgentActive(active: boolean): Promise<boolean> {
+        const previous = await this.redis.set(
+            getAgentActiveKey(this.streamKey),
+            active ? '1' : '0',
+            'EX',
+            this.timeout,
+            'GET'
+        )
+        return previous === '1'
     }
 
     // GET agent-active-key; true iff value === '1'

@@ -1,8 +1,8 @@
 // Analytics event types and properties
 
-import type { Adapter, ModelAccess } from "./adapter";
-import type { EffortLevel } from "./domain-types";
-import type { SourceProduct } from "./inbox-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
+import type { SourceProduct } from "@posthog/agent-contracts/inbox-types";
 
 export interface PromptHistoryOpenedProperties {
   entry_count: number;
@@ -54,6 +54,7 @@ export type CommandMenuAction =
   | "logout"
   | "toggle-theme"
   | "toggle-left-sidebar"
+  | "toggle-notifications-pause"
   | "open-review-panel"
   | "archive-task"
   | "go-back"
@@ -143,6 +144,7 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
+  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {
@@ -300,6 +302,12 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export interface CommentSentToAgentProperties {
+  surface: "artifact" | "canvas" | "task";
+  with_context: boolean;
+  with_screenshot: boolean;
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -313,6 +321,8 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
+  /** How a rail destination was picked. Only the channels rail sends it. */
+  source?: "click" | "shortcut";
 }
 
 /** Every row of the account / project / org menu, plus opening it. */
@@ -446,6 +456,8 @@ export interface TaskCreationFailedProperties {
 export interface AgentSessionErrorProperties {
   task_id: string;
   error_type: string;
+  failure_reason?: "startup_timeout" | "startup_failed" | "other";
+  startup_step?: string;
 }
 
 export interface CloudStreamDisconnectedProperties {
@@ -985,6 +997,22 @@ export interface InboxReportActionResultProperties {
 }
 
 /**
+ * A report's product suggestion was rendered under its evidence, or its link
+ * to the product was followed. Mirrors cloud's `Inbox report source
+ * suggestion shown` / `clicked`, so the clients are comparable in one PostHog
+ * project.
+ */
+export interface InboxReportSourceSuggestionProperties {
+  report_id: string;
+  report_age_hours: number;
+  priority: string | null;
+  actionability: string | null;
+  /** Whether the report already has an implementation PR. */
+  has_pr: boolean;
+  product: string;
+}
+
+/**
  * Thumbs-up/down verdict on a report's usefulness, fired from the feedback
  * footer at the end of the report body. Feedback-only: unlike a dismiss, the
  * report keeps its state. The sentiment is the label ranking work trains
@@ -1340,6 +1368,12 @@ export interface CanvasViewedProperties {
   template_id: string;
 }
 
+export interface CanvasUnavailableProperties {
+  dashboard_id: string;
+  /** `no_access`: the canvas is in a space not shared with the viewer. `missing`: any other miss. */
+  reason: "no_access" | "missing";
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1353,6 +1387,22 @@ export interface CanvasRuntimeErrorProperties {
   error_type: string;
   /** CSP directive only; blocked URLs never cross into analytics. */
   csp_directive?: string;
+}
+
+export interface CanvasDataRequestRejectedProperties {
+  /** Which host bridge refused it: the authoring sandbox or a published build. */
+  surface: "freeform" | "built";
+  /**
+   * Why the host refused it. The request method only — never the payload, which
+   * is agent-authored and can carry query results.
+   */
+  reason:
+    | "payload-too-large"
+    | "data-queue-full"
+    | "connector-queue-full"
+    | "needs-user-action"
+    | "agent-needs-user-action";
+  method: string;
 }
 
 export type ContextActionType =
@@ -1398,7 +1448,11 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
+type UpgradePromptCause =
+  | "model_gate"
+  | "model_unavailable"
+  | "org_limit"
+  | "user_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1597,6 +1651,7 @@ export interface AnnouncementProperties {
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
+  reference_source: "link" | "tag";
 }
 
 export interface EvidencePreviewReadyProperties {
@@ -1715,6 +1770,8 @@ export const ANALYTICS_EVENTS = {
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
   CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
   CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CODEX_CLOUD_ACCOUNT_CONNECTED: "Codex cloud account connected",
+  CODEX_CLOUD_ACCOUNT_DISCONNECTED: "Codex cloud account disconnected",
   CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
@@ -1782,6 +1839,9 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_REPORT_SOURCE_SUGGESTION_SHOWN: "Inbox report source suggestion shown",
+  INBOX_REPORT_SOURCE_SUGGESTION_CLICKED:
+    "Inbox report source suggestion clicked",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
@@ -1817,8 +1877,10 @@ export const ANALYTICS_EVENTS = {
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_VIEWED: "Canvas viewed",
+  CANVAS_UNAVAILABLE: "Canvas unavailable",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
+  CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
 
@@ -1849,6 +1911,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
+  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
 } as const;
 
 // Event property mapping
@@ -1926,6 +1989,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
   [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CODEX_CLOUD_ACCOUNT_DISCONNECTED]: never;
   [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.SETTINGS_BACKUP_EXPORTED]: SettingsBackupExportProperties;
@@ -2002,6 +2067,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN]: InboxReportSourceSuggestionProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED]: InboxReportSourceSuggestionProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
@@ -2037,8 +2104,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
+  [ANALYTICS_EVENTS.CANVAS_UNAVAILABLE]: CanvasUnavailableProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
+  [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
@@ -2073,6 +2142,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
+  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
 };
 
 /**
@@ -2092,6 +2162,8 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,

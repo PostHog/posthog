@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -28,13 +29,14 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 def _trend_result(label: str, data: list[float]) -> dict[str, Any]:
-    dates = [f"2026-07-{day:02d}" for day in range(1, len(data) + 1)]
+    dates = [(date(2026, 7, 1) + timedelta(days=day)).isoformat() for day in range(len(data))]
     return {"data": data, "days": dates, "label": label}
 
 
+@pytest.mark.parametrize("delay", [0, 1])
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calculate: MagicMock) -> None:
-    configured_series = [1000.0, 1100.0, 1000.0, 900.0] * 3
+def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calculate: MagicMock, delay: int) -> None:
+    configured_series = [1000.0, 1100.0, 1000.0, 900.0] * 9
     mock_calculate.return_value = InsightResult(
         result=[
             _trend_result("series 0", [10.0, 11.0, 10.0, 9.0] * 3),
@@ -60,6 +62,7 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
     ).model_dump()
     alert = MagicMock(spec=AlertConfiguration)
     alert.insight = insight
+    alert.evaluation_delay_intervals = delay
     alert.config = {"type": "TrendsAlertConfig", "series_index": 2}
     alert.detector_config = {"type": "zscore", "threshold": 0.9, "window": 10}
     alert.created_by = None
@@ -67,7 +70,7 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
     result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)
 
     assert not isinstance(result, str)
-    assert result["data"] == configured_series[:-1]
+    assert result["data"] == configured_series[: -1 - delay]
 
 
 @pytest.mark.parametrize("triggered_dates,expected_indices", [(["2026-07-09"], [8]), (["2026-06-01"], [])])
@@ -97,6 +100,7 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
         interval=IntervalType.DAY,
     ).model_dump()
     alert = MagicMock(spec=AlertConfiguration)
+    alert.evaluation_delay_intervals = 0
     alert.insight = insight
     alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
     alert.detector_config = {"type": "llm", "threshold": 0.7, "window": 10}
@@ -213,6 +217,7 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
     mock_calculate.return_value = InsightResult(
         result=rows,
         columns=["day", "failure_rate_pct", "run_count"],
+        has_more=False,
         timezone="UTC",
         last_refresh=None,
         cache_key="",
@@ -222,6 +227,7 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
     insight = MagicMock(spec=Insight)
     insight.query = HogQLQuery(query="SELECT day, failure_rate_pct, run_count FROM ci_runs").model_dump()
     alert = MagicMock(spec=AlertConfiguration)
+    alert.evaluation_delay_intervals = 0
     alert.insight = insight
     alert.config = {"type": "HogQLAlertConfig", "column": "failure_rate_pct", "evaluation": "last_row"}
     alert.detector_config = {"type": "zscore", "threshold": 0.9, "window": 7}

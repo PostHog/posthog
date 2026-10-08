@@ -8,6 +8,7 @@ import threading
 import collections
 from collections.abc import Callable, Generator, Iterator, Sequence
 from contextlib import _GeneratorContextManager, closing
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
     is_transient_egress_proxy_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
+    resolve_merge_keys,
+    should_probe_for_duplicates,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -75,6 +80,10 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 # concat and yield a single pa.Table to the pipeline.
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
+
+# Page sizes for re-reading a table whose single query hits a host's per-query result or memory cap.
+PAGED_READ_INITIAL_ROWS = 500_000
+PAGED_READ_MIN_ROWS = 1_000
 
 # Quoter for user-supplied row-filter column names — the allowlist-validated
 # safety rail the shared predicate renderer expects. Trusted internal
@@ -161,6 +170,11 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
     # proxy-auth response and must stay non-retryable.
     "Cannot connect to proxy.', TimeoutError('timed out')",
+    # The egress proxy accepted the TCP connection but hung up before answering the CONNECT
+    # request ("ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end closed
+    # connection without response'))"). Same proxy-side blip as the TimeoutError case above, just
+    # a different socket-layer shape, so it gets the same in-process re-dial.
+    "Cannot connect to proxy.', RemoteDisconnected",
 )
 
 
@@ -1036,8 +1050,9 @@ def get_primary_keys_for_schemas(
 DUPLICATE_PK_CHECK_ROW_BUDGET = 10_000_000
 
 # Settings for the duplicate-PK probe.
-# - optimize_aggregation_in_order streams the GROUP BY along the sorting
-#   key without building a hash table (bounded memory).
+# - optimize_aggregation_in_order streams the GROUP BY without a hash table
+#   when the merge key is a prefix of the sorting key. Any other key is a
+#   hash aggregation, which max_memory_usage bounds.
 # - max_rows_to_read + read_overflow_mode='break' cap the scan at
 #   DUPLICATE_PK_CHECK_ROW_BUDGET and *silently stop* instead of throwing.
 # - max_execution_time and max_memory_usage are belt-and-braces bounds.
@@ -1050,18 +1065,19 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 }
 
 # Substrings of probe errors that are expected environment limits or designed
-# fallbacks rather than bugs on our side. In every case we fall back to append
-# mode, so capturing them only adds error-tracking noise:
+# fallbacks rather than bugs on our side. In every case the probe compared no
+# rows, so the key stays unverified and the sync continues. Capturing them only
+# adds error-tracking noise:
 #   - "is unknown or readonly": clickhouse-connect validates session settings
 #     client-side and refuses any the server reports as readonly or unknown
 #     ("Setting <x> is unknown or readonly"), routine on managed offerings
 #     (ClickHouse Cloud) and readonly user profiles.
 #   - MEMORY_LIMIT_EXCEEDED / TIMEOUT_EXCEEDED: the bounded probe exhausted one
 #     of its own budgets (`max_memory_usage` / `max_execution_time`).
-#     `optimize_aggregation_in_order` keeps the GROUP BY streaming, but on
-#     large/slow (e.g. S3-backed) source tables the scan can still hit these
-#     caps before `read_overflow_mode='break'` truncates on rows — the probe
-#     behaving exactly as designed. Some managed servers also enforce a memory
+#     A merge key that is not a sorting-key prefix needs a hash table, and on
+#     large/slow (e.g. S3-backed) source tables even a streamed scan can hit
+#     these caps before `read_overflow_mode='break'` truncates on rows — the
+#     probe behaving exactly as designed. Some managed servers also enforce a memory
 #     cap below our `max_memory_usage`, surfacing the same way.
 #   - "Read timed out": the probe's `max_execution_time` only bounds server-side
 #     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
@@ -1086,15 +1102,15 @@ def _has_duplicate_primary_keys(
     table_name: str,
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
-) -> bool:
-    """Check whether the sorting key has obvious duplicate combinations.
+) -> bool | None:
+    """Check whether the merge key has obvious duplicate combinations.
 
-    ClickHouse sorting keys are *not* enforced unique. For incremental syncs
-    we need a unique-ish key to do safe merges into Delta. We probe a
+    ClickHouse enforces uniqueness on nothing, so the key an incremental merge
+    matches rows on is unproven until this probes it. We probe a
     bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
     than scanning the whole thing, because:
 
-    1. A user who chose a non-unique sort key will virtually always show
+    1. A user who chose a non-unique key will virtually always show
        duplicates inside any reasonably sized prefix.
     2. A full-table GROUP BY every incremental sync is prohibitively
        expensive on the tables this source is designed for.
@@ -1103,7 +1119,8 @@ def _has_duplicate_primary_keys(
     Returns:
         True if duplicates are detected in the probed prefix, or if the
         probe failed in an unexpected way. False when the probe completed
-        within budget without finding duplicates.
+        within budget without finding duplicates. None when the probe never
+        got to compare any rows, so it proves nothing either way.
     """
     if not primary_keys:
         return False
@@ -1115,20 +1132,20 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Any server error is treated as "assume duplicates" — safer to force
-        # append mode than to merge against a key we couldn't verify. (We don't
-        # hit max_rows_to_read here because read_overflow_mode='break' turns
-        # that into a silent truncation.)
+        # An exhausted budget or a rejected setting compared no rows, so it says nothing about
+        # the key. Reporting it as a duplicate would stop a table that can still merge. (We
+        # don't hit max_rows_to_read here because read_overflow_mode='break' turns that into a
+        # silent truncation.)
+        if _is_expected_probe_failure(str(e)):
+            logger.warning(
+                f"_has_duplicate_primary_keys: probe did not complete for {database}.{table_name}, "
+                f"leaving the key unverified: {e}"
+            )
+            return None
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        # Only report genuinely unexpected probe failures. Exhausting the
-        # probe's own memory/time budget is the designed fallback on large
-        # source tables, and managed/readonly ClickHouse servers routinely
-        # reject our tuning settings — expected outcomes the append-mode
-        # fallback already handles, so capturing them only adds noise.
-        if not _is_expected_probe_failure(str(e)):
-            capture_exception(e)
+        capture_exception(e)
         return True
 
 
@@ -1155,7 +1172,7 @@ def _get_incremental_row_count(
     try:
         result = client.query(
             query,
-            parameters={"last_value": last_value},
+            parameters={"last_value": _last_value_param(last_value, incremental_field_type)},
             settings={"max_execution_time": 30},
         )
     except ClickHouseError as e:
@@ -1312,6 +1329,10 @@ def _project_columns(
     return projected or columns
 
 
+_DATETIME_CURSOR_TYPES = (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp)
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> str:
     """SQL expression binding the `last_value` parameter for the incremental cursor.
 
@@ -1324,7 +1345,45 @@ def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> 
     """
     if incremental_field_type == IncrementalFieldType.Date:
         return "toDate32(%(last_value)s)"
+    if incremental_field_type in _DATETIME_CURSOR_TYPES:
+        return "fromUnixTimestamp64Micro(%(last_value)s)"
     return "%(last_value)s"
+
+
+def _last_value_param(last_value: Any, incremental_field_type: Optional[IncrementalFieldType]) -> Any:
+    """The `last_value` parameter for `_last_value_expr`.
+
+    clickhouse-connect binds a datetime as a whole-second string, which ClickHouse then parses in
+    the column's timezone. Epoch microseconds keep the sub-second part and name one exact instant.
+    A naive cursor is UTC, like the naive Arrow timestamps it came from.
+    """
+    if incremental_field_type not in _DATETIME_CURSOR_TYPES:
+        return last_value
+    if isinstance(last_value, datetime):
+        instant = last_value if last_value.tzinfo is not None else last_value.replace(tzinfo=UTC)
+        return (instant - _UNIX_EPOCH) // timedelta(microseconds=1)
+    if isinstance(last_value, int | float) and not isinstance(last_value, bool):
+        return int(last_value * 1_000_000)
+    return last_value
+
+
+def _build_conditions(
+    *,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> tuple[list[str], dict[str, Any]]:
+    """WHERE conditions of the extraction query: the incremental cursor, then the row filters."""
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    if not should_use_incremental_field:
+        return filter_conditions, filter_params
+
+    if incremental_field is None:
+        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
+
+    cursor_condition = f"{_quote_identifier(incremental_field)} > {_last_value_expr(incremental_field_type)}"
+    return [cursor_condition, *filter_conditions], filter_params
 
 
 def _build_query(
@@ -1336,6 +1395,7 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    page_conditions: Sequence[str] = (),
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
 
@@ -1349,20 +1409,72 @@ def _build_query(
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
-    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    conditions, filter_params = _build_conditions(
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        incremental_field_type=incremental_field_type,
+        row_filters=row_filters,
+    )
+    conditions = [*conditions, *page_conditions]
 
-    if not should_use_incremental_field:
-        if filter_conditions:
-            return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
-        return f"SELECT {select_list} FROM {qualified}", filter_params
-
-    if incremental_field is None:
-        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
-
-    quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
-    query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
+    query = f"SELECT {select_list} FROM {qualified}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    if should_use_incremental_field and incremental_field is not None:
+        query += f" ORDER BY {_quote_identifier(incremental_field)} ASC"
     return query, filter_params
+
+
+def _page_key(
+    columns: Sequence[ClickHouseColumn],
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    primary_keys: Optional[list[str]],
+) -> list[str] | None:
+    """Columns whose values split the table into pages, or None when the table has none.
+
+    A NULL fails every comparison, so a nullable sorting-key column would drop its NULL rows from
+    every page. The incremental cursor has no such problem: the cursor condition already skips them.
+    """
+    if should_use_incremental_field:
+        return [incremental_field] if incremental_field else None
+    if not primary_keys:
+        return None
+    nullable_by_name = {column.name: column.nullable for column in columns}
+    if any(nullable_by_name.get(key, True) for key in primary_keys):
+        return None
+    return primary_keys
+
+
+def _page_conditions(
+    key: list[str], lower: Sequence[str] | None, upper: Sequence[str] | None
+) -> tuple[list[str], dict[str, Any]]:
+    """Conditions that keep the rows whose key is above `lower` and at most `upper`.
+
+    Bounds are the key values as ClickHouse renders them with toString(). ClickHouse parses each one
+    back into its column type for the comparison, so no precision is lost in the round trip.
+    """
+    key_tuple = f"({', '.join(_quote_identifier(column) for column in key)})"
+    conditions: list[str] = []
+    parameters: dict[str, Any] = {}
+    for name, operator, bound in (("page_lower", ">", lower), ("page_upper", "<=", upper)):
+        if bound is None:
+            continue
+        placeholders = [f"%({name}_{index})s" for index in range(len(bound))]
+        conditions.append(f"{key_tuple} {operator} ({', '.join(placeholders)})")
+        parameters.update({f"{name}_{index}": value for index, value in enumerate(bound)})
+    return conditions, parameters
+
+
+def _build_page_bound_query(
+    *, database: str, table_name: str, key: list[str], conditions: Sequence[str], page_rows: int
+) -> str:
+    """Query for the key of the last row of a page that starts after the given conditions."""
+    quoted_key = [_quote_identifier(column) for column in key]
+    query = f"SELECT {', '.join(f'toString({column})' for column in quoted_key)} FROM {_qualified_table(database, table_name)}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    return f"{query} ORDER BY {', '.join(quoted_key)} LIMIT 1 OFFSET {page_rows - 1}"
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1405,6 +1517,15 @@ _ARROW_FORMAT_REJECTED_SUBSTRING = "format ArrowStream"
 
 def _is_arrow_format_rejected(message: str) -> bool:
     return _ARROW_FORMAT_REJECTED_SUBSTRING in message
+
+
+# Per-query caps some hosts enforce and a user can't raise. Tinybird caps each result at 500 MiB and
+# each query's memory, and fails the query before it sends any row.
+_QUERY_LIMIT_EXCEEDED_SUBSTRINGS: tuple[str, ...] = ("TOO_MANY_ROWS_OR_BYTES", "MEMORY_LIMIT_EXCEEDED")
+
+
+def _is_query_limit_exceeded(message: str) -> bool:
+    return any(substring in message for substring in _QUERY_LIMIT_EXCEEDED_SUBSTRINGS)
 
 
 _TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
@@ -1505,6 +1626,7 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
+    stored_primary_keys: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
     server_hostname: str | None = None,
 ) -> SourceResponse:
@@ -1544,6 +1666,7 @@ def clickhouse_source(
 
             # Project to the user-selected columns (always keeping PK + cursor).
             projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
+            page_key = _page_key(list(table.columns), should_use_incremental_field, incremental_field, primary_keys)
 
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
@@ -1593,11 +1716,18 @@ def clickhouse_source(
                 _get_partition_settings(client, database, table_name, logger) if should_use_incremental_field else None
             )
 
+            # The merge matches rows on the stored key when one exists (`resolve_primary_keys`),
+            # so the probe must check that key and not the sorting key.
+            merge_keys = resolve_merge_keys(
+                stored_primary_keys, primary_keys, [column.name for column in table.columns]
+            )
             has_duplicate_primary_keys = False
-            if should_use_incremental_field and primary_keys:
-                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                    client, database, table_name, primary_keys, logger
-                )
+            if should_use_incremental_field and should_probe_for_duplicates(
+                merge_keys, primary_keys, constraints_enforced=False
+            ):
+                probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
+                # Only a probe that ran proves anything.
+                has_duplicate_primary_keys = probed is True
         finally:
             client.close()
 
@@ -1621,10 +1751,7 @@ def clickhouse_source(
             )
 
             try:
-                query, filter_params = _build_query(
-                    database=database,
-                    table_name=table_name,
-                    columns=projected_columns,
+                base_conditions, filter_params = _build_conditions(
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
@@ -1636,9 +1763,68 @@ def clickhouse_source(
                     last_value = db_incremental_field_last_value
                     if last_value is None and incremental_field_type is not None:
                         last_value = incremental_type_to_initial_value(incremental_field_type)
-                    parameters["last_value"] = last_value
+                    parameters["last_value"] = _last_value_param(last_value, incremental_field_type)
 
-                logger.info(f"ClickHouse query: {query}")
+                def read_batches() -> Generator[pa.RecordBatch]:
+                    """Read the table in one query, or in pages of key ranges once a host limit rejects that.
+
+                    A page is retried with half as many rows while the host rejects it before it sends a
+                    row. A rejection after rows were read raises, because the retry would read them again.
+                    """
+                    page_rows: int | None = None
+                    lower: list[str] | None = None
+                    while True:
+                        read_any = False
+                        try:
+                            upper: list[str] | None = None
+                            page_conditions: list[str] = []
+                            page_parameters: dict[str, Any] = {}
+                            if page_rows is not None and page_key is not None:
+                                lower_conditions, lower_parameters = _page_conditions(page_key, lower, None)
+                                bound_query = _build_page_bound_query(
+                                    database=database,
+                                    table_name=table_name,
+                                    key=page_key,
+                                    conditions=[*base_conditions, *lower_conditions],
+                                    page_rows=page_rows,
+                                )
+                                bound_rows = stream_client.query(
+                                    bound_query, parameters={**parameters, **lower_parameters}
+                                ).result_rows
+                                upper = list(bound_rows[0]) if bound_rows else None
+                                page_conditions, page_parameters = _page_conditions(page_key, lower, upper)
+
+                            query, _ = _build_query(
+                                database=database,
+                                table_name=table_name,
+                                columns=projected_columns,
+                                should_use_incremental_field=should_use_incremental_field,
+                                incremental_field=incremental_field,
+                                incremental_field_type=incremental_field_type,
+                                row_filters=row_filters,
+                                page_conditions=page_conditions,
+                            )
+                            logger.info(f"ClickHouse query: {query}")
+                            with closing(
+                                _stream_record_batches(
+                                    stream_client, query, {**parameters, **page_parameters}, projected_columns, logger
+                                )
+                            ) as batches:
+                                for batch in batches:
+                                    read_any = read_any or batch.num_rows > 0
+                                    yield batch
+                        except ClickHouseError as e:
+                            if read_any or page_key is None or not _is_query_limit_exceeded(str(e)):
+                                raise
+                            if page_rows is not None and page_rows // 2 < PAGED_READ_MIN_ROWS:
+                                raise
+                            page_rows = PAGED_READ_INITIAL_ROWS if page_rows is None else page_rows // 2
+                            logger.warning(f"ClickHouse query exceeded a host limit, reading {page_rows} rows per page")
+                            continue
+
+                        if upper is None:
+                            return
+                        lower = upper
 
                 # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
@@ -1648,9 +1834,7 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with closing(
-                    _stream_record_batches(stream_client, query, parameters, projected_columns, logger)
-                ) as stream:
+                with closing(read_batches()) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue

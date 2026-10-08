@@ -920,6 +920,32 @@ describe("SessionService", () => {
       );
     });
 
+    it("records the session's gateway mode on the start event", async () => {
+      const { track } = await import("@posthog/ui/shell/posthogAnalyticsImpl");
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
+      mockBuildAuthenticatedClient.mockReturnValue({
+        ...mockAuthenticatedClient,
+        createTaskRun: vi.fn().mockResolvedValue({ id: "run-789" }),
+        appendTaskRunLog: vi.fn(),
+      });
+      mockTrpcAgent.start.mutate.mockResolvedValue({
+        channel: "test-channel",
+        configOptions: [],
+        gatewayMode: "go",
+      });
+
+      await service.connectToTask({
+        task: createMockTask(),
+        repoPath: "/repo",
+      });
+
+      expect(track).toHaveBeenCalledWith(
+        "Task run started",
+        expect.objectContaining({ gateway_mode: "go" }),
+      );
+    });
+
     it("starts Claude with the access selected for the task", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
@@ -7997,10 +8023,9 @@ describe("SessionService", () => {
         const service = getSessionService();
         mockFeatureFlags.isEnabled.mockReturnValue(true);
         if (tokenMissing)
-          vi.spyOn(
-            service,
-            "resolveClaudeCloudModelAccess",
-          ).mockRejectedValueOnce(new Error("Save a Claude token first."));
+          vi.spyOn(service, "resolveCloudModelAccess").mockRejectedValueOnce(
+            new Error("Save a Claude token first."),
+          );
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
             isCloud: true,

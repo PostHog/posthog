@@ -115,6 +115,10 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                 </div>
             }
             visible={popoverVisible}
+            // React bubbles a click in the portaled overlay to the onClick of any element that wraps this component
+            onClickInside={(e) => e.stopPropagation()}
+            onMouseEnterInside={() => setPopoverVisible(true)}
+            onMouseLeaveInside={() => setPopoverVisible(false)}
             showArrow
             placement="right"
         >

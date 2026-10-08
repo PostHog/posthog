@@ -1,7 +1,7 @@
 """The engagement signal: did a finding's inline comment get a reply or a reaction?
 
-ReviewHog's published comments lead with ``### {finding.title}`` and anchor to the finding's file, so
-a finding maps to its posted comment exactly by (path, title) — no stored comment id, and robust to
+ReviewHog's published comments lead with a heading that holds ``finding.title`` and anchor to the
+finding's file, so a finding maps to its posted comment exactly by (path, title) — no stored comment id, and robust to
 line drift after review (the match is on body content, not position). The one
 ``GET /pulls/{n}/comments`` list carries both an ``in_reply_to_id`` per comment and a ``reactions``
 summary, so replies and reactions are read without any extra call or GraphQL.
@@ -10,6 +10,11 @@ summary, so replies and reactions are read without any extra call or GraphQL.
 from typing import Any
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
+from products.review_hog.backend.reviewer.constants import (
+    LEGACY_FLASH_MODE_MESSAGE_PREFIX,
+    REPORTED_LEVELS,
+    finding_heading,
+)
 from products.review_hog.backend.reviewer.tools.github_client import is_app_bot_author
 
 
@@ -23,16 +28,21 @@ def find_finding_comment(
 ) -> dict[str, Any] | None:
     """The review comment ReviewHog posted for ``finding``, matched by path + exact heading, or None.
 
-    The whole first line must equal ``### {title}`` — a prefix match would pair "Foo" with a comment
-    headed "### Foobar". First match wins if two findings in a file share a title (rare); the outcome
-    is the same engaged/not signal either way.
+    The whole first line must equal ``**P{n} · {title}**`` for any P level, or ``### {title}`` for
+    comments published before the P-level heading. A prefix match would pair "Foo" with a comment
+    headed "Foobar". The level is not checked, because a validator override can change it after
+    publish. First match wins if two findings in a file share a title (rare); the outcome is the same
+    engaged/not signal either way.
     """
-    heading = f"### {finding.title}"
+    headings = {f"### {finding.title}"} | {finding_heading(finding.title, level) for level in REPORTED_LEVELS}
     for comment in review_comments:
         if comment.get("path") != finding.file:
             continue
-        first_line = (comment.get("body") or "").split("\n", 1)[0].rstrip()
-        if first_line == heading:
+        # Flash comments posted before reviewhog-flash-1-1 open with the flash banner line, so the
+        # banner is removed before the title check.
+        body = (comment.get("body") or "").removeprefix(LEGACY_FLASH_MODE_MESSAGE_PREFIX)
+        first_line = body.split("\n", 1)[0].rstrip()
+        if first_line in headings:
             return comment
     return None
 

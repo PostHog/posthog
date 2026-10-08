@@ -3,6 +3,8 @@ import type { UserBasicType } from '~/types'
 import {
     type ReportChartApi,
     type ReportMetricApi,
+    type ReportRankingApi,
+    type ReportSourceSuggestionApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -88,6 +90,8 @@ export interface SignalReport {
     id: string
     title: string | null
     summary: string | null
+    /** The opening of `summary` as plain text, before its first section heading. */
+    summary_lead?: string
     status: SignalReportStatus
     total_weight: number
     signal_count: number
@@ -100,6 +104,8 @@ export interface SignalReport {
     metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
+    /** A product the team doesn't use that would have given this report better evidence. Detail responses only. */
+    source_suggestion?: ReportSourceSuggestionApi | null
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
@@ -137,6 +143,8 @@ export interface SignalReport {
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
+    ranking?: ReportRankingApi | null
 }
 
 export enum SignalReportStatus {

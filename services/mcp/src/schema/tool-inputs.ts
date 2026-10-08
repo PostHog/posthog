@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+import {
+    AiObservabilityOfflineExperimentsUploadCreateBody,
+    aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
+    aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
+} from '../generated/ai_observability/api'
+import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -48,6 +54,14 @@ export const DashboardTileCreateSchema = z.object({
         .max(4000)
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
+        ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
         ),
     layouts: z
         .object({
@@ -102,9 +116,7 @@ export const BillingTeamIdsSchema = z
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
-    .describe(
-        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    )
+    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
@@ -213,6 +225,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -222,6 +246,17 @@ const NumericScoreDefinitionConfigSchema = z
         min: z.number().optional().describe('Optional inclusive minimum score.'),
         max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
         step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+        passing_rule: z
+            .object({
+                operator: z
+                    .enum(['gte', 'lte'])
+                    .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                threshold: z.number().describe('Finite passing threshold within any configured score bounds.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe('Optional passing rule. Omit or set null for neutral scores. Each version keeps its own rule.'),
     })
     .strict()
     .describe('Config shape used when kind is "numeric".')
@@ -230,6 +265,11 @@ const BooleanScoreDefinitionConfigSchema = z
     .object({
         true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
         false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+        true_is_failure: z
+            .boolean()
+            .nullable()
+            .optional()
+            .describe('Whether true means failure. False, omitted, or null means true passes in offline evaluations.'),
     })
     .strict()
     .describe('Config shape used when kind is "boolean".')
@@ -241,8 +281,42 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
+
+const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
+const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
+const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element
+
+// The API rejects unknown payload keys, but zod drops them before the request. A misnamed key
+// would then upload an incomplete payload, and the immutable item cannot be corrected later.
+export const OfflineExperimentUploadItemsSchema = z
+    .array(
+        OfflineExperimentUploadItem.extend({
+            payload: OfflineExperimentUploadItem.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadItem.shape.payload.description!),
+        })
+    )
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+    .optional()
+    .describe(OfflineExperimentUploadBody.items.description!)
+
+export const OfflineExperimentUploadResultsSchema = z
+    .array(
+        OfflineExperimentUploadResult.extend({
+            payload: OfflineExperimentUploadResult.shape.payload
+                .unwrap()
+                .strict()
+                .optional()
+                .describe(OfflineExperimentUploadResult.shape.payload.description!),
+        })
+    )
+    .min(1)
+    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+    .describe(OfflineExperimentUploadBody.results.description!)
 
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -416,7 +490,9 @@ export const ExperimentResultsGetSchema = z.preprocess(
             .boolean()
             .optional()
             .default(false)
-            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+            .describe(
+                'Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.'
+            ),
     })
 )
 
@@ -673,13 +749,54 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+const taskAgentRunOptions = {
+    // Use a pattern because JSON Schema's date-time format requires a timezone offset.
+    scheduled_at: z
+        .string()
+        .regex(z.regexes.datetime({ offset: true, local: true }))
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.'
+        ),
+    model: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.'
+        ),
+    // Mirrors the run serializer's choices, unlike the deliberately loose `model`, so the tool
+    // cannot offer a depth the API rejects.
+    reasoning_effort: z
+        .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+        .optional()
+        .describe('Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.'),
+}
+
+// Mirrors the run serializer's runtime-selection rule. Its 400 also names runtime_adapter, which
+// these tools do not expose, so fail here naming only the field the caller can set.
+function validateTaskAgentRunOptions(
+    data: { model?: string | undefined; reasoning_effort?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if (data.reasoning_effort && !data.model) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['model'],
+            message: 'Required when reasoning_effort is set. Call tasks-models-retrieve to choose a model.',
+        })
+    }
+}
+
 export const TaskAgentCreateSchema = z
     .object({
         title: z.string().max(255).optional(),
         description: z.string().min(1).describe('Instructions for the agent.'),
         repository: z.string().nullish().describe('Repository in organization/repo format.'),
         branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+        ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, start_run: true as const }))
 
 export const TaskAgentRunCreateSchema = z
@@ -688,7 +805,9 @@ export const TaskAgentRunCreateSchema = z
         branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
         resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
         pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+        ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
 // Debug MCP UI Apps
@@ -699,6 +818,12 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    context: z
+        .string()
+        .optional()
+        .describe(
+            'Why this query runs, and the governed-catalog outcome behind it: state "governed catalog consulted: no match" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
+        ),
     truncate: z
         .boolean()
         .optional()

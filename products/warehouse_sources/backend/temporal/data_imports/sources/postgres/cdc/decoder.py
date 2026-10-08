@@ -38,6 +38,8 @@ from typing import IO, Any
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
@@ -151,17 +153,18 @@ class RelationColumn:
     type_modifier: int
 
 
-_REPLICA_IDENTITY_FULL = 2
+_REPLICA_IDENTITY_FULL = ord("f")
 
 
-@dataclass
+@frozen
 class Relation:
     """Cached relation (table) metadata from an R message."""
 
     relation_id: int
     schema_name: str
     table_name: str
-    replica_identity: int  # 0=default, 1=nothing, 2=full, 3=index
+    # pg_class.relreplident sent as one character: d=default, n=nothing, f=full, i=index.
+    replica_identity: int
     columns: list[RelationColumn] = field(default_factory=list)
     # Arrow type per column, derived once from the column OIDs. Stamped onto every
     # ChangeEvent so the batcher types all-null micro-batches consistently.
@@ -203,6 +206,14 @@ class PgOutputDecoder:
         self._tx_event_count = 0
         self._tx_timestamp: datetime | None = None
         self._truncated_tables: list[str] = []
+        # Truncates of the open transaction. They become visible only once its changes are consumed,
+        # so a caller that handles truncates mid-transaction never purges ahead of the changes before
+        # them.
+        self._tx_truncated_tables: list[str] = []
+        # Per qualified table name, the key columns whose old values an update reports. Under REPLICA
+        # IDENTITY FULL the old row holds every column, and keeping the rest would grow every spilled
+        # transaction for values nothing reads.
+        self._key_change_columns: dict[str, frozenset[str]] = {}
         self._last_commit_end_lsn: str | None = None
 
     def decode_message(self, data: bytes, lsn: str) -> Iterable[ChangeEvent]:
@@ -238,7 +249,7 @@ class PgOutputDecoder:
 
     @property
     def truncated_tables(self) -> list[str]:
-        """Tables that received a Truncate message. Caller should trigger re-snapshot."""
+        """Tables truncated by a transaction whose changes the caller has consumed. Caller should re-snapshot them."""
         return list(self._truncated_tables)
 
     def clear_truncated_tables(self) -> None:
@@ -276,16 +287,26 @@ class PgOutputDecoder:
         self._last_commit_end_lsn = end_lsn
         self._check_decode_time()
         spill, tail, types = self._tx_spill, self._tx_buffer, self._tx_spill_types
+        truncated = self._tx_truncated_tables
         self._tx_spill = None
         self._reset_transaction()
         self._tx_timestamp = None
+        events: Iterable[ChangeEvent]
         if spill is None:
-            return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
-        # A caller that abandoned the previous replay would otherwise keep its budget share.
-        if self._replay_spill is not None:
-            self._replay_spill.close()
-        self._replay_spill = spill
-        return _replay_spilled_transaction(spill, types, tail, end_lsn)
+            events = [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
+        else:
+            # A caller that abandoned the previous replay would otherwise keep its budget share.
+            if self._replay_spill is not None:
+                self._replay_spill.close()
+            self._replay_spill = spill
+            events = _replay_spilled_transaction(spill, types, tail, end_lsn)
+        if not truncated:
+            return events
+        return self._publish_truncates_after(events, truncated)
+
+    def _publish_truncates_after(self, events: Iterable[ChangeEvent], truncated: list[str]) -> Iterator[ChangeEvent]:
+        yield from events
+        self._truncated_tables.extend(truncated)
 
     def _check_decode_time(self) -> None:
         if time.monotonic() - self._tx_started_at > MAX_TX_DECODE_SECONDS:
@@ -306,6 +327,7 @@ class PgOutputDecoder:
         self._tx_spill_types = []
         self._tx_buffer = []
         self._tx_event_count = 0
+        self._tx_truncated_tables = []
 
     def _handle_relation(self, payload: bytes) -> None:
         """R message: relation_id(4) + namespace(str) + name(str) + replica_identity(1) + n_cols(2) + columns"""
@@ -396,6 +418,11 @@ class PgOutputDecoder:
         if marker in ("K", "O"):
             offset += 1
             old_columns, offset = _skip_tuple(payload, offset, relation)
+            if marker == "K":
+                # The old key tuple sends every column outside the replica identity as NULL, and
+                # those NULLs are not the old values.
+                key_names = {col.name for col in relation.columns if col.flags & 1}
+                old_columns = {name: value for name, value in old_columns.items() if name in key_names}
 
         # New tuple starts with 'N'
         if chr(payload[offset]) != "N":
@@ -412,6 +439,16 @@ class PgOutputDecoder:
                 columns[col_name] = old_columns[col_name]
                 omitted.discard(col_name)
 
+        key_change_columns = self._key_change_columns.get(relation.qualified_name, frozenset())
+        previous_values = {
+            name: value
+            for name, value in old_columns.items()
+            if name in key_change_columns and name in columns and columns[name] != value
+        }
+        # A key column outside the old tuple has no old value, and capture would fill it with the new
+        # value, which builds an old key that never existed. The update then stays an upsert.
+        if not key_change_columns.issubset(old_columns):
+            previous_values = {}
         self._buffer_event(
             ChangeEvent(
                 operation="U",
@@ -421,6 +458,7 @@ class PgOutputDecoder:
                 columns=columns,
                 column_types=relation.column_arrow_types,
                 omitted_columns=frozenset(omitted),
+                previous_values=previous_values or None,
             )
         )
 
@@ -472,9 +510,12 @@ class PgOutputDecoder:
                     relation.schema_name,
                     relation.table_name,
                 )
-                self._truncated_tables.append(relation.qualified_name)
+                self._tx_truncated_tables.append(relation.qualified_name)
 
     # --- Helpers ---
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
+        self._key_change_columns = {table: frozenset(columns) for table, columns in columns_by_table.items()}
 
     def get_key_columns(self, table_name: str) -> list[str]:
         """Return the column names forming the replica identity key, or [] if there is no usable one.
@@ -486,7 +527,7 @@ class PgOutputDecoder:
         relation = self._find_relation_by_name(table_name)
         if relation is None:
             return []
-        # replica_identity 2 = FULL, which flags every column as part of the key. That names no key:
+        # REPLICA IDENTITY FULL flags every column as part of the key. That names no key:
         # merging on every column makes each row version its own key, so updates accumulate instead
         # of replacing. Checked by identity rather than by "all columns flagged", so a table whose
         # declared PK genuinely covers every column still works.
@@ -550,6 +591,7 @@ class PgOutputDecoder:
                         event.columns,
                         sorted(event.omitted_columns),
                         type_index[key],
+                        event.previous_values,
                     ],
                     ensure_ascii=False,
                     separators=(",", ":"),
@@ -574,7 +616,7 @@ def _replay_spilled_transaction(
     try:
         spill.file.seek(0)
         for line in spill.file:
-            operation, table_name, timestamp, columns, omitted, type_index = json.loads(line)
+            operation, table_name, timestamp, columns, omitted, type_index, previous_values = json.loads(line)
             yield ChangeEvent(
                 operation=operation,
                 table_name=table_name,
@@ -583,6 +625,7 @@ def _replay_spilled_transaction(
                 columns=columns,
                 column_types=types[type_index],
                 omitted_columns=frozenset(omitted),
+                previous_values=previous_values,
             )
         for event in tail:
             yield dataclass_replace(event, position_serialized=end_lsn)

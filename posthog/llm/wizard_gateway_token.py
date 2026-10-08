@@ -67,6 +67,8 @@ WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
     "gpt-5.6-luna": ("low",),
     "gpt-5.6-sol": ("medium",),
     "gpt-5.6-terra": ("low", "medium", "high"),
+    "gpt-6-luna": ("low", "medium"),
+    "gpt-6-sol": ("low", "medium", "high"),
 }
 
 # pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.
@@ -381,8 +383,7 @@ def wizard_gateway_configured() -> bool:
 
 
 def wizard_gateway_base_url() -> str:
-    """The gateway base without the version segment. The CLI gets the same string,
-    so both sides read one normalization of the setting."""
+    """The gateway base returned to the CLI, without the version segment."""
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
@@ -402,7 +403,7 @@ def mint_wizard_gateway_token(
     bounded by the posture's ceiling, then the posture's own, then the flat
     setting, which applies only when there is no posture.
     """
-    base_url = wizard_gateway_base_url()
+    base_url = (settings.WIZARD_GATEWAY_MINT_URL or settings.WIZARD_GATEWAY_URL).rstrip("/").removesuffix("/v1")
     body = {
         "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
         "ttl_seconds": _ttl_seconds(posture),

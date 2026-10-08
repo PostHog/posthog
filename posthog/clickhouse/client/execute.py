@@ -23,6 +23,7 @@ from posthog.hogql import query_stats
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
+    MAX_QUERY_SIZE_BYTES,
     ClickHouseUser,
     QuerySummary,
     Workload,
@@ -312,9 +313,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        "max_query_size": MAX_QUERY_SIZE_BYTES,
     }
 
 
@@ -521,6 +520,8 @@ def sync_execute(
         # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
         # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
         ch_user = ClickHouseUser.LLM_ANALYTICS
+    elif ch_user == ClickHouseUser.DEFAULT and tags.ch_user:
+        ch_user = ClickHouseUser(tags.ch_user)
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

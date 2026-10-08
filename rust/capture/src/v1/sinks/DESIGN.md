@@ -1200,13 +1200,13 @@ expect.
   ┌─────────────────────────┐
   │  WrappedEvent           │
   │                         │
-  │  event: Event {         │      ┌───────────────────────┐
-  │    event, uuid,         │      │  Event::Options       │
-  │    distinct_id,         │      │    cookieless_mode     │
-  │    timestamp,           │      │    disable_skew_adjust │
-  │    session_id?,         │      │    product_tour_id     │
-  │    window_id?,          │      │    process_person_prof │
-  │    options ─────────────┼─────▶└───────────────────────┘
+  │  event: Event {         │      ┌────────────────────────────┐
+  │    event, uuid,         │      │  Event::Options            │
+  │    distinct_id,         │      │    cookieless_mode         │
+  │    timestamp,           │      │    disable_skew_correction │
+  │    session_id?,         │      │    product_tour_id         │
+  │    window_id?,          │      │    process_person_profile  │
+  │    options ─────────────┼─────▶└────────────────────────────┘
   │    properties (RawValue)│
   │  }                      │
   │  uuid: Uuid (pre-parsed)│
@@ -1265,9 +1265,16 @@ original property ordering and formatting.
 | `session_id` | `$session_id` | |
 | `window_id` | `$window_id` | |
 | `options.cookieless_mode` | `$cookieless_mode` | |
-| `options.disable_skew_correction` | `$ignore_sent_at` | Legacy rename (alias: `disable_skew_adjustment`) |
+| `options.disable_skew_correction` | `$ignore_sent_at` | Legacy rename. v1 reads only `disable_skew_correction` |
 | `options.product_tour_id` | `$product_tour_id` | |
 | `options.process_person_profile` | `$process_person_profile` | |
+
+`RawOptions::validate` reads the four expected option keys before injection and ignores every other key:
+
+- Boolean options accept booleans, numbers (zero is off), `true`/`t`/`yes`/`y`/`on`/`1` and `false`/`f`/`no`/`n`/`off`/`0` in any case, and numeric strings. `null` and blank strings mean "not set".
+- `product_tour_id` accepts a non-empty string, forwarded unchanged, or an integer, forwarded as its decimal string. `null` and blank strings mean "not set".
+- Any other value for an expected key drops the event with `invalid_options`, and emits the `invalid_options` ingestion warning, whose `invalidOptions` detail names the failed keys.
+- The batch-level `capture_internal` and `historical_migration` flags use the same boolean reader. An unreadable value means "not set" and never fails the batch.
 
 ### IngestionEvent / IngestionData
 
@@ -1289,7 +1296,7 @@ Fields intentionally omitted vs the legacy `RawEvent`:
 
 ### IP redaction
 
-`capture_internal` requests (PostHog's own telemetry) have their IP
+`capture_internal` requests (events the Django app sends on behalf of a customer team) have their IP
 redacted to `127.0.0.1` in both `serialize` (the `ip` field on
 `IngestionEvent`) and `partition_key` (cookieless mode).
 

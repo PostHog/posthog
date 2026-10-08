@@ -21,15 +21,20 @@ read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
-from collections.abc import Mapping
 from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
-from owners_yaml.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
+
+from posthog.enums import LabeledStrEnum
+
+
+class CIEngine(LabeledStrEnum):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    DEPOT_CI = "depot_ci", "Depot CI"
 
 
 class QueryWorkLimitExceededError(Exception):
@@ -52,6 +57,9 @@ class GitHubSourceNotConnectedError(Exception):
 
 # The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+# Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
+# spends the team's warehouse compute, so no team gets one without opting in.
+FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
 
 
 class CISignalsSyncStatus(StrEnum):
@@ -287,6 +295,7 @@ class ExpectedWarehouseView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
+    materialized: bool = False
 
 
 @dataclass(frozen=True)
@@ -382,6 +391,9 @@ class WorkflowRunDetail:
     commit_pr_number: int | None
     # A merge-queue gate attempt landing `pr_number`. Counts as CI; not as a push the author made.
     is_merge_queue: bool
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -406,6 +418,7 @@ class WorkflowRunActivityPoint:
     pr_number: int
     # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
     head_sha: str
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -445,6 +458,11 @@ class WorkflowJob:
     # The job's runner tier label, e.g. '16-core' (self-hosted) or 'ubuntu-latest' (GitHub-hosted).
     runner_label: str
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
+    native_run_id: str | None = None
+    native_workflow_run_id: str | None = None
+    native_job_id: str | None = None
+    native_attempt_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -479,7 +497,7 @@ class WorkflowCost:
 @dataclass(frozen=True)
 class RunCost:
     """One workflow run's billable CI spend within a PR — the per-run cost shown when a PR's workflow
-    row is expanded to its runs. Keyed by ``(run_id, run_attempt)`` so a re-run's attempts stay
+    row is expanded to its runs. Keyed by ``(ci_engine, run_id, run_attempt)`` so a re-run's attempts stay
     distinct. Billable runners only; same exclusion rules as ``PRCostSummary``.
     """
 
@@ -487,6 +505,7 @@ class RunCost:
     run_attempt: int
     billable_minutes: float
     estimated_cost_usd: float | None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -533,7 +552,7 @@ class PRCostSummary:
     excluded_jobs: int
     # Same spend broken down per workflow, so the PR's per-workflow table can show a cost column.
     by_workflow: list[WorkflowCost]
-    # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
+    # Same spend broken down per workflow run, keyed by (ci_engine, run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
     # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
@@ -547,8 +566,9 @@ class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
     detail: str | None = None
-    # GitHub Actions run id for ci_* events — links straight to the run page.
+    # Integer run id for ci_* events. It is unique only together with ci_engine.
     run_id: int | None = None
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -590,6 +610,7 @@ class CIJobFailureLog:
     line_count: int
     lines: list[CIFailureLogLine]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -687,9 +708,6 @@ class FlakyTestList:
 # How long a Trunk quarantine may stand before the scoreboard calls it overdue. Trunk itself never
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
-
-# The first-class team every unattributed test aggregates under, on every surface here.
-UNOWNED_TEAM = "unowned"
 
 
 @dataclass(frozen=True)
@@ -938,13 +956,25 @@ class PullRequestListItem:
 class PullRequestList:
     """A page of the PR list plus an explicit truncation signal. ``items`` is capped
     at ``limit`` (newest first); ``truncated`` is True when more pull requests match
-    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
+    after this page. Surfaced so a consumer never mistakes a capped page for the whole
     set — the aggregate counts in ``CICardSummary`` can legitimately exceed
     ``len(items)`` when ``truncated`` is True.
     """
 
     items: list[PullRequestListItem]
     truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class AttentionPullRequestList:
+    """Open pull requests that need attention: failing CI, or stuck by the ``CICardSummary`` rule.
+    Failing first, then newest. ``items`` holds at most ``limit``; ``total`` counts every match, so
+    a consumer can say how many it did not show.
+    """
+
+    items: list[PullRequestListItem]
+    total: int
     limit: int
 
 
@@ -1113,6 +1143,8 @@ class WorkflowHealthItem:
     # filter, so the list can rank queue-gating workflows (the closest proxy for a required check)
     # even when a scope is active.
     merge_queue_run_count: int = 0
+
+    latest_ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -1501,6 +1533,7 @@ class MasterFailureGroup:
     last_seen: datetime
     # The most recent failing run in the group — the drill-down anchor.
     latest_run_id: int
+    latest_ci_engine: CIEngine | None = None
 
 
 # The sparkline is a fixed-width hourly histogram; the width is the contract so a caller can render
@@ -1542,6 +1575,8 @@ class BrokenTestRow:
     latest_branch: str
     trend_24h: list[int] = field(default_factory=list)
 
+    latest_ci_engine: CIEngine | None = None
+
 
 @dataclass(frozen=True)
 class BrokenTestsResult:
@@ -1571,6 +1606,7 @@ class RunFailureLogs:
     logs_available: bool
     jobs: list[CIJobFailureLog]
     truncated: bool
+    ci_engine: CIEngine | None = None
 
 
 @dataclass(frozen=True)
@@ -1598,21 +1634,6 @@ class WorkflowJobAggregate:
     retry_job_count: int
     billable_minutes: float | None
     estimated_cost_usd: float | None
-
-
-@dataclass(frozen=True)
-class PathOwnership:
-    """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
-    The registry rides along because the caller that asks who owns a path usually has to reach that
-    team next, and the root file answers both questions in one read.
-
-    ``resolved`` is false when the ownership files could not be read; every path is then
-    ``UNOWNED_TEAM`` and the registry is empty. A caller that says so beats one that reads the blind
-    answer as "nobody owns this"."""
-
-    team_by_path: Mapping[str, str]
-    registry: Mapping[str, TeamEntry]
-    resolved: bool
 
 
 class DeliveryScopeKind(StrEnum):
@@ -1770,6 +1791,123 @@ class TeamReadyToMergeMedians:
     # Over the pull requests by the team's members, the same population as a github_team delivery scope.
     # None when too few other authors merged in the window: the author could read a teammate's value back.
     medians: ReadyToMergeMedians | None
+
+
+class FrictionGroup(StrEnum):
+    """The kinds of friction an author meets, each a share of the friction score."""
+
+    CI = "ci"
+    REVIEW = "review"
+    QUEUE = "queue"
+    REWORK = "rework"
+
+
+@dataclass(frozen=True)
+class FrictionGroupShare:
+    group: FrictionGroup
+    # This group's part of the author's score, in the same "× typical" unit. The parts add up to the score.
+    score: float
+
+
+@dataclass(frozen=True)
+class AuthorFriction:
+    """What the dev loop put one author through, as a multiple of the typical author (1.0).
+
+    Friction counts only what happened to the author, never how much or how fast they ship (SPEC §2).
+    ``rank`` orders experiences, and ``rank_low``..``rank_high`` is the band it stays in when the author's
+    pull requests are resampled, so a reader sees how settled a position is.
+    """
+
+    author: str
+    avatar_url: str
+    score: float
+    groups: list[FrictionGroupShare]
+    pr_count: int
+    rank: int
+    rank_low: int
+    rank_high: int
+    # The author's GitHub teams, empty when the membership table is not synced.
+    teams: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TeamFriction:
+    """A team's median member friction. Shown only above a floor of scored members, so one or two people
+    never read as a team's figure (SPEC §2)."""
+
+    github_team: str
+    median_score: float
+    scored_author_count: int
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionItem:
+    """One pull request's friction, as a multiple of the typical pull request in the repository."""
+
+    number: int
+    repo_owner: str
+    repo_name: str
+    title: str
+    score: float
+    groups: list[FrictionGroupShare]
+
+
+@dataclass(frozen=True)
+class AuthorFrictionDetail:
+    available: bool
+    window_days: int
+    ranked_author_count: int
+    has_membership_data: bool
+    # None when the author has fewer merged pull requests than a score needs.
+    author: AuthorFriction | None
+    pr_count: int
+    # The author's teams without the author, each only above the floor of other scored members.
+    teams: list[TeamFriction]
+    pull_requests: list[PullRequestFrictionItem]
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionBreakdown:
+    """One merged pull request's friction, and the counts from the per-PR friction view behind it."""
+
+    score: float
+    groups: list[FrictionGroupShare]
+    flake_red_count: int
+    master_red_count: int
+    unknown_red_count: int
+    own_red_count: int
+    futile_rerun_count: int
+    push_count: int
+    # CI running time of each push, oldest first.
+    ci_wait_seconds: list[float]
+    # None when the pull request's ready-for-review moment or first approval is not observed.
+    first_approval_wait_seconds: float | None
+    pushes_after_approval: int | None
+    # None when the pull request never entered the merge queue.
+    queue_seconds: float | None
+    kickout_count: int | None
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionDetail:
+    available: bool
+    window_days: int
+    # None when the pull request did not merge in the window, or a bot authored it.
+    pull_request: PullRequestFrictionBreakdown | None
+
+
+@dataclass(frozen=True)
+class AuthorFrictionList:
+    # False when the team has no per-PR friction view yet (it needs runs, jobs and pull requests synced).
+    available: bool
+    window_days: int
+    # Authors scored in the repository. A team list keeps their ranks, so this is the ranks' denominator.
+    ranked_author_count: int
+    github_team: str | None
+    has_membership_data: bool
+    items: list[AuthorFriction]
+    # Every team above the floor of scored members, most friction first.
+    teams: list[TeamFriction] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

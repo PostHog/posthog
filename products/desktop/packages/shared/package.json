@@ -56,9 +56,9 @@
       "types": "./dist/mcp-sandbox-proxy.d.ts",
       "import": "./dist/mcp-sandbox-proxy.js"
     },
-    "./quick-ask-shortcuts": {
-      "types": "./dist/quick-ask-shortcuts.d.ts",
-      "import": "./dist/quick-ask-shortcuts.js"
+    "./screenshot-area": {
+      "types": "./dist/screenshot-area.d.ts",
+      "import": "./dist/screenshot-area.js"
     },
     "./rich-output-prompt": {
       "types": "./dist/rich-output-prompt.d.ts",
@@ -81,6 +81,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "dependencies": {
+    "@posthog/agent-contracts": "link:../../../../packages/agent/packages/agent-contracts",
     "@posthog/brand": "catalog:",
     "zod": "^4.1.12"
   },

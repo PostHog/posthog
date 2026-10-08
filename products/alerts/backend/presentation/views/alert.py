@@ -81,8 +81,6 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     MAX_PROMPT_POINTS,
     LLMAlertWrite,
@@ -92,11 +90,7 @@ from products.alerts.backend.facade.api import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-)
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -106,7 +100,7 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_alert_destinations,
     validate_destination_data,
 )
-from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -115,7 +109,13 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -458,11 +458,6 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
         self.fail("does_not_exist", pk_value=data)
 
 
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
-
-
 class ThresholdSerializer(serializers.ModelSerializer):
     configuration = ThresholdConfigurationField(
         help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). "
@@ -633,6 +628,14 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        required=False,
+        help_text="Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). "
+        "Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, "
+        "not the check frequency. Allows late data to arrive, but also delays detection of real problems.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -805,6 +808,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "checks_total",
             "config",
             "detector_config",
+            "evaluation_delay_intervals",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -966,7 +970,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         evaluation_changed = conditions_or_threshold_changed or any(
             validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend", "detector_config")
+            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
         )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
@@ -1101,7 +1105,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         # Mirror the UI's default for cadences finer than the insight interval. Applied before
         # validate_alert_config so the validated config is the persisted config.
-        if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
+        evaluation_delay = attrs.get(
+            "evaluation_delay_intervals", self.instance.evaluation_delay_intervals if self.instance else 0
+        )
+        if not evaluation_delay and isinstance(config, dict) and config.get("check_ongoing_interval") is None:
             if should_default_check_ongoing_interval(
                 query=query,
                 config=config,
@@ -1115,6 +1122,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         request_user = self.context["request"].user
         creating_user = request_user if isinstance(request_user, User) else None
         try:
+            validate_evaluation_delay(query, config, evaluation_delay)
             validate_alert_insight_query(
                 query,
                 team=self.context["get_team"](),
@@ -1208,6 +1216,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        default=0,
+        help_text="Skip this many completed insight intervals before simulation, matching live evaluation. "
+        "Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+    )
     insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
         help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
@@ -1256,6 +1271,15 @@ class AlertSimulateSerializer(serializers.Serializer):
         _enforce_alert_feature_flags(self.context, value)
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        with upgrade_insight(attrs["insight"]):
+            query = attrs["insight"].query
+        try:
+            validate_evaluation_delay(query, attrs.get("config"), attrs["evaluation_delay_intervals"])
+        except ValueError as err:
+            raise ValidationError({"evaluation_delay_intervals": [str(err)]}) from err
+        return attrs
+
     def validate_detector_config(self, value):
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
@@ -1287,6 +1311,12 @@ class BreakdownSimulationResultSerializer(serializers.Serializer):
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(required=False, help_text="Completed intervals skipped.")
+    evaluated_interval_start = serializers.CharField(required=False, help_text="Start of the latest eligible interval.")
+    evaluated_interval_end = serializers.CharField(
+        required=False, help_text="Exclusive end of the latest eligible interval."
+    )
+    evaluated_interval_timezone = serializers.CharField(required=False, help_text="Project timezone of the interval.")
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
@@ -1633,6 +1663,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={202: AlertTestDeliveryResponseSerializer},
         description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["POST"],
@@ -1842,8 +1873,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, request.user),
                 config=config,
                 is_agent_billable=not is_impersonated(request),
+                evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
             )
-        except (ValueError, IndexError, AlertExtractionError) as e:
+        except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)
