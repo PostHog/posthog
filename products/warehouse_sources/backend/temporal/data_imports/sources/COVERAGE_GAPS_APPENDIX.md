@@ -7270,6 +7270,16 @@ Diffed against: <https://docs.reply.io/llms.txt>
 - [ ] `sequence-folders/list-all-sequence-folders` — lookup grouping sequences into folders for team-level rollups (medium)
 - [ ] `linkedin-accounts/list-linkedin-accounts` — sending-account dimension for LinkedIn, mirroring email_accounts which is already synced (medium)
 
+## Resend — gaps
+
+Today (8): `audiences`, `broadcast_clicked_links`, `broadcasts`, `contacts`, `domains`, `email_metrics`, `emails`, `suppressions`
+
+Diffed against: <https://resend.com/docs/llms.txt>
+
+- [x] `/suppressions` — suppressed recipients with their origin (bounce, complaint, manual), which explain delivery gaps (medium) — synced as `suppressions`
+- [x] `/emails/metrics` — the account's delivery and engagement metrics per day, the headline numbers for sending health (high) — synced as `email_metrics`
+- [x] `/broadcasts/{broadcast_id}/clicked-links` — per-link click counts for each broadcast (medium) — synced as `broadcast_clicked_links`
+
 ## Retently — gaps
 
 Today (7): `campaigns`, `companies`, `customers`, `feedback`, `outbox`, `reports`, `templates`
