@@ -47,6 +47,7 @@ GAUGE_SLOT_WARMUP_SECONDS = RECONCILE_INTERVAL_SECONDS
 RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
+GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS = 3.0
 
 # Cap on the jitter window between failed polls — flat retries make the whole
 # fleet hammer a degraded queue DB in lockstep.
@@ -422,6 +423,10 @@ class BatchConsumerAdapter(Protocol):
 
     async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         """Sample the queue-wide gauges if this pod holds the gauge slot; True means it does."""
+        ...
+
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """Free the gauge slot if this pod holds it, so another pod can sample at once. Best-effort on shutdown."""
         ...
 
     async def should_process_batch(
@@ -1859,6 +1864,17 @@ class BatchConsumer:
             except Exception:
                 logger.exception(self._event("recovery_sweep_unlock_failed"))
 
+    async def _release_queue_gauges_slot(self) -> None:
+        """Best-effort: a slow or failing queue DB must never delay or fail the shutdown."""
+        conn = self._recovery_conn
+        if conn is None or conn.closed or conn.broken:
+            return
+        try:
+            async with asyncio.timeout(GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS):
+                await self._adapter.release_queue_gauges_slot(conn)
+        except Exception as e:
+            logger.warning(self._event("release_queue_gauges_slot_failed"), error=str(e) or type(e).__name__)
+
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -1874,6 +1890,9 @@ class BatchConsumer:
                     await task
                 except asyncio.CancelledError:
                     pass
+
+        # Free the gauge slot before the drain: no pod samples while the old holder drains.
+        await self._release_queue_gauges_slot()
 
         # Drain in-flight group tasks; each task releases its own lease and closes its connection.
         if self._in_flight:

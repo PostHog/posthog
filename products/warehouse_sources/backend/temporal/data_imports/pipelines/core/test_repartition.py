@@ -2,12 +2,14 @@ import os
 import glob
 import json
 import math
+import shutil
 import asyncio
 import decimal
 import datetime
 import itertools
+from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -37,7 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
     _rewrite_into_temp,
+    is_temp_uri_of,
     measure_partition_bytes,
+    purge_abandoned_rewrite_temp,
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
@@ -56,6 +60,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
     run_key,
     workload_reporting,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 logger = structlog.get_logger(__name__)
 
@@ -1992,6 +1999,136 @@ class TestPurgeStaleTempTables:
                 "s3://bucket/dlt/team_1_src/t__repartitioned_ab12cd34/part-0.parquet",
             ]
         )
+
+
+class _LocalS3:
+    """The object-store calls the purge uses, served from a local directory that stands in for all buckets."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def _local(self, uri: str) -> Path:
+        return self._root / uri.split("://", 1)[-1].strip("/")
+
+    def invalidate_cache(self) -> None:
+        pass
+
+    async def _exists(self, uri: str) -> bool:
+        return self._local(uri).exists()
+
+    async def _find(self, uri: str) -> list[str]:
+        base = self._local(uri)
+        return sorted(str(f.relative_to(self._root)) for f in base.rglob("*") if f.is_file())
+
+    async def _rm(self, target: str | list[str], recursive: bool = False) -> None:
+        for uri in [target] if isinstance(target, str) else target:
+            local = self._local(uri)
+            if local.is_dir():
+                shutil.rmtree(local)
+            elif local.exists():
+                local.unlink()
+
+
+LIVE_URI = "s3://bucket/team/source/contacts"
+OWN_TEMP_URI = f"{LIVE_URI}__repartitioned_1a2b3c4d"
+
+
+class TestPurgeAbandonedRewriteTemp:
+    @pytest.mark.parametrize(
+        "temp_uri, expected",
+        [
+            (OWN_TEMP_URI, True),
+            (f"{LIVE_URI}__repartitioned", True),
+            (LIVE_URI, False),
+            (f"{LIVE_URI}/", False),
+            (f"{LIVE_URI}/_delta_log", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/part-0.parquet", False),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d5", False),
+            (f"{LIVE_URI}__repartitioned_other", False),
+            (f"{LIVE_URI}_v2__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", False),
+            ("s3://bucket/team/source", False),
+            ("s3://bucket/team", False),
+            ("s3://other/team/source/contacts__repartitioned_1a2b3c4d", False),
+            ("", False),
+        ],
+    )
+    def test_only_a_temp_table_of_the_same_table_qualifies(self, temp_uri: str, expected: bool) -> None:
+        assert is_temp_uri_of(LIVE_URI, temp_uri) is expected
+
+    @pytest.mark.parametrize("live_uri", ["s3://bucket", "s3://bucket/", "s3://", ""])
+    def test_a_live_uri_that_is_not_a_table_directory_has_no_temp_tables(self, live_uri: str) -> None:
+        assert is_temp_uri_of(live_uri, f"{live_uri}__repartitioned_1a2b3c4d") is False
+
+    def _write_tree(self, root: Path) -> dict[str, Path]:
+        files = {
+            "live": root / "bucket/team/source/contacts/part-0.parquet",
+            "live_log": root / "bucket/team/source/contacts/_delta_log/0.json",
+            "own_temp": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/k=1/part-0.parquet",
+            "own_temp_log": root / "bucket/team/source/contacts__repartitioned_1a2b3c4d/_delta_log/0.json",
+            "newer_temp": root / "bucket/team/source/contacts__repartitioned_5e6f7a8b/part-0.parquet",
+            "sibling_table": root / "bucket/team/source/contacts_v2/part-0.parquet",
+            "sibling_temp": root / "bucket/team/source/accounts__repartitioned_1a2b3c4d/part-0.parquet",
+        }
+        for path in files.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+        return files
+
+    def _purge(self, root: Path, temp_uri: str, *, swap: dict | None = None) -> bool:
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=swap)
+        with patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(root))):
+            return asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, temp_uri, logger, claim_token=None
+                )
+            )
+
+    def test_deletes_the_named_temp_table_and_nothing_else(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, OWN_TEMP_URI) is True
+
+        remaining = {name for name, path in files.items() if path.exists()}
+        assert remaining == {"live", "live_log", "newer_temp", "sibling_table", "sibling_temp"}
+
+    @pytest.mark.parametrize(
+        "temp_uri, swap",
+        [
+            (LIVE_URI, None),
+            ("s3://bucket/team/source", None),
+            ("s3://bucket/team/source/accounts__repartitioned_1a2b3c4d", None),
+            (f"{LIVE_URI}__repartitioned_1a2b3c4d/../contacts", None),
+            (OWN_TEMP_URI, {"state": "ready", "temp_uri": OWN_TEMP_URI}),
+        ],
+        ids=["live_table", "parent_directory", "temp_of_another_table", "path_traversal", "temp_of_a_staged_swap"],
+    )
+    def test_refuses_a_path_it_must_not_delete(self, tmp_path: Path, temp_uri: str, swap: dict | None) -> None:
+        files = self._write_tree(tmp_path)
+
+        assert self._purge(tmp_path, temp_uri, swap=swap) is False
+
+        assert all(path.exists() for path in files.values())
+
+    def test_a_lost_claim_deletes_nothing(self, tmp_path: Path) -> None:
+        files = self._write_tree(tmp_path)
+        table_ref = _make_table_ref(get_table_uri=AsyncMock(return_value=LIVE_URI))
+        schema = _schema(id="schema-1", repartition_swap=None)
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_LocalS3(tmp_path))),
+            patch.object(repartition_module, "_current_claim_token", return_value="newer-token"),
+            pytest.raises(RepartitionSupersededError),
+        ):
+            asyncio.run(
+                purge_abandoned_rewrite_temp(
+                    cast("DeltaTableRef", table_ref), schema, OWN_TEMP_URI, logger, claim_token="older-token"
+                )
+            )
+
+        assert all(path.exists() for path in files.values())
 
 
 class TestSwapTempIntoLiveGuard:

@@ -649,6 +649,7 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 - Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
 - Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
+- A request that names no timeout gets the default `(connect, read)` timeout from `default_request_timeout()` (30 s, 300 s). Pass `request_timeout` in the client config, or `timeout=` on a session call, when an endpoint needs a different value. `None` means "use the default". Only `NO_REQUEST_TIMEOUT` sends a request with no deadline.
 
 The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
 PostHog can't overspend a budget it doesn't own, so honoring `429` / `Retry-After` at the source is enough.
