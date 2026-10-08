@@ -39,7 +39,10 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.policies import PolicyEngine
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    validate_stored_cohort_references as _validate_stored_cohort_references,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
@@ -215,6 +218,18 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+
+
+def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:
+    """Raise ``ValidationError`` when a release condition targets a missing or deleted cohort.
+
+    A restored flag with such a condition fails every evaluation. ``update_flag`` runs this
+    check on a restore. A caller that restores a flag another way must run it first. A
+    hard-deleted id or another team's flag has nothing to check.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    if flag is not None:
+        _validate_stored_cohort_references(flag)
 
 
 def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:

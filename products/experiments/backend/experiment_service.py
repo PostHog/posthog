@@ -1965,7 +1965,9 @@ class ExperimentService:
         manually stays archived. The flag stays disabled either way; re-enabling it is
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
-        when the caller lacks feature_flag:write scope or editor access to the flag.
+        when the caller lacks feature_flag:write scope or editor access to the flag. The flag
+        also stays archived when the flag API refuses to unarchive it, for example because a
+        release condition targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -1988,7 +1990,10 @@ class ExperimentService:
         # archived-only payload matches no approval action (enable/disable detect on
         # `active`, update on `filters`), so the gate can't raise ApprovalRequired here
         # and roll back a just-created change request.
-        unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
+        try:
+            unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
+        except ValidationError:
+            return
 
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])

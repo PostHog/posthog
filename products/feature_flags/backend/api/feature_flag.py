@@ -1188,6 +1188,39 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
+def validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
+    """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
+
+    The flag evaluator loads only non-deleted cohorts. A condition on a deleted cohort
+    therefore fails the whole flag on every request. The lookup includes deleted cohorts so
+    that the error can name the cohort.
+    """
+    try:
+        cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
+    except (Cohort.DoesNotExist, ValueError, TypeError):
+        raise serializers.ValidationError(
+            detail=f"Cohort with id {cohort_id} does not exist",
+            code="cohort_does_not_exist",
+        )
+    if cohort.deleted:
+        label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
+        raise serializers.ValidationError(
+            detail=f"{label} has been deleted. Choose another cohort or remove this condition.",
+            code="cohort_does_not_exist",
+        )
+    return cohort
+
+
+def validate_stored_cohort_references(flag: FeatureFlag) -> None:
+    """Raise if a stored release condition targets a cohort the flag cannot evaluate."""
+    # Only config version 1 can reference a cohort.
+    if detect_config_format(flag.filters).kind != "v1":
+        return
+    for located in _iter_flag_filter_properties(flag.conditions):
+        if located.prop.get("type") == "cohort":
+            validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
+
+
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     key = serializers.CharField(required=False, help_text="Feature flag key.")
     name = serializers.CharField(
@@ -1482,9 +1515,7 @@ class FeatureFlagSerializer(
         try:
             if enabling or restoring_active:
                 self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
-            for located in _iter_flag_filter_properties(self.instance.conditions):
-                if located.prop.get("type") == "cohort":
-                    self._validate_cohort_reference(located.prop.get("value"))
+            validate_stored_cohort_references(self.instance)
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"filters": exc.detail}) from exc
 
@@ -2269,7 +2300,7 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                initial_cohort = self._validate_cohort_reference(located.prop.get("value"))
+                initial_cohort = validate_cohort_reference(located.prop.get("value"), self.context["project_id"])
                 # Static cohorts (including one-time snapshots) hold a
                 # materialised person list.  The populating criteria may
                 # still be stored on the record, but they are inert – the
@@ -2335,28 +2366,6 @@ class FeatureFlagSerializer(
                 f"{dependency} uses an unsupported configuration format. Remove this dependency to continue.",
                 code="unsupported_dependency_config_version",
             ) from exc
-
-    def _validate_cohort_reference(self, cohort_id: Any) -> Cohort:
-        """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
-
-        The flag evaluator loads only non-deleted cohorts. A condition on a deleted cohort
-        therefore fails the whole flag on every request. The lookup includes deleted cohorts so
-        that the error can name the cohort.
-        """
-        try:
-            cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"])
-        except (Cohort.DoesNotExist, ValueError, TypeError):
-            raise serializers.ValidationError(
-                detail=f"Cohort with id {cohort_id} does not exist",
-                code="cohort_does_not_exist",
-            )
-        if cohort.deleted:
-            label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
-            raise serializers.ValidationError(
-                detail=f"{label} has been deleted. Choose another cohort or remove this condition.",
-                code="cohort_does_not_exist",
-            )
-        return cohort
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""

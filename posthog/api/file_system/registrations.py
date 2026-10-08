@@ -312,6 +312,15 @@ def _feature_flag_post_delete(context: DeletionContext, feature_flag: Any) -> No
     )
 
 
+def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
+    from products.feature_flags.backend.facade.api import (
+        validate_flag_restorable,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    # The endpoint shows a ValidationError's message but replaces a ValueError with its generic refusal.
+    validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+
+
 def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> None:
     _log_restore_activity(
         context,
@@ -349,6 +358,7 @@ def register_core_file_system_types() -> None:
         undo_message="Send PATCH /api/projects/@current/feature_flags/{id} with deleted=false.",
     )
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
+    register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
 
     register_file_system_type(
