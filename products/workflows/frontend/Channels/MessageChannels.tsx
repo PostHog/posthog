@@ -6,10 +6,13 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { ChannelCatalog } from './ChannelCatalog'
 import { ChannelSetupModal } from './ChannelSetupModal'
 
 const HedgehogReporter = pngHoggie(reporterPng)
@@ -21,11 +24,13 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showCatalog = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
 
     const allWorkflowIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
 
-    const showProductIntroduction = !integrationsLoading && !allWorkflowIntegrations.length
+    const showProductIntroduction = !showCatalog && !integrationsLoading && !allWorkflowIntegrations.length
 
     return (
         <>
@@ -41,7 +46,11 @@ export function MessageChannels(): JSX.Element {
             />
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
-                {integrationsLoading && !integrations?.length && (
+                {showCatalog && <ChannelCatalog />}
+                {showCatalog && allWorkflowIntegrations.length > 0 && (
+                    <h3 className="mb-0 text-base font-semibold">Your connections</h3>
+                )}
+                {!showCatalog && integrationsLoading && !integrations?.length && (
                     <>
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />
