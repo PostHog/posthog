@@ -5,9 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -40,14 +41,19 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     }
 
     const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
-    return new ApiError(undefined, 400, undefined, {
+    const code = queryStatus.error_code ?? parsedError.code
+    // A tile failure arrives without the HTTP status the query originally failed with, so the
+    // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
+    // user their query definition is broken, which sends them to fix a query that was never wrong.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : 400
+    return new ApiError(undefined, status, undefined, {
         detail: parsedError.message,
-        code: queryStatus.error_code ?? parsedError.code,
+        code,
         queryId: queryStatus.id,
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
@@ -66,6 +72,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,
@@ -109,6 +116,25 @@ export function dashboardToSaveableTemplate(
                 throw new Error('Unknown tile type')
             }),
         variables: [],
+    }
+}
+
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
     }
 }
 
@@ -180,6 +206,9 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
@@ -304,6 +333,17 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
+
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
 
     while (attempt < maxAttempts) {
         try {
@@ -321,8 +361,12 @@ export async function getInsightWithRetry(
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
@@ -360,7 +404,13 @@ export async function getInsightWithRetry(
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                    captureRecovery(queryBasedInsight)
+                                    return {
+                                        ...queryBasedInsight,
+                                        query_status: queryBasedInsight.query_status?.error
+                                            ? queryBasedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
                             }
                         }
@@ -392,6 +442,7 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {

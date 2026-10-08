@@ -68,6 +68,9 @@ where
 
     /// Prometheus metric name for rate limit bypassed requests
     bypassed_counter: &'static str,
+
+    /// Fixed labels added to every metric this limiter emits, next to the `key` label
+    labels: &'static [(&'static str, &'static str)],
 }
 
 /// Type alias for flag definitions rate limiting (per-team)
@@ -178,7 +181,14 @@ where
             request_counter,
             limited_counter,
             bypassed_counter,
+            labels: &[],
         })
+    }
+
+    /// Two limiters that share metric names use these labels to keep their series apart.
+    pub fn with_labels(mut self, labels: &'static [(&'static str, &'static str)]) -> Self {
+        self.labels = labels;
+        self
     }
 
     /// Check if a request from the given key should be rate limited
@@ -189,6 +199,17 @@ where
     /// # Returns
     /// Ok(()) if request is allowed, Err(FlagError::ClientFacing(ClientFacingError::RateLimited)) if rate limited
     pub fn check_rate_limit(&self, key: K) -> Result<(), FlagError> {
+        self.check(key, true)
+    }
+
+    /// Checks the key like [`Self::check_rate_limit`], but does not count the request. Use it
+    /// for a second check on a request that another limiter already counted, so the request
+    /// counter counts each request once. Rate-limited and bypassed requests still count.
+    pub fn check_rate_limit_without_request_count(&self, key: K) -> Result<(), FlagError> {
+        self.check(key, false)
+    }
+
+    fn check(&self, key: K, count_request: bool) -> Result<(), FlagError> {
         // Check if key has a custom rate limiter
         let custom_limiters = self.custom_limiters.read().unwrap();
         let is_rate_limited = if let Some(custom_limiter) = custom_limiters.get(&key) {
@@ -199,12 +220,9 @@ where
             self.default_limiter.check_key(&key).is_err()
         };
 
-        // Track all requests
-        inc(
-            self.request_counter,
-            &[("key".to_string(), key.to_string())],
-            1,
-        );
+        if count_request {
+            inc(self.request_counter, &self.metric_labels(&key), 1);
+        }
 
         if is_rate_limited {
             // Allowlisted keys bypass rate limiting when they would be limited.
@@ -212,20 +230,12 @@ where
             // requests that exceed the limit but are allowed through.
             let allowlist = self.allowlist.read().unwrap();
             if allowlist.contains(&key) {
-                inc(
-                    self.bypassed_counter,
-                    &[("key".to_string(), key.to_string())],
-                    1,
-                );
+                inc(self.bypassed_counter, &self.metric_labels(&key), 1);
                 return Ok(());
             }
 
             // Track rate-limited requests
-            inc(
-                self.limited_counter,
-                &[("key".to_string(), key.to_string())],
-                1,
-            );
+            inc(self.limited_counter, &self.metric_labels(&key), 1);
 
             // Log rate limit event with key context
             warn!(key = %key, "Request rate limited");
@@ -236,6 +246,16 @@ where
         }
 
         Ok(())
+    }
+
+    fn metric_labels(&self, key: &K) -> Vec<(String, String)> {
+        let mut labels = vec![("key".to_string(), key.to_string())];
+        labels.extend(
+            self.labels
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string())),
+        );
+        labels
     }
 
     /// Get the number of keys with custom rate limits configured

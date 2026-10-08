@@ -150,6 +150,7 @@ import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
 import { type ParsedSessionLogs, parseSessionLogContent } from "./sessionLogs";
 import {
+  classifySessionStartError,
   readSessionStartupPhase,
   type SessionStartupPhase,
 } from "./sessionStartup";
@@ -2132,6 +2133,7 @@ export class SessionService {
       this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
         task_id: taskId,
         error_type: "connect_failed",
+        ...classifySessionStartError(message),
       });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
@@ -2447,6 +2449,11 @@ export class SessionService {
         return true;
       } else {
         this.d.log.warn("Reconnect returned null", { taskId, taskRunId });
+        this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+          task_id: taskId,
+          error_type: "reconnect_failed",
+          failure_reason: "other",
+        });
         this.setErrorSession(
           taskId,
           taskRunId,
@@ -2459,6 +2466,11 @@ export class SessionService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.d.log.warn("Reconnect failed", { taskId, error: errorMessage });
+      this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+        task_id: taskId,
+        error_type: "reconnect_failed",
+        ...classifySessionStartError(errorMessage),
+      });
       this.setErrorSession(
         taskId,
         taskRunId,
@@ -2832,6 +2844,7 @@ export class SessionService {
       execution_type: "local",
       initial_mode: executionMode,
       adapter,
+      ...(result.gatewayMode && { gateway_mode: result.gatewayMode }),
     });
 
     if (initialPrompt?.length) {
@@ -3404,9 +3417,26 @@ export class SessionService {
     }
 
     if (!session?.taskId || !tally.agentText) return;
-    const references = extractPostHogObjectReferences(tally.agentText);
+    void this.registerTurnReferences(
+      session.taskId,
+      taskRunId,
+      tally.agentText,
+      `turn-${tally.startedAtTs}`,
+    );
+  }
+
+  private async registerTurnReferences(
+    taskId: string,
+    taskRunId: string,
+    agentText: string,
+    sourceMessageId: string,
+  ): Promise<void> {
+    const auth = await this.getCloudCommandAuth().catch(() => null);
+    const references = extractPostHogObjectReferences(
+      agentText,
+      auth ? { appUrl: auth.apiHost, projectId: auth.teamId } : null,
+    );
     if (references.length === 0) return;
-    const sourceMessageId = `turn-${tally.startedAtTs}`;
     const inputs: PostHogObjectReferenceInput[] = references.map(
       (reference) => ({
         name: reference.label,
@@ -3415,7 +3445,7 @@ export class SessionService {
         source_message_id: sourceMessageId,
       }),
     );
-    this.registerPostHogReferences(session.taskId, taskRunId, inputs);
+    this.registerPostHogReferences(taskId, taskRunId, inputs);
   }
 
   // References enter the pending map before the attempt and leave it only on

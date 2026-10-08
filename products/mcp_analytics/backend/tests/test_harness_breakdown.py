@@ -166,6 +166,16 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             # xAI API surface: no grok UA, buckets via its grok- clientInfo.name.
             ("grok_shell_client_name", {"$mcp_client_name": "grok-shell-posthog"}, "Grok"),
+            ("ua_kimchi", {"$mcp_client_user_agent": "kimchi/1.2.2"}, "Kimchi"),
+            # Kimchi reports pi-mcp's generic clientInfo.name; its UA must beat it.
+            (
+                "kimchi_ua_beats_generic_pi_mcp_name",
+                {"$mcp_client_user_agent": "kimchi/1.2.2", "$mcp_client_name": "pi-mcp-castai"},
+                "Kimchi",
+            ),
+            # Without the kimchi UA, pi-mcp's name alone stays unattributed: it is
+            # not Pi's own `pi-client`, and other pi-based clients share it.
+            ("pi_mcp_name_alone_is_other", {"$mcp_client_name": "pi-mcp-castai"}, "Other"),
             ("client_name_librechat", {"$mcp_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",
@@ -246,3 +256,63 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
+
+    @parameterized.expand([("posthog_session_id", "$session_id"), ("mcp_session_id", "$mcp_session_id")])
+    def test_sessions_count_either_session_id_without_tool_name(self, _name: str, session_key: str) -> None:
+        self._emit(session_id="", properties={"$mcp_client_name": "codex-mcp-client", session_key: "a"})
+        flush_persons_and_events()
+
+        assert self._breakdown()["OpenAI Codex"].sessions == 1
+
+    def test_harness_sessions_is_none_when_tool_name_unset(self) -> None:
+        self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
+        flush_persons_and_events()
+
+        row = self._breakdown()["OpenAI Codex"]
+
+        assert row.harness_sessions is None
+
+    @parameterized.expand([("posthog_session_id", "$session_id"), ("mcp_session_id", "$mcp_session_id")])
+    def test_harness_sessions_counts_all_tools_when_tool_name_set(self, _name: str, session_key: str) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(
+            distinct_id="d1",
+            session_id="",
+            properties={"$mcp_client_name": "codex-mcp-client", session_key: "a", **new_sdk},
+        )
+        # A different tool, same harness, different session: counts toward harness_sessions
+        # but not toward this tool's own `sessions`.
+        self._emit(
+            distinct_id="d2",
+            session_id="",
+            properties={
+                "$mcp_tool_name": "other_tool",
+                "$mcp_client_name": "codex-mcp-client",
+                session_key: "b",
+                **new_sdk,
+            },
+        )
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        row = {row.harness: row for row in runner.calculate().results}["OpenAI Codex"]
+
+        assert row.sessions == 1
+        assert row.harness_sessions == 2
+
+    def test_harness_omitted_when_tool_never_ran_there_but_shown_without_tool_name(self) -> None:
+        new_sdk = {"$mcp_source": "posthog_mcp_analytics"}
+        self._emit(
+            properties={"$mcp_tool_name": "other_tool", "$mcp_client_name": "codex-mcp-client", **new_sdk},
+        )
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), toolName="query_run"),
+            team=self.team,
+        )
+        assert "OpenAI Codex" not in {row.harness for row in runner.calculate().results}
+        assert "OpenAI Codex" in self._breakdown()

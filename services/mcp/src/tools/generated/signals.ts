@@ -226,6 +226,41 @@ const inboxReportChecksList = (): ToolBase<
     },
 })
 
+const InboxReportChecksReplaceSchema = () => {
+    const SignalsReportChecksReplaceCreateBody = orvalSchemas.SignalsReportChecksReplaceCreateBody()
+    const SignalsReportChecksReplaceCreateParams = orvalSchemas.SignalsReportChecksReplaceCreateParams()
+    return SignalsReportChecksReplaceCreateParams.omit({ project_id: true }).extend(
+        SignalsReportChecksReplaceCreateBody.shape
+    )
+}
+
+const inboxReportChecksReplace = (): ToolBase<
+    ReturnType<typeof InboxReportChecksReplaceSchema>,
+    Schemas.SignalReportCheck
+> => ({
+    name: 'inbox-report-checks-replace',
+    schema: InboxReportChecksReplaceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksReplaceSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.SignalReportCheck>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxReportChecksRetrieveSchema = () => {
     const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
     return SignalsReportChecksRetrieveParams.omit({ project_id: true })
@@ -330,6 +365,27 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsLeaveReviewersSchema = () => {
+    const SignalsReportsReviewersMeDestroyParams = orvalSchemas.SignalsReportsReviewersMeDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsReviewersMeDestroyParams.omit({ project_id: true })
+    )
+}
+
+const inboxReportsLeaveReviewers = (): ToolBase<ReturnType<typeof InboxReportsLeaveReviewersSchema>, unknown> => ({
+    name: 'inbox-reports-leave-reviewers',
+    schema: InboxReportsLeaveReviewersSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsLeaveReviewersSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/reviewers/me/`,
+        })
+        return result
+    },
+})
+
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -352,8 +408,10 @@ const inboxReportsList = (): ToolBase<
                 assignee: params.assignee,
                 channel_id: params.channel_id,
                 count_only: params.count_only,
+                created_after: params.created_after,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
+                include_source_metadata: params.include_source_metadata,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -370,6 +428,7 @@ const inboxReportsList = (): ToolBase<
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
+                unread: params.unread,
                 use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
@@ -420,6 +479,39 @@ const inboxReportsList = (): ToolBase<
             ),
             'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
+    },
+})
+
+const InboxReportsMergeSchema = () => {
+    const SignalsReportsMergeCreateBody = orvalSchemas.SignalsReportsMergeCreateBody()
+    const SignalsReportsMergeCreateParams = orvalSchemas.SignalsReportsMergeCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['survivor_report_id'] }),
+        SignalsReportsMergeCreateParams.omit({ project_id: true }).extend(SignalsReportsMergeCreateBody.shape)
+    )
+}
+
+const inboxReportsMerge = (): ToolBase<
+    ReturnType<typeof InboxReportsMergeSchema>,
+    WithPostHogUrl<Schemas.SignalReportMergeResponse>
+> => ({
+    name: 'inbox-reports-merge',
+    schema: InboxReportsMergeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsMergeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_report_ids !== undefined) {
+            body['source_report_ids'] = params.source_report_ids
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReportMergeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/merge/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
     },
 })
 
@@ -711,6 +803,9 @@ const scoutCheckRecordResult = (): ToolBase<
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
         }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
         }
@@ -915,6 +1010,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1013,6 +1111,21 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1025,7 +1138,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
 const ScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, Schemas.EmitReportResponse> => ({
@@ -1072,6 +1187,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -1274,6 +1392,7 @@ const scoutNotesList = (): ToolBase<
                 include_general: params.include_general,
                 limit: params.limit,
                 skill_name: params.skill_name,
+                text: params.text,
             },
         })
         return withInformationalResponse(
@@ -1420,11 +1539,8 @@ const scoutReportCheckCreate = (): ToolBase<
 })
 
 const ScoutReportCheckListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportCheckList = (): ToolBase<
@@ -1437,7 +1553,7 @@ const scoutReportCheckList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -1447,11 +1563,8 @@ const scoutReportCheckList = (): ToolBase<
 })
 
 const ScoutReportChecksListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportChecksList = (): ToolBase<
@@ -1464,7 +1577,7 @@ const scoutReportChecksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -1703,6 +1816,72 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
+const ScoutTrialCreateSchema = () => {
+    const SignalsScoutConfigTrialBody = orvalSchemas.SignalsScoutConfigTrialBody()
+    const SignalsScoutConfigTrialParams = orvalSchemas.SignalsScoutConfigTrialParams()
+    return SignalsScoutConfigTrialParams.omit({ project_id: true }).extend(SignalsScoutConfigTrialBody.shape)
+}
+
+const scoutTrialCreate = (): ToolBase<ReturnType<typeof ScoutTrialCreateSchema>, unknown> => ({
+    name: 'scout-trial-create',
+    schema: ScoutTrialCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.launch_id !== undefined) {
+            body['launch_id'] = params.launch_id
+        }
+        if (params.context_id !== undefined) {
+            body['context_id'] = params.context_id
+        }
+        if (params.variant !== undefined) {
+            body['variant'] = params.variant
+        }
+        if (params.skill_body !== undefined) {
+            body['skill_body'] = params.skill_body
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutTrialGetSchema = () => {
+    const SignalsScoutConfigTrialResultParams = orvalSchemas.SignalsScoutConfigTrialResultParams()
+    const SignalsScoutConfigTrialResultQueryParams = orvalSchemas.SignalsScoutConfigTrialResultQueryParams()
+    return SignalsScoutConfigTrialResultParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialResultQueryParams.shape
+    )
+}
+
+const scoutTrialGet = (): ToolBase<ReturnType<typeof ScoutTrialGetSchema>, Schemas.ScoutTrialResult> => ({
+    name: 'scout-trial-get',
+    schema: ScoutTrialGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutTrialResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_result/`,
+            query: {
+                launch_id: params.launch_id,
+            },
+        })
+        return result
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -1895,6 +2074,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1958,6 +2140,21 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1970,7 +2167,9 @@ const signalsScoutEditReport = (): ToolBase<
 const SignalsScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const signalsScoutEmitReport = (): ToolBase<
@@ -2020,6 +2219,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
         }
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
@@ -2379,10 +2581,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-report-checks-create': inboxReportChecksCreate,
     'inbox-report-checks-list': inboxReportChecksList,
+    'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
+    'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
@@ -2422,6 +2627,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
+    'scout-trial-create': scoutTrialCreate,
+    'scout-trial-get': scoutTrialGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

@@ -74,8 +74,8 @@ import type {
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
     _LogsServicesResponseApi,
+    _LogsSparklineBucketApi,
     _LogsSparklineRequestApi,
-    _LogsSparklineResponseApi,
     _LogsValuesResponseApi,
 } from './api.schemas'
 
@@ -252,7 +252,7 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,
@@ -1109,8 +1109,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<_LogsSparklineResponseApi> => {
-    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineBucketApi[]> => {
+    return apiMutator<_LogsSparklineBucketApi[]>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

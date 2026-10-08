@@ -30,6 +30,9 @@ pub struct MockRedisClient {
     pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
     /// Shared via `Arc` so clones of the mock agree on call sequencing.
     pipeline_call_counter: Arc<AtomicUsize>,
+    mget_errors_by_call: HashMap<usize, CustomRedisError>,
+    /// Shared via `Arc` so clones of the mock agree on call sequencing.
+    mget_call_counter: Arc<AtomicUsize>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -56,6 +59,8 @@ impl Default for MockRedisClient {
             pipeline_block: None,
             pipeline_errors_by_call: HashMap::new(),
             pipeline_call_counter: Arc::new(AtomicUsize::new(0)),
+            mget_errors_by_call: HashMap::new(),
+            mget_call_counter: Arc::new(AtomicUsize::new(0)),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -209,6 +214,12 @@ impl MockRedisClient {
         self.pipeline_errors_by_call.insert(call_index, err);
         self.clone()
     }
+
+    /// Fail the Nth `mget` call (0-indexed) with `err`; takes precedence over `mget_error`.
+    pub fn mget_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
+        self.mget_errors_by_call.insert(call_index, err);
+        self.clone()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +247,10 @@ pub struct MockRedisCall {
 
 #[async_trait]
 impl Client for MockRedisClient {
+    async fn heal(&self) {
+        self.record_call("heal", "", MockRedisValue::None);
+    }
+
     async fn zrangebyscore(
         &self,
         key: String,
@@ -291,6 +306,21 @@ impl Client for MockRedisClient {
             key,
             value: MockRedisValue::MemberScore(member, score),
         });
+        Ok(())
+    }
+
+    async fn zadd_nx(
+        &self,
+        key: String,
+        member: String,
+        score: i64,
+    ) -> Result<(), CustomRedisError> {
+        self.record_call("zadd_nx", key, MockRedisValue::MemberScore(member, score));
+        Ok(())
+    }
+
+    async fn zrem(&self, key: String, member: String) -> Result<(), CustomRedisError> {
+        self.record_call("zrem", key, MockRedisValue::String(member));
         Ok(())
     }
 
@@ -586,6 +616,10 @@ impl Client for MockRedisClient {
             value: MockRedisValue::VecString(keys.clone()),
         });
 
+        let call_index = self.mget_call_counter.fetch_add(1, Ordering::SeqCst);
+        if let Some(err) = self.mget_errors_by_call.get(&call_index) {
+            return Err(err.clone());
+        }
         if let Some(err) = &self.mget_error {
             return Err(err.clone());
         }

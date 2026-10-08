@@ -1146,7 +1146,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     captureSaveOutcome('success')
-                    lemonToast.success('Source updated')
+                    const connectionWarning = sourcesDataLogic.values.lastUpdateConnectionWarning
+                    if (connectionWarning) {
+                        lemonToast.warning(connectionWarning)
+                    } else {
+                        lemonToast.success('Source updated')
+                    }
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
                         LemonDialog.open({
@@ -1403,7 +1408,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         return
                     }
                     if (added === 0 && deleted === 0) {
-                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                        lemonToast.success(
+                            `All ${total_tables_seen} table(s) are already tracked. New columns arrive with the next sync unless you picked specific columns for that table.`
+                        )
                         return
                     }
                     const counts = [

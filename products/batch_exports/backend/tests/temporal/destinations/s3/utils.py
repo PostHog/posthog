@@ -19,7 +19,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.hogql import ast
 
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.hogql_source import parse_hogql_select_for_batch_export
 from products.batch_exports.backend.service import (
@@ -52,6 +51,7 @@ from products.batch_exports.backend.temporal.record_batch_model import (
     SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
 

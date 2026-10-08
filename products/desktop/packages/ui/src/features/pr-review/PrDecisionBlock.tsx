@@ -18,6 +18,7 @@ import {
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { PrChecksSection } from "./PrChecksSection";
+import { PrSkillMenu } from "./PrSkillMenu";
 import { useApprovePr } from "./useApprovePr";
 import { useMarkPrReady } from "./useMarkPrReady";
 import { useMergePr } from "./useMergePr";
@@ -145,6 +146,7 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5">
+        <PrSkillMenu prUrl={prUrl} />
         <Button
           type="button"
           variant="outline"

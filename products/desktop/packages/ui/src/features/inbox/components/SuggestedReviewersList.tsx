@@ -165,7 +165,11 @@ function SuggestedReviewerReasonGroup({
   for (const reviewer of reviewers) {
     const sourceLabel = suggestedReviewerSourceLabel(reviewer);
     if (isScoutSuggestedReviewer(reviewer)) scoutNames.add(sourceLabel);
-    else otherSourceLabels.add(sourceLabel);
+    else if (
+      sourceLabel !== "Added by teammate" ||
+      !reason.startsWith("Added by ")
+    )
+      otherSourceLabels.add(sourceLabel);
   }
 
   return (

@@ -212,9 +212,20 @@ acts on it.
 - **`data-attr` on meaningful interactions.** New buttons and key interactive elements get a
   kebab-case `data-attr` (match the surrounding scene's pattern) — it's how autocapture
   dashboards and Playwright find them. Once shipped it's frozen (see the table above).
-- **New presentational components ship with a story** (handbook rule) — visual-regression
-  coverage is free once the story exists. Flag-gated components use the `featureFlags` story
-  parameter ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).
+- **New presentational components ship with a story** (handbook rule). Each committed story
+  shows a state that no other story shows. A story adds a light and a dark visual review
+  baseline, and every later change to that surface must re-approve both. A quarantined story's
+  diff does not gate the PR. When your change alters that story, approve it by identifier.
+  When it does not, leave the diff alone: it is the flake the quarantine hides
+  ([triaging-visual-review-runs](../../../products/visual_review/skills/triaging-visual-review-runs/SKILL.md#quarantined-stories-in-your-run)).
+  A story written only
+  to look at a change or to take a PR screenshot is scratch: keep it out of the commit.
+  Flag-gated components use the `featureFlags` story parameter
+  ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).
+  A story must render the same picture on every run: pin the clock, wait for readiness, and fix
+  the width of self-measuring content. Read
+  [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories)
+  before you write a story that loads data, measures itself, or uses timers, and when a story flakes.
 
 ## Anti-patterns
 
@@ -232,6 +243,7 @@ before/after for the rules above. Read it when reviewing UI diffs.
       data
 - [ ] No hardcoded colors; arbitrary Tailwind values justified or replaced
 - [ ] Renames swept (`git grep` the old name returns nothing); wire strings untouched and pinned
-- [ ] New presentational component has a story
+- [ ] New presentational component has a story; every committed story shows a distinct state,
+      and no scratch story is committed
 - [ ] Typecheck/lint cadence per [frontend/src/AGENTS.md](../../../frontend/src/AGENTS.md) —
       full check once at the end, `pnpm --filter=@posthog/frontend fix` before finishing

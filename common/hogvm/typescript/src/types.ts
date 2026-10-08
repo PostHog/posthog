@@ -160,6 +160,8 @@ export interface STLFunction {
     example: string
     minArgs?: number
     maxArgs?: number
+    // Memory the result will cost, so the VM can refuse the call before the function builds the result
+    memoryCost?: (args: any[]) => number
 }
 
 export interface AsyncSTLFunction {
