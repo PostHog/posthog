@@ -2453,9 +2453,9 @@ snapshots:
     components-releasestagetag--internal--light:
         hash: v1.k794b7964.18c439d8f91e2f463a5212933f502cd084ac8c4d796963ba7ff8c8946e4cc5fb.uEErXKcQANzO8ov9EwNwoFS-YcmeCWkxYTTAkQkRRoE
     components-sample-data-state--all-variants--dark:
-        hash: v1.k794b7964.f07ee511a2c77a4ff5a2ed0ca5030e3e57656ade775012ea85bd9c5047f29d3f.297btInaIUjNnmRtmJbS5ZyTmlux9j6wO8NlDAevNzo
+        hash: v1.k794b7964.f78ff2e4dfb88eb594e79cfd2946658b5cf762d48f60586fc52ca5cfa5edae93.lTPuhty3xFx4X4LZxMSTIGchYb4cDBus5_GB8-pQa6w
     components-sample-data-state--all-variants--light:
-        hash: v1.k794b7964.ebd4fc5add8fbb45cfe382af5aa48568c9f094574ab6e2088566a75bd3e1762a.a_1stky_5F9h4knpDr1JpdwhATEe7sdMLbVhOdHrkok
+        hash: v1.k794b7964.0c07edc11002b2ce97bc1d9ade124e890d09f6ac320be361fa69734a57d883a0.ZC5gGxbcfhBg7mb3LwAxEd1U3BsR21JB6_M8MKW6xx8
     components-sample-data-state--with-setup-pull-request--dark:
         hash: v1.k794b7964.a7647c826dc90cc8f49595664f6da4e08b6a623c018b67413168e7a423ea4e5b.zYzBM5U_KBYjVXH7MR_BUlxgJuH6t6IMTcDtgmwn_rQ
     components-sample-data-state--with-setup-pull-request--light:
@@ -4076,6 +4076,10 @@ snapshots:
         hash: v1.k794b7964.9b44378c8b23c54996de740b079e0029d0a474c9ca7f977b7d7aab07eece7f8e.DH5BI-XTKBTeGu8xAITjb7Ktz0BulqIqgPauao-MDpU
     insights-trendspiechart--min-height-parent--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.17OfM6Hht52excrKELBhQIdviX7ue6tytC6UMA-KrMk
+    insights-trendsproportionbar--breakdown--dark:
+        hash: v1.k794b7964.6eceb86d55858fdfcb7b0778761f04d4fe14cff1cd91a563fb00aad4d75a95ea.dmjiMUb3sMfWqVZIPvgaBSWWRObrwTNbPgXQxGdliMI
+    insights-trendsproportionbar--breakdown--light:
+        hash: v1.k794b7964.218468e49e9f777c32906da033cab6e01fc5fa2ee6dae4da61c911a99d3e8382.SOSY_WwQDGCd7mrUgtwWXoN4SVhSJSRRfcaBcTGxBH0
     insights-trendsslopechart--default--dark:
         hash: v1.k794b7964.f843b256c76c813e822e3c899d5bb4302f8970671422576d82eab10dba5cec17.QicU0ACrmlNYm9zJKICNpTr7h41TZAYTe4xNsHoy2so
     insights-trendsslopechart--default--light:
