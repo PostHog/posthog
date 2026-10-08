@@ -69,7 +69,9 @@ class TestSettingsToggleCommands(BaseTest):
         assert getattr(opposite_row, OTHER_FIELD[field]) is not enabled
         assert opposite_row.urgency_threshold == ReviewUserSettings.UrgencyThreshold.MUST_FIX
         assert opposite_row.flash_reasoning_effort == "xhigh"
-        if enabled is not toggle_default(field):
+        # The authored PR switch also writes `default_review_mode`, whose Off differs from the
+        # missing-row default (Follow), so it creates rows in both directions.
+        if enabled is not toggle_default(field) or field == AUTHORED:
             for member in (self.user, member_without_row):
                 row = self._row(member)
                 assert row is not None
@@ -83,6 +85,19 @@ class TestSettingsToggleCommands(BaseTest):
         assert inactive_row is not None
         assert getattr(inactive_row, field) is not enabled
         assert self._row(outsider) is None
+        if field == AUTHORED:
+            expected_mode = ReviewUserSettings.default_mode_for_authored_prs(enabled)
+            for member in (self.user, member_without_row, member_opposite):
+                row = self._row(member)
+                assert row is not None and row.default_review_mode == expected_mode
+
+    def test_disable_authored_turns_off_a_row_whose_switch_is_already_off(self) -> None:
+        follower = self._member("follower@example.com", review_authored_prs=False)
+
+        call_command("disable_authored_pr_reviews", team_id=self.team.id, user_ids=[follower.id])
+
+        row = self._row(follower)
+        assert row is not None and row.default_review_mode == ReviewUserSettings.DefaultReviewMode.OFF
 
     @parameterized.expand(
         [

@@ -95055,8 +95055,8 @@ export namespace Schemas {
       flash_for?: ReviewRepositoryFlashForEnum;
       /** Skip automatic reviews of pull requests that bots open. On by default. */
       exclude_bots?: boolean;
-      /** Who added the repository. */
-      readonly created_by: UserBasic;
+      /** Who added the repository. Null for seeded repositories. */
+      readonly created_by: UserBasic | null;
       /** When the repository was added. */
       readonly created_at: string;
       /** The people on the repository's two lists. Only the list that matches flash_for has an effect. */

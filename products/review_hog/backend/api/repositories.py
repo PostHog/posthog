@@ -96,7 +96,9 @@ class ReviewRepositorySerializer(serializers.ModelSerializer):
         required=False,
         help_text="Skip automatic reviews of pull requests that bots open. On by default.",
     )
-    created_by = UserBasicSerializer(read_only=True, help_text="Who added the repository.")
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="Who added the repository. Null for seeded repositories."
+    )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the repository was added.")
     people = serializers.SerializerMethodField(
         help_text="The people on the repository's two lists. Only the list that matches flash_for has an effect."
