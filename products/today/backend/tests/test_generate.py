@@ -121,11 +121,12 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
         client.with_options.return_value.__aenter__.return_value = opened
         with (
             patch(ON_TEST_THREAD, _on_test_thread),
-            patch(REPORTS, return_value=self.reports),
+            patch(REPORTS, return_value=self.reports) as reports,
             patch(CLIENT, return_value=client),
             patch(FLAG, return_value=True),
         ):
             async_to_sync(write_briefing)(team_id=self.team.id, briefing_id=str(self.briefing.id))
+        self.reports_asked_for = reports.call_args.kwargs if reports.call_args else {}
         return create
 
     def test_the_items_are_the_ranked_reports_and_the_llm_writes_only_the_text(self) -> None:
@@ -149,6 +150,13 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
         prompt = create.call_args.kwargs["messages"][0]["content"]
         assert prompt.index("report:b") < prompt.index("report:a")
         assert "Yesterday's headline" in prompt
+
+    def test_the_briefing_asks_for_the_persons_own_reports_only(self) -> None:
+        self._run(_answer())
+
+        # A P0 nobody owns sorts above every item that is the person's, so the briefing leaves it to
+        # the Inbox and to the open-in-project count.
+        assert self.reports_asked_for["include_unowned"] is False
 
     def test_no_reports_means_no_llm_call(self) -> None:
         self.reports = []

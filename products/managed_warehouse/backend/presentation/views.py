@@ -11,7 +11,9 @@ per organization (not per team).
 """
 
 import re
+from collections.abc import Callable
 from datetime import date
+from functools import partial
 from typing import Literal, TypedDict
 from uuid import UUID
 
@@ -26,6 +28,7 @@ from rest_framework.response import Response
 from posthog.security.outbound_proxy import internal_requests
 
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
 
@@ -135,7 +138,11 @@ def _request(
     timeout: int = 30,
     require_enabled: bool = True,
 ) -> Response:
-    """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
+    """Proxy a request to the managed-warehouse control plane, gated on the org's feature flag.
+
+    The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
+    is set, in which case the same call is served by hogtower's /api/v2 through
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
@@ -150,30 +157,40 @@ def _request(
     if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
     org_id = str(organization_id)
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        # hogtower serves the same calls from its /api/v2 routes, translated back to the
+        # duckgres v1 bodies below.
+        send = partial(hogtower.request, method, org_id, path, json_body=json_body, params=params, timeout=timeout)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
 
-    if not base_url:
-        logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
-        return Response(
-            {"error": "Managed warehouse provisioning is not configured"},
-            status=status.HTTP_501_NOT_IMPLEMENTED,
+        if not base_url:
+            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", organization_id=org_id)
+            return Response(
+                {"error": "Managed warehouse provisioning is not configured"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        if path == "":
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+        elif path.startswith("/"):
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/{path}"
+
+        headers = {}
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(
+            internal_requests.request, method, url, json=json_body, params=params, headers=headers, timeout=timeout
         )
 
-    if path == "":
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
-    elif path.startswith("/"):
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-    else:
-        url = f"{base_url.rstrip('/')}/api/v1/{path}"
-
-    headers = {}
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
-
     try:
-        resp = internal_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+        resp = send()
     except http_requests.Timeout:
         logger.warning("Provisioning API timeout", method=method, path=path, organization_id=org_id)
         return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -979,9 +996,10 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
             status_code=resp.status_code,
         )
         return
-    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
-        # DUCKGRES_API_URL is not configured (e.g. a dev/env-var-backed DuckgresServer
-        # row): there is no control plane to deprovision against.
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED and not hogtower.is_configured():
+        # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
+        # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
+        # A 501 from the hogtower adapter means an unmapped route instead, and must not skip.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,

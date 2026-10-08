@@ -24,6 +24,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FilterPanel } from '../../components/FilterPanel'
 import { HeatmapHeader } from '../../components/HeatmapHeader'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
+import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -193,6 +194,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
+                <HeatmapsPricingNotice />
                 <HeatmapHeader />
                 <FilterPanel lockedWidth={lockedWidth ?? undefined} previewUnavailable={previewUnavailable} />
                 {isHeightCapped && (

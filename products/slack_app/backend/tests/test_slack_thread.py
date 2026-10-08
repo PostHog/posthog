@@ -540,6 +540,150 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         assert not retry.get("blocks")
 
 
+class TestStreamClosedBySlack(SimpleTestCase):
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_answer_is_posted_in_the_thread_and_the_closed_stream_gets_nothing_more(
+        self, mock_get_client, mock_get_integration
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_appendStream.side_effect = SlackApiError(
+            "message_not_in_streaming_state", {"error": "message_not_in_streaming_state"}
+        )
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(model="claude-opus-5"), actor_slack_user_id="U123")
+
+        assert (
+            handler.append_status_chunks(ts="1.0", task_updates=[{"id": "a", "title": "Read", "status": "in_progress"}])
+            is False
+        )
+        handler.stop_status_stream(ts="1.0", final_markdown="Signups grew.")
+
+        assert mock_client.chat_appendStream.call_count == 1
+        mock_client.chat_stopStream.assert_not_called()
+        posted = mock_client.chat_postMessage.call_args.kwargs
+        assert posted["thread_ts"] == "1234.5678"
+        assert "Signups grew." in posted["text"]
+        assert posted["text"].startswith("<@U123>")
+
+
+_STREAM_ENDED = SlackApiError("message_not_in_streaming_state", {"error": "message_not_in_streaming_state"})
+
+
+def _stop_with_answer(handler: SlackThreadHandler) -> None:
+    handler.stop_status_stream(ts="1.0", final_markdown="Done.")
+
+
+class TestReplyPostedCapture(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("streamed_answer", None, None, False, _stop_with_answer, ("answer", True)),
+            ("closed_stream_answer_reposted", _STREAM_ENDED, None, False, _stop_with_answer, ("answer", True)),
+            (
+                "closed_stream_repost_fails",
+                _STREAM_ENDED,
+                RuntimeError("slack down"),
+                False,
+                _stop_with_answer,
+                ("answer", False),
+            ),
+            (
+                "answer_seeded_before_the_stop",
+                None,
+                None,
+                False,
+                lambda h: h.stop_status_stream(ts="1.0", mention_sent=True),
+                ("answer", True),
+            ),
+            ("turn_stopped_before_answering", None, None, False, lambda h: h.stop_status_stream(ts="1.0"), None),
+            (
+                "completion_card",
+                None,
+                None,
+                False,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", True),
+            ),
+            (
+                "completion_card_fails",
+                None,
+                RuntimeError("slack down"),
+                False,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", False),
+            ),
+            (
+                "completion_card_for_a_deleted_prompt",
+                None,
+                None,
+                True,
+                lambda h: h.post_completion(task_url=None),
+                ("completion", False),
+            ),
+            (
+                "error_card",
+                None,
+                None,
+                False,
+                lambda h: h.post_error("boom", task_url=None),
+                ("error", True),
+            ),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
+    @patch("products.slack_app.backend.services.slack_messages.slack_message_exists")
+    @patch("products.slack_app.backend.slack_thread.capture_slack_event")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_reply_is_captured_with_its_outcome_and_thread(
+        self,
+        _name: str,
+        append_error: Exception | None,
+        post_error: Exception | None,
+        prompt_deleted: bool,
+        reply,
+        expected: tuple[str, bool] | None,
+        mock_get_client,
+        mock_get_integration,
+        _mock_delete_progress,
+        mock_capture,
+        mock_message_exists,
+        mock_resolve_user,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_appendStream.side_effect = append_error
+        mock_client.chat_postMessage.side_effect = post_error
+        mock_get_client.return_value = mock_client
+        mock_message_exists.return_value = not prompt_deleted
+        integration = Integration(id=1, config={}, integration_id="T1")
+        mock_get_integration.return_value = integration
+        reader = MagicMock()
+        mock_resolve_user.return_value = reader
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", task_id="task-1"), actor_slack_user_id="U123")
+
+        reply(handler)
+
+        if expected is None:
+            mock_capture.assert_not_called()
+            return
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args == (integration, "slack app reply posted")
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs == {
+            "slack_user_id": "U123",
+            "posthog_user": reader,
+            "reply_kind": expected[0],
+            "delivered": expected[1],
+            "slack_session_id": "T1:C001:1234.5678",
+            "task_id": "task-1",
+            "run_id": "run-1",
+        }
+
+
 class TestRelayedAnswerFooter(SimpleTestCase):
     def _handler(self, footer: RunFooter) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")

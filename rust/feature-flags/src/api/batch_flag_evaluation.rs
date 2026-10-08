@@ -17,8 +17,17 @@
 //!   series as live `/flags`, so a large cohort run dominates those on its pod.
 //! - The matcher always runs with `skip_writes(true)`: experience-continuity hash key
 //!   overrides are read but never written.
+//! - The matcher compares dependency answers by match only for the target and for each
+//!   dependency that no evaluated flag reads by variant (`enabled_only_flag_keys`), because the
+//!   caller reads only the target's `enabled`.
 //! - Flags are always read fresh from Postgres (never the hypercache) so the
 //!   `expected_version` optimistic-lock check is meaningful.
+//! - The matcher runs without the persons DB deadline (`PERSONS_DB_DEADLINE_MS`). When a
+//!   person's evaluation returns an error, Django leaves that person out of the cohort and
+//!   still reports the run as a success. A slow persons query must therefore finish rather
+//!   than time out. The group type mapping lookup is the exception. This endpoint shares
+//!   `GroupTypeCacheManager` with live `/flags`, so that lookup still fails with
+//!   `client_timeout` at the cache's 5s shared fetch cap.
 //!
 //! The paged scan walks `posthog_person.id` ascending across a live table, so the run sees
 //! a moving snapshot rather than a point-in-time one: persons inserted above the current
@@ -46,13 +55,16 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::{
+        errors::{FlagError, CODE_DEPENDENCY_FAILED, CODE_FLAG_DATA_PARSING},
+        types::FlagsResponse,
+    },
     database::{get_connection_with_metrics, PostgresRouter},
     flags::{
-        cache_builder::compute_flag_dependencies,
+        cache_builder::compute_flag_dependencies_or_single_stage,
         feature_flag_list::PreparedFlags,
         flag_matching::FeatureFlagMatcher,
-        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList},
+        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList},
     },
     handler::authentication::is_internal_request_inner,
     metrics::consts::{
@@ -362,15 +374,63 @@ pub async fn batch_flag_evaluation(
     result.map(Json)
 }
 
+/// Keys of the flags the matcher compares by match only: the target, and each of its dependencies
+/// that no evaluated flag reads by variant. A person joins the cohort on the target's `enabled`
+/// alone. A dependency that only `true` or `false` filters read cannot change that through its
+/// variant.
+fn enabled_only_flag_keys(
+    flags: &[FeatureFlag],
+    target_id: FeatureFlagId,
+    evaluation_metadata: &EvaluationMetadata,
+) -> HashSet<String> {
+    let dependency_ids = evaluation_metadata.transitive_deps.get(&target_id);
+    let evaluated: Vec<&FeatureFlag> = flags
+        .iter()
+        .filter(|flag| {
+            flag.id == target_id || dependency_ids.is_some_and(|ids| ids.contains(&flag.id))
+        })
+        .collect();
+    let read_by_variant: HashSet<FeatureFlagId> = evaluated
+        .iter()
+        .flat_map(|flag| flag.filters.flag_ids_read_by_variant())
+        .collect();
+    evaluated
+        .into_iter()
+        .filter(|flag| !read_by_variant.contains(&flag.id))
+        .map(|flag| flag.key.clone())
+        .collect()
+}
+
 fn failure_code(result: &Result<FlagsResponse, FlagError>, target_key: &str) -> Option<String> {
-    match result {
-        Ok(response) => response
+    let response = match result {
+        Ok(response) => response,
+        Err(e) => return Some(e.evaluation_error_code()),
+    };
+    let target = response
+        .flags
+        .get(target_key)
+        .filter(|details| details.failed)?;
+    // `dependency_failed` does not say whether a retry can help, so report the code of a failed
+    // dependency. The request names only the target, so the other flags in the response are its
+    // dependencies. A retry helps only when no dependency failed permanently. Dependents of a flag
+    // with an unsupported format read it as false, so that failure cannot fail the target.
+    if target.reason.code == CODE_DEPENDENCY_FAILED {
+        let root_codes: Vec<&str> = response
             .flags
-            .get(target_key)
+            .values()
             .filter(|details| details.failed)
-            .map(|details| details.reason.code.clone()),
-        Err(e) => Some(e.evaluation_error_code()),
+            .map(|details| details.reason.code.as_str())
+            .filter(|code| *code != CODE_DEPENDENCY_FAILED && *code != CODE_FLAG_DATA_PARSING)
+            .collect();
+        if let Some(code) = root_codes
+            .iter()
+            .find(|code| !is_transient_failure(code))
+            .or(root_codes.first())
+        {
+            return Some(code.to_string());
+        }
     }
+    Some(target.reason.code.clone())
 }
 
 /// Whether a failure code comes from a transient database fault or a timeout, which a second
@@ -524,15 +584,10 @@ async fn handle_batch_flag_evaluation(
         .map(|f| f.id)
         .collect();
 
-    // Real dependency stages (like the hypercache path) rather than the PG fallback's
-    // single stage, so flag-dependency conditions on the target flag evaluate correctly.
-    let evaluation_metadata = compute_flag_dependencies(&flags_vec).unwrap_or_else(|e| {
-        warn!(
-            team_id = request.team_id,
-            "Batch eval falling back to single-stage flag metadata: {e}"
-        );
-        EvaluationMetadata::single_stage(&flags_vec)
-    });
+    let evaluation_metadata =
+        compute_flag_dependencies_or_single_stage(request.team_id, &flags_vec);
+    let enabled_only_flag_keys =
+        enabled_only_flag_keys(&flags_vec, flags_vec[target_index].id, &evaluation_metadata);
 
     let flag_list = FeatureFlagList {
         flags: PreparedFlags::seal(flags_vec),
@@ -606,6 +661,7 @@ async fn handle_batch_flag_evaluation(
             .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
             // Read-only: experience-continuity overrides are consulted but never written.
             .with_skip_writes(true)
+            .with_enabled_only_flag_keys(enabled_only_flag_keys.clone())
             .with_timezone(team_timezone);
 
             let flag_list = flag_list.clone();
@@ -682,6 +738,7 @@ mod tests {
     use super::*;
     use crate::api::types::{FlagDetails, FromFeatureAndMatch};
     use crate::config::DEFAULT_TEST_CONFIG;
+    use crate::flags::config_format::decode_filters;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
     use crate::mock;
@@ -689,9 +746,39 @@ mod tests {
     use crate::utils::test_utils::{counter_total, TestContext};
     use common_database::{get_pool_with_config, PoolConfig};
     use metrics_util::debugging::DebuggingRecorder;
+    use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn enabled_only_flag_keys_skip_dependencies_read_by_variant() {
+        let flag = |id: i32, key: &str, properties: Value| {
+            mock!(FeatureFlag,
+                id: id,
+                key: key.to_string(),
+                filters: decode_filters(json!({"groups": [{"properties": properties}]})).unwrap()
+            )
+        };
+        let reads = |flag_id: i32, value: Value| json!({"key": flag_id.to_string(), "type": "flag", "value": value, "operator": "flag_evaluates_to"});
+        let flags = vec![
+            flag(1, "failed", json!([])),
+            flag(2, "read_by_match", json!([reads(1, json!(true))])),
+            flag(3, "read_by_variant", json!([reads(1, json!(true))])),
+            flag(
+                4,
+                "target",
+                json!([reads(2, json!(true)), reads(3, json!("control"))]),
+            ),
+            flag(5, "unrelated", json!([])),
+        ];
+        let metadata = compute_flag_dependencies_or_single_stage(1, &flags);
+
+        assert_eq!(
+            enabled_only_flag_keys(&flags, 4, &metadata),
+            HashSet::from(["failed", "read_by_match", "target"].map(String::from))
+        );
+    }
 
     fn target_flag_response(details: FlagDetails) -> Result<FlagsResponse, FlagError> {
         Ok(FlagsResponse::new(
@@ -705,6 +792,35 @@ mod tests {
     fn failed_target_flag(error: FlagError) -> Result<FlagsResponse, FlagError> {
         let flag = mock!(FeatureFlag, key: "target".to_string());
         target_flag_response(FlagDetails::create_error(&flag, &error, None))
+    }
+
+    fn target_with_failed_dependencies(errors: &[FlagError]) -> Result<FlagsResponse, FlagError> {
+        let target = mock!(FeatureFlag, key: "target".to_string());
+        let mut flags = HashMap::from([(
+            "target".to_string(),
+            FlagDetails::create_error(&target, &FlagError::DependencyFailed(2), None),
+        )]);
+        for (dependency_id, error) in (2..).zip(errors) {
+            let key = format!("dependency_{dependency_id}");
+            let dependency = mock!(FeatureFlag, id: dependency_id, key: key.clone());
+            flags.insert(key, FlagDetails::create_error(&dependency, error, None));
+        }
+        let healthy = mock!(FeatureFlag, id: 99, key: "healthy_dependency".to_string());
+        flags.insert(
+            "healthy_dependency".to_string(),
+            FlagDetails::create(
+                &healthy,
+                &FeatureFlagMatch {
+                    matches: false,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::NoConditionMatch,
+                    condition_index: None,
+                    payload: None,
+                    evaluation_v2: None,
+                },
+            ),
+        );
+        Ok(FlagsResponse::new(true, flags, None, Uuid::nil()))
     }
 
     fn evaluated() -> Result<FlagsResponse, FlagError> {
@@ -749,12 +865,46 @@ mod tests {
         false,
         Some("recovered")
     )]
-    #[case::dependency_failed_flag(
+    #[case::missing_dependency_flag(
         || failed_target_flag(FlagError::DependencyNotFound(DependencyType::Cohort, 1)),
         evaluated,
         1,
         true,
         None
+    )]
+    #[case::transient_failure_in_dependency(
+        || target_with_failed_dependencies(&[FlagError::TimeoutError(Some("pool_timeout".to_string()))]),
+        evaluated,
+        1,
+        false,
+        Some("recovered")
+    )]
+    #[case::permanent_failure_in_dependency(
+        || target_with_failed_dependencies(&[FlagError::DependencyNotFound(DependencyType::Cohort, 1)]),
+        evaluated,
+        1,
+        true,
+        None
+    )]
+    #[case::transient_and_permanent_failures_in_dependencies(
+        || target_with_failed_dependencies(&[
+            FlagError::TimeoutError(Some("pool_timeout".to_string())),
+            FlagError::DependencyNotFound(DependencyType::Cohort, 1),
+        ]),
+        evaluated,
+        1,
+        true,
+        None
+    )]
+    #[case::transient_failure_beside_unsupported_dependency(
+        || target_with_failed_dependencies(&[
+            FlagError::TimeoutError(Some("pool_timeout".to_string())),
+            FlagError::flag_data_parsing("unsupported feature flag configuration format"),
+        ]),
+        evaluated,
+        1,
+        false,
+        Some("recovered")
     )]
     #[case::database_error(
         || Err(FlagError::DatabaseError(sqlx::Error::ColumnNotFound("id".to_string()), None)),

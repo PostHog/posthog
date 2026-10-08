@@ -10,8 +10,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import MONDAY_ENDPOINTS
 
 MONDAY_API_URL = "https://api.monday.com/v2"
-# Pinned GA API version (monday releases quarterly versions).
-MONDAY_API_VERSION = "2024-10"
+# Framework version labels. monday releases a dated version every quarter and selects it with the
+# `API-Version` header; "v2" predates dated labels and keeps sending the header it shipped with.
+MONDAY_VERSION_V2 = "v2"
+MONDAY_VERSION_2026_07 = "2026-07"
+MONDAY_API_VERSION_HEADERS: dict[str, str] = {
+    MONDAY_VERSION_V2: "2024-10",
+    MONDAY_VERSION_2026_07: "2026-07",
+}
 # Boards/users page size; items_page caps at 500.
 PAGE_SIZE = 100
 ITEMS_PAGE_SIZE = 500
@@ -118,9 +124,20 @@ class MondayGraphQLError(Exception):
     pass
 
 
-def _get_session(api_token: str) -> requests.Session:
+def _api_version_header(api_version: str) -> str:
+    # An unmapped label must not fall through to a request without the header: monday then serves
+    # whatever version is current, which moves under a pinned source.
+    try:
+        return MONDAY_API_VERSION_HEADERS[api_version]
+    except KeyError:
+        raise ValueError(
+            f"Unsupported monday.com API version {api_version!r}; supported: {tuple(MONDAY_API_VERSION_HEADERS)}"
+        )
+
+
+def _get_session(api_token: str, api_version: str) -> requests.Session:
     return make_tracked_session(
-        headers={"Authorization": api_token, "API-Version": MONDAY_API_VERSION},
+        headers={"Authorization": api_token, "API-Version": _api_version_header(api_version)},
         redact_values=(api_token,),
     )
 
@@ -172,10 +189,10 @@ class _NoopLogger:
         return None
 
 
-def validate_credentials(api_token: str) -> bool:
+def validate_credentials(api_token: str, api_version: str) -> bool:
     """Confirm the API token is valid with a cheap `me` query."""
     try:
-        session = _get_session(api_token)
+        session = _get_session(api_token, api_version)
         data = _execute(session, "query { me { id } }", {}, _NoopLogger())  # type: ignore[arg-type]
         return bool((data.get("me") or {}).get("id"))
     except Exception:
@@ -186,8 +203,9 @@ def get_rows(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    session = _get_session(api_token)
+    session = _get_session(api_token, api_version)
 
     @retry(
         retry=retry_if_exception_type((MondayRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -246,6 +264,7 @@ def monday_source(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    api_version: str,
 ) -> SourceResponse:
     config = MONDAY_ENDPOINTS[endpoint]
 
@@ -255,6 +274,7 @@ def monday_source(
             api_token=api_token,
             endpoint=endpoint,
             logger=logger,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

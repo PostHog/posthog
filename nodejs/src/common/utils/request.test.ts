@@ -2,6 +2,7 @@ import dns from 'dns/promises'
 import { range } from 'lodash'
 import http from 'node:http'
 import net, { AddressInfo } from 'node:net'
+import { register } from 'prom-client'
 
 import { getExternalRequestConfig } from '~/common/config'
 
@@ -360,6 +361,28 @@ describe('fetch', () => {
 
             // This will fail to connect since it's a mock DNS result, but it should NOT throw SecureRequestError
             await expect(fetch(`http://example.com`)).rejects.not.toThrow(SecureRequestError) // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+        })
+
+        // A gauge that is incremented but not decremented drifts up forever, and nothing else reads this one, so a
+        // leak on either path would go unnoticed until it had already made the metric useless.
+        it.each([
+            [
+                'a lookup that resolves',
+                () => jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any),
+            ],
+            ['a lookup that rejects', () => jest.mocked(dns.lookup).mockRejectedValue(new Error('ENOTFOUND'))],
+        ])('releases the in-flight DNS gauge after %s', async (_name, applyMock) => {
+            const readGauge = async (): Promise<number> =>
+                (await register.getSingleMetric('node_dns_lookups_in_flight')!.get()).values[0].value
+
+            applyMock()
+            const before = await readGauge()
+
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            await expect(fetch(`http://example.com`)).rejects.toThrow()
+
+            expect(dns.lookup).toHaveBeenCalled()
+            expect(await readGauge()).toEqual(before)
         })
     })
 

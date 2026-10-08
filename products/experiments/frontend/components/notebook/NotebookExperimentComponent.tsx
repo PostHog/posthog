@@ -13,11 +13,12 @@ import {
     ExperimentExposureQueryResponse,
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
-import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { MicroChart } from '~/scenes/experiments/ExperimentView/Exposures'
 import { getChanceToWin, isBayesianResult } from '~/scenes/experiments/MetricsView/shared/utils'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
+
+import { ResultsTag } from 'products/experiments/frontend/components/ResultsTag'
 
 import { ExperimentStatItem } from './ExperimentStatItem'
 import { NotebookCompactTable } from './NotebookCompactTable'

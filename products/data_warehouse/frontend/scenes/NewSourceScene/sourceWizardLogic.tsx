@@ -53,7 +53,7 @@ import type { WebhookCreateResult } from '../../shared/components/forms/WebhookS
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
 import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
-import { shouldShowDestinationStep } from './components/destinationStepUtils'
+import { destinationStepBlockReason, shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
@@ -366,6 +366,15 @@ export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[])
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 
+// An incremental sync merges rows on a primary key, and source creation rejects an incremental
+// table whose introspected columns have no key and no `id` column to fall back to. A table with
+// no introspected columns resolves its key at sync time, so it needs no key here.
+const hasIncrementalMergeKey = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !schema.available_columns?.length ||
+    !!schema.primary_key_columns?.length ||
+    !!schema.detected_primary_keys?.length ||
+    schema.available_columns.some((column) => column.field.toLowerCase() === 'id')
+
 // Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
 // rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
 // (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
@@ -513,6 +522,7 @@ export interface sourceWizardLogicValues {
     webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
     webhookResult: WebhookCreateResult | null
     webhookStepComplete: boolean
+    wizardAvailableDestinationCount: number
     wizardDestinationIds: string[]
 }
 
@@ -746,6 +756,9 @@ export interface sourceWizardLogicActions {
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null
     }
+    setWizardAvailableDestinationCount: (count: number) => {
+        count: number
+    }
     setWizardDestinationIds: (destinationIds: string[]) => {
         destinationIds: string[]
     }
@@ -904,14 +917,18 @@ export interface sourceWizardLogicMeta {
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => boolean
         nextButtonDisabledReason: (
             currentStep: number,
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => string | null
         showSkipButton: (currentStep: number) => boolean
         nextButtonText: (
@@ -1018,6 +1035,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setWizardDestinationIds: (destinationIds: string[]) => ({ destinationIds }),
+        setWizardAvailableDestinationCount: (count: number) => ({ count }),
         resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
@@ -1142,6 +1160,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setWizardDestinationIds: (_, { destinationIds }) => destinationIds,
                 onClear: () => [],
+            },
+        ],
+        // Reported by the destination step once its list resolves. The Import button needs it to
+        // tell "turned every destination off" apart from "this team has no destinations yet".
+        wizardAvailableDestinationCount: [
+            0,
+            {
+                setWizardAvailableDestinationCount: (_, { count }) => count,
+                onClear: () => 0,
             },
         ],
         currentStep: [
@@ -1554,13 +1581,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
@@ -1582,6 +1613,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return webhookStepComplete
                 }
 
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds) === null
+                }
+
                 return true
             },
         ],
@@ -1592,13 +1627,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): string | null => {
                 if (!isManualLinkingSelected && currentStep === 3) {
                     const tablesToSync = databaseSchema.filter((n) => n.should_sync)
@@ -1613,6 +1652,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 if (currentStep === 4 && !webhookStepComplete) {
                     return 'Finish setting up the webhook to continue'
+                }
+
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds)
                 }
 
                 return null
@@ -2233,6 +2276,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // this measures true connect completion — use it for the real onboarding funnel.
                 posthog.capture('warehouse source connect completed', {
                     sourceType: values.selectedConnector.name,
+                    returnLabel: values.returnConfig?.returnLabel,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
@@ -2253,8 +2297,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
-                    // Go to webhook setup step (4)
-                    actions.onNext()
+                    // Absolute: createSource also runs from WIZARD_DESTINATION_STEP, where onNext would overshoot.
+                    actions.setStep(4)
                 } else {
                     // Skip webhook step, go directly to progress (5)
                     actions.setStep(5)
@@ -2375,6 +2419,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
+                            schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField =

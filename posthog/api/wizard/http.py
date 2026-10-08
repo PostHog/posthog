@@ -48,7 +48,7 @@ from posthog.storage.gateway_credential_cache import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip
 
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade import api as tasks_facade
@@ -259,7 +259,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=user.email,
                     user_uuid=str(user.uuid),
@@ -270,7 +270,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 call_site="wizard_gateway_token",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="wizard_gateway_token")
+            logger.exception("security_access_check_site_failed", call_site="wizard_gateway_token")
+            refused = False
+        if refused:
+            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
+            refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
         # A kill switch, not a rollout gate: only a literal False refuses. With the
         # legacy product off there is no second path, so reading an outage as "not
@@ -443,7 +447,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         try:
-            security_shadow_check(
+            refused = security_access_refused(
                 SecuritySubject(
                     email=user.email,
                     user_uuid=str(user.uuid),
@@ -454,7 +458,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 call_site="wizard_cloud_run",
             )
         except Exception:
-            logger.exception("security_shadow_check_site_failed", call_site="wizard_cloud_run")
+            logger.exception("security_access_check_site_failed", call_site="wizard_cloud_run")
+            refused = False
+        if refused:
+            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)
 

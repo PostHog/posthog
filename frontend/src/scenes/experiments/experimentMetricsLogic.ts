@@ -4,7 +4,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -20,6 +22,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationJobApi,
+    ExperimentMetricsRecalculationLatestApi,
     ExperimentMetricsRecalculationRequestTriggerEnumApi,
     ExperimentMetricsRecalculationRunApi,
     ResultSourceEnumApi,
@@ -51,7 +54,8 @@ function reportExperimentMetricRecalculation(
 export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'is_existing'> &
     Partial<
         Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
-    >
+    > &
+    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source'>>
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -60,6 +64,9 @@ export interface ExperimentMetricsLogicProps {
     experiment: Experiment
 }
 
+// A manual reload inside this window after the latest completed run finished is blocked, the same five
+// minutes a dashboard waits between bulk refreshes. The backend applies the same window and returns that run.
+const MIN_MANUAL_REFRESH_INTERVAL_MINUTES = 5
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
 /**
@@ -214,8 +221,10 @@ const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<
 export interface experimentMetricsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
     currentRecalculation: RecalculationPayload | null
+    isManualRefreshBlocked: boolean
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
@@ -225,6 +234,7 @@ export interface experimentMetricsLogicValues {
         rowsRead: number
     } | null
     metricRetries: Record<string, MetricRetryInfo>
+    nextAllowedManualRefresh: string | null
     nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
@@ -236,6 +246,7 @@ export interface experimentMetricsLogicValues {
         completed: number
         total: number
     }
+    refreshEligibilityTick: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -255,6 +266,9 @@ export interface experimentMetricsLogicActions {
     }
     pollRecalculation: (recalculationId: string) => {
         recalculationId: string
+    }
+    recheckRefreshEligibility: () => {
+        value: true
     }
     setCurrentRecalculation: (recalculation: RecalculationPayload | null) => {
         recalculation: RecalculationPayload | null
@@ -296,6 +310,12 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
+        nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
+        isManualRefreshBlocked: (
+            nextAllowedManualRefresh: string | null,
+            refreshEligibilityTick: number,
+            isDev: boolean | undefined
+        ) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
@@ -318,7 +338,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     key((props) => props.experiment.id),
     path((key) => ['scenes', 'experiment', 'experimentMetricsLogic', String(key)]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags', 'receivedFeatureFlags'],
+            preflightLogic,
+            ['isDev'],
+        ],
         actions: [featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
@@ -328,6 +355,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             trigger,
         }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
+        recheckRefreshEligibility: true,
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
@@ -352,6 +380,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setCurrentRecalculation: () => false,
             },
         ],
+        // Bumped when the manual refresh window closes, so isManualRefreshBlocked recomputes without new data.
+        refreshEligibilityTick: [0, { recheckRefreshEligibility: (state: number) => state + 1 }],
         queuedRerun: [
             null as ExperimentMetricsRecalculationRequestTriggerEnumApi | null,
             {
@@ -440,6 +470,23 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         lastRefresh: [
             (s) => [s.currentRecalculation],
             (recalc: RecalculationPayload | null): string | null => recalc?.query_to ?? null,
+        ],
+        nextAllowedManualRefresh: [
+            (s) => [s.currentRecalculation],
+            // Only a completed run anchors the window: the timeseries fallback is not a run, and a failed
+            // run must stay reloadable. The window measures from completed_at, as the backend does.
+            (recalc: RecalculationPayload | null): string | null =>
+                recalc?.status === RECALCULATION_STATUSES.completed &&
+                recalc.result_source !== 'timeseries_fallback' &&
+                recalc.completed_at
+                    ? dayjs(recalc.completed_at).add(MIN_MANUAL_REFRESH_INTERVAL_MINUTES, 'minutes').toISOString()
+                    : null,
+        ],
+        isManualRefreshBlocked: [
+            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick, s.isDev],
+            // Local development skips the window, as the backend does, so a developer can reload at will.
+            (nextAllowedManualRefresh: string | null, _tick: number, isDev: boolean | undefined): boolean =>
+                !isDev && !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],
@@ -732,11 +779,29 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.loadLatestRecalculation()
                 }
             },
+            setCurrentRecalculation: () => {
+                // Re-enable the reload button the moment the window closes, not on the next data load.
+                cache.disposables.dispose('manualRefreshEligibility')
+                const nextAllowed = values.nextAllowedManualRefresh
+                if (!nextAllowed || !dayjs(nextAllowed).isAfter(dayjs())) {
+                    return
+                }
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(
+                        actions.recheckRefreshEligibility,
+                        Math.max(0, dayjs(nextAllowed).diff(dayjs())) + 100
+                    )
+                    return () => clearTimeout(timerId)
+                }, 'manualRefreshEligibility')
+            },
             triggerRecalculation: async ({ trigger }) => {
                 /**
                  * bail if feature not enabled
                  */
                 if (!flagEnabled()) {
+                    return
+                }
+                if (trigger === 'manual' && values.isManualRefreshBlocked) {
                     return
                 }
                 /**
@@ -772,6 +837,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * they keep their value and show a loading tag until the new result streams in. Cold runs
                  * have nothing prior, so nothing to mark.
                  */
+                // Marks that already belong to a run being polled (set by loadLatestRecalculation when it
+                // found an active run) must survive a rejected create, so keep them for the catch block.
+                const previousRecalculatingMetricUuids = new Set(values.recalculatingMetricUuids)
                 if (trigger !== 'cold_run') {
                     actions.setRecalculatingMetricUuids(
                         metricUuidsToMarkRecalculating(
@@ -863,9 +931,25 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
                 } catch (error: any) {
                     /**
-                     * Re-enable the reload button: the run never started, so nothing else will clear loading.
+                     * re enable the reload button.
                      */
                     actions.setRecalculationLoading(false)
+                    /**
+                     * clears the metric badges and the metric group loading indicator this create set,
+                     * and keeps the marks of a run that is already being polled. The intersection, not the
+                     * snapshot: a poll that landed while the request was pending has already cleared its
+                     * metrics, and restoring them would leave them on with nothing left to clear them.
+                     */
+                    actions.setRecalculatingMetricUuids(
+                        values.recalculatingMetricUuids.filter((uuid) => previousRecalculatingMetricUuids.has(uuid))
+                    )
+                    if (error?.status === 429) {
+                        // Another tab or an agent used the refresh window first. Reload the latest run so the
+                        // button picks up its completed_at and shows when the next refresh is possible.
+                        lemonToast.info(error?.detail || 'Metrics were recalculated less than 5 minutes ago.')
+                        actions.loadLatestRecalculation()
+                        return
+                    }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 } finally {
                     cache.createInFlight = false

@@ -46,9 +46,17 @@ from ci_backend_depot_failures import depot_ci, explain
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
-# The PostHog tests GitHub App. Depot's wait and gate jobs post the same checks with it, because
+# The PostHog tests GitHub App. Depot's wait and gate jobs post their verdicts with it too, because
 # Depot posts its own checks from a budget that runs out at peak and then delivers them late.
 MIRROR_APP_ID = 2492437
+# The Trunk merge queue tests each batch through a draft pull request on this branch.
+MERGE_QUEUE_PREFIX = "trunk-merge/"
+
+
+def is_merge_queue(head_ref: str) -> bool:
+    return head_ref.startswith(MERGE_QUEUE_PREFIX)
+
+
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -57,6 +65,11 @@ EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
 RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
+# The mirror posts the gate under its own name, so that a pull request does not show two rows with one name.
+MIRRORED_GATE_CHECK = f"{DEPOT_WORKFLOW} / Test results"
+# Every name the mirror posts a check under. A Depot run on a workflow revision without the
+# mirror's gate name posts Depot's name from the mirror.
+MIRROR_NAMES = {GATE_CHECK: (GATE_CHECK, MIRRORED_GATE_CHECK)}
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
 CONCLUSIONS = frozenset(
@@ -253,16 +266,19 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """Every app's checks of `name`. `current_check` picks the current one per workflow.
+        """Every app's checks of `name`, under each name the app posts it with.
 
+        `current_check` picks the current one per workflow.
         A failed read of any app raises, because the other app's checks alone can hold a stale attempt.
         """
         runs: list[CheckRun] = []
         for app_id in self._app_ids:
-            app_runs = self._read_app(name, app_id)
-            if app_runs is None:
-                raise ReadFailedError(f"Cannot read {name}")
-            runs.extend(app_runs)
+            app_names = MIRROR_NAMES.get(name, (name,)) if app_id == MIRROR_APP_ID else (name,)
+            for app_name in app_names:
+                app_runs = self._read_app(app_name, app_id)
+                if app_runs is None:
+                    raise ReadFailedError(f"Cannot read {app_name}")
+                runs.extend(app_runs)
         return runs
 
     def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
@@ -324,6 +340,7 @@ class Event:
     pr_number: int
     # The pull request's `updated_at` in this event's payload.
     event_at: str
+    merge_queue: bool = False
 
 
 def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | None:
@@ -479,11 +496,22 @@ def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list
         f"  gh run rerun {run_id} --repo {event.repo} --failed",
         "",
     ]
-    return [
+    lines = [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
         f"Depot run: {details_url or 'not found'}",
         "",
         *(rerun if run_id else []),
+    ]
+    # Labels do not route a merge queue batch, and a push to its branch ends the queue attempt.
+    if event.merge_queue:
+        return [
+            *lines,
+            "Run on GitHub Actions instead: CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT=0 keeps new merge queue batches there.",
+            f"  gh variable set CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT --repo {event.repo} --body 0",
+            "Then queue the pull request again.",
+        ]
+    return [
+        *lines,
         "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
         f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
         "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
@@ -521,7 +549,13 @@ def main(argv: Sequence[str]) -> int:
         sys.stderr.write("usage: ci_backend_relay.py gate\n")
         return 2
     env = os.environ
-    event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
+    event = Event(
+        repo=env["REPO"],
+        sha=env["SHA"],
+        pr_number=int(env["PR_NUMBER"]),
+        event_at=env["EVENT_AT"],
+        merge_queue=is_merge_queue(env.get("HEAD_REF", "")),
+    )
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
         result = gate_verdict(reader, event, rerun=env.get("GITHUB_RUN_ATTEMPT", "1") != "1")

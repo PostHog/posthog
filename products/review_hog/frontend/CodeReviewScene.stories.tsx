@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -12,7 +13,7 @@ import type {
     ReviewUserSettingsApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { expect, waitFor, within } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import { CodeReviewScene } from './CodeReviewScene'
 
@@ -94,7 +95,6 @@ export const Default: Story = {
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on your PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Celebrate clean reviews')).toBeVisible()
-        await expect(canvas.queryByText('Flash strength')).not.toBeInTheDocument()
     },
 }
 
@@ -106,7 +106,6 @@ export const InternalFeatures: Story = {
         await expect(canvas.getByLabelText('Let Stamphog review your Inbox PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
-        await expect(canvas.getByText('Flash strength')).toBeVisible()
     },
 }
 

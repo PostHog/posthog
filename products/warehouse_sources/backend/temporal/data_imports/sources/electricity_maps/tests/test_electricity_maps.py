@@ -14,8 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.electricit
     ElectricityMapsResumeConfig,
     electricity_maps_source,
     initial_window_start,
-    invalid_zones,
-    parse_zones,
     validate_credentials,
 )
 
@@ -82,31 +80,6 @@ def _fresh_manager() -> MagicMock:
     manager = MagicMock(spec=ResumableSourceManager)
     manager.can_resume.return_value = False
     return manager
-
-
-class TestZoneParsing:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("DE", ["DE"]),
-            ("de, dk-dk1 ,DE", ["DE", "DK-DK1"]),
-            (" , ,", []),
-            ("US-CAL-CISO", ["US-CAL-CISO"]),
-        ],
-    )
-    def test_parse_zones_normalizes_and_dedupes(self, raw: str, expected: list[str]) -> None:
-        assert parse_zones(raw) == expected
-
-    @pytest.mark.parametrize(
-        ("zones", "expected_invalid"),
-        [
-            (["DE", "DK-DK1"], []),
-            (["HTTPS://EXAMPLE.COM", "DE"], ["HTTPS://EXAMPLE.COM"]),
-            (["DE DE"], ["DE DE"]),
-        ],
-    )
-    def test_invalid_zones_flags_non_zone_values(self, zones: list[str], expected_invalid: list[str]) -> None:
-        assert invalid_zones(zones) == expected_invalid
 
 
 class TestInitialWindowStart:

@@ -44,6 +44,7 @@ const STATE_LABELS: Record<BriefingItemStateEnumApi, string | null> = {
     open: null,
     done: 'Resolved',
     dismissed: 'Dismissed',
+    left: 'Not yours',
 }
 
 /** What happened to the item since the briefing was written, or null while it is still open. */
@@ -51,13 +52,33 @@ export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | n
     return STATE_LABELS[item.state]
 }
 
+// The briefing reasons a report gets when it names the person, the reports the for_you count covers.
+const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
+
+export function itemNamesPerson(item: Pick<BriefingItemApi, 'reason'>): boolean {
+    return NAMES_PERSON_REASONS.has(item.reason)
+}
+
+const REPORT_STATUS_STATES: Record<string, BriefingItemStateEnumApi> = {
+    resolved: 'done',
+    suppressed: 'dismissed',
+    deleted: 'dismissed',
+}
+
+/** A report's status in the briefing's terms, the way the backend gives briefing items their live state. */
+export function reportItemState(status: string): BriefingItemStateEnumApi {
+    return REPORT_STATUS_STATES[status] ?? 'open'
+}
+
 export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
     return {
         key: item.key,
+        reportId: itemReportId(item),
         title: item.title,
         reason: itemReasonLabel(item),
         stateLabel: itemStateLabel(item),
         resolved: item.state === 'done',
+        canLeaveReview: itemNamesPerson(item),
         priority: item.report?.priority ?? null,
         summary: item.report?.summary || null,
         pullRequestState: item.report?.pull_request_state ?? null,
