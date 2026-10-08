@@ -76,7 +76,7 @@ class TestZyloSource:
 
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["AutomationExecutions"])
 
-        assert permissions == {"AutomationExecutions": "API key is missing the `automations:read` permission scope"}
+        assert permissions == {"AutomationExecutions": "API key is missing the `automations` permission scope"}
         mock_probe.assert_called_once_with("tok_id", "tok_secret", "/v2/automations")
 
     def test_get_endpoint_permissions_unknown_endpoint_is_reachable(self) -> None:

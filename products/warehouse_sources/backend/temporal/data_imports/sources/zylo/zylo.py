@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.setti
 INITIAL_INCREMENTAL_VALUE = "1970-01-01"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZyloResumeConfig:
     next_skip: Optional[int] = None
     # AutomationExecutions fans out over Automations, so its resume state is the shape

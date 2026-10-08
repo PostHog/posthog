@@ -31,7 +31,7 @@ _SYSTEM_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ZyloEndpointConfig:
     name: str
     path: str
@@ -124,7 +124,7 @@ ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
         path="/v2/activityHistory",
         table_name="activity_history",
     ),
-    # Requires a token created with the automation role (`automations:read`).
+    # Requires a token created with the automation role (`automations`).
     "Automations": ZyloEndpointConfig(
         name="Automations",
         path="/v2/automations",

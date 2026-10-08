@@ -41,8 +41,8 @@ _ENDPOINT_SCOPES: dict[str, str] = {
     "SavingsEvents": "applications:read",
     "ApplicationBudgets": "applications:read",
     "ActivityHistory": "team:read",
-    "Automations": "automations:read",
-    "AutomationExecutions": "automations:read",
+    "Automations": "automations",
+    "AutomationExecutions": "automations",
 }
 
 
@@ -170,7 +170,7 @@ class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
                 "below. The key needs read scopes (e.g. `applications:read`, `contracts:read`, "
                 "`spend:read`, `team:read`) for the resources you want to sync — Purchase Orders and PO "
                 "Line Items are a premium feature and additionally require `spend:read`. Automations and "
-                "Automation Executions need a token created with the automation role (`automations:read`)."
+                "Automation Executions need a token created with the automation role (`automations`)."
             ),
             iconPath="/static/services/zylo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zylo",
