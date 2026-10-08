@@ -380,8 +380,7 @@ function progressLabel(review: ReviewRecentReviewApi): string {
         return 'Review in progress'
     }
     // Steps match the pipeline as users think of it: chunking → pick perspectives → review →
-    // dedupe → validation → finalize. Fetching folds into step 1. A single-agent Flash turn has
-    // its own three steps: prepare → review → finalize.
+    // dedupe → validation → finalize. Fetching folds into step 1.
     const { review_stage, done, total } = review.progress
     const percent = done !== null && total !== null && total > 0 ? ` · ${Math.round((done / total) * 100)}%` : ''
     switch (review_stage) {

@@ -75,7 +75,6 @@ class SnapshotStats:
     # Whether a snapshot exists for the report's CURRENT head (vs. a stale-turn fallback) — the
     # in-flight stage detection needs "has this turn fetched yet", not "was anything ever fetched".
     head_matched: bool = False
-    # The design the fetch chose for the snapshot's turn. None on snapshots written before the field existed.
     review_design: str | None = None
 
 

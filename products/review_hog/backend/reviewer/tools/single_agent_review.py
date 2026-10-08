@@ -346,7 +346,6 @@ class _HeldDuplicate:
     """A dedup removal that holds, pointing at what survives in its place."""
 
     duplicate: Duplicate
-    # The dedup call that removed it fell back to the positional pre-filter.
     fell_back: bool
 
 
