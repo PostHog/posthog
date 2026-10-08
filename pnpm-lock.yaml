@@ -636,8 +636,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.60
-        version: 0.0.60(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.62
+        version: 0.0.62(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
         specifier: 1.3.88
         version: 1.3.88
@@ -10852,8 +10852,8 @@ packages:
   '@posthog/core@1.57.2':
     resolution: {integrity: sha512-dfxeSjUvR+j4M7odvyf/KVdcKTZZ87u/l9swJtDt9vFkI2km3RhEveOkIHtFcZEQ1cllx7YaKJfdw6c8zfIEvg==}
 
-  '@posthog/hedgehog-mode@0.0.60':
-    resolution: {integrity: sha512-NPxA6Rg2u3jY36d9i8QUbggauaBuJ8rhd0c74sWnDgla7cjh8ZcjGCtTEjHtVWundHU7JII43+iNrSD1bUvQ+w==}
+  '@posthog/hedgehog-mode@0.0.62':
+    resolution: {integrity: sha512-68rNNcx/Sb8f27k+dCvDTDDGe+nHrNmEvL1M4Shfw0LVVKImfckqlqNuGcBow4hB4VGYjWZMMzQkKtoaVNOPQw==}
     engines: {node: '>=18'}
     peerDependencies:
       react: 18.3.1
@@ -30419,7 +30419,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.415.1
 
-  '@posthog/hedgehog-mode@0.0.60(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@posthog/hedgehog-mode@0.0.62(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       gsap: 3.14.2
       matter-js: 0.20.0

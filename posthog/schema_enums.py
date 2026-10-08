@@ -1671,6 +1671,7 @@ class HedgehogActorSkinOption(StrEnum):
     ROBOHOG = "robohog"
     HOGZILLA = "hogzilla"
     GHOST = "ghost"
+    PIG = "pig"
 
 
 class HogLanguage(StrEnum):
