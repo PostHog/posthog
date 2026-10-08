@@ -1019,7 +1019,9 @@ const AssistantRetentionFilter = z.object({
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
         )
         .optional(),
-    display: AssistantRetentionDisplayType.optional(),
+    display: AssistantRetentionDisplayType.describe(
+        '`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars.'
+    ).optional(),
     meanRetentionCalculation: z
         .enum(['simple', 'weighted', 'none'])
         .describe(

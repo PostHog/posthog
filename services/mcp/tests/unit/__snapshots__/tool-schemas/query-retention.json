@@ -1102,6 +1102,7 @@
                     "type": "boolean"
                 },
                 "display": {
+                    "description": "`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars.",
                     "enum": ["ActionsLineGraph", "ActionsBar"],
                     "type": "string"
                 },

@@ -600,6 +600,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
 
 
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
+
+
 class AssistantDataVisualizationYAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3804,6 +3812,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     legendPosition: LegendPosition | None = Field(
         default=None,
         description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
     )
     pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
@@ -10538,7 +10550,10 @@ class AssistantRetentionFilter(BaseModel):
             " towards all the previous periods."
         ),
     )
-    display: AssistantRetentionDisplayType | None = None
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
+    )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
         description=(

@@ -61,6 +61,11 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
+const AssistantDataVisualizationMetricSettings = z.object({
+    showChange: z.coerce.boolean().optional(),
+    summary: z.enum(['total', 'average', 'latest']).optional(),
+})
+
 const PieChartSettings = z.object({
     showTotal: z.coerce
         .boolean()
@@ -146,6 +151,9 @@ const AssistantDataVisualizationChartSettings = z.object({
         .enum(['top', 'bottom', 'left', 'right'])
         .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
         .optional(),
+    metric: AssistantDataVisualizationMetricSettings.describe(
+        'Settings for `Metric`. `summary` defaults to `latest`.'
+    ).optional(),
     pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'

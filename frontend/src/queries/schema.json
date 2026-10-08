@@ -2518,6 +2518,10 @@
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
+                "metric": {
+                    "$ref": "#/definitions/AssistantDataVisualizationMetricSettings",
+                    "description": "Settings for `Metric`. `summary` defaults to `latest`."
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings",
                     "description": "Settings for `ActionsPie` and `ActionsDonut`."
@@ -2600,6 +2604,19 @@
                 }
             },
             "required": ["label", "value"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationMetricSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showChange": {
+                    "type": "boolean"
+                },
+                "summary": {
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "AssistantDataVisualizationNode": {
@@ -4613,7 +4630,6 @@
             "type": "object"
         },
         "AssistantRetentionDisplayType": {
-            "description": "Retention display types:\n- `ActionsLineGraph` - line chart (default)\n- `ActionsBar` - bar chart",
             "enum": ["ActionsLineGraph", "ActionsBar"],
             "type": "string"
         },
@@ -4681,7 +4697,8 @@
                     "type": "boolean"
                 },
                 "display": {
-                    "$ref": "#/definitions/AssistantRetentionDisplayType"
+                    "$ref": "#/definitions/AssistantRetentionDisplayType",
+                    "description": "`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."
                 },
                 "meanRetentionCalculation": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",

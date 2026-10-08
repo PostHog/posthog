@@ -269,6 +269,12 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
 
 
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -2114,12 +2120,6 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
-
-
-class Summary(StrEnum):
-    TOTAL = "total"
-    AVERAGE = "average"
-    LATEST = "latest"
 
 
 class MetricsAggregation(StrEnum):

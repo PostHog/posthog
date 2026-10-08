@@ -986,14 +986,10 @@ export interface AssistantRetentionFilter {
      * @default event
      */
     aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    /** `ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars. */
     display?: AssistantRetentionDisplayType
 }
 
-/**
- * Retention display types:
- * - `ActionsLineGraph` - line chart (default)
- * - `ActionsBar` - bar chart
- */
 export type AssistantRetentionDisplayType = ChartDisplayType.ActionsLineGraph | ChartDisplayType.ActionsBar
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
@@ -1950,6 +1946,11 @@ export interface AssistantDataVisualizationBoxPlotSettings {
     excludeOutliers?: boolean
 }
 
+export interface AssistantDataVisualizationMetricSettings {
+    summary?: 'total' | 'average' | 'latest'
+    showChange?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /**
      * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
@@ -1982,6 +1983,8 @@ export interface AssistantDataVisualizationChartSettings {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** Settings for `ActionsPie` and `ActionsDonut`. */
     pie?: PieChartSettings
+    /** Settings for `Metric`. `summary` defaults to `latest`. */
+    metric?: AssistantDataVisualizationMetricSettings
     /** Render each data point's value as a label directly on the series. */
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
