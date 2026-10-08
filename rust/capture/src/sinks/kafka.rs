@@ -27,7 +27,7 @@ use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
-use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
+use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, PublishPayloads, SinkResult};
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -245,7 +245,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
     /// CPU-bound prep work: serialize payload + build headers + pick topic/key.
     /// Safe to run concurrently across events in a batch because it does not
-    /// touch the librdkafka producer queue — `Sink::publish` is what enforces
+    /// touch the librdkafka producer queue — `PublishPayloads::publish` is what enforces
     /// per-partition ordering by calling `enqueue_record` serially in the
     /// original event order.
     ///
@@ -428,7 +428,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
     /// CPU-bound batch prep: run `prepare_record` over the batch and return
     /// the payloads in the original event order, fail-fast on the first prep
     /// error so no partially-prepped batch reaches the producer. Inherent
-    /// rather than on the `Sink` trait: payload assembly is not backend
+    /// rather than on the `PublishPayloads` trait: payload assembly is not backend
     /// mechanism, and the outputs layer becomes its caller.
     pub(crate) async fn prepare_batch(
         &self,
@@ -519,7 +519,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
 }
 
 #[async_trait]
-impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
+impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
     /// Serial enqueue in payload order + fail-fast ack drain. The serial
     /// enqueue is the ordering bottleneck we deliberately keep: librdkafka
     /// preserves per-partition on-wire order by send_result() call order, and
@@ -593,7 +593,7 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
         }
 
         let payloads = self.prepare_batch(events).await?;
-        fold_results(Sink::publish(self, payloads).await)
+        fold_results(PublishPayloads::publish(self, payloads).await)
     }
 }
 
@@ -639,7 +639,7 @@ impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
     }
 }
 
-/// Concurrent ack drain for `Sink::publish`, fail-fast on first ack error.
+/// Concurrent ack drain for `PublishPayloads::publish`, fail-fast on first ack error.
 /// Dropping the JoinSet on error aborts remaining spawned ack futures;
 /// DeliveryAckFuture Drop then records the "dropped" outcome on
 /// capture_kafka_produce_ack_duration_ms.
@@ -1024,7 +1024,7 @@ mod tests {
         use super::*;
         use crate::sinks::kafka::{test_outputs, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
-        use crate::sinks::sink::{Outcome, Sink};
+        use crate::sinks::sink::{Outcome, PublishPayloads};
         use rstest::rstest;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -2930,7 +2930,7 @@ mod tests {
 
         #[test]
         fn publish_events_one_event_feeds_the_phase_histograms() {
-            // The one-event path skips prepare_batch and Sink::publish, which
+            // The one-event path skips prepare_batch and PublishPayloads::publish, which
             // own these two histograms, so it has to record them itself.
             // Otherwise every single-event endpoint drops out of the
             // distribution and the in-process quantiles step up unprompted.
@@ -3021,7 +3021,7 @@ mod tests {
         }
 
         // ==================== Sink mechanism seam ====================
-        // The per-event result surface `Sink::publish` reports: uuid-aligned
+        // The per-event result surface `PublishPayloads::publish` reports: uuid-aligned
         // with the input payloads, batch-uniform on failure. `fold_results`
         // discards this shape, so the publish_events tests above cannot see it —
         // and the outputs layer builds on it.

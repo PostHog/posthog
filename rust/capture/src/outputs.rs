@@ -1,14 +1,14 @@
 //! The outputs layer: the produce surface above the sinks.
 //!
 //! An [`Output`] is a published-to destination: either a single backend
-//! leaf, or a policy composing two child outputs. Today the one policy is
+//! sink, or a policy composing two child outputs. Today the one policy is
 //! failover (health-gated Kafka primary with an S3 secondary).
 //!
 //! Outputs take two routes. The v0 event route ([`PublishEvents`]) hands over
 //! events before any payload prep, so each target resolves topics and
 //! serializes for itself. The prepared route ([`PublishPrepared`]) hands over
 //! [`PreparedEvent`]s, already serialized and addressed, and reports one
-//! result per event. Every leaf and every policy serves both.
+//! result per event. Every sink and every policy serves both.
 
 use async_trait::async_trait;
 use common_types::CapturedEventHeaders;
@@ -23,12 +23,12 @@ use crate::pipeline::Address;
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v0_request::ProcessedEvent;
 
-/// The leaf produce contract: run prep, publish, and fold internally and
+/// The sink produce contract: run prep, publish, and fold internally and
 /// report the v0 whole-request result, so no caller sees a two-phase
 /// protocol.
 ///
 /// `pub` rather than `pub(crate)` because the integration suites in
-/// `tests/` stand their own capturing sinks in as output leaves; there is
+/// `tests/` stand their own capturing sinks in as outputs; there is
 /// no other reason to implement it outside this crate.
 #[async_trait]
 pub trait PublishEvents: Send + Sync {
@@ -54,23 +54,23 @@ pub trait PublishPrepared: Send + Sync {
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult>;
 }
 
-pub trait Leaf: PublishEvents + PublishPrepared {}
+pub trait Sink: PublishEvents + PublishPrepared {}
 
-impl<T: PublishEvents + PublishPrepared> Leaf for T {}
+impl<T: PublishEvents + PublishPrepared> Sink for T {}
 
 pub struct Output {
     inner: Inner,
 }
 
 enum Inner {
-    Single(Box<dyn Leaf>),
+    Single(Box<dyn Sink>),
     Failover(Failover),
 }
 
 impl Output {
-    pub fn single<L: Leaf + 'static>(leaf: L) -> Self {
+    pub fn single<S: Sink + 'static>(sink: S) -> Self {
         Self {
-            inner: Inner::Single(Box::new(leaf)),
+            inner: Inner::Single(Box::new(sink)),
         }
     }
 
@@ -106,7 +106,7 @@ impl Output {
 impl PublishEvents for Output {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         match &self.inner {
-            Inner::Single(leaf) => leaf.publish_events(events).await,
+            Inner::Single(sink) => sink.publish_events(events).await,
             Inner::Failover(failover) => failover.publish_events(events).await,
         }
     }
@@ -116,7 +116,7 @@ impl PublishEvents for Output {
 impl PublishPrepared for Output {
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
         match &self.inner {
-            Inner::Single(leaf) => leaf.publish_prepared(events).await,
+            Inner::Single(sink) => sink.publish_prepared(events).await,
             Inner::Failover(failover) => failover.publish_prepared(events).await,
         }
     }
@@ -212,8 +212,8 @@ impl OutputRegistry {
         Self { output }
     }
 
-    pub fn single<L: Leaf + 'static>(leaf: L) -> Self {
-        Self::new(Output::single(leaf))
+    pub fn single<S: Sink + 'static>(sink: S) -> Self {
+        Self::new(Output::single(sink))
     }
 
     /// Per-event failures collapse to a whole-request `CaptureError`.
@@ -241,17 +241,17 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    struct FailLeaf(CaptureError);
+    struct FailSink(CaptureError);
 
     #[async_trait]
-    impl PublishEvents for FailLeaf {
+    impl PublishEvents for FailSink {
         async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             Err(self.0.clone())
         }
     }
 
     #[async_trait]
-    impl PublishPrepared for FailLeaf {
+    impl PublishPrepared for FailSink {
         async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
             events
                 .iter()
@@ -261,12 +261,12 @@ mod tests {
     }
 
     #[derive(Clone, Default)]
-    struct PreparedLeaf {
+    struct PreparedSink {
         failures: Arc<HashMap<Uuid, CaptureError>>,
         seen: Arc<Mutex<Vec<Uuid>>>,
     }
 
-    impl PreparedLeaf {
+    impl PreparedSink {
         fn failing(failures: impl IntoIterator<Item = (Uuid, CaptureError)>) -> Self {
             Self {
                 failures: Arc::new(failures.into_iter().collect()),
@@ -280,14 +280,14 @@ mod tests {
     }
 
     #[async_trait]
-    impl PublishEvents for PreparedLeaf {
+    impl PublishEvents for PreparedSink {
         async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
             unreachable!("prepared-route tests publish prepared events")
         }
     }
 
     #[async_trait]
-    impl PublishPrepared for PreparedLeaf {
+    impl PublishPrepared for PreparedSink {
         async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
             self.seen
                 .lock()
@@ -371,7 +371,7 @@ mod tests {
     async fn failover_republishes_on_retriable_primary_failure() {
         let fallback = MockSink::new();
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
             Output::single(fallback.clone()),
             None,
         );
@@ -387,8 +387,8 @@ mod tests {
     #[tokio::test]
     async fn failover_reports_the_error_when_both_targets_fail() {
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
             None,
         );
 
@@ -404,7 +404,7 @@ mod tests {
     async fn fatal_primary_error_does_not_fail_over() {
         let fallback = MockSink::new();
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::NonRetryableSinkError)),
+            Output::single(FailSink(CaptureError::NonRetryableSinkError)),
             Output::single(fallback.clone()),
             None,
         );
@@ -479,8 +479,8 @@ mod tests {
 
     #[tokio::test]
     async fn registry_publishes_to_its_output() {
-        let leaf = MockSink::new();
-        let registry = OutputRegistry::single(leaf.clone());
+        let sink = MockSink::new();
+        let registry = OutputRegistry::single(sink.clone());
 
         registry.publish(vec![test_event()]).await.unwrap();
         registry
@@ -488,15 +488,15 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(leaf.get_events().len(), 3);
+        assert_eq!(sink.get_events().len(), 3);
     }
 
     #[tokio::test]
     async fn prepared_route_reports_one_result_per_event_in_order() {
         let events = vec![prepared_event(), prepared_event(), prepared_event()];
         let uuids: Vec<Uuid> = events.iter().map(|event| event.uuid).collect();
-        let leaf = PreparedLeaf::failing([(uuids[1], CaptureError::NonRetryableSinkError)]);
-        let registry = OutputRegistry::single(leaf.clone());
+        let sink = PreparedSink::failing([(uuids[1], CaptureError::NonRetryableSinkError)]);
+        let registry = OutputRegistry::single(sink.clone());
 
         let results = outcomes(registry.publish_prepared(events).await);
 
@@ -508,18 +508,18 @@ mod tests {
                 (uuids[2], None),
             ]
         );
-        assert_eq!(leaf.seen(), uuids);
+        assert_eq!(sink.seen(), uuids);
     }
 
     #[tokio::test]
     async fn prepared_failover_republishes_only_retriable_events() {
         let events = vec![prepared_event(), prepared_event(), prepared_event()];
         let uuids: Vec<Uuid> = events.iter().map(|event| event.uuid).collect();
-        let primary = PreparedLeaf::failing([
+        let primary = PreparedSink::failing([
             (uuids[1], CaptureError::RetryableSinkError),
             (uuids[2], CaptureError::NonRetryableSinkError),
         ]);
-        let fallback = PreparedLeaf::default();
+        let fallback = PreparedSink::default();
         let output = Output::failover(
             Output::single(primary.clone()),
             Output::single(fallback.clone()),
@@ -543,9 +543,9 @@ mod tests {
 
     #[tokio::test]
     async fn prepared_failover_leaves_the_fallback_idle_when_the_primary_succeeds() {
-        let fallback = PreparedLeaf::default();
+        let fallback = PreparedSink::default();
         let output = Output::failover(
-            Output::single(PreparedLeaf::default()),
+            Output::single(PreparedSink::default()),
             Output::single(fallback.clone()),
             None,
         );
@@ -563,8 +563,8 @@ mod tests {
     #[tokio::test]
     async fn prepared_failover_reports_the_fallback_failure() {
         let output = Output::failover(
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
-            Output::single(FailLeaf(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
+            Output::single(FailSink(CaptureError::RetryableSinkError)),
             None,
         );
 
@@ -588,8 +588,8 @@ mod tests {
         );
         let _monitor = manager.monitor_background();
 
-        let primary = PreparedLeaf::default();
-        let fallback = PreparedLeaf::default();
+        let primary = PreparedSink::default();
+        let fallback = PreparedSink::default();
         let output = Output::failover(
             Output::single(primary.clone()),
             Output::single(fallback.clone()),

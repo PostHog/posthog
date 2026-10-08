@@ -7,7 +7,7 @@
 //! metadata and makes no routing decision; anything that picks between
 //! backends is an output policy, not a sink.
 //!
-//! [`Sink::publish`] does not return an error: every input payload gets a
+//! [`PublishPayloads::publish`] does not return an error: every input payload gets a
 //! [`SinkResult`], and a failure is reported in that payload's result. Callers
 //! that need the v0 whole-request response collapse the results with
 //! [`fold_results`].
@@ -70,7 +70,7 @@ impl SinkResult {
 /// Backend mechanism: enqueue prepared payloads, ack them, report results.
 /// No prepare on the trait — payload assembly belongs to the layers above.
 #[async_trait]
-pub(crate) trait Sink {
+pub(crate) trait PublishPayloads {
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
 }
 
