@@ -9,6 +9,7 @@ import {
     libraryRowProductLabels,
     toolHrefForPath,
     toolLabel,
+    viewTypesForProductSearch,
 } from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
@@ -38,8 +39,8 @@ describe('todayShellLogic', () => {
         ['/project/1/canvases/new', 'views'],
         ['/project/1/notebooks/abc', 'views'],
         ['/project/1/dashboard/12', 'views'],
-        ['/project/1/notebooks', 'products'],
-        ['/project/1/dashboard', 'products'],
+        ['/project/1/notebooks', 'views'],
+        ['/project/1/dashboard', 'views'],
         ['/project/1/persons', 'products'],
         ['/project/1/activity/events', 'products'],
         ['/project/1/airplane', null],
@@ -59,8 +60,8 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['Notebooks', true],
-        ['Dashboards', true],
+        ['Notebooks', false],
+        ['Dashboards', false],
         ['Session replay', true],
         ['Persons', true],
         ['Activity', true],
@@ -75,6 +76,17 @@ describe('todayShellLogic', () => {
 
     it('finds the Insights row with a search for the Product analytics name', () => {
         expect(libraryRowProductLabels('insight')).toContain('Product analytics')
+    })
+
+    test.each([
+        ['dash', ['dashboard']],
+        ['My Dashboards', ['dashboard']],
+        ['notebook', ['notebook']],
+        ['da', []],
+        ['canvas', []],
+        ['feature flags', []],
+    ])('points a Products search for %s to these view types: %j', (search, types) => {
+        expect(viewTypesForProductSearch(search).map((info) => info.type)).toEqual(types)
     })
 
     test.each([

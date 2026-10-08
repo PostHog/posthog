@@ -1,5 +1,6 @@
-import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { VIEW_FILE_SYSTEM_TYPES, libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
+import { VIEW_TYPES, ViewTypeInfo } from 'scenes/views/viewsUtils'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
@@ -44,8 +45,25 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
     return !query || `${toolLabel(tool)} ${toolCategory(tool)}`.toLowerCase().includes(query)
 }
 
+/** Whether a page gets its own row in the Products list. Library rows and the Views pane open the other pages. */
 export function isToolItem(item: FileSystemImport): boolean {
-    return !!item.href && !libraryRowOpensProduct(item)
+    return !!item.href && !libraryRowOpensProduct(item) && !VIEW_FILE_SYSTEM_TYPES.has(productObjectType(item))
+}
+
+// A shorter search, like "da", matches too many words to mean a view type.
+const VIEW_TYPE_SEARCH_MIN_LENGTH = 3
+
+/** The view types a Products search looks for. Those types live in the Views pane, so the pane points there. */
+export function viewTypesForProductSearch(search: string): ViewTypeInfo[] {
+    const query = search.trim().toLowerCase()
+    if (query.length < VIEW_TYPE_SEARCH_MIN_LENGTH) {
+        return []
+    }
+    return VIEW_TYPES.filter(
+        (info) =>
+            VIEW_FILE_SYSTEM_TYPES.has(info.type) &&
+            (info.pluralLabel.toLowerCase().includes(query) || query.includes(info.label.toLowerCase()))
+    )
 }
 
 let productLabelsByLibraryType: Map<string, string[]> | null = null

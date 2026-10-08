@@ -8,7 +8,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
 import { libraryLogic } from 'scenes/library/libraryLogic'
 import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { libraryRowProductLabels, toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
+import { libraryRowProductLabels, toolHrefForPath, toolLabel, viewTypesForProductSearch } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -18,6 +18,7 @@ import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { TodayProductsViewsHint } from './TodayProductsViewsHint'
 import { todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
@@ -35,6 +36,7 @@ export function TodayProductsSidebar(): JSX.Element {
         [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
     )
     const showLibrary = showAllObjects || libraryTypes.length > 0
+    const searchedViewTypes = viewTypesForProductSearch(search)
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
         key: group.category,
@@ -73,9 +75,11 @@ export function TodayProductsSidebar(): JSX.Element {
                 dataAttr="today-products-search"
             >
                 {!recentSection && !showLibrary && !categorySections.length ? (
-                    <Text size="xs" variant="muted" className="block px-2 py-1">
-                        No products match that search.
-                    </Text>
+                    !searchedViewTypes.length && (
+                        <Text size="xs" variant="muted" className="block px-2 py-1">
+                            No products match that search.
+                        </Text>
+                    )
                 ) : (
                     <>
                         {recentSection && renderToolSection(recentSection, true)}
@@ -115,6 +119,7 @@ export function TodayProductsSidebar(): JSX.Element {
                         )}
                     </>
                 )}
+                {searchedViewTypes.length > 0 && <TodayProductsViewsHint viewTypes={searchedViewTypes} />}
             </TodayPaneSearchList>
         </div>
     )
