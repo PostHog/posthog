@@ -1947,8 +1947,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         // The scene shows the breakdowns of the link's effective_query, which only the API
                         // resolves, so that list can differ from metadata.breakdowns until the save returns.
                         // Remove the breakdown by value, so that an index into the shown list never removes a
-                        // different breakdown. A shown breakdown that the metadata no longer holds leaves the
-                        // metadata as is, so the listeners do not save or report a removal.
+                        // different breakdown.
                         shared: (metadata) => {
                             const breakdowns = metadata?.breakdowns || []
                             const position = breakdowns.findIndex((candidate) => objectsEqual(candidate, breakdown))
@@ -3374,7 +3373,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateMetricBreakdown: [
             ({ uuid, breakdown }, _breakpoint, _action, previousState): void => {
-                // Like the save, the event skips an edit that changed nothing.
                 if (values.experiment !== selectors.experiment(previousState)) {
                     const isPrimary = isPrimaryMetric(values.experiment, uuid)
                     actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
