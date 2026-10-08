@@ -557,8 +557,6 @@ class TestArticleTables:
         assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
 
     def test_no_rows_against_a_nested_nonzero_total_fails_the_sync(self) -> None:
-        # With no row list, a total one object down is the only signal that rows exist.
-        # Reading the top level alone loses it, and the full refresh completes with an empty table.
         manager = _fresh_manager()
         responses = [_make_response({"result": {"articles": {"id": 1}, "total": 12}})]
 

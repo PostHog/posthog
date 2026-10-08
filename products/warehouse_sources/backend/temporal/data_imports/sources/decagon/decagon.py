@@ -254,7 +254,6 @@ def _resolve_rows(
     """
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
-    # A top-level list with the configured name is only safe when no nested list shares the name.
     if len(same_key) == 1 and same_key[0].path == config.data_key:
         return same_key[0]
 
@@ -267,8 +266,7 @@ def _resolve_rows(
     # A list qualifies on its name or on the endpoint's primary keys. Being the envelope's
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one
-    # candidate is a guess, so it fails instead. Two lists with the configured name are
-    # already a guess, so the primary keys must not pick one of them.
+    # candidate is a guess, so it fails instead.
     shortlist = same_key or inferred
     if len(shortlist) == 1:
         found = shortlist[0]
@@ -305,12 +303,6 @@ def _resolve_rows(
 
 
 def _total_holder(data: dict[str, Any], config: DecagonEndpointConfig) -> dict[str, Any]:
-    """The object that carries the reported total when the response has no row list.
-
-    A wrapper can take the total one object down. Reading only the top level then loses
-    a positive total, and the contract check lets an empty full refresh complete. Two
-    nested totals give no single answer, so the walk keeps the top level.
-    """
     if config.total_key is None or config.total_key in data:
         return data
     holders = [value for value in data.values() if isinstance(value, dict) and config.total_key in value]
