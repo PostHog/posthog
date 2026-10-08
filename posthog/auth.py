@@ -1598,7 +1598,7 @@ class WebauthnBackend(BaseBackend):
         Required by Django's authentication system to load the user on subsequent requests.
         """
         try:
-            return User.objects.get(pk=user_id)
+            return User.objects.get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             return None
 
