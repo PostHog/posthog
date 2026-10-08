@@ -32,6 +32,9 @@ class SafetyCultureEndpointConfig:
     # Every data feed row carries a feed-unique `id` (e.g. inspection_items' `id` is the combined
     # inspection item ID, distinct from the per-template `item_id`).
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Non-empty marks a POST search endpoint scoped to one structure type per request; the sync
+    # walks each listed type in turn.
+    structure_types: tuple[str, ...] = ()
 
 
 # SafetyCulture Data Feed endpoints (https://developer.safetyculture.com/reference/data-feeds) —
@@ -94,6 +97,16 @@ SAFETYCULTURE_ENDPOINTS: dict[str, SafetyCultureEndpointConfig] = {
         path="/feed/sites",
         supports_incremental=False,
         partition_key=None,
+    ),
+    # Structures API (https://developer.safetyculture.com/reference/structuresservice_searchstructures).
+    # Only the built-in site and group types can be enumerated: org-defined structure types have no
+    # public listing endpoint. There is no time filter, so it's full refresh only.
+    "structures": SafetyCultureEndpointConfig(
+        name="structures",
+        path="/structures/v1/structures/search",
+        supports_incremental=False,
+        primary_keys=["structure_uuid"],
+        structure_types=("SYSTEM_STRUCTURE_TYPE_SITE", "SYSTEM_STRUCTURE_TYPE_GROUP"),
     ),
     "schedules": SafetyCultureEndpointConfig(
         name="schedules",
