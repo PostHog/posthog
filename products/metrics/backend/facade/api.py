@@ -8,6 +8,7 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 from posthog.hogql import ast
@@ -45,11 +46,13 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
+# NONE maps to no aggregation, which is not a string.
 _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.SUM: "sum",
     MetricAggregation.AVG: "avg",
@@ -117,7 +120,8 @@ def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[in
 
 # Hard cap on series returned per clause; the largest series (by summed
 # absolute value) win so the most significant groups survive truncation.
-MAX_SERIES_PER_CLAUSE = 100
+# A clause without an aggregation is capped earlier, in the query, at the same number.
+MAX_SERIES_PER_CLAUSE = MAX_RAW_SERIES
 
 
 def _assemble_series(
@@ -130,11 +134,14 @@ def _assemble_series(
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
-    has identical timestamps."""
-    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
-    fingerprints_by_labels: dict[tuple[tuple[str, str], ...], set[int]] = {}
+    has identical timestamps.
+
+    A row with a `series_key` stays apart from rows of another key, even when
+    their labels match: two physical series can share a label-set."""
+    by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
+    fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
     for row in rows:
-        key = tuple(sorted(row["labels"].items()))
+        key = (tuple(sorted(row["labels"].items())), row.get("series_key"))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
         fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
 
@@ -147,7 +154,7 @@ def _assemble_series(
     )
     return [
         MetricSeries(
-            labels=dict(key),
+            labels=dict(key[0]),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
@@ -157,7 +164,70 @@ def _assemble_series(
     ]
 
 
-def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
+def _labels_by_fingerprint(team: Team, metric_name: str, fingerprints: set[int]) -> dict[int, dict[str, str]]:
+    """The label set of each series, for a clause that returns series unaggregated.
+
+    Resource attributes come first, so a datapoint attribute of the same name wins.
+    """
+    if not fingerprints:
+        return {}
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(resource_attributes), any(attributes)
+            FROM posthog.metric_series
+            WHERE metric_name = {metric_name}
+              AND series_fingerprint IN {fingerprints}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={
+            "metric_name": ast.Constant(value=metric_name),
+            "fingerprints": ast.Tuple(exprs=[ast.Constant(value=fp) for fp in sorted(fingerprints)]),
+        },
+    )
+    response = execute_hogql_query(
+        query_type="MetricSeriesLabelsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {
+        int(row[0]): {str(key): str(value) for key, value in {**(row[1] or {}), **(row[2] or {})}.items() if value}
+        for row in (response.results or [])
+    }
+
+
+def _attach_series_labels(team: Team, metric_name: str, rows: list[dict[str, Any]]) -> None:
+    """Give each row of an unaggregated clause the labels of its series."""
+    labels = _labels_by_fingerprint(team, metric_name, {fp for row in rows for fp in row["series_fingerprints"]})
+    for row in rows:
+        (fingerprint,) = row["series_fingerprints"]
+        row["labels"] = labels.get(int(fingerprint), {})
+        row["series_key"] = int(fingerprint)
+
+
+def _drop_shared_labels(series: list[MetricSeries]) -> list[MetricSeries]:
+    """With several series, keep only the labels that tell them apart.
+
+    A label that has the same value on every series only repeats in each legend entry.
+    """
+    if len(series) < 2:
+        return series
+    shared = {
+        key
+        for key, value in series[0].labels.items()
+        if all(other.labels.get(key) == value for other in series[1:])
+    }
+    return [replace(s, labels={k: v for k, v in s.labels.items() if k not in shared}) for s in series]
+
+
+def _resolve_runner_aggregation(clause: MetricQueryClause) -> str | None:
+    if clause.aggregation.is_raw:
+        return None
     if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
         return "p95"
     if clause.aggregation == MetricAggregation.HISTOGRAM_QUANTILE:
@@ -255,8 +325,12 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
+            range_function=clause.range_function.value if clause.range_function is not None else None,
         )
-        rows_by_clause[clause.name] = runner.run()
+        rows = runner.run()
+        if runner_aggregation is None:
+            _attach_series_labels(team, clause.metric_name, rows)
+        rows_by_clause[clause.name] = rows
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
@@ -286,7 +360,15 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     if formula_node_checked is not None:
         return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
-    return [series for clause in request.clauses for series in series_by_clause[clause.name]]
+    return [
+        series
+        for clause in request.clauses
+        for series in (
+            _drop_shared_labels(series_by_clause[clause.name])
+            if clause.aggregation.is_raw
+            else series_by_clause[clause.name]
+        )
+    ]
 
 
 def list_metric_names(

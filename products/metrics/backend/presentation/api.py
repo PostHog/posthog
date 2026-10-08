@@ -48,7 +48,13 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
 )
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import (
+    AttributeScope,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 
 __all__ = ["MetricsViewSet"]
 
@@ -116,9 +122,15 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["none", "sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
         help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
+    )
+    rangeFunction = serializers.ChoiceField(
+        choices=[f.value for f in MetricRangeFunction],
+        required=False,
+        allow_null=True,
+        help_text="Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.",
     )
     quantile = serializers.FloatField(
         required=False,
@@ -167,9 +179,15 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=["none", "sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
+    )
+    rangeFunction = serializers.ChoiceField(
+        choices=[f.value for f in MetricRangeFunction],
+        required=False,
+        allow_null=True,
+        help_text="Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.",
     )
     quantile = serializers.FloatField(
         required=False,
@@ -249,12 +267,14 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
         aggregation = MetricAggregation(aggregation_raw)
 
     metric_type_raw = data.get("metricType")
+    range_function_raw = data.get("rangeFunction")
     return MetricQueryClause(
         name=name,
         metric_name=data["metricName"],
         aggregation=aggregation,
         quantile=quantile,
         metric_type=MetricType(metric_type_raw) if metric_type_raw else None,
+        range_function=MetricRangeFunction(range_function_raw) if range_function_raw else None,
         filters=tuple(
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in data.get("filters") or []
