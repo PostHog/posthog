@@ -196,6 +196,12 @@ export const personhogStoreShadowMergeRedriveCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personhogStoreShadowCreateRetriesCounter = new Counter({
+    name: 'personhog_store_shadow_create_retries_total',
+    help: 'Shadow create attempts past the first (retried) and creates that landed after a retry (recovered); one that misses its deadline counts under personhog_store_shadow_errors_total',
+    labelNames: ['outcome'],
+})
+
 export const personhogStoreShadowCompareFailedCounter = new Counter({
     name: 'personhog_store_shadow_compare_failed_total',
     help: 'Shadow comparisons that threw, which is a fault in the comparison rather than in either backend',
