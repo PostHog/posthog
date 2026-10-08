@@ -702,7 +702,7 @@ func restrictionsResponse(body string) *http.Response {
 
 func TestStreamEventsHandlerAppliesPropertyRestrictions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"restricted_event_properties": ["email"], "restricted_person_properties": ["email"]}`))
+		_, _ = w.Write([]byte(`{"restricted_event_properties": ["email", "$ip"], "restricted_person_properties": ["email"]}`))
 	}))
 	defer server.Close()
 	viper.Set("jwt.authorization_url", server.URL)
@@ -722,19 +722,28 @@ func TestStreamEventsHandlerAppliesPropertyRestrictions(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, httpError.Code)
 	})
 
-	t.Run("hands the restrictions to the subscription", func(t *testing.T) {
+	t.Run("writes each event under the restrictions", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		request := httptest.NewRequest(http.MethodGet, "/events?property=$browser=Chrome", nil).WithContext(ctx)
 		request.Header.Set("Authorization", "Bearer "+token)
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan string, 2)}
 		subChan := make(chan events.Subscription, 1)
 		done := make(chan error, 1)
 		go func() {
-			done <- StreamEventsHandler(e.Logger, subChan, make(chan events.Subscription, 1))(e.NewContext(request, httptest.NewRecorder()))
+			done <- StreamEventsHandler(e.Logger, subChan, make(chan events.Subscription, 1))(e.NewContext(request, recorder))
 		}()
 		subscription := <-subChan
-		assert.True(t, subscription.Restrictions.Load().RestrictsEventProperty("email"))
-		assert.True(t, subscription.Restrictions.Load().RestrictsPersonProperty("email"))
+		// The geo event is dropped, so only the stripped event reaches the response.
+		subscription.EventChan <- events.ResponseGeoEvent{Lat: 40.7, Lng: -74.0, CountryCode: "US"}
+		subscription.EventChan <- events.ResponsePostHogEvent{Event: "pageview", Properties: map[string]interface{}{
+			"email": "hidden@example.com", "$browser": "Chrome", "$set": map[string]interface{}{"email": "hidden@example.com"},
+		}}
+		<-recorder.flushed
+		body := recorder.Body.String()
+		assert.Contains(t, body, `"$browser":"Chrome"`)
+		assert.NotContains(t, body, "hidden@example.com")
+		assert.NotContains(t, body, `"lat"`)
 		cancel()
 		require.NoError(t, <-done)
 	})
@@ -768,12 +777,10 @@ func TestStreamEventsHandlerEndsStreamWhenRecheckRestrictsFilteredProperty(t *te
 			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
 		}()
 
-		subscription := <-subChan
-		assert.Nil(t, subscription.Restrictions.Load())
+		<-subChan
 		time.Sleep(30 * time.Second)
 
 		require.NoError(t, <-done)
-		assert.True(t, subscription.Restrictions.Load().RestrictsEventProperty("email"))
 		assert.Equal(t, int32(2), calls.Load())
 	})
 }

@@ -84,9 +84,6 @@ type Subscription struct {
 	Geo     bool
 	Columns []string
 
-	// Swapped by the handler on every authorization re-check; nil restricts nothing.
-	Restrictions *atomic.Pointer[auth.PropertyRestrictions]
-
 	// Transformations
 	PathCleaner *PathCleaner
 
@@ -146,13 +143,6 @@ var (
 	groupTypeProperty        = "$group_type"
 )
 
-func (s *Subscription) restrictions() *auth.PropertyRestrictions {
-	if s.Restrictions == nil {
-		return nil
-	}
-	return s.Restrictions.Load()
-}
-
 // A filter on a hidden key would let the subscriber infer its values from which events match.
 // Filters match the whole stringified $set / $set_once map, so those are hidden too once any person key is.
 func RestrictedFilterKey(filters []CompiledPropertyFilter, restrictions *auth.PropertyRestrictions) string {
@@ -176,8 +166,8 @@ func groupTypeOf(properties map[string]interface{}) string {
 	return groupType
 }
 
-// StripRestricted removes hidden properties from an already built response. The handler calls it
-// at write time, so events queued before a re-check tightened the rules go out under the new set.
+// StripRestricted removes hidden properties from a built response. The handler calls it at
+// write time, off the fan-out goroutine, with whatever rules the latest re-check returned.
 func (e *ResponsePostHogEvent) StripRestricted(restrictions *auth.PropertyRestrictions) {
 	if restrictions == nil {
 		return
@@ -226,29 +216,23 @@ func convertToResponsePostHogEvent(
 	teamId int,
 	columns []string,
 	pathCleaner *PathCleaner,
-	restrictions *auth.PropertyRestrictions,
 ) *ResponsePostHogEvent {
 	var properties map[string]interface{}
-	groupType := groupTypeOf(event.Properties)
 	if columns == nil {
 		properties = event.Properties
-		if pathCleaner != nil || restrictions != nil {
-			// About to inject or remove per-subscriber properties; copy so the
-			// shared event map never carries one subscription's view into another.
+		if pathCleaner != nil {
+			// About to inject a per-subscriber property; copy so the shared
+			// event map never carries one subscription's cleaning into another.
 			properties = make(map[string]interface{}, len(event.Properties)+1)
 			for k, v := range event.Properties {
-				if visible, ok := visibleProperty(k, v, groupType, restrictions); ok {
-					properties[k] = visible
-				}
+				properties[k] = v
 			}
 		}
 	} else {
 		properties = make(map[string]interface{})
 		for _, key := range columns {
 			if val, ok := event.Properties[key]; ok {
-				if visible, ok := visibleProperty(key, val, groupType, restrictions); ok {
-					properties[key] = visible
-				}
+				properties[key] = val
 			}
 		}
 	}
@@ -256,12 +240,12 @@ func convertToResponsePostHogEvent(
 	// Always pass through $virt_* bot classification properties
 	// regardless of requested columns
 	for _, key := range []string{"$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"} {
-		if val, ok := event.Properties[key]; ok && !restrictions.RestrictsEventProperty(key) {
+		if val, ok := event.Properties[key]; ok {
 			properties[key] = val
 		}
 	}
 
-	if pathCleaner != nil && !restrictions.RestrictsEventProperty("$pathname") {
+	if pathCleaner != nil {
 		if pathname, ok := event.Properties["$pathname"].(string); ok {
 			properties["$virt_cleaned_pathname"] = pathCleaner.Clean(pathname)
 		}
@@ -453,20 +437,12 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 			continue
 		}
 
-		restrictions := sub.restrictions()
-		if len(sub.PropertyFilters) > 0 {
-			// The handler closes the stream when a re-check restricts a filtered key;
-			// until it does, deliver nothing rather than leak matches.
-			if RestrictedFilterKey(sub.PropertyFilters, restrictions) != "" {
-				continue
-			}
-			if !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
-				continue
-			}
+		if len(sub.PropertyFilters) > 0 && !matchesPropertyFilters(event.Properties, sub.PropertyFilters) {
+			continue
 		}
 
 		if sub.Geo {
-			if event.Lat != 0.0 && !restrictions.RestrictsGeo() {
+			if event.Lat != 0.0 {
 				if responseGeoEvent == nil {
 					responseGeoEvent = convertToResponseGeoEvent(event)
 				}
@@ -479,7 +455,7 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 				}
 			}
 		} else {
-			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns, sub.PathCleaner, restrictions)
+			responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns, sub.PathCleaner)
 
 			select {
 			case sub.EventChan <- *responseEvent:

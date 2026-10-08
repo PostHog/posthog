@@ -77,7 +77,7 @@ func TestConvertToResponsePostHogEvent(t *testing.T) {
 		Properties: map[string]interface{}{"url": "https://example.com"},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, "123", result.Uuid)
 	assert.Equal(t, "2023-01-01T00:00:00Z", result.Timestamp)
@@ -694,7 +694,7 @@ func TestIncludeProperties_NilIncludesAllProperties(t *testing.T) {
 		Properties: properties,
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, nil, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, nil, nil)
 
 	assert.Equal(t, properties, result.Properties)
 }
@@ -711,7 +711,7 @@ func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{}, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{}, nil)
 
 	assert.Equal(t, map[string]interface{}{}, result.Properties)
 }
@@ -729,7 +729,7 @@ func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url":          "https://example.com",
@@ -748,27 +748,34 @@ func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil, nil)
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"}, nil)
 
 	assert.Equal(t, map[string]interface{}{
 		"url": "https://example.com",
 	}, result.Properties)
 }
 
-func TestConvertToResponsePostHogEventHidesRestrictedProperties(t *testing.T) {
+func TestStripRestrictedHidesRestrictedProperties(t *testing.T) {
 	restrictions := &auth.PropertyRestrictions{
 		EventProperties:  map[string]struct{}{"$ip": {}, "$pathname": {}},
 		PersonProperties: map[string]struct{}{"email": {}},
+		GroupProperties: map[string]map[string]struct{}{
+			"organization": {"email": {}},
+			"project":      {"owner": {}},
+		},
 	}
+	groupSet := map[string]interface{}{"email": "hidden@example.com", "owner": "someone", "name": "Acme"}
 	properties := map[string]interface{}{
 		"$ip":          "203.0.113.7",
 		"$pathname":    "/classes/928q3hr9paw8hfe",
 		"$browser":     "Chrome",
 		"$set":         map[string]interface{}{"email": "hidden@example.com", "name": "Test User"},
 		"$set_once":    map[string]interface{}{"email": "hidden@example.com"},
+		"$group_type":  "organization",
+		"$group_set":   groupSet,
 		"$virt_is_bot": false,
 	}
-	event := PostHogEvent{Uuid: "123", DistinctId: "user1", Event: "pageview", Properties: properties}
+	event := PostHogEvent{Uuid: "123", DistinctId: "user1", Event: "$groupidentify", Properties: properties}
 	cleaner := NewPathCleanerFromJSON(`[{"alias": "/classes/:id", "regex": "/classes/[^/]+"}]`)
 	require.NotNil(t, cleaner)
 
@@ -782,20 +789,25 @@ func TestConvertToResponsePostHogEventHidesRestrictedProperties(t *testing.T) {
 				"$browser":     "Chrome",
 				"$set":         map[string]interface{}{"name": "Test User"},
 				"$set_once":    map[string]interface{}{},
+				"$group_type":  "organization",
+				"$group_set":   map[string]interface{}{"owner": "someone", "name": "Acme"},
 				"$virt_is_bot": false,
 			},
 		},
+		// Without $group_type in the response the group type is unknown, so every type's keys go.
 		"requested columns": {
-			columns: []string{"$ip", "$browser", "$set"},
+			columns: []string{"$ip", "$browser", "$set", "$group_set"},
 			want: map[string]interface{}{
 				"$browser":     "Chrome",
 				"$set":         map[string]interface{}{"name": "Test User"},
+				"$group_set":   map[string]interface{}{"name": "Acme"},
 				"$virt_is_bot": false,
 			},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			result := convertToResponsePostHogEvent(event, 1, test.columns, cleaner, restrictions)
+			result := convertToResponsePostHogEvent(event, 1, test.columns, cleaner)
+			result.StripRestricted(restrictions)
 			assert.Equal(t, test.want, result.Properties)
 		})
 	}
@@ -803,101 +815,21 @@ func TestConvertToResponsePostHogEventHidesRestrictedProperties(t *testing.T) {
 	// The shared event map must keep every property for subscribers without rules.
 	assert.Equal(t, "203.0.113.7", properties["$ip"])
 	assert.Equal(t, "hidden@example.com", properties["$set"].(map[string]interface{})["email"])
-	unrestricted := convertToResponsePostHogEvent(event, 1, nil, cleaner, nil)
+	assert.Equal(t, "hidden@example.com", groupSet["email"])
+	unrestricted := convertToResponsePostHogEvent(event, 1, nil, cleaner)
+	unrestricted.StripRestricted(nil)
 	assert.Equal(t, "/classes/:id", unrestricted.Properties["$virt_cleaned_pathname"])
 }
 
-func TestDeliverEventSkipsSubscriptionFilteringOnRestrictedProperty(t *testing.T) {
-	restrictions := &atomic.Pointer[auth.PropertyRestrictions]{}
-	restrictions.Store(&auth.PropertyRestrictions{EventProperties: map[string]struct{}{"email": {}}})
-	eventChan := make(chan interface{}, 1)
-	sub := Subscription{
-		SubID:           1,
-		TeamId:          1,
-		PropertyFilters: []CompiledPropertyFilter{NewCompiledPropertyFilter("email", OpIContains, []string{"@example.com"})},
-		Restrictions:    restrictions,
-		EventChan:       eventChan,
-		ShouldClose:     &atomic.Bool{},
-		DroppedEvents:   &atomic.Uint64{},
-	}
-	event := PostHogEvent{Uuid: "match", DistinctId: "user1", Event: "pageview", Properties: map[string]interface{}{"email": "hidden@example.com"}}
-
-	deliverEvent(event, []Subscription{sub})
-	assert.Empty(t, eventChan)
-
-	restrictions.Store(nil)
-	deliverEvent(event, []Subscription{sub})
-	assert.Len(t, eventChan, 1)
-}
-
-func TestRestrictedFilterKeyHidesPersonContainers(t *testing.T) {
-	personOnly := &auth.PropertyRestrictions{PersonProperties: map[string]struct{}{"email": {}}}
+func TestRestrictedFilterKeyHidesPropertyContainers(t *testing.T) {
 	filters := []CompiledPropertyFilter{
 		NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"}),
 		NewCompiledPropertyFilter("$set", OpIContains, []string{"hidden@example.com"}),
+		NewCompiledPropertyFilter("$group_set", OpIContains, []string{"acme"}),
 	}
+	personOnly := &auth.PropertyRestrictions{PersonProperties: map[string]struct{}{"email": {}}}
+	groupOnly := &auth.PropertyRestrictions{GroupProperties: map[string]map[string]struct{}{"organization": {"email": {}}}}
 	assert.Equal(t, "$set", RestrictedFilterKey(filters, personOnly))
+	assert.Equal(t, "$group_set", RestrictedFilterKey(filters, groupOnly))
 	assert.Equal(t, "", RestrictedFilterKey(filters, nil))
-}
-
-func TestStripRestrictedReappliesNewerRules(t *testing.T) {
-	response := ResponsePostHogEvent{Properties: map[string]interface{}{
-		"$pathname":              "/classes/1",
-		"$virt_cleaned_pathname": "/classes/:id",
-		"$set":                   map[string]interface{}{"email": "hidden@example.com", "name": "Test User"},
-	}}
-	response.StripRestricted(nil)
-	assert.Len(t, response.Properties, 3)
-
-	response.StripRestricted(&auth.PropertyRestrictions{
-		EventProperties:  map[string]struct{}{"$pathname": {}},
-		PersonProperties: map[string]struct{}{"email": {}},
-	})
-	assert.Equal(t, map[string]interface{}{"$set": map[string]interface{}{"name": "Test User"}}, response.Properties)
-}
-
-func TestVisiblePropertyStripsGroupSetByGroupType(t *testing.T) {
-	restrictions := &auth.PropertyRestrictions{GroupProperties: map[string]map[string]struct{}{
-		"organization": {"email": {}},
-		"project":      {"owner": {}},
-	}}
-	groupSet := map[string]interface{}{"email": "hidden@example.com", "owner": "someone", "name": "Acme"}
-	event := PostHogEvent{Uuid: "1", DistinctId: "user1", Event: "$groupidentify", Properties: map[string]interface{}{
-		"$group_type": "organization",
-		"$group_set":  groupSet,
-	}}
-
-	byType := convertToResponsePostHogEvent(event, 1, nil, nil, restrictions)
-	assert.Equal(t, map[string]interface{}{"owner": "someone", "name": "Acme"}, byType.Properties["$group_set"])
-
-	// Without $group_type in the response the type is unknown, so every type's keys go.
-	response := ResponsePostHogEvent{Properties: map[string]interface{}{"$group_set": groupSet}}
-	response.StripRestricted(restrictions)
-	assert.Equal(t, map[string]interface{}{"name": "Acme"}, response.Properties["$group_set"])
-
-	assert.Equal(t, "$group_set", RestrictedFilterKey(
-		[]CompiledPropertyFilter{NewCompiledPropertyFilter("$group_set", OpIContains, []string{"acme"})}, restrictions))
-}
-
-func TestDeliverEventSkipsGeoWhenLocationIsRestricted(t *testing.T) {
-	restrictions := &atomic.Pointer[auth.PropertyRestrictions]{}
-	restrictions.Store(&auth.PropertyRestrictions{EventProperties: map[string]struct{}{"$geoip_country_code": {}}})
-	eventChan := make(chan interface{}, 2)
-	sub := Subscription{
-		SubID:         1,
-		TeamId:        1,
-		Geo:           true,
-		Restrictions:  restrictions,
-		EventChan:     eventChan,
-		ShouldClose:   &atomic.Bool{},
-		DroppedEvents: &atomic.Uint64{},
-	}
-	event := PostHogEvent{Uuid: "1", DistinctId: "user1", Event: "pageview", Lat: 40.7, Lng: -74.0, CountryCode: "US"}
-
-	deliverEvent(event, []Subscription{sub})
-	assert.Empty(t, eventChan)
-
-	restrictions.Store(nil)
-	deliverEvent(event, []Subscription{sub})
-	assert.Len(t, eventChan, 1)
 }

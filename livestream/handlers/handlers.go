@@ -197,7 +197,6 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			Columns:         columns,
 			EventTypes:      eventTypes,
 			PropertyFilters: propertyFilters,
-			Restrictions:    currentRestrictions,
 			PathCleaner:     pathCleaner,
 			EventChan:       make(chan interface{}, 100),
 			ShouldClose:     &atomic.Bool{},
@@ -237,9 +236,20 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 				log.Debugf("SSE client disconnected, ip: %v", c.RealIP())
 				return nil
 			case payload := <-subscription.EventChan:
-				if response, ok := payload.(events.ResponsePostHogEvent); ok {
-					response.StripRestricted(currentRestrictions.Load())
+				// Enforced here, on the subscriber's own goroutine, rather than in the fan-out:
+				// a queued event always goes out under the rules the latest re-check returned.
+				restrictions := currentRestrictions.Load()
+				if events.RestrictedFilterKey(propertyFilters, restrictions) != "" {
+					return nil
+				}
+				switch response := payload.(type) {
+				case events.ResponsePostHogEvent:
+					response.StripRestricted(restrictions)
 					payload = response
+				case events.ResponseGeoEvent:
+					if restrictions.RestrictsGeo() {
+						continue
+					}
 				}
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
