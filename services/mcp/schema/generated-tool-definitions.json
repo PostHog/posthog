@@ -5241,7 +5241,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description. When the reference is a feature flag key, call experiment-get-by-flag-key instead of listing.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description. When the reference is a feature flag key, call experiment-get-by-flag-key instead of listing.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags / excluded_tags (JSON-encoded lists of tag names), and free-text search on name and feature flag key. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",
@@ -6997,6 +6997,20 @@
         "required_scopes": ["task:write"],
         "annotations": {
             "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-reports-leave-reviewers": {
+        "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Step off a report's suggested reviewers",
+        "title": "Step off a report's suggested reviewers",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
