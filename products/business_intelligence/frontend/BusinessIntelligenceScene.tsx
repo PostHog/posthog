@@ -43,6 +43,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canUndo,
         canRedo,
         copyDisabledReason,
+        worksheet,
     } = useValues(logic)
     const {
         setName,
@@ -173,7 +174,9 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                             />
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
-                                Select a table and add fields to build your worksheet.
+                                {worksheet.config.source
+                                    ? 'Press Run to see the results of this worksheet.'
+                                    : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
                     </BIEditor>

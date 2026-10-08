@@ -22,8 +22,15 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, MultivariateFlagVariant } from '~/types'
+import {
+    Experiment,
+    ExperimentStatus,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    MultivariateFlagVariant,
+} from '~/types'
 
+import type { ExperimentHealthFindingApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import { ExperimentWarning, experimentLogic } from './experimentLogic'
@@ -2527,13 +2534,46 @@ describe('experimentLogic', () => {
                 ...overrides,
             }) as Experiment
 
+        const healthFinding = (
+            code: ExperimentHealthFindingApi['code'],
+            subcode: string | null,
+            evidence: ExperimentHealthFindingApi['evidence'] = {}
+        ): ExperimentHealthFindingApi => ({
+            code,
+            subcode,
+            severity: 'warning',
+            title: '',
+            detail: '',
+            evidence,
+            actions: [],
+            diagnostic_ref: null,
+        })
+
+        const flag = (
+            active: boolean,
+            filters: FeatureFlagFilters,
+            overrides: Partial<FeatureFlagBasicType> = {}
+        ): FeatureFlagBasicType => ({
+            id: 1,
+            team_id: 1,
+            key: 'flag',
+            name: '',
+            filters,
+            deleted: false,
+            active,
+            ensure_experience_continuity: null,
+            ...overrides,
+        })
+
+        const running = { start_date: '2020-01-01', end_date: undefined }
+
         it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
             {
                 desc: 'running experiment with active flag and normal rollout',
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2542,7 +2582,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: { key: 'running_but_flag_disabled' },
             },
@@ -2551,7 +2591,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
             },
@@ -2560,7 +2600,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2569,12 +2609,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag',
-                        active: true,
-                        filters: zeroRolloutShippedVariantFilters,
-                    } as any,
+                    feature_flag: flag(true, zeroRolloutShippedVariantFilters),
                 },
                 expected: { key: 'running_but_no_rollout' },
             },
@@ -2583,7 +2618,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2592,7 +2627,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2601,7 +2636,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2610,7 +2645,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: shippedVariantFilters } as any,
+                    feature_flag: flag(true, shippedVariantFilters),
                 },
                 expected: null,
             },
@@ -2620,7 +2655,7 @@ describe('experimentLogic', () => {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
                     archived: true,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'ended_but_multiple_variants_rolled_out' },
             },
@@ -2629,7 +2664,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    feature_flag: flag(true, multivariantFilters),
                 },
                 expected: { key: 'not_started_but_multiple_variants_rolled_out' },
             },
@@ -2638,7 +2673,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: true, filters: zeroRolloutFilters } as any,
+                    feature_flag: flag(true, zeroRolloutFilters),
                 },
                 expected: null,
             },
@@ -2647,7 +2682,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    feature_flag: flag(false, multivariantFilters),
                 },
                 expected: null,
             },
@@ -2656,13 +2691,7 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: '2020-01-01',
                     end_date: '2020-02-01',
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
                 },
                 expected: null,
             },
@@ -2671,19 +2700,71 @@ describe('experimentLogic', () => {
                 overrides: {
                     start_date: undefined,
                     end_date: undefined,
-                    feature_flag: {
-                        id: 1,
-                        key: 'flag:deleted:1',
-                        active: true,
-                        deleted: true,
-                        filters: multivariantFilters,
-                    } as any,
+                    feature_flag: flag(true, multivariantFilters, { key: 'flag:deleted:1', deleted: true }),
+                },
+                expected: null,
+            },
+            {
+                desc: 'server finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                },
+                expected: { key: 'running_but_flag_disabled' },
+            },
+            {
+                desc: 'server without a finding wins over the local rules',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [] },
+                },
+                expected: null,
+            },
+            {
+                desc: 'server shipped-variant finding carries the variant key',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, shippedVariantFilters),
+                    health: {
+                        findings: [
+                            healthFinding('no_metric', null),
+                            healthFinding('variant_shipped_while_running', 'running_but_single_variant_shipped', {
+                                variant_key: 'test',
+                            }),
+                        ],
+                    },
+                },
+                expected: { key: 'running_but_single_variant_shipped', variantKey: 'test' },
+            },
+            {
+                desc: 'server finding of another code is no flag-state warning',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(false, multivariantFilters),
+                    health: { findings: [healthFinding('no_metric', null)] },
                 },
                 expected: null,
             },
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
+        })
+
+        it('applies the local rules after a local flag write makes the server findings stale', () => {
+            logic.actions.setExperiment(
+                createExperiment({
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [] },
+                })
+            )
+            expect(logic.values.experimentWarning).toBeNull()
+
+            logic.actions.setExperiment({ feature_flag: flag(false, multivariantFilters) })
+
+            expect(logic.values.experimentWarning).toEqual({ key: 'running_but_flag_disabled' })
         })
     })
 

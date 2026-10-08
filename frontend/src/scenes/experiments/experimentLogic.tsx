@@ -91,6 +91,7 @@ import {
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
@@ -229,6 +230,11 @@ export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null
         // Normalize to the same kebab-case convention `triggered_by` uses (e.g. `auto_refresh` → `auto-refresh`).
         previous_refresh_triggered_by: snapshot.triggered_by.replace(/_/g, '-'),
     }
+}
+
+/** The release conditions modal saves the flag through the flag API, then patches only `feature_flag` in. */
+function replacesFlagWithoutHealth(update: Partial<Experiment>): boolean {
+    return 'feature_flag' in update && !('health' in update)
 }
 
 function generateRefreshId(): string {
@@ -1672,7 +1678,9 @@ export const experimentLogic = kea<experimentLogicType>([
             { ...NEW_EXPERIMENT } as Experiment,
             {
                 setExperiment: (state, { experiment }) => {
-                    return { ...state, ...experiment }
+                    const updated = { ...state, ...experiment }
+                    // Findings about the previous flag would show a stale banner until the next load.
+                    return replacesFlagWithoutHealth(experiment) ? { ...updated, health: undefined } : updated
                 },
                 setExposureCriteria: (
                     state,
@@ -3985,6 +3993,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // The server computes the same warning (products/experiments/backend/health/checks/flag_state.py)
+                // for people with the experiment-health-findings flag. The rules below cover everyone else.
+                if (experiment.health) {
+                    return experimentWarningFromHealth(experiment.health)
+                }
+
                 // A deleted flag distributes no traffic, so flag-state warnings don't apply.
                 if (experiment.feature_flag?.deleted) {
                     return null
