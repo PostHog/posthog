@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { Suspense } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -29,27 +30,37 @@ export function InstructionsDiff({ before, after }: { before: string; after: str
     // page CSS follows, as CodeEditor does, because themeLogic can lag behind it.
     const isDarkMode = document.body.getAttribute('theme') === 'dark'
 
+    // Monaco reads empty text as one blank line, so a diff against it would show that line as changed.
+    // With nothing on one side, the whole text is either added or removed.
+    if (!before || !after) {
+        return (
+            <div
+                className={clsx(
+                    'max-h-96 overflow-auto rounded border',
+                    before ? 'bg-fill-error-highlight' : 'bg-fill-success-highlight'
+                )}
+            >
+                <div className="px-2 pt-2 text-xs font-semibold">
+                    {before ? 'Instructions removed' : 'New instructions'}
+                </div>
+                <pre className="m-0 p-2 whitespace-pre-wrap break-words font-mono text-xs">{before || after}</pre>
+            </div>
+        )
+    }
+
     return (
         <div className="overflow-hidden rounded border">
-            {before ? (
-                <Suspense fallback={<LemonSkeleton className="h-24 w-full" />}>
-                    <MonacoDiffEditor
-                        original={before}
-                        value={after}
-                        modified={after}
-                        language="markdown"
-                        theme={isDarkMode ? 'vs-dark' : 'vs'}
-                        options={DIFF_OPTIONS}
-                        loading={<LemonSkeleton className="h-24 w-full" />}
-                    />
-                </Suspense>
-            ) : (
-                // Monaco reads empty text as one blank line, so a diff against it would show
-                // that line as removed. With nothing before, all of the text is added.
-                <pre className="m-0 p-2 whitespace-pre-wrap break-words font-mono text-xs bg-fill-success-highlight">
-                    {after}
-                </pre>
-            )}
+            <Suspense fallback={<LemonSkeleton className="h-24 w-full" />}>
+                <MonacoDiffEditor
+                    original={before}
+                    value={after}
+                    modified={after}
+                    language="markdown"
+                    theme={isDarkMode ? 'vs-dark' : 'vs'}
+                    options={DIFF_OPTIONS}
+                    loading={<LemonSkeleton className="h-24 w-full" />}
+                />
+            </Suspense>
         </div>
     )
 }

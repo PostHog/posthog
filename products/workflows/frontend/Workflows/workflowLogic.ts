@@ -4022,12 +4022,16 @@ export const workflowLogic = kea<workflowLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
+            // The preview request can outlive the editor, and reading values after unmount throws.
+            if (cache.disposables.isDisposed) {
+                return
+            }
             // The token covers the draft the preview read. When another tab or an agent staged a newer
             // draft than this editor holds, the editor and the dialog would show a draft Publish does not
             // promote, so load the newer draft for review first.
             const stagedWorkflow = values.originalWorkflow
             if (!stagedWorkflow || !isSameTimestamp(preview.draft_updated_at, stagedWorkflow.draft_updated_at)) {
-                lemonToast.warning('Someone updated the staged changes. Review the latest version, then publish again.')
+                lemonToast.warning('The staged changes were updated elsewhere. Review them, then publish again.')
                 syncWithServerCopy(values, actions)
                 return
             }
