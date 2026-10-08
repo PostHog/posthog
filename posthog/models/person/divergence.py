@@ -1,24 +1,55 @@
-"""Find persons whose ClickHouse rows disagree with the persons database.
+"""Find and repair persons whose ClickHouse rows disagree with the persons database.
 
-The persons database, read through personhog, is the source of truth. Scans only read.
+The persons database, read through personhog, is the source of truth. Scans only read. A repair
+republishes the Postgres state of a person to ClickHouse. When ClickHouse
+holds a version at or above the Postgres one, the repair first raises the Postgres version above
+it, so the published row wins and the next ingestion update still outranks it.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Callable
-from typing import Any, Literal
+import time
+from collections import Counter, defaultdict
+from collections.abc import Callable, Sequence
+from dataclasses import field
+from functools import partial
+from typing import Any, Literal, TypeVar
 from uuid import UUID
+
+import grpc
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
-from posthog.models.person.util import _batched_get_persons_by_uuids
-from posthog.personhog_client.client import personhog_call
-from posthog.personhog_client.proto import ReadOptions
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
+from posthog.kafka_client.routing import flush_all_producers
+from posthog.kafka_client.topics import KAFKA_PERSON
+from posthog.models.person import Person
+from posthog.models.person.sql import INSERT_PERSON_SQL
+from posthog.models.person.util import (
+    _batched_get_persons_by_uuids,
+    _person_row,
+    get_person_tombstones,
+    get_persons_by_uuids,
+)
+from posthog.models.team import Team
+from posthog.personhog_client.client import personhog_call, require_personhog_client
+from posthog.personhog_client.interceptor import is_transient_rpc_error
+from posthog.personhog_client.proto import ReadOptions, SetPersonVersionFloorRequest
 
-PersonDivergenceKind = Literal["hidden", "swept", "stale"]
+PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
+RepairOutcome = Literal[
+    "would_repair",
+    "repaired",
+    "skipped_not_divergent",
+    "skipped_not_live",
+    "skipped_team_gone",
+    "skipped_tombstoned",
+    "skipped_reread_lagging",
+    "skipped_stale",
+]
 
 # The legacy delete path wrote ClickHouse tombstones at version + 100, so those rows sit at 100 or above.
 LEGACY_TOMBSTONE_MIN_VERSION = 100
@@ -34,9 +65,25 @@ _STALE_SETTINGS = {
     "max_memory_usage": 48_000_000_000,
     "max_bytes_before_external_group_by": 20_000_000_000,
 }
+_REPAIR_PERSON_READ_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 60, "max_memory_usage": 4_000_000_000}
 
 # A scan reads only these fields, which keeps person properties out of the RPC payloads.
 _VERSION_ONLY_READ_OPTIONS = ReadOptions(field_mask=["id", "uuid", "team_id", "version"])
+
+_REPAIR_CHUNK_SIZE = 100
+# The waits between re-reads give the replica about 0.5 s to show a raise, far above its usual lag of a few milliseconds.
+_REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
+_TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
+_TRANSIENT_RPC_CODES = frozenset(
+    {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+)
+_FLUSH_TIMEOUT_SECONDS = 5 * 60
+# Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
+_DELIVERY_PRUNE_EVERY = 1_000
+
+_T = TypeVar("_T")
+
+_sleep = time.sleep
 
 
 @frozen
@@ -55,7 +102,35 @@ class ScanSummary:
     skipped_team_ids: list[int]
 
 
-# ── ClickHouse and personhog access ──────────────────────────────────
+@frozen
+class PersonRef:
+    team_id: int
+    person_uuid: str
+
+    def __post_init__(self) -> None:
+        # Lookups key on the canonical form that ClickHouse toString(id) and the persons reads return.
+        if str(UUID(self.person_uuid)) != self.person_uuid:
+            raise ValueError(f"person_uuid must be a canonical lowercase UUID: {self.person_uuid!r}")
+
+
+@frozen
+class RepairAction:
+    team_id: int
+    person_uuid: str
+    kind: PersonDivergenceKind | None
+    pg_version: int | None
+    ch_max_version: int | None
+    target_version: int | None
+    outcome: RepairOutcome
+
+
+@frozen
+class RepairSummary:
+    applied: bool
+    persons: int
+    person_outcomes: dict[RepairOutcome, int]
+    # Published rows that Kafka did not confirm: the delivery failed, or it was still queued at the deadline.
+    undelivered: int
 
 
 def _ch(sql: str, args: dict[str, Any], settings: dict[str, int]) -> list[Any]:
@@ -72,6 +147,12 @@ def _live_person_versions(team_id: int, person_uuids: list[str], operation: str)
     return {str(UUID(p.uuid)): int(p.version) for p in persons}
 
 
+def _tombstoned_uuids(team_id: int, person_uuids: list[str]) -> set[str]:
+    if not person_uuids:
+        return set()
+    return {str(t.uuid) for t in get_person_tombstones(team_id, [UUID(u) for u in person_uuids])}
+
+
 def _resolve_max_team_id(max_team_id: int | None) -> int:
     if max_team_id is not None:
         return max_team_id
@@ -79,7 +160,8 @@ def _resolve_max_team_id(max_team_id: int | None) -> int:
     return int(highest or 0) + 1
 
 
-# ── Scans over team ranges ───────────────────────────────────────────
+def _chunks(items: Sequence[_T], size: int) -> list[Sequence[_T]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 def _scan_team_ranges(
@@ -290,4 +372,369 @@ def scan_stale_persons(
         team_step=team_step,
         on_found=on_found,
         log=log,
+    )
+
+
+# ── Repair ───────────────────────────────────────────────────────────
+
+
+@frozen
+class _ChPersonState:
+    visible_rows: int
+    visible_max_version: int
+    visible_winner_deleted: bool
+    # Includes lightweight-deleted rows, so a republish lands above every row the sweep masked.
+    max_version: int
+
+
+@frozen
+class _PersonPlan:
+    team_id: int
+    person_uuid: str
+    person: Person | None
+    kind: PersonDivergenceKind | None
+    ch_max_version: int | None
+    target_version: int | None
+
+
+_PERSON_STATE_SQL = """
+SELECT
+    toString(id),
+    countIf(_row_exists),
+    maxIf(version, _row_exists),
+    argMaxIf(is_deleted, version, _row_exists),
+    max(version)
+FROM person
+WHERE team_id = %(team_id)s AND id IN %(person_uuids)s
+GROUP BY id
+"""
+
+
+def _person_kind(pg_version: int, state: _ChPersonState | None) -> PersonDivergenceKind | None:
+    # Any winner that differs from Postgres counts, whatever the versions: a raise whose publish
+    # never landed leaves ClickHouse below Postgres, and a rerun must still finish it.
+    if state is None:
+        return "absent"
+    if state.visible_rows == 0:
+        return "swept"
+    if state.visible_winner_deleted:
+        return "hidden"
+    if state.visible_max_version > pg_version:
+        return "stale"
+    if state.visible_max_version < pg_version:
+        return "behind"
+    return None
+
+
+def _target_version(pg_version: int, ch_max_version: int | None) -> int:
+    # One above ClickHouse, not 100 above: a later Postgres write or tombstone takes the next version
+    # and must outrank this row.
+    return pg_version if ch_max_version is None else max(pg_version, ch_max_version + 1)
+
+
+def _ch_person_states(team_id: int, person_uuids: list[str]) -> dict[str, _ChPersonState]:
+    rows = _ch(_PERSON_STATE_SQL, {"team_id": team_id, "person_uuids": person_uuids}, _REPAIR_PERSON_READ_SETTINGS)
+    return {
+        person_uuid: _ChPersonState(
+            visible_rows=int(visible_rows),
+            visible_max_version=int(visible_max_version),
+            visible_winner_deleted=bool(visible_winner_deleted),
+            max_version=int(max_version),
+        )
+        for person_uuid, visible_rows, visible_max_version, visible_winner_deleted, max_version in rows
+    }
+
+
+def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
+    live = {str(p.uuid): p for p in get_persons_by_uuids(team_id, list(person_uuids), distinct_id_limit=0)}
+    person_states = _ch_person_states(team_id, list(live)) if live else {}
+
+    plans: list[_PersonPlan] = []
+    for person_uuid in person_uuids:
+        person = live.get(person_uuid)
+        if person is None:
+            plans.append(
+                _PersonPlan(
+                    team_id=team_id,
+                    person_uuid=person_uuid,
+                    person=None,
+                    kind=None,
+                    ch_max_version=None,
+                    target_version=None,
+                )
+            )
+            continue
+        pg_version = int(person.version or 0)
+        state = person_states.get(person_uuid)
+        ch_max_version = state.max_version if state is not None else None
+        plans.append(
+            _PersonPlan(
+                team_id=team_id,
+                person_uuid=person_uuid,
+                person=person,
+                kind=_person_kind(pg_version, state),
+                ch_max_version=ch_max_version,
+                target_version=_target_version(pg_version, ch_max_version),
+            )
+        )
+    return plans
+
+
+def _raise_person_version_floor(team_id: int, person_id: int, min_version: int) -> None:
+    personhog_call(
+        "person_divergence_set_person_version_floor",
+        lambda: require_personhog_client().set_person_version_floor(
+            SetPersonVersionFloorRequest(team_id=team_id, person_id=person_id, min_version=min_version)
+        ),
+    )
+
+
+def _person_action(plan: _PersonPlan, outcome: RepairOutcome) -> RepairAction:
+    return RepairAction(
+        team_id=plan.team_id,
+        person_uuid=plan.person_uuid,
+        kind=plan.kind,
+        pg_version=int(plan.person.version or 0) if plan.person is not None else None,
+        ch_max_version=plan.ch_max_version,
+        target_version=plan.target_version if plan.kind is not None else None,
+        outcome=outcome,
+    )
+
+
+def _publish_person(team_id: int, person: Person) -> ProduceResult:
+    row = _person_row(
+        team_id=team_id,
+        uuid=str(person.uuid),
+        version=int(person.version or 0),
+        properties=person.properties,
+        is_identified=person.is_identified,
+        is_deleted=False,
+        created_at=person.created_at,
+        last_seen_at=person.last_seen_at,
+    )
+    # _person_row fills a missing last_seen_at with the current hour, but ingestion publishes null for it.
+    if person.last_seen_at is None:
+        row["last_seen_at"] = None
+    return ClickhouseProducer().produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=row)
+
+
+def _reread_person(team_id: int, person_uuid: str, target_version: int | None) -> Person | None:
+    """Read the person from the replica again while it shows a version below ``target_version``."""
+    found = get_persons_by_uuids(team_id, [person_uuid], distinct_id_limit=0)
+    reread = found[0] if found else None
+    for delay in _REREAD_BACKOFF_SECONDS:
+        if reread is None or target_version is None or int(reread.version or 0) >= target_version:
+            break
+        _sleep(delay)
+        found = get_persons_by_uuids(team_id, [person_uuid], distinct_id_limit=0)
+        reread = found[0] if found else None
+    return reread
+
+
+def _is_transient(exc: BaseException) -> bool:
+    return isinstance(exc, (*CH_TRANSIENT_ERRORS, ClickHouseQueryTimeOut)) or is_transient_rpc_error(
+        exc, codes=_TRANSIENT_RPC_CODES
+    )
+
+
+def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:
+    """Run ``fn`` again after a transient ClickHouse or personhog error, then re-raise once the retries run out.
+
+    Repeating a step is safe because every repair write is idempotent: a version raise never lowers a
+    version, and ClickHouse keeps one row per version.
+    """
+    for delay in _TRANSIENT_RETRY_BACKOFF_SECONDS:
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_transient(exc):
+                raise
+            log(f"{what}: {type(exc).__name__}, retrying in {delay:g} s")
+        _sleep(delay)
+    return fn()
+
+
+def _execute_plan(
+    plan: _PersonPlan,
+    *,
+    apply: bool,
+    include_stale: bool,
+    before_write: Callable[[], None],
+    published: Callable[[ProduceResult], None],
+) -> list[RepairAction]:
+    person = plan.person
+    if person is None:
+        return [_person_action(plan, "skipped_not_live")]
+    if plan.kind == "stale" and not include_stale:
+        return [_person_action(plan, "skipped_stale")]
+
+    if not apply:
+        person_outcome: RepairOutcome = "would_repair" if plan.kind is not None else "skipped_not_divergent"
+        return [
+            _person_action(plan, person_outcome),
+        ]
+
+    pg_version = int(person.version or 0)
+    if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
+        before_write()
+        _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
+
+    # Re-read after the raise so the published properties are the ones Postgres holds at the
+    # published version, including any ingestion update that landed after the first read.
+    reread: Person | None = None
+    if plan.kind is not None:
+        reread = _reread_person(plan.team_id, plan.person_uuid, plan.target_version)
+
+    if plan.kind is not None and _tombstoned_uuids(plan.team_id, [plan.person_uuid]):
+        person_outcome = "skipped_tombstoned"
+        return [
+            _person_action(plan, person_outcome),
+        ]
+
+    if plan.kind is None:
+        person_outcome = "skipped_not_divergent"
+    elif reread is None:
+        person_outcome = "skipped_not_live"
+    elif plan.target_version is None or int(reread.version or 0) < plan.target_version:
+        # The replica has not caught up with the raise, so its properties may predate the raised version.
+        person_outcome = "skipped_reread_lagging"
+    else:
+        published(_publish_person(plan.team_id, reread))
+        person_outcome = "repaired"
+
+    return [_person_action(plan, person_outcome)]
+
+
+@frozen(frozen=False)
+class _WritePacer:
+    """Space writes at least 1 / max_per_second apart, so idle time never buys a later burst."""
+
+    max_per_second: float | None
+    next_write_at: float = 0.0
+
+    def before_write(self) -> None:
+        if self.max_per_second is None:
+            return
+        now = time.monotonic()
+        if now < self.next_write_at:
+            time.sleep(self.next_write_at - now)
+            now = self.next_write_at
+        self.next_write_at = now + 1 / self.max_per_second
+
+
+@frozen(frozen=False)
+class _Deliveries:
+    """Kafka produce results of the published rows, so a failed delivery counts as undelivered."""
+
+    pending: list[ProduceResult] = field(default_factory=list)
+    failed: int = 0
+
+    def track(self, result: ProduceResult) -> None:
+        self.pending.append(result)
+        if len(self.pending) >= _DELIVERY_PRUNE_EVERY:
+            self._prune()
+
+    def undelivered(self, timeout: float) -> int:
+        flush_all_producers(timeout)
+        self._prune()
+        return self.failed + len(self.pending)
+
+    def _prune(self) -> None:
+        waiting: list[ProduceResult] = []
+        for result in self.pending:
+            if not result.done():
+                waiting.append(result)
+                continue
+            try:
+                result.get(timeout=0)
+            except Exception:
+                self.failed += 1
+        self.pending = waiting
+
+
+def repair_persons(
+    targets: Sequence[PersonRef],
+    *,
+    apply: bool,
+    include_stale: bool = False,
+    max_writes_per_second: float | None = None,
+    on_action: Callable[[RepairAction], None],
+    log: Callable[[str], None],
+) -> RepairSummary:
+    """Republish the Postgres state of each target person where ClickHouse disagrees.
+
+    Without ``apply`` nothing is written and every planned action is reported as ``would_repair``.
+    A person that is in sync with Postgres is left untouched. A rerun is safe: every write is
+    guarded by a version floor, and a person whose earlier publish never landed is still divergent.
+    ``max_writes_per_second`` paces every version-floor write on the persons primary, one per
+    divergent person.
+
+    A stale person is skipped unless ``include_stale`` is set, because its repair replaces the
+    ClickHouse properties with the Postgres ones for good, and a team waiting for a restore from
+    its ClickHouse rows needs the ClickHouse ones.
+    """
+    if max_writes_per_second is not None and max_writes_per_second <= 0:
+        raise ValueError("max_writes_per_second must be above 0")
+    by_team: dict[int, list[str]] = defaultdict(list)
+    for target in dict.fromkeys(targets):
+        by_team[target.team_id].append(target.person_uuid)
+
+    person_outcomes: Counter[RepairOutcome] = Counter()
+    processed = 0
+    undelivered = 0
+    pacer = _WritePacer(max_per_second=max_writes_per_second)
+    deliveries = _Deliveries()
+    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
+    try:
+        for team_id, person_uuids in sorted(by_team.items()):
+            if team_id not in existing_teams:
+                # A deleted team's ClickHouse rows go with the team, so a repair would only republish what the deletion removed.
+                for person_uuid in person_uuids:
+                    action = RepairAction(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        kind=None,
+                        pg_version=None,
+                        ch_max_version=None,
+                        target_version=None,
+                        outcome="skipped_team_gone",
+                    )
+                    person_outcomes[action.outcome] += 1
+                    on_action(action)
+                    processed += 1
+                log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
+                continue
+            for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
+                plans = _retry_transient(
+                    partial(_plan_chunk, team_id, chunk), what=f"team {team_id}: planning", log=log
+                )
+                for plan in plans:
+                    # Only the attempt that succeeds returns actions, so a retried person is counted once.
+                    actions = _retry_transient(
+                        partial(
+                            _execute_plan,
+                            plan,
+                            apply=apply,
+                            include_stale=include_stale,
+                            before_write=pacer.before_write,
+                            published=deliveries.track,
+                        ),
+                        what=f"team {team_id} person {plan.person_uuid}",
+                        log=log,
+                    )
+                    for action in actions:
+                        person_outcomes[action.outcome] += 1
+                        on_action(action)
+                    processed += 1
+            log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
+    finally:
+        if apply:
+            undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
+            if undelivered:
+                log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
+    return RepairSummary(
+        applied=apply,
+        persons=processed,
+        person_outcomes=dict(person_outcomes),
+        undelivered=undelivered,
     )
