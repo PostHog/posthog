@@ -170,6 +170,8 @@ class TestValidateCredentials:
     def test_unparseable_authorization_header_is_malformed(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _rejected_response(400, "Invalid request headers", code=6003)
         assert validate_credentials("token").is_malformed is True
+        # The probes send the same header, so a transient probe must not hide the malformed verdict.
+        assert mock_session.return_value.get.call_count == 1
 
 
 class TestPagination:

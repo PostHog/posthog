@@ -416,6 +416,12 @@ def validate_credentials(api_token: str) -> TokenCheck:
     if _transient_status(status):
         return TokenCheck(is_valid=False, status=status)
 
+    assert verify is not None  # a None verify is transient, handled above
+    code = _cloudflare_error_code(verify)
+    if code == _MALFORMED_TOKEN_ERROR_CODE:
+        # The probes send the same header, so they can only fail the same way.
+        return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify), code=code)
+
     # Verify refused, but that refusal is not a verdict on the token, so these probes are what
     # decides. A probe that never got an answer therefore leaves the question open instead of
     # confirming the refusal — reporting "rejected" there would send someone off to rebuild a
@@ -434,10 +440,7 @@ def validate_credentials(api_token: str) -> TokenCheck:
     if transient:
         return TokenCheck(is_valid=False, status=transient[0])
 
-    assert verify is not None  # a None verify is transient, handled above
-    return TokenCheck(
-        is_valid=False, status=status, reason=_cloudflare_error(verify), code=_cloudflare_error_code(verify)
-    )
+    return TokenCheck(is_valid=False, status=status, reason=_cloudflare_error(verify), code=code)
 
 
 def cloudflare_source(
