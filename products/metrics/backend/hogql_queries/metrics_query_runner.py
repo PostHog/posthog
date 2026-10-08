@@ -37,7 +37,13 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
 )
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import (
+    AttributeScope,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -112,7 +118,8 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             MetricQueryClause(
                 name=clause.name,
                 metric_name=clause.metricName,
-                aggregation=MetricAggregation(clause.aggregation.value),
+                aggregation=MetricAggregation(clause.aggregation.value if clause.aggregation else "none"),
+                range_function=MetricRangeFunction(clause.rangeFunction.value) if clause.rangeFunction else None,
                 metric_type=MetricType(clause.metricType.value) if clause.metricType is not None else None,
                 filters=tuple(
                     MetricFilter(
