@@ -14,6 +14,7 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
     Breakdown,
     BreakdownFilter,
+    EventsNode,
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
@@ -1318,6 +1319,68 @@ describe('insightNavLogic', () => {
                 const funnelsQuery2 = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
                 expect(funnelsQuery2.breakdownFilter?.breakdown).toBe('$browser')
                 expect(funnelsQuery2.breakdownFilter?.breakdowns).toBeUndefined()
+            })
+
+            describe('multi-series formula', () => {
+                const trendsWithFormula: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+                            { kind: NodeKind.EventsNode, name: 'signed_up', event: 'signed_up' },
+                        ],
+                        trendsFilter: { formulaNodes: [{ formula: 'B/A*100' }] },
+                    },
+                })
+
+                it.each([{ path: [InsightType.LIFECYCLE] }, { path: [InsightType.LIFECYCLE, InsightType.FUNNELS] }])(
+                    'keeps every series and the formula through $path and back to trends',
+                    async ({ path }) => {
+                        await expectLogic(logic, () => {
+                            builtInsightDataLogic.actions.setQuery(trendsWithFormula)
+                        })
+
+                        for (const view of [...path, InsightType.TRENDS]) {
+                            await expectLogic(builtInsightDataLogic, () => {
+                                logic.actions.setActiveView(view)
+                            }).toFinishAllListeners()
+                        }
+
+                        const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                        expect(trendsQuery.series.map((s) => (s as EventsNode).event)).toEqual([
+                            '$pageview',
+                            'signed_up',
+                        ])
+                        expect(trendsQuery.trendsFilter?.formulaNodes).toEqual([{ formula: 'B/A*100' }])
+                    }
+                )
+
+                it('drops the formula when a funnel step it references is removed', async () => {
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(trendsWithFormula)
+                    })
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(InsightType.FUNNELS)
+                    }).toFinishAllListeners()
+
+                    const funnelsNode = builtInsightDataLogic.values.query as InsightVizNode
+                    const funnelsQuery = funnelsNode.source as FunnelsQuery
+                    await expectLogic(logic, () => {
+                        const oneStepFunnel: InsightVizNode = {
+                            ...funnelsNode,
+                            source: { ...funnelsQuery, series: funnelsQuery.series.slice(0, 1) },
+                        }
+                        builtInsightDataLogic.actions.setQuery(oneStepFunnel)
+                    })
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(InsightType.TRENDS)
+                    }).toFinishAllListeners()
+
+                    const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                    expect(trendsQuery.series).toHaveLength(1)
+                    expect(trendsQuery.trendsFilter?.formulaNodes).toBeUndefined()
+                })
             })
 
             it('preserves compareFilter through round-trip via unsupported type', async () => {

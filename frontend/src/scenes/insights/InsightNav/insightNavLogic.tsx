@@ -840,6 +840,11 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
         newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
+    // Lifecycle keeps only the first series. Keep the rest of the cached series, so a round trip
+    // back to Trends does not lose them and break a formula that references them.
+    if (isLifecycleQuery(query) && cache?.series && newCache.series && cache.series.length > newCache.series.length) {
+        newCache.series = [...newCache.series, ...cache.series.slice(newCache.series.length)]
+    }
     // Retention has no series field, so mirror its target entity into the shared series cache.
     // This keeps the configured event when switching from Retention to a series-based type.
     if (isRetentionQuery(query)) {
@@ -902,11 +907,38 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     }
 
     // Insight-specific filter merge (web analytics already returned above)
-    return {
+    const result = {
         ...mergedQuery,
         ...buildCachedFields(query, cache),
         ...buildInsightFilter(query, cache),
     } as InsightQueryNode
+    return isTrendsQuery(result) ? dropFormulasWithMissingSeries(result) : result
+}
+
+const formulaReferencesMissingSeries = (formula: string | null | undefined, seriesCount: number): boolean =>
+    !!formula &&
+    Array.from(formula.matchAll(/\b([a-z])\b/gi)).some(
+        ([, letter]) => letter.toUpperCase().charCodeAt(0) - 'A'.charCodeAt(0) >= seriesCount
+    )
+
+// The backend rejects a formula that references a series the query does not have, so drop it
+// rather than restore a query that can only fail.
+const dropFormulasWithMissingSeries = (query: TrendsQuery): TrendsQuery => {
+    const { trendsFilter } = query
+    if (!trendsFilter) {
+        return query
+    }
+    const seriesCount = query.series.length
+    const formulas = [
+        trendsFilter.formula,
+        ...(trendsFilter.formulas ?? []),
+        ...(trendsFilter.formulaNodes ?? []).map((node) => node.formula),
+    ]
+    if (!formulas.some((formula) => formulaReferencesMissingSeries(formula, seriesCount))) {
+        return query
+    }
+    const { formula: _formula, formulas: _formulas, formulaNodes: _formulaNodes, ...rest } = trendsFilter
+    return { ...query, trendsFilter: rest }
 }
 
 const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {
