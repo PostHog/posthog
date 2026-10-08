@@ -227,11 +227,8 @@ def model_router_options(
             )
 
     # The check can be a network call per model, and the ladder repeats models across efforts.
-    allowed = {
-        model
-        for model in {c.choice.model for c in candidates.values()}
-        if get_model_access_error(model, distinct_id=distinct_id) is None
-    }
+    models = {c.choice.model for c in candidates.values()}
+    allowed = {model for model in models if get_model_access_error(model, distinct_id=distinct_id) is None}
     return tuple(
         ModelRouterOption(model=c.choice.model, reasoning_effort=c.reasoning_effort, description=_describe(c))
         for c in candidates.values()

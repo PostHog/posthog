@@ -19,6 +19,7 @@ from products.tasks.backend.facade.ai_run_defaults import update_user_ai_run_pre
 
 MODULE = "posthog.temporal.ai.slack_app.activities.model_router"
 OPTIONS_MODULE = "products.slack_app.backend.services.model_router"
+FLAG = "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled"
 SLACK_USER_ID = "U_ROUTER"
 
 _EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -113,9 +114,7 @@ class TestRouteSlackAppModelActivity:
         if opted_in:
             _opt_in(integration)
         with (
-            patch(
-                "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=flag_enabled
-            ),
+            patch(FLAG, return_value=flag_enabled),
             patch(f"{MODULE}.build_system_one_client") as build_client,
             patch(f"{MODULE}.capture_slack_event"),
         ):
@@ -138,7 +137,7 @@ class TestRouteSlackAppModelActivity:
             integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"
         )
         with (
-            patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True),
+            patch(FLAG, return_value=True),
             patch(f"{MODULE}.build_system_one_client", return_value=_client_picking_personal_default()),
             patch(f"{MODULE}.capture_slack_event"),
         ):
@@ -151,7 +150,7 @@ class TestRouteSlackAppModelActivity:
         client = MagicMock()
         client.decide.side_effect = TimeoutError()
         with (
-            patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True),
+            patch(FLAG, return_value=True),
             patch(f"{MODULE}.build_system_one_client", return_value=client),
             patch(f"{MODULE}.capture_slack_event"),
         ):
@@ -167,7 +166,7 @@ class TestRouteSlackAppModelActivity:
         )
         client = _client_picking_personal_default()
         with (
-            patch("products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True),
+            patch(FLAG, return_value=True),
             patch("products.tasks.backend.facade.run_config.get_model_access_error", return_value=None),
             patch(f"{OPTIONS_MODULE}.available_model_choices", return_value=CHOICES),
             patch(f"{OPTIONS_MODULE}.offered_model_choices", return_value=CHOICES),
