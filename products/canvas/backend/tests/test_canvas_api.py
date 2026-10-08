@@ -2491,6 +2491,21 @@ class TestCanvasActions(CanvasAPIBaseTest):
         for row in rows.values():
             assert row["usage"].strip(), f"verb {row['verb']} shipped without usage docs"
 
+    def test_registry_is_readable_with_a_canvas_read_key(self):
+        # The canvas-actions-list MCP tool advertises canvas:read, so a key with that scope must read the registry.
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-read", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:read"]
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/actions/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["verb"] for row in response.json()["actions"]} == set(CANVAS_ACTIONS)
+
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()
 
