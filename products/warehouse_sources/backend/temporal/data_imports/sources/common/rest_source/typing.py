@@ -8,6 +8,7 @@ from requests import Session
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import FanoutParentSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import RequestTimeout
 
 from .auth import (
     APIKeyAuth,
@@ -223,10 +224,10 @@ class ClientConfig(TypedDict, total=False):
     # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
     # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
     allow_redirects: bool
-    # Per-request (connect, read) timeout in seconds. Left unset, requests never time out and a
-    # source pointed at a customer-controlled host that stalls holds an import worker forever.
-    # A single float applies to both connect and read; a tuple sets them separately.
-    request_timeout: Optional[float | tuple[float, float]]
+    # Per-request (connect, read) timeout in seconds. Left unset, the tracked session applies
+    # `default_request_timeout()`. A source pointed at a customer-controlled host should set a
+    # tighter value. A single float applies to both connect and read; a tuple sets them separately.
+    request_timeout: Optional[RequestTimeout]
     # When False, this client's default tracked session is built with HTTP sample capture
     # disabled — for endpoints whose bodies carry sensitive PII the name-based sample scrubbers
     # aren't guaranteed to catch (e.g. student/HR records). Requests are still metered and

@@ -440,7 +440,7 @@ class LoopWriteSerializer(serializers.Serializer):
     )
     instructions = serializers.CharField(help_text="The prompt delivered to the agent on every run.")
     runtime_adapter = serializers.ChoiceField(
-        choices=[adapter.value for adapter in RuntimeAdapter], help_text="Runtime adapter: 'claude' or 'codex'."
+        choices=RuntimeAdapter.choices, help_text="Runtime adapter: 'claude' or 'codex'."
     )
     model = serializers.CharField(
         required=False,

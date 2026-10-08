@@ -49,10 +49,12 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
     AssistantTool as AssistantTool,
+    AssistantTrendsDisplayType as AssistantTrendsDisplayType,
     AttributionMode as AttributionMode,
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
@@ -75,6 +77,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
@@ -98,7 +101,6 @@ from posthog.schema_enums import (
     DetailedResultsAggregationType as DetailedResultsAggregationType,
     DetectorType as DetectorType,
     Display as Display,
-    Display1 as Display1,
     DisplayType as DisplayType,
     DistanceFunc as DistanceFunc,
     DomainConnectProviderName as DomainConnectProviderName,
@@ -601,6 +603,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
 
 
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
+
+
 class AssistantDataVisualizationYAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -938,10 +948,6 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class AssistantTrendsDisplayType(RootModel[str | Any]):
-    root: str | Any
-
-
 class AssistantUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -949,6 +955,14 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class BICategoryGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    values: list[str]
 
 
 class BIConditionGroup(BaseModel):
@@ -966,6 +980,26 @@ class BIDataSource(BaseModel):
     )
     connectionId: str | None = None
     table: str
+
+
+class BILocalFieldDefinition1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    groups: list[BICategoryGroup]
+    kind: Literal["groups"] = "groups"
+    other: str
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    kind: Literal["bins"] = "bins"
+    origin: float
+    width: float
 
 
 class BITotals(BaseModel):
@@ -2831,10 +2865,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,
@@ -3787,6 +3821,15 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -4818,36 +4861,40 @@ class AssistantTrendsFilter(BaseModel):
             " values will have a decimal point."
         ),
     )
-    display: Display | None = Field(
-        default=Display.ACTIONS_LINE_GRAPH,
+    display: AssistantTrendsDisplayType | None = Field(
+        default=AssistantTrendsDisplayType.ACTIONS_LINE_GRAPH,
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
             " `ActionsBar` - time-series bar chart with one bar per interval and"
             " breakdown values stacked in each bar. Do not use it to compare breakdown"
             " values or series as totals. Use `ActionsBarValue` for that."
-            " `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative`"
-            " - cumulative time-series line chart; good for cumulative metrics."
-            " `Metric` - single large number with a change pill and a sparkline. Use"
-            " for a period summary or an explicit current-versus-previous-period"
-            ' comparison ("how many X in the last 30 days", "what\'s our conversion'
-            ' rate this month", "how does this month compare to last"). Do not use for'
-            " a question about change over time, a cadence, or a pattern. Use"
-            " `ActionsLineGraph` so the person can inspect each interval. Set"
-            " `compareFilter.compare` to `true` to compare the current period with the"
-            " previous period. Without it, the pill compares the first interval with"
-            " the last interval. Configure the display with the `metric*` fields below."
-            " Single series, no breakdown. `BoldNumber` - single large number with no"
-            " change or sparkline. Use instead of `Metric` only when a trend is"
-            " meaningless, such as an all-time total or a fixed ratio. You CANNOT use"
-            " this with breakdown or if the insight has more than one series."
-            " `ActionsBarValue` - total value (NOT time-series) bar chart with one bar"
-            ' per breakdown value or series; good for categorical data such as "top'
-            ' pages" or "failures by reason". `ActionsPie` - total value pie chart;'
-            " good for visualizing proportions. `ActionsTable` - total value table;"
-            " good when using breakdown to list users or other entities. `WorldMap` -"
-            " total value world map; use when breaking down by country name using"
-            " property `$geoip_country_name`, and only then."
+            " `ActionsUnstackedBar` - time-series bar chart with series side by side in"
+            " each interval. `ActionsAreaGraph` - time-series area chart."
+            " `ActionsLineGraphCumulative` - cumulative time-series line chart; good"
+            " for cumulative metrics. `SlopeGraph` - net change from the first to the"
+            " last interval, one line per series. `BoxPlot` - quartiles of a numeric"
+            " `math_property` for each interval. `Metric` - single large number with a"
+            " change pill and a sparkline. Use for a period summary or an explicit"
+            ' current-versus-previous-period comparison ("how many X in the last 30'
+            ' days", "what\'s our conversion rate this month", "how does this month'
+            ' compare to last"). Do not use for a question about change over time, a'
+            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
+            " each interval. Set `compareFilter.compare` to `true` to compare the"
+            " current period with the previous period. Without it, the pill compares"
+            " the first interval with the last interval. Configure the display with the"
+            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
+            " single large number with no change or sparkline. Use instead of `Metric`"
+            " only when a trend is meaningless, such as an all-time total or a fixed"
+            " ratio. You CANNOT use this with breakdown or if the insight has more than"
+            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart"
+            " with one bar per breakdown value or series; good for categorical data"
+            ' such as "top pages" or "failures by reason". `ActionsPie` - total value'
+            " pie chart; good for visualizing proportions. `ActionsDonut` - total value"
+            " donut chart; same use as `ActionsPie`. `ActionsTable` - total value"
+            " table; good when using breakdown to list users or other entities."
+            " `WorldMap` - total value world map; use when breaking down by country"
+            " using property `$geoip_country_code`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -5018,6 +5065,7 @@ class BIField(BaseModel):
     dateBucket: BIDateBucket | None = None
     expression: str
     id: str
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType
@@ -8175,7 +8223,7 @@ class SurveyQuestionSchema(BaseModel):
     choices: list[str] | None = None
     description: str | None = None
     descriptionContentType: SurveyQuestionDescriptionContentType | None = None
-    display: Display1 | None = None
+    display: Display | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
     isNpsQuestion: bool | None = None
@@ -9981,13 +10029,16 @@ class AssistantDataVisualizationNode(BaseModel):
         description=(
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
-            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
-            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
+            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
+            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
+            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
+            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
+            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10520,6 +10571,10 @@ class AssistantRetentionFilter(BaseModel):
             " retention means that a user coming back in period 5 makes them count"
             " towards all the previous periods."
         ),
+    )
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
     )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
@@ -11163,6 +11218,10 @@ class BIConfig(BaseModel):
     chartType: ChartDisplayType
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -11170,6 +11229,9 @@ class BIConfig(BaseModel):
     dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
@@ -16611,7 +16673,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None

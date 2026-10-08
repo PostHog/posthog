@@ -4667,7 +4667,7 @@ export type ExperimentsListParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**
@@ -4746,7 +4746,7 @@ export type ExperimentsMatchingIdsRetrieveParams = {
      */
     prompt_name?: string
     /**
-     * Free-text search applied to the experiment name (case-insensitive).
+     * Free-text search applied to the experiment name and its feature flag key (case-insensitive).
      */
     search?: string
     /**
