@@ -19,6 +19,7 @@ from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
+    AutoresearchRun,
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.query import QueryCost
@@ -315,6 +316,67 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
 
         assert result["promoted"] is True
         assert self._champion().holdout_score == 0.6
+
+    @parameterized.expand(
+        [
+            ("two_repeatable_failures", [("2026-09-02", "limit_exceeded"), ("2026-09-03", "query_failed")], True),
+            ("a_single_failure", [("2026-09-03", "limit_exceeded")], False),
+            (
+                "a_success_in_between",
+                [("2026-09-01", "limit_exceeded"), ("2026-09-02", None), ("2026-09-03", "limit_exceeded")],
+                False,
+            ),
+            ("transport_failures", [("2026-09-02", "other"), ("2026-09-03", "other")], False),
+            # An activity retry adds a second failed run for the same prediction date.
+            ("one_day_retried", [("2026-09-03", "limit_exceeded"), ("2026-09-03", "limit_exceeded")], False),
+        ]
+    )
+    def test_a_champion_that_cannot_score_is_replaced_below_the_margin(self, _name, scheduled_runs, replaced):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.8)
+        complete_training_run(first)
+        champion = self._champion()
+        for prediction_date, failure_kind in scheduled_runs:
+            AutoresearchRun.objects.create(
+                pipeline=self.pipeline,
+                model=champion,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.COMPLETED if failure_kind is None else AutoresearchRun.Status.FAILED,
+                metrics={
+                    "prediction_date": prediction_date,
+                    **({"failure_kind": failure_kind} if failure_kind else {}),
+                },
+            )
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.7)
+        result = complete_training_run(second)
+
+        assert result["promoted"] is replaced
+        assert self._champion().holdout_score == (0.7 if replaced else 0.8)
+        if replaced:
+            assert self._champion().metrics["promotion_reason"] == "replaced_unscorable"
+
+    @parameterized.expand([("part_day_anchors", None, True), ("utc_day_anchors", "utc_day", False)])
+    def test_a_champion_trained_on_part_day_anchors_is_replaced_below_the_margin(self, _name, alignment, replaced):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.95)
+        complete_training_run(first)
+        champion = self._champion()
+        metrics = {key: value for key, value in champion.metrics.items() if key != "anchor_alignment"}
+        champion.metrics = {**metrics, **({"anchor_alignment": alignment} if alignment else {})}
+        champion.save(update_fields=["metrics"])
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.89)
+        result = complete_training_run(second)
+
+        assert result["promoted"] is replaced
+        assert self._champion().holdout_score == (0.89 if replaced else 0.95)
+        assert self._champion().metrics["anchor_alignment"] == "utc_day"
+        if replaced:
+            assert self._champion().metrics["promotion_reason"] == "replaced_anchor_change"
 
     @parameterized.expand(
         [

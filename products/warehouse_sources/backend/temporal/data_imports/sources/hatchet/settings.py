@@ -141,6 +141,17 @@ HATCHET_ENDPOINTS: dict[str, HatchetEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=[],
     ),
+    # Scheduled (one-off, future-dated) workflow triggers, past and upcoming. No time filter, and the
+    # trigger time and linked run status change after creation, so full refresh only. The API defaults
+    # to `triggerAt DESC`, which shifts under offset pagination when a schedule is rescheduled, so
+    # page by creation time instead.
+    "scheduled_runs": HatchetEndpointConfig(
+        name="scheduled_runs",
+        path="/api/v1/tenants/{tenant}/workflows/scheduled",
+        partition_key="created_at",
+        incremental_fields=[],
+        extra_params={"orderByField": "createdAt", "orderByDirection": "ASC"},
+    ),
     # State-transition history of every task in a run. The API returns all of a run's events in one
     # response (no pagination), so this fans out once per workflow run.
     "task_events": HatchetEndpointConfig(

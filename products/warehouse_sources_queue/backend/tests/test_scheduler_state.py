@@ -162,6 +162,33 @@ class TestSchedulerState:
         assert states[(KIND, "s1")]["offset_seconds"] == 60
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "new_interval,new_offset",
+        [
+            pytest.param(3600, 0, id="interval_changed"),
+            pytest.param(INTERVAL, 60, id="offset_changed"),
+            pytest.param(3600, 60, id="both_changed"),
+        ],
+    )
+    async def test_single_upsert_applies_due_time_rule_per_row(self, conn, new_interval, new_offset):
+        unchanged = _state("unchanged", due_in_seconds=600)
+        await SchedulerStateTable.upsert_states(conn, [unchanged, _state("recadenced", due_in_seconds=600)])
+
+        recadenced = _state("recadenced", due_in_seconds=120, interval=new_interval, offset=new_offset)
+        new = _state("new", due_in_seconds=300, interval=3600, offset=30)
+        await SchedulerStateTable.upsert_states(conn, [_state("unchanged", due_in_seconds=9999), recadenced, new])
+
+        states = await _fetch_states(conn)
+        assert {
+            key: (row["next_due_at"], row["interval_seconds"], row["offset_seconds"])
+            for (_, key), row in states.items()
+        } == {
+            "unchanged": (unchanged.next_due_at, INTERVAL, 0),
+            "recadenced": (recadenced.next_due_at, new_interval, new_offset),
+            "new": (new.next_due_at, 3600, 30),
+        }
+
+    @pytest.mark.asyncio
     async def test_stale_state_rows_deleted_after_refresh_cutoff(self, conn):
         await SchedulerStateTable.upsert_states(
             conn, [_state("kept", due_in_seconds=600), _state("stale", due_in_seconds=600)]

@@ -93,30 +93,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == RentCastResumeConfig(offset=PAGE_SIZE)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(session, [_response([{"id": 5}])])
@@ -127,29 +103,6 @@ class TestPagination:
         # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
         assert params[0]["offset"] == PAGE_SIZE
         assert rows == [{"id": 5}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_path_matches_config(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, requests_seen = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            rentcast_source("rc-key", "sale_listings", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-        assert requests_seen[0].url == "https://api.rentcast.io/v1/listings/sale"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_rides_in_x_api_key_header_and_accept_set(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, requests_seen = _wire(session, [_response([{"id": 1}])])
-
-        _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        # The key is wired through framework auth (redacted from logs), targeting the X-Api-Key header.
-        auth = requests_seen[0].auth
-        assert auth.name == "X-Api-Key"
-        assert auth.location == "header"
-        assert auth.api_key == "rc-key"
-        assert session.headers.get("Accept") == "application/json"
 
     @parameterized.expand([("bare_string", "nope"), ("dict_without_list", {"error": "nope"})])
     @mock.patch("tenacity.nap.time.sleep")

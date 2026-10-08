@@ -26,6 +26,8 @@ from posthog.hogql.visitor import clear_locations
 from posthog.models.scoping import team_scope
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.autoresearch.backend.dataset.labeling import ANCHOR_ALIGNMENT
+from products.autoresearch.backend.inference.failures import find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import (
     SandboxInferenceError,
     check_scorability,
@@ -606,11 +608,29 @@ def _finalize_under_lock(
     is_cold_start = current is None
     # A stub champion's score is a fixed placeholder, not a measurement, so any trained candidate replaces it.
     replaces_stub = current is not None and bool((current.metrics or {}).get("stub"))
+    # A champion that cannot score serves nothing, so its holdout score is no bar either. The
+    # fit and the scorability check still run, and roll the candidate back if it cannot score.
+    unscorable = find_unscorable_champion(current)
+    # A champion trained on T0s at any second has a holdout score from part-day features that
+    # scoring never sees, so the score is inflated and no bar for a model trained on UTC days.
+    anchor_changed = current is not None and (current.metrics or {}).get("anchor_alignment") != ANCHOR_ALIGNMENT
     beats_champion = current is not None and _beats_incumbent(candidate_score, current.holdout_score or 0.0)
+
+    promotion_reason = ""
+    if is_cold_start:
+        promotion_reason = "cold_start"
+    elif replaces_stub:
+        promotion_reason = "replaced_stub"
+    elif unscorable is not None:
+        promotion_reason = "replaced_unscorable"
+    elif anchor_changed:
+        promotion_reason = "replaced_anchor_change"
+    elif beats_champion:
+        promotion_reason = "beat_champion"
 
     promoted = False
     role: str
-    if is_cold_start or replaces_stub or beats_champion:
+    if promotion_reason:
         if current is not None:
             AutoresearchModel.objects.filter(pk=current.pk).update(
                 role=AutoresearchModel.Role.ARCHIVED, archived_at=now
@@ -632,6 +652,8 @@ def _finalize_under_lock(
             "holdout_auc": candidate_score,
             "source": "agent_recorded",
             "artifact_bundle": bool(artifact_prefix),
+            "anchor_alignment": ANCHOR_ALIGNMENT,
+            **({"promotion_reason": promotion_reason} if promotion_reason else {}),
         },
         source_training_run=training_run,
         agent_description=best.agent_description,

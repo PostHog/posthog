@@ -2,7 +2,6 @@ import { IconCopy, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
@@ -16,8 +15,9 @@ import {
     parseIneligibleReason,
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
+import { RECORDING_ORIGIN, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { VERDICT_LABEL, confidenceLevel, readReasoning, scannerLabel } from '../utils/observation'
+import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
@@ -181,7 +181,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    if (scannerType === 'summarizer') {
+    if (isSummaryScannerType(scannerType)) {
         const title = typeof result.title === 'string' ? result.title : null
         const summary = typeof result.summary === 'string' ? result.summary : null
         const showCopy = copyable && summary !== null
@@ -395,11 +395,14 @@ export function ObservationDockCard({
     onSeek,
     onRetry,
     retrying = false,
+    returnPath,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
     onRetry?: () => void
     retrying?: boolean
+    /** The page the player is on, so the observation's back button returns to it. */
+    returnPath?: string
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -410,7 +413,7 @@ export function ObservationDockCard({
     const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
-        observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
+        observation.status === 'succeeded' && !isSummaryScannerType(scannerType) ? readReasoning(observation) : null
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -430,7 +433,7 @@ export function ObservationDockCard({
                     {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
                     <Link
                         data-attr="vision-observation-open"
-                        to={urls.replayVisionObservation(observation.id)}
+                        to={observationFromOriginUrl(observation.id, RECORDING_ORIGIN, returnPath)}
                         className="text-xs whitespace-nowrap"
                     >
                         View details
@@ -490,7 +493,7 @@ export function ObservationDockCard({
                             copyable
                         />
                     </LabeledRow>
-                    {prompt && scannerType !== 'summarizer' && (
+                    {prompt && !isSummaryScannerType(scannerType) && (
                         <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
                     )}
                     {reasoning && (

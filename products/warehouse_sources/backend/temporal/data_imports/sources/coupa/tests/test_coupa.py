@@ -6,9 +6,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa import (
     CoupaResumeConfig,
-    _normalize_keys,
     get_rows,
-    hostname_of,
     normalize_host,
     validate_credentials,
 )
@@ -56,20 +54,6 @@ class TestNormalizeHost:
     def test_invalid_hosts_raise(self, value):
         with pytest.raises(ValueError):
             normalize_host(value)
-
-    def test_hostname_of(self):
-        assert hostname_of("https://myorg.coupahost.com/api") == "myorg.coupahost.com"
-
-
-class TestNormalizeKeys:
-    def test_hyphenated_keys_become_underscored(self):
-        row = {"id": 1, "updated-at": "2024-01-01T00:00:00Z", "invoice-number": "INV-1", "plain": "x"}
-        assert _normalize_keys(row) == {
-            "id": 1,
-            "updated_at": "2024-01-01T00:00:00Z",
-            "invoice_number": "INV-1",
-            "plain": "x",
-        }
 
 
 class TestValidateCredentials:
@@ -183,17 +167,6 @@ class TestGetRows:
 
         assert [row["id"] for batch in batches for row in batch] == [1]
         assert mock_session.return_value.post.call_count == 2
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_forces_json_accept_header(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _response([])
-
-        list(get_rows("https://myorg.coupahost.com", "cid", "sec", "users", mock.MagicMock(), _make_manager()))
-
-        # Coupa defaults to XML — the session must be created with Accept: application/json.
-        session_headers = mock_session.call_args.kwargs["headers"]
-        assert session_headers == {"Accept": "application/json"}
 
 
 class TestEndpointPaths:

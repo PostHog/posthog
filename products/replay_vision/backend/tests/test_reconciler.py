@@ -2,6 +2,7 @@ import uuid
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from prometheus_client import CollectorRegistry
 from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
@@ -35,6 +37,7 @@ from products.replay_vision.backend.temporal.activities import (
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
+    start_launched_scanners_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
@@ -61,6 +64,7 @@ from products.replay_vision.backend.temporal.schedule import (
     compute_schedule_fingerprint,
     load_enabled_scanner_fingerprints,
 )
+from products.replay_vision.backend.tests.helpers import create_experiment
 
 
 def _live_activity_env() -> ActivityEnvironment:
@@ -236,7 +240,11 @@ class _ReconcileMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
         self.calls.append(activity_fn)
-        if activity_fn in (reap_childless_inline_scanners_activity, reap_backfill_schedules_activity):
+        if activity_fn in (
+            reap_childless_inline_scanners_activity,
+            reap_backfill_schedules_activity,
+            start_launched_scanners_activity,
+        ):
             return 0
         if activity_fn is reap_orphaned_observations_activity:
             self.reap_calls += 1
@@ -260,7 +268,7 @@ class _ReconcileMocks:
         raise AssertionError(f"unexpected activity: {activity_fn!r}")
 
 
-async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
+async def _run_reconcile(mocks: _ReconcileMocks):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -270,8 +278,6 @@ async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
-        patch("temporalio.workflow.patched", return_value=patched),
-        patch("temporalio.workflow.deprecate_patch"),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -395,20 +401,14 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
 
 
 @pytest.mark.asyncio
-@parameterized.expand([("patched_syncs_first", True), ("pre_patch_reaps_first", False)])
-async def test_reconcile_workflow_orders_sync_before_reapers(_name: str, patched: bool) -> None:
+async def test_reconcile_workflow_orders_sync_before_reapers() -> None:
     # The reapers' combined start-to-close budget is larger than the workflow execution timeout, so
-    # running them ahead of the sync lets one slow reaper starve schedule sync on every tick. Replays
-    # of pre-patch executions must keep the old order or they fail the determinism check.
+    # running them ahead of the sync lets one slow reaper starve schedule sync on every tick.
     sid = uuid.uuid4()
     fp = compute_schedule_fingerprint({"sample_rate": 0.5})
     mocks = _ReconcileMocks(enabled=_enabled((sid, 1, fp)), existing=_existing())
-    result = await _run_reconcile(mocks, patched=patched)
-    synced_first = mocks.calls.index(list_enabled_scanners_activity) < mocks.calls.index(
-        reap_orphaned_observations_activity
-    )
-    assert synced_first is patched
-    # Either way the sync itself still happens.
+    result = await _run_reconcile(mocks)
+    assert mocks.calls.index(list_enabled_scanners_activity) < mocks.calls.index(reap_orphaned_observations_activity)
     assert result.upserted == [sid]
 
 
@@ -537,6 +537,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         }
 
     rows = await sync_to_async(_setup)()
+    pushed = CollectorRegistry()
     temporal = _StubReapTemporal(
         {"wf-gone-1": "not_found", "wf-timed-out": "closed", "wf-open": "open", "wf-err": "rpc_error"}
     )
@@ -545,7 +546,11 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
+        with patch(
+            "products.replay_vision.backend.temporal.metrics.pushed_metrics_registry",
+            lambda _job: nullcontext(pushed),
+        ):
+            reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -560,6 +565,13 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
+    # The backlog is measured before reaping, so it counts every row the setup left in flight.
+    for status in ("pending", "running"):
+        assert pushed.get_sample_value("replay_vision_in_flight_observations", {"status": status}) == 3, status
+    oldest_pending = pushed.get_sample_value(
+        "replay_vision_oldest_in_flight_observation_age_seconds", {"status": "pending"}
+    )
+    assert oldest_pending is not None and oldest_pending >= stale.total_seconds()
 
 
 def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplayScanner:
@@ -627,3 +639,39 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
     assert rows["childless_old"].id not in surviving
     for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
         assert rows[key].id in surviving, key
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_start_launched_scanners_activity(org_team) -> None:
+    # The launch signal's receiver never fails a launch, so a failure there leaves the scanner off
+    # after the launch has committed. The reconciler starts it on its next tick. A scanner on a
+    # draft keeps waiting.
+    _, team = org_team
+
+    def _setup() -> tuple[ReplayScanner, ReplayScanner]:
+        launched = create_experiment(team, "launched-flag", launched=True, variants=["control", "test"])
+        draft = create_experiment(team, "draft-flag", variants=["control", "test"])
+
+        def waiting(name: str, experiment_id: int) -> ReplayScanner:
+            return _make_scanner(
+                team,
+                name=name,
+                scanner_type=ScannerType.EXPERIMENT,
+                enabled=False,
+                scanner_config={"prompt": "p", "experiment_id": experiment_id, "start_on_launch": True},
+            )
+
+        return waiting("missed-launch", launched.id), waiting("still-draft", draft.id)
+
+    missed, still_waiting = await sync_to_async(_setup)()
+
+    started = await _live_activity_env().run(start_launched_scanners_activity)
+
+    assert started == 1
+    await sync_to_async(missed.refresh_from_db)()
+    await sync_to_async(still_waiting.refresh_from_db)()
+    assert missed.enabled is True
+    assert "start_on_launch" not in missed.scanner_config
+    assert still_waiting.enabled is False
+    assert await _live_activity_env().run(start_launched_scanners_activity) == 0

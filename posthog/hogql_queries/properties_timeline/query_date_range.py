@@ -9,9 +9,9 @@ from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.interval_specs import UnsupportedIntervalError, get_trunc_func
-from posthog.models.filters import AnyFilter
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.interval import IntervalMixin
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
@@ -60,7 +60,7 @@ class QueryDateRange:
     - a datetime already (only for filters constructed internally)
     """
 
-    _filter: AnyFilter
+    _filter: PropertiesTimelineFilter
     _team: Team
     _table: str
     _should_round: Optional[bool]
@@ -68,7 +68,7 @@ class QueryDateRange:
 
     def __init__(
         self,
-        filter: AnyFilter,
+        filter: PropertiesTimelineFilter,
         team: Team,
         should_round: Optional[bool] = None,
         table="",

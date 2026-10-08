@@ -2,6 +2,7 @@ import { routes } from 'scenes/scenes'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemType } from '~/types'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
 export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
@@ -44,6 +45,14 @@ export function libraryObjectHref(entry: Pick<FileSystemEntry, 'href' | 'type' |
     return entry.ref && definition ? definition.href(entry.ref) : null
 }
 
+/** The product's own list page for a type, if its manifest registers one. */
+export function libraryListHref(type: string): string | null {
+    const definition = Object.hasOwn(fileSystemTypes, type)
+        ? (fileSystemTypes[type as keyof typeof fileSystemTypes] as FileSystemType)
+        : null
+    return definition?.listHref?.() ?? null
+}
+
 const REF_PLACEHOLDER = 'LIBRARY_REF'
 
 function routeSegments(route: string): string[] {
@@ -84,8 +93,9 @@ export function libraryTypeForPath(path: string): string | null {
                 scenes.set(scene, type)
             }
         }
-        for (const [type, definition] of Object.entries(fileSystemTypes)) {
-            addPage(type, definition.href(REF_PLACEHOLDER))
+        for (const [type, definition] of Object.entries(fileSystemTypes) as [string, FileSystemType][]) {
+            addPage(type, definition.href?.(REF_PLACEHOLDER))
+            addPage(type, definition.listHref?.())
         }
         for (const item of [...getTreeItemsProducts(), ...getTreeItemsMetadata()]) {
             const type = baseObjectType(item.type) || item.iconType || ''
@@ -103,6 +113,18 @@ export function libraryTypeForPath(path: string): string | null {
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
     const segments = entry.path.split(/(?<!\\)\//)
     return (segments[segments.length - 1] || entry.path).replace(/\\\//g, '/')
+}
+
+/** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
+export function libraryTypeLabel(type: string | undefined): string | null {
+    const baseType = baseObjectType(type)
+    const name = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as FileSystemType).name
+        : null
+    if (!name) {
+        return null
+    }
+    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
 }
 
 export function sortLibraryTypes(types: LibraryObjectType[]): LibraryObjectType[] {

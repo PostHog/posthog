@@ -16,6 +16,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -78,6 +79,7 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
+const PROPOSED_METRIC_STATUS = 'proposed'
 
 export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
@@ -88,6 +90,12 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     const isDrifted = envelope.is_drifted === true
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
         return result
+    }
+    if (status === PROPOSED_METRIC_STATUS && !isDrifted) {
+        return {
+            NONCANONICAL: `status=proposed is_drifted=false. Not approved: use it only if its definition fits the question. If you use it, open the answer with '📝 **Proposed definition in your data catalog**: [<display_name>](<url>), not yet approved. Review it and approve it if it fits.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
@@ -219,11 +227,12 @@ export interface ExecToolOptions {
     learnCatalog?: ExecLearnCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
-     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * response (Claude Code). Gets the same UI-app payload treatment as the
      * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -590,6 +599,21 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
         'Tool "vision-scanners-prompt-suggestions-dismiss" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
     'vision-scanners-prompt-suggestions-generate': () =>
         'Tool "vision-scanners-prompt-suggestions-generate" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    // Replay Vision deprecation aliases. Each replacement takes the same arguments.
+    ...Object.fromEntries(
+        [
+            ['vision-observations-label-destroy', 'vision-observations-label-delete'],
+            ['vision-observations-retrieve', 'vision-observations-get'],
+            ['vision-quota-retrieve', 'vision-quota-get'],
+            ['vision-scanners-estimate-create', 'vision-scanners-estimate'],
+            ['vision-scanners-impact-retrieve', 'vision-scanners-impact-get'],
+            ['vision-scanners-inline-scan-create', 'vision-scanners-inline-scan'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. It was a deprecation alias for "${replacement}", which takes the same arguments. Call "${replacement}" instead.`,
+        ])
+    ),
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
@@ -2006,12 +2030,16 @@ export function createExecTool(
                             describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2092,7 +2120,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury a compact formatted table under
                                 // the raw JSON. When such a table exists, re-home the UI app's data
@@ -2104,6 +2132,7 @@ export function createExecTool(
                                 forceUiDataToMeta: true,
                                 includeAppData,
                                 distinctId,
+                                mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
                             })

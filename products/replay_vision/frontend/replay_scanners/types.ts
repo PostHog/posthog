@@ -66,6 +66,7 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_from',
     'date_to',
     'backfill_id',
+    'variant',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>
@@ -302,72 +303,33 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 }
 
 // Names for models dropped from the lineup, so an observation frozen against one still reads as a
-// product name instead of a raw id. Tier arms keep provider names here: no tier claim survives retirement.
+// product name instead of a raw id.
 const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.7-flash': 'Gemini 3.7 Flash',
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
 }
 
-// Arms of the replay-vision-home-redesign-experiment flag. Narrows a raw flag value so control,
-// booleans, and unknown variants all degrade to the control experience instead of half-applying
-// the redesigned layout.
-export type HomeRedesignVariant = 'control' | 'test'
-
-export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | null {
-    return flagValue === 'control' || flagValue === 'test' ? flagValue : null
-}
-
-// Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
-// of provider model names, keyed by the flag's variant key. Every surface that shows a model must
-// resolve the variant the same way so a user never sees mixed naming schemes for one scanner.
-export type ModelNamingVariant = 'test' | 'lite-standard-pro'
-
-const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, string>> = {
-    test: {
-        [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
-        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini38Flash]: 'Ultra',
-    },
-    'lite-standard-pro': {
-        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
-        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini38Flash]: 'Pro',
-    },
-}
-
-// Narrows a raw flag value to a naming variant. Control, booleans, and variant keys this build
-// doesn't know yet all resolve to null (provider model names), so a flag/frontend version skew
-// degrades to the control experience instead of mislabeling an arm.
-export function modelNamingVariant(flagValue: unknown): ModelNamingVariant | null {
-    return typeof flagValue === 'string' && flagValue in MODEL_TIER_NAMES ? (flagValue as ModelNamingVariant) : null
-}
-
-export function getModelOptions(
-    namingVariant: ModelNamingVariant | null
-): { value: ScannerModelEnumApi; label: string }[] {
-    return Object.values(ScannerModelEnumApi).map((value) => ({
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
+    (value) => ({
         value,
-        label: `${modelName(value, namingVariant)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    }))
-}
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    })
+)
 
 // Falls back to the raw id for models retired before they were named here.
-export function modelLabel(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
+export function modelLabel(model: string | null | undefined): string {
     if (!model) {
         return '—'
     }
-    return (
-        getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
-    )
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
+export function modelName(model: string | null | undefined): string {
     if (!model) {
         return '—'
     }
-    const names = namingVariant ? MODEL_TIER_NAMES[namingVariant] : MODEL_NAMES
-    return names[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */
@@ -440,7 +402,18 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
+    {
+        value: 'experiment',
+        label: 'Experiment',
+        description: 'Summarizes sessions for each variant of an A/B test.',
+    },
 ]
+
+/** The type options to offer. The experiment type is behind a flag until it ships, but a scanner that already
+ * has it, or a team that already has one, still sees it. */
+export function scannerTypeOptions(includeExperiment: boolean): typeof SCANNER_TYPE_OPTIONS {
+    return includeExperiment ? SCANNER_TYPE_OPTIONS : SCANNER_TYPE_OPTIONS.filter(({ value }) => value !== 'experiment')
+}
 
 export interface MonitorScannerConfig {
     prompt: string
@@ -467,10 +440,13 @@ export interface ScorerScannerConfig {
 export interface ExperimentScannerConfig {
     prompt: string
     length?: 'short' | 'medium' | 'long'
-    experiment_id: number
+    /** Null only on an unsaved form, before an experiment is picked. */
+    experiment_id: number | null
     /** Variant keys to watch; null or absent means every variant. */
     variants?: string[] | null
     balance_variants?: boolean
+    /** Saved off on a draft experiment; the backend turns the scanner on at launch. */
+    start_on_launch?: boolean
 }
 
 export type ScannerConfig =
