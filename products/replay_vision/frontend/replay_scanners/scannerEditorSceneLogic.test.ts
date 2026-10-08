@@ -62,7 +62,6 @@ describe('scannerEditorSceneLogic', () => {
             ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
             [scannerStepUrl('overview', 'new'), true],
             [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
-            [urls.replayVisionScannerSelfDriving('abc'), true],
             [urls.replayVision('abc'), false],
             [urls.replayVisionObservation('abc'), false],
             [urls.replayVision(), false],
