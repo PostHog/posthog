@@ -1426,6 +1426,25 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp"])
 
+    def test_list_experiment_access_is_constant_queries(self) -> None:
+        self._create_scanner(name="targeted-0", experiment_targeting=self.targeting)
+        self.client.get(self.scanners_url)  # Warm request-scoped caches so both captures compare cleanly.
+        with CaptureQueriesContext(connection) as one_row:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        for i in range(1, 5):
+            experiment = create_experiment(self.team, f"exp-{i}")
+            self._create_scanner(name=f"targeted-{i}", experiment_targeting={"experiment_id": experiment.id})
+            self._create_scanner(
+                name=f"experiment-{i}",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": experiment.id},
+            )
+        with CaptureQueriesContext(connection) as nine_rows:
+            resp = self.client.get(self.scanners_url)
+            self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()["results"]), 9)
+        self.assertEqual(len(one_row.captured_queries), len(nine_rows.captured_queries))
+
     @parameterized.expand(
         [
             ("superscript", "\u00b2"),
@@ -1755,8 +1774,8 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         # scanner with the targeting already nulled. Copying the stored row instead would hand them
         # a scanner that scans against an experiment the create path refuses to target.
         with patch(
-            "products.replay_vision.backend.api.scanners.is_experiment_accessible",
-            return_value=False,
+            "products.replay_vision.backend.scanner_access._accessible_experiment_ids",
+            return_value=set(),
         ):
             resp = self._duplicate(source.id)
 
@@ -4182,6 +4201,30 @@ class TestScannerSpend(_VisionAPITestCase):
         credits = self._credits_by_name(resp.json())
         self.assertEqual(credits["spender"], 2 * observation_credits_for_model(spender.model))
         self.assertEqual(credits["idle"], 0)
+
+    def test_credits_this_month_prices_each_observation_by_its_snapshot_model(self) -> None:
+        spender = self._create_scanner(name="spender")
+        other_model = next(m for m in ScannerModel if m != spender.model)
+        self._succeeded_observation(spender, "current-model")
+        retargeted = self._succeeded_observation(spender, "older-model")
+        unknown = self._succeeded_observation(spender, "unknown-model")
+        ReplayObservation.objects.filter(pk=retargeted.pk).update(
+            scanner_snapshot={**_snapshot_for(spender), "model": other_model}
+        )
+        ReplayObservation.objects.filter(pk=unknown.pk).update(
+            scanner_snapshot={**_snapshot_for(spender), "model": "retired-model"}
+        )
+
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        row = next(r for r in resp.json()["results"] if r["name"] == "spender")
+        self.assertEqual(
+            row["credits_this_month"],
+            observation_credits_for_model(spender.model)
+            + observation_credits_for_model(other_model)
+            + observation_credits_for_model("retired-model"),
+        )
+        self.assertEqual(row["observations_this_month"], 3)
 
     def test_order_by_credits_matches_displayed_values(self) -> None:
         low = self._create_scanner(name="low")

@@ -259,6 +259,21 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
 
+    def test_list_hides_only_the_experiments_the_viewer_cannot_access(self) -> None:
+        hidden = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        visible = create_experiment(self.team, "visible-flag", created_by=self.user)
+        self._create_scanner(name="hidden", experiment_targeting={"experiment_id": hidden.id})
+        self._create_scanner(name="visible", experiment_targeting={"experiment_id": visible.id})
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(visible.id), "viewer")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        targeting = {row["name"]: row["experiment_targeting"] for row in resp.json()["results"]}
+        self.assertEqual(targeting, {"hidden": None, "visible": {"experiment_id": visible.id}})
+
     def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
         # The API redacts experiment_targeting to null for such an editor, and the editor form
         # writes the whole object back on save. Without the write-side guard, renaming the scanner

@@ -144,6 +144,7 @@ from products.replay_vision.backend.quota import (
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
     readable_observation_scanner_ids,
@@ -685,10 +686,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
-    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+    def _page_scanners(self, scanner: ReplayScanner) -> list[ReplayScanner]:
         root = self.root
         instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        return [s.id for s in instance] if instance is not None else [scanner.id]
+        return list(instance) if instance is not None else [scanner]
+
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        return [s.id for s in self._page_scanners(scanner)]
 
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
@@ -961,7 +965,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Don't disclose an experiment (its id and variants) to a viewer who can't access it: a
         # scanner is viewable at a coarser grain than its targeted experiment. Mirrors the write-side
         # check in validate_experiment_targeting — a caller without experiment access sees null.
-        if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
+        if data.get("experiment_targeting") and not self._can_view_page_experiment(
+            instance, data["experiment_targeting"]
+        ):
             data["experiment_targeting"] = None
         # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
         # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
@@ -969,7 +975,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # denied caller.
         if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
             experiment_id = data["scanner_config"].get("experiment_id")
-            if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+            if experiment_id is not None and not self._can_view_page_experiment(
+                instance, {"experiment_id": experiment_id}
+            ):
                 data["scanner_config"] = {
                     key: value
                     for key, value in data["scanner_config"].items()
@@ -985,6 +993,33 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
         return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
+
+    def _can_view_page_experiment(self, instance: ReplayScanner, targeting: dict[str, Any]) -> bool:
+        """`_can_view_targeted_experiment` for reads, checked once for the whole page through the shared
+        context dict rather than one query per row. An id outside the page falls back to the single check."""
+        experiment_id = targeting.get("experiment_id")
+        get_team = self.context.get("get_team")
+        if experiment_id is None or get_team is None:
+            return self._can_view_targeted_experiment(targeting)
+        checked = self.context.get("_page_experiment_access")
+        if checked is None:
+            page_ids = self._page_experiment_ids(instance)
+            checked = (page_ids, accessible_experiment_ids(self.user_access_control, get_team().id, page_ids))
+            self.context["_page_experiment_access"] = checked
+        page_ids, accessible = checked
+        if experiment_id in page_ids:
+            return experiment_id in accessible
+        return self._can_view_targeted_experiment(targeting)
+
+    def _page_experiment_ids(self, instance: ReplayScanner) -> set[int]:
+        ids: set[int] = set()
+        for scanner in self._page_scanners(instance):
+            if isinstance(scanner.experiment_targeting, dict):
+                ids.add(scanner.experiment_targeting.get("experiment_id"))
+            if scanner.scanner_type == ScannerType.EXPERIMENT and isinstance(scanner.scanner_config, dict):
+                ids.add(scanner.scanner_config.get("experiment_id"))
+        ids.discard(None)
+        return ids
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
