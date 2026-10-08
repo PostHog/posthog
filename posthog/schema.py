@@ -49,6 +49,7 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
@@ -597,6 +598,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
@@ -2844,10 +2853,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,
@@ -3800,6 +3809,15 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -9989,13 +10007,16 @@ class AssistantDataVisualizationNode(BaseModel):
         description=(
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
-            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
-            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
+            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
+            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
+            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
+            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
+            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10528,6 +10549,10 @@ class AssistantRetentionFilter(BaseModel):
             " retention means that a user coming back in period 5 makes them count"
             " towards all the previous periods."
         ),
+    )
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
     )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,

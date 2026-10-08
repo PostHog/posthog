@@ -3,14 +3,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from posthog.schema import HogQLQuery
+
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
+from posthog.models import Team
+
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult
+from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoExpansionMode
 from products.managed_warehouse.backend.table_binding import get_data_modeling_table_names
+from products.managed_warehouse.backend.trino_compiler import compile_hogql_to_trino_sql
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
-from products.managed_warehouse.backend.view_translation_status import get_current_trino_translation
 
 if TYPE_CHECKING:
     from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
@@ -24,14 +28,18 @@ def execute_trino_shadow_materialization(
     source_query: object,
     control: TrinoQueryControl | None = None,
 ) -> DuckLakeTableResult:
-    compiled = get_current_trino_translation(
-        organization_id=organization_id,
-        team_id=team_id,
-        saved_query_id=saved_query_id,
-        source_query=source_query,
+    if control:
+        control.checkpoint()
+    team = Team.objects.get(pk=team_id, organization_id=organization_id)
+    compiled = compile_hogql_to_trino_sql(
+        team_id,
+        HogQLQuery.model_validate(source_query),
+        team=team,
+        bypass_warehouse_access_control=True,
+        expansion_mode=TrinoExpansionMode.DJANGO,
     )
-    if compiled is None:
-        raise ValueError("No current Trino conversion exists for this saved query. Run its translation again.")
+    if control:
+        control.checkpoint()
 
     sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
     schema_name = ducklake_data_modeling_schema(team_id)
