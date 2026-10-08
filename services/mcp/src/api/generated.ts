@@ -65147,6 +65147,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `rate` - rate
+     * * `increase` - increase
+     */
+    export type MetricRangeFunctionEnum = typeof MetricRangeFunctionEnum[keyof typeof MetricRangeFunctionEnum];
+
+
+    export const MetricRangeFunctionEnum = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -91993,18 +92005,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `rate` - rate
-     * * `increase` - increase
-     */
-    export type RangeFunctionEnum = typeof RangeFunctionEnum[keyof typeof RangeFunctionEnum];
-
-
-    export const RangeFunctionEnum = {
-      Rate: 'rate',
-      Increase: 'increase',
-    } as const;
-
-    /**
      * * `weighted-score` - weighted-score
      * * `jev` - jev
      */
@@ -112525,7 +112525,7 @@ export namespace Schemas {
        *
        * * `rate` - rate
        * * `increase` - increase */
-      rangeFunction?: RangeFunctionEnum | null;
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile'.
          * @minimum 0
@@ -112659,7 +112659,7 @@ export namespace Schemas {
        *
        * * `rate` - rate
        * * `increase` - increase */
-      rangeFunction?: RangeFunctionEnum | null;
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
          * @minimum 0

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class AttributeScope(StrEnum):
     """Where a label lives on a `metrics1` row.
@@ -100,7 +102,7 @@ class MetricAggregation(StrEnum):
         return self in (MetricAggregation.RATE, MetricAggregation.INCREASE)
 
 
-class MetricRangeFunction(StrEnum):
+class MetricRangeFunction(LabeledStrEnum):
     """A per-series transform that runs before the cross-series aggregation.
 
     Both read the change in a counter across each bucket (cumulative counters
@@ -108,5 +110,5 @@ class MetricRangeFunction(StrEnum):
     in seconds.
     """
 
-    RATE = "rate"
-    INCREASE = "increase"
+    RATE = "rate", "rate"
+    INCREASE = "increase", "increase"

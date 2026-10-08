@@ -388,9 +388,9 @@ export const MetricQueryAggregationEnumApi = {
  * * `rate` - rate
  * * `increase` - increase
  */
-export type RangeFunctionEnumApi = (typeof RangeFunctionEnumApi)[keyof typeof RangeFunctionEnumApi]
+export type MetricRangeFunctionEnumApi = (typeof MetricRangeFunctionEnumApi)[keyof typeof MetricRangeFunctionEnumApi]
 
-export const RangeFunctionEnumApi = {
+export const MetricRangeFunctionEnumApi = {
     Rate: 'rate',
     Increase: 'increase',
 } as const
@@ -472,7 +472,7 @@ export interface _MetricClauseApi {
      *
      * * `rate` - rate
      * * `increase` - increase */
-    rangeFunction?: RangeFunctionEnumApi | null
+    rangeFunction?: MetricRangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile'.
      * @minimum 0
@@ -517,7 +517,7 @@ export interface _MetricQueryBodyApi {
      *
      * * `rate` - rate
      * * `increase` - increase */
-    rangeFunction?: RangeFunctionEnumApi | null
+    rangeFunction?: MetricRangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
      * @minimum 0

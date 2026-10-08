@@ -65,6 +65,19 @@ class MetricAttributeScope(models.TextChoices):
     AUTO = "auto", "auto"
 
 
+class MetricQueryAggregation(models.TextChoices):
+    NONE = "none", "none"
+    SUM = "sum", "sum"
+    AVG = "avg", "avg"
+    COUNT = "count", "count"
+    MIN = "min", "min"
+    MAX = "max", "max"
+    P95 = "p95", "p95"
+    RATE = "rate", "rate"
+    INCREASE = "increase", "increase"
+    HISTOGRAM_QUANTILE = "histogram_quantile", "histogram_quantile"
+
+
 class Op(models.TextChoices):
     EQ = "eq", "eq"
     NEQ = "neq", "neq"
@@ -122,12 +135,12 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["none", "sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=MetricQueryAggregation.choices,
         default="sum",
         help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
     )
     rangeFunction = serializers.ChoiceField(
-        choices=[f.value for f in MetricRangeFunction],
+        choices=MetricRangeFunction.choices,
         required=False,
         allow_null=True,
         help_text="Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.",
@@ -179,12 +192,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["none", "sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+        choices=MetricQueryAggregation.choices,
         default="sum",
         help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
     )
     rangeFunction = serializers.ChoiceField(
-        choices=[f.value for f in MetricRangeFunction],
+        choices=MetricRangeFunction.choices,
         required=False,
         allow_null=True,
         help_text="Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.",
