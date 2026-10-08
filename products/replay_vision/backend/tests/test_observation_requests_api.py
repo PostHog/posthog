@@ -453,7 +453,8 @@ class TestStartWaitingRequests(APIBaseTest):
         ready.refresh_from_db()
         self.assertEqual((stuck.started_at is None, ready.started_at is not None), (True, True))
 
-    def test_a_request_whose_creator_lost_recording_access_fails_instead_of_starting(self) -> None:
+    @parameterized.expand([("lost_recording_access",), ("account_deleted",)])
+    def test_a_request_whose_creator_can_no_longer_scan_fails_instead_of_starting(self, case: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -464,10 +465,12 @@ class TestStartWaitingRequests(APIBaseTest):
             session_ids=["s1"],
             start_outcomes=[],
             source="user",
-            created_by=self.user,
+            # A deleted account nulls the creator; that must not read as a service key's request.
+            created_by=None if case == "account_deleted" else self.user,
             wait_for_session_end=True,
         )
-        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        if case == "lost_recording_access":
+            AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
         now = timezone.now()
 
         with patch(

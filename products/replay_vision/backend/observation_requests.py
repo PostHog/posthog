@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
+from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
@@ -248,23 +249,26 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
 def _creator_still_allowed(request: ReplayObservationRequest) -> bool:
     """Whether the person a waiting request runs as can still start it, hours after asking.
 
-    A request made with a project secret API key has no person behind it; the key's scopes were checked when
-    it was made, and a revoked key cannot have asked.
+    Only a request made with a project secret API key has no person behind it; the key's scopes were checked
+    when it was made. A person-made request whose creator is gone (the account was deleted) is refused.
     """
-    user = request.created_by
-    if user is None:
+    if request.source == ObservationRequestSource.PROJECT_SECRET_API_KEY:
         return True
+    user = request.created_by
+    if user is None or not user.is_active:
+        return False
     team = request.team
-    if (
-        not user.is_active
-        or not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists()
-    ):
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
         return False
     access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.has_project_access:
+        return False
     if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
         return False
     if request.scanner is not None:
-        return access.check_access_level_for_object(request.scanner, "editor") is True
+        return access.check_access_level_for_object(request.scanner, "editor") is True and can_read_targeted_experiment(
+            access, team.id, request.scanner
+        )
     return access.check_access_level_for_resource("replay_scanner", required_level="editor")
 
 
