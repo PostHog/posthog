@@ -7725,8 +7725,11 @@ Diffed against: <https://docs.goshippo.com/spec/shippoapi/public-api.yaml>
 - [ ] `GET /tracks/{Carrier}/{TrackingNumber}` — Delivery status and tracking-event history for the transactions already synced — turns labels into a delivery-performance fact table (medium)
 - [ ] `GET /parcel-templates and GET /user-parcel-templates` — Lookup resolving the parcel template tokens referenced by parcels and shipments (low)
 - [ ] `GET /shippo-accounts` — Platform sub-account lookup; needed to attribute shipments when operating Shippo on behalf of multiple merchants (low)
+- [ ] `GET /v2/reporting/runs` — Reporting API run history (added Sep 2026); returns job metadata for the most recent runs only, not report rows, so it was skipped (low)
 
 Note: Coverage is proportionate for the core objects: 9 of roughly 15 listable collections are synced, including all the transactional ones (transactions, shipments, orders, refunds, parcels, addresses, customs). Batches are only retrievable by ID (no list endpoint), so they are not syncable as a table. The rates sub-resource is the one materially valuable analytical gap.
+
+Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the account created (`report_type`, `interval`, `status`, `result.row_count`), not the invoices, charges or refunds the report contains. The list has no pagination or date filter and returns at most the 500 most recent runs, so a table of it cannot hold full history. It also omits the download URL. The report data itself needs a different design: create a run (`POST /v2/reporting/runs`), poll it, then download the CSV or Parquet file. That is a write on the customer's account, and each interval can span 92 days at most.
 
 ## ShipStation — gaps
 
