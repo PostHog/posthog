@@ -4,11 +4,13 @@ import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
 import { DryRunPushCaptureService, PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
 import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
 import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-subscriptions.service'
+import { RegionBlockCheck, createRegionBlockCheck } from '~/messaging/push-subscriptions/region-block'
 
 import { CommonConfig } from '../common/config'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
@@ -24,6 +26,8 @@ export type PushApiConfig = {
     /** Skips the person update for a mirrored copy and still answers as if it was stored. A request
      * that reaches the service directly is still stored. */
     PUSH_API_DRY_RUN: boolean
+    /** Comma-separated ISO country codes answered 403, the same list Django reads. */
+    BLOCKED_GEOIP_REGIONS: string
 }
 
 export function getDefaultPushApiConfig(): PushApiConfig {
@@ -32,13 +36,17 @@ export function getDefaultPushApiConfig(): PushApiConfig {
         PUSH_API_HOST: '0.0.0.0',
         SECRET_KEY: '',
         PUSH_API_DRY_RUN: false,
+        BLOCKED_GEOIP_REGIONS: '',
     }
 }
 
 export type PushApiServerConfig = BaseServerConfig &
     PostgresRouterConfig &
     PushApiConfig &
-    Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL'>
+    Pick<
+        CommonConfig,
+        'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL' | 'MMDB_FILE_LOCATION'
+    >
 
 /** Serves `/api/push_subscriptions/`, the endpoint every mobile SDK calls on app open.
  *
@@ -104,8 +112,10 @@ export class PushApiServer implements NodeServer {
             this.config.PUSH_API_DRY_RUN ? new DryRunPushCaptureService() : capture
         )
 
+        const isRegionBlocked = await this.loadRegionBlockCheck()
+
         if (!isTestEnv()) {
-            this.pushServer = await this.listen(createPushSubscriptionsHandler(service))
+            this.pushServer = await this.listen(createPushSubscriptionsHandler(service, isRegionBlocked))
         }
 
         const pluginService: PluginServerService = {
@@ -122,6 +132,23 @@ export class PushApiServer implements NodeServer {
             healthcheck: () => this.isHealthy(),
         }
         this.lifecycle.services.push(pluginService)
+    }
+
+    private async loadRegionBlockCheck(): Promise<RegionBlockCheck> {
+        const countries = this.config.BLOCKED_GEOIP_REGIONS.split(',').filter((code) => code.trim())
+        if (countries.length === 0) {
+            return createRegionBlockCheck([], undefined)
+        }
+        const geoip = await new GeoIPService(this.config.MMDB_FILE_LOCATION).get()
+        // An unreadable database places no address, which lets every request through, as Django does.
+        // The startup check makes that case visible instead of silent.
+        if (!geoip.city('8.8.8.8')) {
+            logger.error('push-api could not load the GeoIP database, so blocked regions are not enforced', {
+                location: this.config.MMDB_FILE_LOCATION,
+            })
+        }
+        logger.info('push-api blocks registrations from regions', { countries })
+        return createRegionBlockCheck(countries, geoip)
     }
 
     private listen(handler: (req: any, res: any) => Promise<void>): Promise<Server> {

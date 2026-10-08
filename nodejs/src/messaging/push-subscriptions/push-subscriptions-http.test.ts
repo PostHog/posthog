@@ -20,11 +20,13 @@ describe('push subscriptions http', () => {
     }[]
     let answer: PushHandlerResult
     let failure: Error | null
+    let regionBlocked: boolean
 
     beforeEach(async () => {
         seen = []
         answer = { status: 200, body: { distinct_id: 'user-1' } }
         failure = null
+        regionBlocked = false
         const service = {
             handle: (request: any) => {
                 seen.push({
@@ -38,7 +40,7 @@ describe('push subscriptions http', () => {
             },
         } as unknown as PushSubscriptionsService
 
-        const handler = createPushSubscriptionsHandler(service)
+        const handler = createPushSubscriptionsHandler(service, () => regionBlocked)
         server = createServer(
             (req, res) =>
                 void handler(req, res).catch(() => {
@@ -73,6 +75,23 @@ describe('push subscriptions http', () => {
 
         expect(seen[0].mirrored).toEqual(mirrored)
     })
+
+    it.each(['POST', 'DELETE', 'OPTIONS'])(
+        'answers %s from a blocked region with 403 and never reaches the service',
+        async (method) => {
+            regionBlocked = true
+
+            const response = await internalFetch(`${base}/api/push_subscriptions/`, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: method === 'OPTIONS' ? undefined : JSON.stringify({ api_key: 'phc_x' }),
+            })
+
+            expect(response.status).toEqual(403)
+            expect(await response.text()).toContain('not available in your region')
+            expect(seen).toEqual([])
+        }
+    )
 
     it('delivers a DELETE body to the service', async () => {
         // The reason this endpoint is not on the plugin server's express framework: that one drops
