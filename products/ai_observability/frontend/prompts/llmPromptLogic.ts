@@ -333,7 +333,7 @@ export interface llmPromptLogicActions {
         prompt: ResolvedLLMPrompt
         payload?: any
     }
-    loadResolvedPreview: () => any
+    loadResolvedPreview: (_: any) => any
     loadResolvedPreviewFailure: (
         error: string,
         errorObject?: any
@@ -1274,7 +1274,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     listeners(({ actions, asyncActions, props, values }) => ({
         toggleResolvedPreview: () => {
             if (values.isShowingResolvedPreview) {
-                actions.loadResolvedPreview()
+                actions.loadResolvedPreview(null)
             }
         },
         loadResolvedPreviewFailure: ({ errorObject }) => {
