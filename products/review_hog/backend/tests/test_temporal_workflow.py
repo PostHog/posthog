@@ -133,6 +133,7 @@ async def _run_full_review_pr_workflow(
     pr_open: bool = True,
     review_design: str = "pipeline",
     lens_chunk_count: int = 0,
+    lens_chunks_capped: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
 ) -> dict:
@@ -156,6 +157,7 @@ async def _run_full_review_pr_workflow(
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
     # all three must be the resolve/publish values, or the comment misattributes the gate.
     finalize_status_calls: list[tuple[str, str, str | None]] = []
+    status_capped_parts: list[int | None] = []
     # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
     threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
@@ -206,6 +208,7 @@ async def _run_full_review_pr_workflow(
             pr_open=pr_open,
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
+            lens_chunks_capped=lens_chunks_capped,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -349,6 +352,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
         marker_calls["status"] = input.marker
+        status_capped_parts.append(input.capped_lens_parts)
         return None
 
     @activity.defn(name="fail_status_comment_activity")
@@ -474,6 +478,7 @@ async def _run_full_review_pr_workflow(
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
+        "status_capped_parts": status_capped_parts,
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
         "track_started": track_started_calls,
@@ -654,7 +659,7 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 @pytest.mark.asyncio
 async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
     recorded = await _run_full_review_pr_workflow(
-        publish=True, review_mode="flash", review_design="single_agent", lens_chunk_count=2
+        publish=True, review_mode="flash", review_design="single_agent", lens_chunk_count=2, lens_chunks_capped=True
     )
 
     assert recorded["single_agent"] == ["single_agent"]
@@ -666,6 +671,8 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     ]
     # A lens session on the sandbox timeout would hold the main findings back for up to an hour.
     assert set(recorded["lens_timeouts"]) == {FLASH_LENS_SESSION_TIMEOUT}
+    # The large-PR note lives only in the status comment, so the turn must hand it the part count.
+    assert recorded["status_capped_parts"] == [2]
     assert recorded["split"] == []
     assert recorded["review"] == []
     assert recorded["validate"] == []

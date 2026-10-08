@@ -177,12 +177,6 @@ def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
     return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True)
 
 
-def capped_lens_part_count(pr_files: list[PRFile]) -> int | None:
-    """How many larger parts the lens sessions reviewed a PR in when it passed the part cap, else None."""
-    plan = plan_lens_chunks(pr_files)
-    return len(plan.chunks) if plan.capped else None
-
-
 def generate_chunking_prompt(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],

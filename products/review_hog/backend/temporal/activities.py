@@ -152,7 +152,6 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
 )
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
-    capped_lens_part_count,
     count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
@@ -239,6 +238,8 @@ class ReviewMeta:
     review_design_reason: str = ""
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
+    # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
+    lens_chunks_capped: bool = False
 
 
 @dataclass
@@ -713,6 +714,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
     )
     logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)
+    lens_plan = plan_lens_chunks(pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
     if already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")
     ):
@@ -739,9 +741,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_open=pr_metadata.state == "open",
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
-        lens_chunk_count=(
-            len(plan_lens_chunks(pr_files).chunks) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else 0
-        ),
+        lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
+        lens_chunks_capped=lens_plan is not None and lens_plan.capped,
     )
 
 
@@ -1578,9 +1579,6 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         validations=validations,
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
-        capped_lens_parts=(
-            capped_lens_part_count(pr_files) if input.review_design == REVIEW_DESIGN_SINGLE_AGENT else None
-        ),
     )
     finalize_review_report(
         team_id=input.team_id,

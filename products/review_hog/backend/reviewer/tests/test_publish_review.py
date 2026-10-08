@@ -351,10 +351,9 @@ class TestPublishReviewGate:
         [
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
-            ("all_off_diff", [240], 0, False, False),
-            ("mixed", [1, 240], 1, False, False),
-            ("all_inline", [1], 1, False, True),
-            ("all_inline_with_a_body_note", [1], 1, True, False),
+            ("all_off_diff", [240], 0, False),
+            ("mixed", [1, 240], 1, False),
+            ("all_inline", [1], 1, True),
         ]
     )
     @patch(_POST)
@@ -365,7 +364,6 @@ class TestPublishReviewGate:
         _name: str,
         finding_lines: list[int],
         expected_comments: int,
-        always_post_body: bool,
         expect_marker_only: bool,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
@@ -398,7 +396,6 @@ class TestPublishReviewGate:
             head_sha="sha",
             post_promo=False,
             published_priorities=_SHOULD_FIX_PUBLISHED,
-            always_post_body=always_post_body,
         )
 
         assert outcome.posted is True

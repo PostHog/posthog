@@ -83,22 +83,6 @@ def test_body_tallies_publishable_findings_by_severity(
     assert body == f"# PostHog Review\n\n{expected_line}\n"
 
 
-@pytest.mark.parametrize("capped_lens_parts", [None, 4])
-def test_body_says_when_a_large_pr_ran_in_capped_parts(capped_lens_parts: int | None) -> None:
-    # A review of a PR too large for the normal lens parts is shallower, and the body is the one
-    # place that tells the author so.
-    body = build_review_body(
-        issues=[],
-        validations={},
-        pr_files=_pr_files(),
-        published_priorities=_SHOULD_FIX_PUBLISHED,
-        capped_lens_parts=capped_lens_parts,
-    )
-
-    note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
-    assert (note in body) is (capped_lens_parts is not None)
-
-
 @pytest.mark.parametrize(
     "priority,adjusted_priority,is_valid,line,expected_in_section",
     [

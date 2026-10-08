@@ -222,6 +222,7 @@ def render_final_body(
     review_mode: str = REVIEW_MODE_FULL,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
+    capped_lens_parts: int | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -230,6 +231,8 @@ def render_final_body(
     sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
+    note goes here and not in the review body, because a clean turn posts no review.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
@@ -269,6 +272,13 @@ def render_final_body(
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
+    if capped_lens_parts is not None:
+        lines.extend(
+            [
+                "",
+                f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
+            ]
+        )
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -566,6 +576,7 @@ class FinalizeStatusCommentInput:
     review_mode: str = REVIEW_MODE_FULL
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
+    capped_lens_parts: int | None = None
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -595,6 +606,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_mode=input.review_mode,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
+            capped_lens_parts=input.capped_lens_parts,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

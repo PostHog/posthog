@@ -228,6 +228,31 @@ class TestRenderFinalBody:
         if review_mode == REVIEW_MODE_FLASH:
             assert "Nothing worth raising." in body
 
+    @parameterized.expand(
+        [
+            # A clean turn posts no review, so the status comment is the only place the note can appear.
+            ("clean_large_pr", 0, 4, True),
+            ("large_pr_with_findings", 2, 4, True),
+            ("normal_pr", 2, None, False),
+        ]
+    )
+    def test_large_pr_note_shows_whether_or_not_a_review_posts(
+        self, _name: str, must_fix: int, capped_lens_parts: int | None, expect_note: bool
+    ) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=must_fix,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            review_mode=REVIEW_MODE_FLASH,
+            capped_lens_parts=capped_lens_parts,
+        )
+
+        note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        assert (note in body) is expect_note
+
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
     return PRMetadata(

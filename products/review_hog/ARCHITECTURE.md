@@ -290,8 +290,8 @@ the same plus the main findings as anchors, so a lens finding can lose to a main
 on ties, at most `FLASH_MAX_FINDINGS` (4), before anything persists. No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`. Findings publish inline; an
 optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
-range. A PR past the lens part cap gets one line in the review body that says the review ran in parts, and that body
-posts even when every finding is inline.
+range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
+(`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
 While `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` is on, a Flash PR over 2,500 changed lines or 40 files (reviewable files
 only) falls back to the **pipeline design** (`reviewhog-flash-1-1`), the steps below. The

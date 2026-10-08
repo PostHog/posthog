@@ -227,16 +227,15 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Publishing.** Every kept finding posts inline. With P3 gone, `review_priorities_for` and the status comment's
   low-priority list are removed.
 - **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
-  to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the review body,
-  and that body posts even when every finding is inline. The pipeline fallback above 2,500 lines or 40 files stays on
-  behind `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE`.
+  to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the status
+  comment, because a clean turn posts no review and a note in the review body would never show. The pipeline
+  fallback above 2,500 lines or 40 files stays on behind `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE`.
 - **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
   the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
 - **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
   finding wins; within one session P0 still ranks first. "At most four" holds per turn, so a later push can post more.
-  The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as measured. A clean large PR posts no
-  review, so its parts note stays in the stored body. The Python LLM gateway's `review_hog` product does not list
-  `gpt-6-luna`, so check that the gateway serving ReviewHog allows it before rollout.
+  The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
+  measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway serving ReviewHog allows it before rollout.
 
 ### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
 
