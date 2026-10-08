@@ -2,7 +2,12 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { REGIONS } from "../auth";
-import { BILLINGS, billingSheet, cloudHarnessFor } from "../billing";
+import {
+  BILLINGS,
+  billingSheet,
+  cloudHarnessFor,
+  localHarnessFor,
+} from "../billing";
 import type { PiChats } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -359,30 +364,37 @@ export function useSend({
     }
     // A local chat starts with its task row, so it is never only on this machine; without one, the message stays in the composer.
     if (!pane?.taskId && places.placeFor(paneId) === "local") {
-      chats.createLocal(text).then(
-        (task) => {
-          setFresh((tasks) => new Map(tasks).set(task.id, task));
-          onChatStarted(paneId, task.id);
-          pendingFor(task.id);
-          setLayout((state) =>
-            assignTask(state, paneId, task.id, task.title || text.slice(0, 80)),
-          );
-          promptLocal(task.id).catch((error: unknown) => {
-            clearPending();
-            flashNotice(`Couldn't send: ${messageOf(error)}`, {
-              taskId: task.id,
+      chats
+        .createLocal(text, undefined, localHarnessFor(loadPrefs().billing))
+        .then(
+          (task) => {
+            setFresh((tasks) => new Map(tasks).set(task.id, task));
+            onChatStarted(paneId, task.id);
+            pendingFor(task.id);
+            setLayout((state) =>
+              assignTask(
+                state,
+                paneId,
+                task.id,
+                task.title || text.slice(0, 80),
+              ),
+            );
+            promptLocal(task.id).catch((error: unknown) => {
+              clearPending();
+              flashNotice(`Couldn't send: ${messageOf(error)}`, {
+                taskId: task.id,
+              });
             });
-          });
-        },
-        (error: unknown) => {
-          clearPending();
-          composerFor(paneId).setText(text);
-          flashNotice(
-            `Couldn't start the chat: ${messageOf(error)}. Your message is still in the composer.`,
-            here,
-          );
-        },
-      );
+          },
+          (error: unknown) => {
+            clearPending();
+            composerFor(paneId).setText(text);
+            flashNotice(
+              `Couldn't start the chat: ${messageOf(error)}. Your message is still in the composer.`,
+              here,
+            );
+          },
+        );
       return;
     }
     if (current) sentAt.current.set(current.id, Date.now());

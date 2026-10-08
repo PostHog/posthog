@@ -26,7 +26,7 @@ import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-s
 import type { PosthogPluginService } from "@posthog/workspace-server/services/posthog-plugin/posthog-plugin";
 import { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
 import type { TuiAuth } from "./auth";
-import { localStartFor } from "./billing";
+import { type LocalStart, localStartFor } from "./billing";
 import { chatgptAccount } from "./chatgpt";
 import { currentRepository, PiChats } from "./chats";
 import { ClaudeLocalSession } from "./claudeLocal";
@@ -347,9 +347,14 @@ export function createCloud(
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {
       projectId = (await context()).teamId;
-      const start = localStartFor(loadPrefs().billing, {
-        chatgptAccount: chatgptAccount(),
-      });
+      // A chat keeps the agent it started with; only a new chat follows today's billing.
+      const remembered = localChats.harnessOf(id);
+      const start: LocalStart = remembered
+        ? { harness: remembered }
+        : localStartFor(loadPrefs().billing, {
+            chatgptAccount: chatgptAccount(),
+          });
+      localChats.remember(id, start.harness);
       if (start.harness === "claude") {
         claudeAgent ??= createClaudeAgent(mcp, logger);
         const session = new ClaudeLocalSession(
@@ -370,7 +375,7 @@ export function createCloud(
         await piClients.create({
           sessionFile: localChats.sessionFile(id),
           taskContext: { taskId: id, cwd: process.cwd() },
-          model: start.model,
+          model: start.harness === "pi" ? start.model : undefined,
         }),
         mcp,
       );

@@ -43,6 +43,21 @@ describe("local chats", () => {
     ]);
   });
 
+  it("remembers which agent a chat runs, through linking and clearing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
+    writeFileSync(join(dir, "task-1.jsonl"), session("/work/repo", "Hi"));
+    const chats = new LocalChats(dir);
+
+    expect(chats.harnessOf("task-1")).toBe("pi");
+    expect(chats.harnessOf("task-9")).toBeNull();
+    chats.remember("local:a", "claude");
+    chats.link("local:a", "task-2");
+    chats.archive("task-2");
+
+    expect(chats.harnessOf("task-2")).toBe("claude");
+    expect([...chats.list().keys()].sort()).toEqual(["task-1", "task-2"]);
+  });
+
   it("gives each chat a task named from its first message, and keeps a chat it could not link for the next start", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tui-local-"));
     writeFileSync(
