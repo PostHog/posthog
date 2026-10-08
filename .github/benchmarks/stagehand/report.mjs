@@ -64,12 +64,19 @@ export async function report(directory, measurements) {
                 tests.some(
                     (test) =>
                         test.expected !== 'passed' ||
-                        test.status !== 'expected' ||
-                        test.attempts.length !== 1 ||
-                        test.attempts[0].status !== 'passed'
+                        !(
+                            (test.status === 'expected' &&
+                                test.attempts.length === 1 &&
+                                test.attempts[0].status === 'passed') ||
+                            (test.status === 'flaky' &&
+                                test.attempts.length === 2 &&
+                                ['failed', 'timedOut'].includes(test.attempts[0].status) &&
+                                test.attempts[1].status === 'passed' &&
+                                test.attempts[1].retry === 1)
+                        )
                 )
             ) {
-                errors.push(`${row.driver}/${row.pair}: incomplete, failing, retried or skipped tests`)
+                errors.push(`${row.driver}/${row.pair}: incomplete, failing, skipped or inconsistent test results`)
             }
         } catch (error) {
             errors.push(`${row.driver}/${row.pair}: ${String(error)}`)
@@ -101,7 +108,12 @@ export async function report(directory, measurements) {
             failures: outcomes
                 .filter((row) => row.driver === driver)
                 .flatMap((row) => row.tests)
-                .filter((test) => test.status !== 'expected').length,
+                .filter((test) => test.attempts.at(-1)?.status !== 'passed').length,
+            failedAttempts: outcomes
+                .filter((row) => row.driver === driver)
+                .flatMap((row) => row.tests)
+                .flatMap((test) => test.attempts)
+                .filter((attempt) => attempt.status !== 'passed').length,
             retries: outcomes
                 .filter((row) => row.driver === driver)
                 .flatMap((row) => row.tests)
@@ -120,18 +132,20 @@ export async function report(directory, measurements) {
         pairedRatios: ratios,
         ratioInterval: pairedInterval(ratios),
         outcomes,
+        clean: measured.every((row) => row.tests.every((test) => test.attempts.length === 1)),
     }
     await writeFile(`${directory}results/validated.json`, JSON.stringify(result, null, 2))
     const md = [
         '# Stagehand on real PostHog E2E flows',
         '',
         `Validation: ${result.valid ? 'passed for 10 ported scenarios' : 'FAILED; no speed comparison is valid'}.`,
+        `Clean-run comparison: ${result.valid && result.clean ? 'available' : 'unavailable'}. Operational timings include the configured CI retries.`,
         '',
-        '| Driver | Measured passes | Median test command seconds | Min/max seconds | Failures | Retries |',
+        '| Driver | Measured passes | Median test command seconds | Min/max seconds | Failed attempts | Retries |',
         '| --- | --- | --- | --- | --- | --- |',
         ...summaries.map(
             (row) =>
-                `| ${row.driver} | ${row.samples} | ${row.medianSeconds?.toFixed(2) ?? 'unavailable'} | ${row.rangeSeconds?.map((value) => value.toFixed(2)).join(' / ') ?? 'unavailable'} | ${row.failures} | ${row.retries} |`
+                `| ${row.driver} | ${row.samples} | ${row.medianSeconds?.toFixed(2) ?? 'unavailable'} | ${row.rangeSeconds?.map((value) => value.toFixed(2)).join(' / ') ?? 'unavailable'} | ${row.failedAttempts} | ${row.retries} |`
         ),
         '',
         'This is a native Stagehand port of the auth and pre-onboarding specs. Playwright still supplies the runner, retrying value assertions and API setup.',

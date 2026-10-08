@@ -43,9 +43,10 @@ ten scenarios does not certify the full suite or its visual checks.
   initialization, the actual test bodies, assertion waits and teardown. Every
   action is awaited. The scenarios assert URLs, submitted field values, rendered
   errors, settings headings, insight content and cross-tab logout effects.
-- The report requires the same ten distinct test titles and successful first
-  attempts on both sides. Failures, retries, skips, missing reports or incomplete
-  pairs invalidate a speed comparison. Both warmup lanes run even after one
+- The report requires the same ten distinct test titles and successful final
+  outcomes on both sides. Terminal failures, skips, missing reports or incomplete
+  pairs invalidate a speed comparison. Retries remain in operational CI timings
+  and failure counts; clean driver timing requires zero retries. Both warmup lanes run even after one
   fails, then measurement stops. Nothing removes outliers or retries a CI job.
 - Artifacts retain raw Playwright JSON, every command wall time, per-test
   attempts, screenshots on failures, commit/source/lock hashes and cache hits.

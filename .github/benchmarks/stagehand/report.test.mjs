@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { report } from './report.mjs'
 
-test('a speed report requires complete, matching, first-attempt successful work', async () => {
-    for (const corruption of ['none', 'skip', 'retry', 'missing', 'different-id', 'wrong-file']) {
+test('an operational report requires matching successful work and retains recovered CI retries', async () => {
+    for (const corruption of ['none', 'skip', 'retry', 'missing', 'different-id', 'wrong-file', 'recovered']) {
         const directory = `${await mkdtemp(join(tmpdir(), 'stagehand-report-'))}/`
         try {
             await mkdir(`${directory}results`)
@@ -37,6 +37,11 @@ test('a speed report requires complete, matching, first-attempt successful work'
                         if (corruption === 'missing') specs.pop()
                         if (corruption === 'different-id') specs[0].title = 'Different flow'
                         if (corruption === 'wrong-file') specs[0].file = 'playwright/e2e/auth.spec.ts'
+                        if (corruption === 'recovered') {
+                            specs[0].tests[0].status = 'flaky'
+                            specs[0].tests[0].results[0].status = 'failed'
+                            specs[0].tests[0].results.push({ status: 'passed', retry: 1, duration: 10 })
+                        }
                     }
                     await writeFile(
                         `${directory}results/${driver}-${pair}.json`,
@@ -45,7 +50,13 @@ test('a speed report requires complete, matching, first-attempt successful work'
                     rows.push({ driver, pair, warmup: pair < 0, exitCode: 0, wallMs: 100 })
                 }
             }
-            assert.equal(await report(directory, rows), corruption === 'none', corruption)
+            assert.equal(await report(directory, rows), ['none', 'recovered'].includes(corruption), corruption)
+            if (corruption === 'recovered') {
+                const result = JSON.parse(await readFile(`${directory}results/validated.json`, 'utf8'))
+                assert.equal(result.clean, false)
+                assert.equal(result.summaries.find((row) => row.driver === 'stagehand').retries, 1)
+                assert.equal(result.summaries.find((row) => row.driver === 'stagehand').failedAttempts, 1)
+            }
         } finally {
             await rm(directory, { recursive: true, force: true })
         }

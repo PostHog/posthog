@@ -107,7 +107,7 @@ for (let pair = diagnostic ? 0 : -1; pair < (diagnostic ? 1 : 5); pair++) {
             JSON.parse(await readFile(`${directory}results/${driver}-${diagnostic ? 'profile' : pair}.json`, 'utf8'))
         )
     )
-    if (reports.some(({ stats }) => stats.expected !== 10 || stats.unexpected || stats.flaky || stats.skipped)) break
+    if (reports.some(({ stats }) => stats.expected + stats.flaky !== 10 || stats.unexpected || stats.skipped)) break
 }
 if (diagnostic) {
     if (measurements.some((row) => row.exitCode !== 0)) process.exitCode = 1

@@ -573,6 +573,7 @@ jobs:
               if: ${{ !cancelled() }}
               with:
                   name: stagehand-e2e-benchmark-${{ matrix.repeat }}
+                  include-hidden-files: true
                   path: |
                       .github/benchmarks/stagehand/results/
                       /tmp/server.log

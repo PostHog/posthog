@@ -17,9 +17,21 @@ const test = base.extend<{ sh: { browser: StagehandBrowser; page: Page }; setup:
             await use(session)
         } finally {
             if (testInfo.status !== testInfo.expectedStatus) {
-                await session.page
-                    .screenshot({ path: testInfo.outputPath('stagehand-failure.png') })
-                    .catch(() => undefined)
+                try {
+                    for (const page of await session.browser.context.pages()) {
+                        await testInfo.attach(`stagehand-${page.pageId}`, {
+                            body: Buffer.from(await page.screenshot()),
+                            contentType: 'image/png',
+                        })
+                        await testInfo.attach(`stagehand-${page.pageId}-state`, {
+                            body: JSON.stringify({
+                                url: await page.url(),
+                                viewport: await page.evaluate(() => [innerWidth, innerHeight]),
+                            }),
+                            contentType: 'application/json',
+                        })
+                    }
+                } catch {}
             }
             await session.close()
         }
@@ -52,8 +64,26 @@ async function click(page: Page, selector: string): Promise<void> {
 
 async function urlIs(page: Page, expected: string | RegExp): Promise<void> {
     const resolved = typeof expected === 'string' ? new URL(expected, 'http://localhost:8000').href : expected
-    if (typeof resolved === 'string') await expect.poll(() => page.url()).toBe(resolved)
-    else await expect.poll(() => page.url()).toMatch(resolved)
+    const readUrl = async (): Promise<string> => {
+        try {
+            return await page.url()
+        } catch (error) {
+            if (error instanceof Error && error.message.includes('Execution context was destroyed')) return ''
+            throw error
+        }
+    }
+    if (typeof resolved === 'string') await expect.poll(readUrl).toBe(resolved)
+    else await expect.poll(readUrl).toMatch(resolved)
+}
+
+async function gotoLoginRedirect(page: Page, destination: string): Promise<void> {
+    try {
+        await page.goto(destination, { waitUntil: 'domcontentloaded' })
+    } catch (error) {
+        // A redirect can replace the execution context after navigation has already reached the login page.
+        if (!(error instanceof Error) || !error.message.includes('Execution context was destroyed')) throw error
+    }
+    await urlIs(page, /\/login/)
 }
 
 async function textContains(page: Page, selector: string, text: string): Promise<void> {
@@ -176,8 +206,8 @@ test.describe('Auth', () => {
 
     test('Redirect to appropriate place after login with complex URL', async ({ sh: { browser, page }, baseURL }) => {
         await browser.context.clearCookies()
-        await page.goto(`${baseURL}/insights?search=testString`, { waitUntil: 'domcontentloaded' })
-        await urlIs(page, /\/login/)
+        await test.step('Follow the login redirect with the search parameter', () =>
+            gotoLoginRedirect(page, `${baseURL}/insights?search=testString`))
         await credentials(page, LOGIN_USERNAME, LOGIN_PASSWORD)
         await click(page, '[type=submit]')
         await urlIs(page, /search%3DtestString/)
@@ -203,8 +233,11 @@ test.describe('Auth', () => {
     test('Logout in another tab results in logout in the current tab too', async ({
         sh: { browser, page },
         baseURL,
+        viewport,
     }) => {
         const secondPage = await browser.context.newPage()
+        const size = viewport ?? { width: 1280, height: 720 }
+        await secondPage.setViewportSize(size.width, size.height)
         await secondPage.goto(`${baseURL}/`, { waitUntil: 'load' })
         await visible(secondPage, '[data-attr=new-account-menu-button]', 30000)
         await click(secondPage, '[data-attr=new-account-menu-button]')
