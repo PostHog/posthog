@@ -4307,7 +4307,6 @@ class HogFlowViewSet(
         try:
             page = list_workflows(
                 team_id=self.team_id,
-                project_id=self.team.project_id,
                 query=query,
                 # Service credentials are synthetic users that UserAccessControl cannot evaluate.
                 user_access_control=None if is_service_auth(request) else self.user_access_control,

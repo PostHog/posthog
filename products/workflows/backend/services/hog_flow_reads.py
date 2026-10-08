@@ -74,17 +74,16 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
 def list_workflows(
     *,
     team_id: int,
-    project_id: int,
     query: WorkflowListQuery,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
     offset: int,
     limit: int,
 ) -> WorkflowPage:
-    """One page of the project's workflows that match `query` and that the reader may see. Pass None
+    """One page of the team's workflows that match `query` and that the reader may see. Pass None
     for `user_access_control` to skip the access filter, as a service credential does. Raises
     WorkflowListFiltersInvalid when a field filter does not parse."""
-    queryset = _list_queryset(team_id, project_id, query, user_access_control, include_all_if_admin)
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
     count = queryset.count()
     # The same bounds LimitOffsetPagination applies to a queryset.
     flows = [] if count == 0 or offset > count else list(queryset[offset : offset + limit])
@@ -99,13 +98,11 @@ def list_workflows(
 
 def _list_queryset(
     team_id: int,
-    project_id: int,
     query: WorkflowListQuery,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet:
-    # Scoped by project, like the parent lookup of the project-nested API routes.
-    queryset = HogFlow.objects.filter(team__project_id=project_id).select_related("created_by")
+    queryset = HogFlow.objects.filter(team_id=team_id).select_related("created_by")
 
     pending = (
         WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposalStatus.SUGGESTED)
