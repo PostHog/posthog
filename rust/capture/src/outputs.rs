@@ -37,11 +37,6 @@ pub trait PublishEvents: Send + Sync {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
 }
 
-/// Everything a consumer of the address sees, independent of transport:
-/// the address, the ordering guarantee and its key, the header values, and
-/// the serialized body. Built once per event; every target of an output
-/// receives the same bytes, so `payload` is `Bytes` and a policy that keeps
-/// the batch for a second target clones it without copying.
 #[derive(Debug, Clone)]
 pub struct PreparedEvent {
     pub uuid: Uuid,
@@ -50,6 +45,7 @@ pub struct PreparedEvent {
     pub partition_key: String,
     /// [`OrderingGuarantee::None`] means publish without a key.
     pub ordering: OrderingGuarantee,
+    /// Built once; every target of the output publishes these same bytes.
     pub payload: bytes::Bytes,
     pub headers: CapturedEventHeaders,
 }
@@ -85,7 +81,8 @@ impl Output {
     /// Health-gated failover over two outputs. While the advisory handle
     /// reports unhealthy the primary is skipped entirely; without a handle
     /// the primary is always tried first. A retriable primary failure
-    /// re-publishes the batch on the fallback. Any other error is final:
+    /// re-publishes the batch on the fallback, or on the prepared route only
+    /// the events that failed. Any other error is final:
     /// a non-retryable error is a property of the event, not the backend,
     /// so the fallback would reject it too.
     pub(crate) fn failover(
@@ -164,9 +161,6 @@ impl Failover {
         }
     }
 
-    /// The event route's rules, applied per event: only the events whose
-    /// primary result is retriable move to the fallback, and their fallback
-    /// results replace them in place.
     #[instrument(skip_all)]
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
         let healthy = self.primary_is_healthy();
@@ -498,6 +492,7 @@ mod tests {
 
         assert_eq!(leaf.get_events().len(), 3);
     }
+
     #[tokio::test]
     async fn prepared_route_reports_one_result_per_event_in_order() {
         let events = vec![prepared_event(), prepared_event(), prepared_event()];

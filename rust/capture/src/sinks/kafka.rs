@@ -366,11 +366,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         )
     }
 
-    /// The one place an addressed payload becomes Kafka-shaped, for both
-    /// routes: `destination` resolves to a topic and the producer carrying
-    /// it, and `ordering` decides whether the record is keyed. Emits the
-    /// per-topic bytes counter and returns the ack future for the caller to
-    /// await.
     fn send(
         &self,
         destination: &Destination,
@@ -604,10 +599,6 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
 
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
-    /// Serial enqueue in input order, as on the event route, so same-key
-    /// events keep their order. Unlike the event route, a failure stays with
-    /// its event: an enqueue or ack failure fails that event alone and the
-    /// rest of the batch is still produced.
     #[instrument(skip_all)]
     async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
         let enqueue_start = Instant::now();
@@ -3266,6 +3257,7 @@ mod tests {
             assert!(v.get("distinct_id").is_some());
         }
     }
+
     mod prepared_route {
         use super::*;
         use crate::ordering::OrderingGuarantee;

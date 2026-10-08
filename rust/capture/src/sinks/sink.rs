@@ -24,9 +24,7 @@ use crate::sinks::registry::Destination;
 /// reported without the sink ever seeing event metadata.
 ///
 /// The fields are backend-agnostic: each sink interprets them in its own
-/// terms, and nothing here names a Kafka concept. Kept field-for-field in
-/// sync with `v1::sinks::types::PreparedEvent`, the shape the two stacks
-/// converge on.
+/// terms, and nothing here names a Kafka concept.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedPayload {
     pub uuid: Uuid,
@@ -49,22 +47,11 @@ pub enum Outcome {
     Failed(CaptureError),
 }
 
-/// Per-event publish result, correlated to the input by uuid.
-///
-/// The sink treats the uuid as pass-through: results align with the input
-/// payloads by position, and nothing in the sink assumes uuids are unique
-/// within a batch (v0 accepts client-supplied uuids unchecked). It is
-/// carried anyway so a result is attributable to its event without the
-/// caller holding the input list, which makes the per-event response model
-/// (steps 19d and 20 of `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) a
-/// caller-side change instead of a trait change. Until that model lands,
-/// `fold_results` is the only consumer and ignores it; drop this note when
-/// the uuid gains its consumer.
+/// Per-event publish result. Results align with the input by position;
+/// the uuid may repeat within a batch (v0 accepts client-supplied uuids
+/// unchecked), so position, not uuid, identifies the event.
 #[derive(Debug)]
 pub struct SinkResult {
-    // Unread outside tests until the per-event response model consumes it;
-    // see the doc comment above.
-    #[allow(dead_code)]
     pub uuid: Uuid,
     pub outcome: Outcome,
 }

@@ -48,14 +48,16 @@ impl Destination {
         Destination::AiMain,
     ];
 
-    /// Map a lane address to its configured output. Every `(pipeline, lane)`
-    /// pair is spelled out so that a new lane, or a change making an unbacked
-    /// pair reachable, has to visit this match instead of being absorbed by a
-    /// wildcard. `None` marks a pair [`pipeline::resolve`] never produces: no
-    /// output backs it.
+    /// `None` marks a pair [`pipeline::resolve`] never produces: no output
+    /// backs it.
     ///
     /// [`pipeline::resolve`]: crate::pipeline::resolve
     pub(crate) fn for_lane(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
+        // Every pair is spelled out so that a new lane, or a change making an
+        // unbacked pair reachable, has to visit this match instead of being
+        // absorbed by a wildcard. Step 13 of OUTPUTS_REFACTOR_PLAN.md types
+        // lanes per pipeline so such pairs cannot be built; drop the `None`
+        // arms and this note then.
         match (pipeline, lane) {
             (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
             (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
@@ -75,8 +77,6 @@ impl Destination {
         }
     }
 
-    /// The output an address publishes to. `None` for a lane pair no output
-    /// backs; see [`Self::for_lane`].
     pub(crate) fn for_address(address: Address) -> Option<Destination> {
         match address {
             Address::Lane { pipeline, lane } => Self::for_lane(pipeline, lane),
