@@ -107,6 +107,32 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.stripState).toEqual(expected)
     })
 
+    it('shows the error state when the status request fails, and retry loads both again', async () => {
+        mockStatus.mockRejectedValueOnce(new Error('status is down'))
+        logic = warehouseSuggestionsLogic({ surface: 'models' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadStatusFailure'])
+        expect(logic.values.stripState).toEqual('error')
+
+        logic.actions.reload()
+
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
+        expect(logic.values.stripState).toEqual('active')
+    })
+
+    it('keeps a card hidden when the list reloads while its dismiss is still running', async () => {
+        let finish: (value: WarehouseSuggestionApi) => void = () => {}
+        mockDismiss.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+        await mountLogic()
+
+        logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+
+        expect(logic.values.surfaceSuggestions).toEqual([])
+        finish({ ...MATERIALIZE, status: 'dismissed' })
+    })
+
     it('ignores a second accept while the first is in flight', async () => {
         let finish: (value: WarehouseSuggestionApi) => void = () => {}
         mockAccept.mockReturnValue(new Promise((resolve) => (finish = resolve)))

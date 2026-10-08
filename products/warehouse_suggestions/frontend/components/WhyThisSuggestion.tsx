@@ -14,11 +14,9 @@ export function WhyThisSuggestion({ evidence, windowDays }: WhyThisSuggestionPro
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    {breakdown && <span>Reads by surface: {breakdown}</span>}
-                    <span>{Number(evidence.human_users ?? 0)} people. Names are never shown.</span>
-                    <span>
-                        Read on {Number(evidence.human_days ?? 0)} of the last {windowDays} days.
-                    </span>
+                    {breakdown && <span>{`Reads by surface: ${breakdown}`}</span>}
+                    <span>{`${Number(evidence.human_users ?? 0)} people. Names are never shown.`}</span>
+                    <span>{`Read on ${Number(evidence.human_days ?? 0)} of the last ${windowDays} days.`}</span>
                     <span>Counts come from the query log. Cached dashboard views are not counted.</span>
                 </div>
             }

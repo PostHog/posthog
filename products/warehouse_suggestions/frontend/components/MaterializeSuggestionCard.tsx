@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
@@ -32,15 +32,15 @@ export function MaterializeSuggestionCard({
     const blockedReason = !suggestion.can_act ? EDIT_ACCESS_REASON : inFlight ? 'Working' : undefined
 
     return (
-        <div className="@container flex flex-col gap-2 rounded border border-primary bg-surface-primary p-3">
+        <LemonCard hoverEffect={false} className="@container flex flex-col gap-2 p-3">
             <LemonTableLink
                 to={urls.sqlEditor({ view_id: suggestion.subject_id })}
                 title={payload.subject_name}
                 truncateTitle
             />
             <p className="m-0 text-sm text-secondary">
-                {readSentence(suggestion.evidence, windowDays)} Materializing saves{' '}
-                <strong>{savingPhrase(payload)}</strong> a month. {freshnessSentence(payload)}
+                <span>{readSentence(suggestion.evidence, windowDays)}</span> Materializing saves{' '}
+                <strong>{savingPhrase(payload)}</strong> a month. <span>{freshnessSentence(payload)}</span>
             </p>
             <div className="flex flex-wrap items-center gap-2">
                 <WhyThisSuggestion evidence={suggestion.evidence} windowDays={windowDays} />
@@ -55,6 +55,6 @@ export function MaterializeSuggestionCard({
                 </LemonButton>
                 <DismissSuggestionMenu suggestionId={suggestion.id} disabledReason={blockedReason} />
             </div>
-        </div>
+        </LemonCard>
     )
 }

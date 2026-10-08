@@ -12,6 +12,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
@@ -135,6 +136,9 @@ export interface warehouseSuggestionsLogicActions {
     openMaterializeModal: (id: string) => {
         id: string
     }
+    reload: () => {
+        value: true
+    }
     restoreSuggestion: (id: string) => {
         id: string
     }
@@ -212,6 +216,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            reload: true,
         }),
         loaders({
             suggestions: [
@@ -240,7 +245,6 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 {
                     hideSuggestion: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                     restoreSuggestion: (state, { id }) => state.filter((hiddenId) => hiddenId !== id),
-                    loadSuggestionsSuccess: () => [],
                 },
             ],
             collapsed: [
@@ -276,8 +280,9 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             loadError: [
                 false,
                 {
+                    reload: () => false,
                     loadSuggestionsFailure: () => true,
-                    loadSuggestionsSuccess: () => false,
+                    loadStatusFailure: () => true,
                 },
             ],
         })),
@@ -326,70 +331,96 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 },
             ],
         }),
-        listeners(({ actions, values, props }) => ({
-            openMaterializeModal: ({ id }) => {
-                const payload = values.suggestions?.find((suggestion) => suggestion.id === id)?.payload
-                actions.setMaterializeInterval(
-                    payload && isMaterializePayload(payload)
-                        ? intervalForSeconds(payload.refresh_interval_seconds)
-                        : null
-                )
-            },
-            suggestionAccepted: ({ suggestion }) => {
-                lemonToast.success(ACCEPTED_MESSAGES[suggestion.kind]?.(suggestion.payload.subject_name) ?? 'Accepted.')
-            },
-            acceptSuggestion: async ({ id, refreshIntervalSeconds }) => {
-                if (values.actionsInFlight[id]) {
+        listeners(({ actions, values, props, cache, selectors }) => {
+            const reportViewedOnce = (): void => {
+                if (cache.viewReported || values.stripState !== 'active') {
                     return
                 }
-                actions.setActionInFlight(id, true)
-                try {
-                    const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, {
-                        refresh_interval_seconds: refreshIntervalSeconds,
+                cache.viewReported = true
+                posthog.capture('warehouse suggestions viewed', {
+                    surface: props.surface,
+                    suggestion_count: values.surfaceSuggestions.length,
+                    collapsed: values.collapsed,
+                })
+            }
+            return {
+                reload: () => {
+                    actions.loadSuggestions()
+                    actions.loadStatus()
+                },
+                loadSuggestionsSuccess: () => reportViewedOnce(),
+                loadStatusSuccess: () => reportViewedOnce(),
+                closeMaterializeModal: (_, __, ___, previousState) => {
+                    posthog.capture('warehouse suggestion materialize cancelled', {
+                        suggestion_id: selectors.materializeModalSuggestionId(previousState),
                     })
+                },
+                openMaterializeModal: ({ id }) => {
+                    posthog.capture('warehouse suggestion materialize opened', { suggestion_id: id })
+                    const payload = values.suggestions?.find((suggestion) => suggestion.id === id)?.payload
+                    actions.setMaterializeInterval(
+                        payload && isMaterializePayload(payload)
+                            ? intervalForSeconds(payload.refresh_interval_seconds)
+                            : null
+                    )
+                },
+                suggestionAccepted: ({ suggestion }) => {
+                    lemonToast.success(
+                        ACCEPTED_MESSAGES[suggestion.kind]?.(suggestion.payload.subject_name) ?? 'Accepted.'
+                    )
+                },
+                acceptSuggestion: async ({ id, refreshIntervalSeconds }) => {
+                    if (values.actionsInFlight[id]) {
+                        return
+                    }
+                    actions.setActionInFlight(id, true)
+                    try {
+                        const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, {
+                            refresh_interval_seconds: refreshIntervalSeconds,
+                        })
+                        actions.hideSuggestion(id)
+                        actions.suggestionAccepted(accepted)
+                        props.onAccepted?.(accepted)
+                    } catch (error) {
+                        if (error instanceof ApiError && error.attr === REFRESH_INTERVAL_FIELD) {
+                            actions.setMaterializeError(error.detail)
+                        } else {
+                            reportFailure(error, 'Could not accept the suggestion.')
+                            if (isConflict(error)) {
+                                actions.loadSuggestions()
+                            }
+                        }
+                    } finally {
+                        actions.setActionInFlight(id, false)
+                    }
+                },
+                dismissSuggestion: async ({ id, reason, note }) => {
+                    if (values.actionsInFlight[id]) {
+                        return
+                    }
+                    actions.setActionInFlight(id, true)
                     actions.hideSuggestion(id)
-                    actions.suggestionAccepted(accepted)
-                    props.onAccepted?.(accepted)
-                } catch (error) {
-                    if (error instanceof ApiError && error.attr === REFRESH_INTERVAL_FIELD) {
-                        actions.setMaterializeError(error.detail)
-                    } else {
-                        reportFailure(error, 'Could not accept the suggestion.')
+                    try {
+                        await warehouseSuggestionsDismissCreate(projectId(), id, { reason, note })
+                        lemonToast.success(
+                            reason === 'not_now'
+                                ? 'Dismissed. Suggested again if reads grow.'
+                                : 'Dismissed. Not suggested again.'
+                        )
+                    } catch (error) {
+                        actions.restoreSuggestion(id)
+                        reportFailure(error, 'Could not dismiss the suggestion.')
                         if (isConflict(error)) {
                             actions.loadSuggestions()
                         }
+                    } finally {
+                        actions.setActionInFlight(id, false)
                     }
-                } finally {
-                    actions.setActionInFlight(id, false)
-                }
-            },
-            dismissSuggestion: async ({ id, reason, note }) => {
-                if (values.actionsInFlight[id]) {
-                    return
-                }
-                actions.setActionInFlight(id, true)
-                actions.hideSuggestion(id)
-                try {
-                    await warehouseSuggestionsDismissCreate(projectId(), id, { reason, note })
-                    lemonToast.success(
-                        reason === 'not_now'
-                            ? 'Dismissed. Suggested again if reads grow.'
-                            : 'Dismissed. Not suggested again.'
-                    )
-                } catch (error) {
-                    actions.restoreSuggestion(id)
-                    reportFailure(error, 'Could not dismiss the suggestion.')
-                    if (isConflict(error)) {
-                        actions.loadSuggestions()
-                    }
-                } finally {
-                    actions.setActionInFlight(id, false)
-                }
-            },
-        })),
+                },
+            }
+        }),
         afterMount(({ actions }) => {
-            actions.loadSuggestions()
-            actions.loadStatus()
+            actions.reload()
         }),
     ])
 
