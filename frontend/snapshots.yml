@@ -10422,6 +10422,10 @@ snapshots:
         hash: v1.k794b7964.80b91247f288e836b99853ff3a1921184cc36621729d964870047e1b356cd2fe.vji9HS2Hp2Kdn6IsqOBZsMM2B9hpQ7-2yH4EEat4Jh4
     scenes-app-feature-flags-schedule-timeline--edge-step-labels--light:
         hash: v1.k794b7964.b977adbbcb59635a3b478ffd4ed41f7bc5803bb159f90a675668e2571f6c70e5.c_WEpoX7fZ1siRkx54hn1JgrT4MYzcJujYqQOXpyFKw
+    scenes-app-feature-flags-schedule-timeline--marker-beside-full-rollout-step--dark:
+        hash: v1.k794b7964.d07aa33fc1e263650225f4b44f79baf1937689c11ba42c6ac996506a632aa57d.DXBIHP7jpUf27ifHqIHRdtFAqfpowKjb4f-TmB36uK8
+    scenes-app-feature-flags-schedule-timeline--marker-beside-full-rollout-step--light:
+        hash: v1.k794b7964.421de448b718e2d93b10cac538f4da409455e467af5dce52a66dbf27ad97f0e2.sPHbTyKL9VeL-hOLt3nN5KX5mM68pz-I3nggmhfexHc
     scenes-app-feature-flags-schedule-timeline--rollout-ramp--dark:
         hash: v1.k794b7964.a25d523cfa2098bcd1505f27e1152a712086ba2f5b4c2733ed02abf76e3e2990.wBGaE6uS0YbRr65WjgHcOLfToFjg9_YeU_jy6znKqaE
     scenes-app-feature-flags-schedule-timeline--rollout-ramp--light:
