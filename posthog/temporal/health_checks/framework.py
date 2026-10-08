@@ -205,20 +205,6 @@ class HealthCheck:
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
 
-    @classmethod
-    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
-        """Narrow a batch before detection runs. The default keeps every team.
-
-        A team left out here is never considered by the run, so it keeps whatever issues it
-        already holds. That is the difference between this and returning nothing from `detect`:
-        the framework reads a team missing from a detector's result as healthy and resolves its
-        issues, while a team removed here is simply not part of the run.
-
-        Use it to gate a check on something the framework cannot know, such as a feature flag.
-        Keep it cheap and side-effect free, because it runs once per batch.
-        """
-        return team_ids
-
     # Static, kind-level guidance on how to resolve issues of this kind. Unlike
     # `render_alert` (which describes a *specific* issue), this is the same for
     # every issue of the kind, so it lives as a constant — easy to find and
@@ -256,6 +242,20 @@ class HealthCheck:
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         raise NotImplementedError
+
+    @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        """Narrow a batch before detection runs. The default keeps every team.
+
+        A team left out here is never considered by the run, so it keeps whatever issues it
+        already holds. That is the difference between this and returning nothing from `detect`:
+        the framework reads a team missing from a detector's result as healthy and resolves its
+        issues, while a team removed here is simply not part of the run.
+
+        Use it to gate a check on something the framework cannot know, such as a feature flag.
+        Keep it cheap and side-effect free, because it runs once per batch.
+        """
+        return team_ids
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
