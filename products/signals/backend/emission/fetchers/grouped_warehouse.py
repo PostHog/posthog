@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -9,9 +9,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
-from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name, partition_expression
-from products.signals.backend.emission.fetchers.emission_ledger import already_emitted_source_ids
+from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
 from products.signals.backend.emission.registry import SignalSourceTableConfig
+from products.signals.backend.models import SignalEmissionRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -44,18 +44,36 @@ def week_period(value: Any) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
+def already_emitted_source_ids(team: Team, config: SignalSourceTableConfig, source_ids: Sequence[str]) -> set[str]:
+    """The `source_ids` that already produced a signal for this team and source.
+
+    The ledger is the idempotence key for a fetcher that reads the same rows on more than one sync.
+    """
+    return set(
+        SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product=config.source_product,
+            source_type=config.source_type,
+            source_id__in=source_ids,
+        ).values_list("source_id", flat=True)
+    )
+
+
 def grouped_window_clause(config: SignalSourceTableConfig, window_days: int = GROUPED_WINDOW_DAYS) -> str:
     """The WHERE clause that keeps rows of the trailing `window_days` days of event time."""
-    return f"{partition_expression(config)} > now() - interval {window_days} day"
+    partition_expr = (
+        f"parseDateTimeBestEffort({config.partition_field})"
+        if config.partition_field_is_datetime_string
+        else config.partition_field
+    )
+    return f"{partition_expr} > now() - interval {window_days} day"
 
 
 class GroupedWarehouseRecordFetcher:
     """A record fetcher that collapses a warehouse table into one record per group.
 
-    A group has no single `scope_field` value, so the config validator rejects a scope on this fetcher.
+    A group has no single `scope_field` value, so the fetcher rejects a config that sets one.
     """
-
-    supports_scope = False
 
     def __init__(
         self,
@@ -73,6 +91,8 @@ class GroupedWarehouseRecordFetcher:
         self._window_days = window_days
 
     def __call__(self, team: Team, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
+        if config.scope_field is not None:
+            raise ValueError("The grouped warehouse fetcher does not support scope_field")
         table_name: str = context["table_name"]
         extra: dict[str, Any] = context.get("extra", {})
         window_sql = grouped_window_clause(config, self._window_days)

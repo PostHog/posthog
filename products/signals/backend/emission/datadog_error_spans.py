@@ -12,8 +12,9 @@ from typing import Any
 
 from structlog import get_logger
 
-from products.signals.backend.emission._common import build_extra, clean_text
+from products.signals.backend.emission._common import build_extra
 from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMPT, ERROR_SUMMARIZATION_PROMPT
+from products.signals.backend.emission.datadog_common import clean_text
 from products.signals.backend.emission.fetchers.grouped_warehouse import grouped_warehouse_record_fetcher, week_period
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 
@@ -93,7 +94,7 @@ def datadog_error_span_emitter(team_id: int, record: dict[str, Any]) -> SignalEm
         description="\n".join(lines),
         # Below the report threshold of 1.0, so one noisy group alone cannot open a report.
         weight=0.5,
-        extra={"kind": "error_span", **build_extra(record, DATADOG_ERROR_SPAN_FIELDS)},
+        extra={"kind": "error_span", **build_extra(record, DATADOG_ERROR_SPAN_FIELDS, ())},
     )
 
 

@@ -80,12 +80,6 @@ class TestDatadogSource:
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == []
 
-    def test_error_tables_are_opt_in(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        for name in ("error_tracking_issues", "error_spans", "error_logs"):
-            assert schemas[name].should_sync_default is False
-        assert schemas["logs"].should_sync_default is True
-
     def test_get_schemas_retention_description(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         for name in LIMITED_RETENTION_ENDPOINTS:

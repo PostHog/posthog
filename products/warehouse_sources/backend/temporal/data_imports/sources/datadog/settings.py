@@ -3,6 +3,9 @@ from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
+    DatadogIssueSearchConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
@@ -24,65 +27,6 @@ class DatadogFanOutConfig:
     # Datadog caps neither the SLO nor the team list, so bound the walk rather than letting a
     # pathological account turn one sync into an unbounded request fan.
     max_parents: int = 2000
-
-
-@frozen
-class DatadogIssueSearchConfig:
-    """Request and response shape of Datadog's Error Tracking issue search.
-
-    The endpoint is a POST with a JSON body, returns at most ``max_results_per_request`` issues and
-    has no pagination, so the sync covers a lookback window by halving it until no slice is capped.
-    """
-
-    query: str = "*"
-    # ``ALL`` covers APM traces, logs and RUM in one call, so one request grades every source of errors.
-    persona: str = "ALL"
-    order_by: str = "TOTAL_COUNT"
-    # Resolved, ignored and excluded issues never become signals, so Datadog filters them out. They
-    # would otherwise fill the capped result list and force needless window splits.
-    states: tuple[str, ...] = ("OPEN", "ACKNOWLEDGED")
-    # The ``included`` object type that carries the issue attributes (error type, message, state, ...).
-    included_type: str = "issue"
-    # Issue attributes Datadog returns as epoch milliseconds. They become ISO strings so they
-    # partition and parse like every other timestamp column in this source.
-    epoch_ms_fields: tuple[str, ...] = ("first_seen", "last_seen")
-    max_results_per_request: int = 100
-    # Smallest slice worth splitting further. A slice this small that is still capped is reported
-    # loudly instead of split forever.
-    min_window_seconds: int = 3600
-    # Hard cap on search requests in one sync. Past it the remaining windows are not split, so a busy
-    # org gets a partial answer and a warning instead of an unbounded run of requests.
-    max_requests_per_sync: int = 60
-    # Issue attributes in Datadog's ``IssueAttributes`` schema. Every row carries each of them, empty
-    # when Datadog omits it, so the table keeps the same columns whatever the window holds.
-    issue_fields: tuple[str, ...] = (
-        "error_message",
-        "error_type",
-        "file_path",
-        "first_seen",
-        "first_seen_version",
-        "function_name",
-        "is_crash",
-        "languages",
-        "last_seen",
-        "last_seen_version",
-        "platform",
-        "regression",
-        "service",
-        "state",
-    )
-    # Counts that add up across slices. The other counts are distinct counts, so the same user or
-    # session can appear in two slices and only the largest slice value is a safe lower bound.
-    additive_count_columns: tuple[str, ...] = ("window_total_count",)
-    # Search-result count attribute -> column. The counts cover the queried window only, so the
-    # columns say so.
-    count_fields: dict[str, str] = field(
-        default_factory=lambda: {
-            "total_count": "window_total_count",
-            "impacted_sessions": "window_impacted_sessions",
-            "impacted_users": "window_impacted_users",
-        }
-    )
 
 
 @frozen

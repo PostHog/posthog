@@ -12,8 +12,9 @@ from typing import Any
 
 from structlog import get_logger
 
-from products.signals.backend.emission._common import build_extra, clean_text
+from products.signals.backend.emission._common import build_extra
 from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMPT, ERROR_SUMMARIZATION_PROMPT
+from products.signals.backend.emission.datadog_common import clean_text
 from products.signals.backend.emission.fetchers.grouped_warehouse import grouped_warehouse_record_fetcher, week_period
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 
@@ -91,7 +92,7 @@ def datadog_error_log_emitter(team_id: int, record: dict[str, Any]) -> SignalEmi
         description=f"{summary}\n{message_pattern}",
         # A log line is a noisier failure signal than a failed span, so it weighs less.
         weight=0.3,
-        extra={"kind": "error_log", **build_extra(record, ("service", "occurrences", "first_seen", "last_seen"))},
+        extra={"kind": "error_log", **build_extra(record, ("service", "occurrences", "first_seen", "last_seen"), ())},
     )
 
 
