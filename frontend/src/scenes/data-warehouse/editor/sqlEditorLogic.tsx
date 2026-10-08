@@ -1074,6 +1074,9 @@ export interface sqlEditorLogicActions {
     setError: (error: string | null) => {
         error: string | null
     }
+    setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => {
+        executionTarget: 'default' | 'managed_trino' | undefined
+    }
     setFinishedLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -1129,9 +1132,6 @@ export interface sqlEditorLogicActions {
     }
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
-    }
-    setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => {
-        executionTarget: HogQLQuery['executionTarget']
     }
     setSendRawQuery: (sendRawQuery: boolean) => {
         sendRawQuery: boolean
