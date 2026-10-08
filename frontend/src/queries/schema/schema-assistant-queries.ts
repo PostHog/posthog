@@ -463,7 +463,7 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
 }
 
 // An allow list, so a new ChartDisplayType (often SQL-only) does not reach agents unless someone adds it here.
-// ActionsProportionBar stays out while the `proportion-bar-chart` flag gates it in the pickers.
+// ActionsProportionBar stays out until the `display` description below says when an agent should pick it.
 export type AssistantTrendsDisplayType =
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
