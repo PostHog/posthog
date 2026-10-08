@@ -17,6 +17,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import AccountsQuery
+
 from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
@@ -61,6 +63,9 @@ class _StubAccountAudienceProvider:
 
     def list_account_external_ids(self, team, filters, *, cursor, limit) -> list[str]:
         return []
+
+    def create_account_audience_query(self, team, filters) -> AccountsQuery:
+        return AccountsQuery(filterExpression="accounts.external_id = 'a1'")
 
     def get_account_group_type_name(self, team) -> str | None:
         return self.group_type
@@ -3575,6 +3580,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert data["total"] == 10
         assert data["dedupe_key"] is None
         assert data["confirm_token"]
+        assert data["audience_query"] == {"kind": "AccountsQuery", "filterExpression": "accounts.external_id = 'a1'"}
         assert mock_count.call_count == 2
 
     def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None, name="c") -> Cohort:
@@ -3753,6 +3759,7 @@ class TestHogFlowAPI(APIBaseTest):
         body = response.json()
         assert body["affected"] == 4
         assert body["total"] == 10
+        assert body["audience_query"] is None
         assert "limit" in body
         assert body["limit"] > 0
 

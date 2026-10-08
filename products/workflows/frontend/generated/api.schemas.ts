@@ -2023,6 +2023,8 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+    /** `AccountsQuery` that lists exactly the accounts counted in 'affected', for account audiences. Its `filterExpression` is the audience predicate the batch sends with. Null for person audiences. */
+    audience_query: unknown
 }
 
 export type HogFlowTemplatesListParams = {
