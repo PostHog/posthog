@@ -1,5 +1,3 @@
-import sys
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -172,10 +170,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
     ):
         # An admin has full billing access unless owner-only billing is on.
         mock_owner_only.return_value = owner_only_billing
-        # None in sys.modules makes the import raise ImportError, as in the open-source build.
-        without_ee = {} if ee_available else {"ee.billing.grants": None}
 
-        with patch.dict(sys.modules, without_ee):
+        with patch("posthog.api.project_secret_api_key.EE_AVAILABLE", ee_available):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/project_secret_api_keys",
                 {"label": "billing key", "scopes": ["billing:read"]},
