@@ -5110,6 +5110,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.json()["detail"] == "Not found."
 
     def test_hog_flow_create_does_not_leak_between_teams(self):
         another_org = Organization.objects.create(name="other org")

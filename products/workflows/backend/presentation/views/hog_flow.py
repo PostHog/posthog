@@ -4497,7 +4497,7 @@ class HogFlowViewSet(
                 required_level=required_level,
             )
         except WorkflowNotFound:
-            raise exceptions.NotFound("No HogFlow matches the given query.")
+            raise exceptions.NotFound()
         except WorkflowAccessDenied as denied:
             raise exceptions.PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
 
