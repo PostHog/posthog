@@ -98,15 +98,15 @@ export interface aiTaskInstructionsCompareLogicActions {
         version: number | null,
         trigger?: CompareTrigger
     ) => {
-        version: number | null
         trigger: CompareTrigger
+        version: number | null
     }
     setOpen: (
         open: boolean,
         newestPastBelow?: number | null
     ) => {
-        open: boolean
         newestPastBelow: number | null
+        open: boolean
     }
 }
 
