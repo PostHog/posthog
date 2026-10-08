@@ -27,8 +27,12 @@ export interface flagCalledRebuildBannerLogicActions {
     addReferencedActions: (referencedActions: ActionApi[]) => {
         referencedActions: ActionApi[]
     }
-    loadReferencedActions: (actionIds: number[]) => {
+    loadReferencedActions: (
+        actionIds: number[],
+        refresh?: boolean
+    ) => {
         actionIds: number[]
+        refresh: boolean
     }
     reportBannerShown: (artifactType: FlagCalledArtifactType) => {
         artifactType: FlagCalledArtifactType
@@ -56,17 +60,18 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
     })),
     actions({
         reportBannerShown: (artifactType: FlagCalledArtifactType) => ({ artifactType }),
-        loadReferencedActions: (actionIds: number[]) => ({ actionIds }),
+        loadReferencedActions: (actionIds: number[], refresh: boolean = false) => ({ actionIds, refresh }),
         addReferencedActions: (referencedActions: ActionApi[]) => ({ referencedActions }),
     }),
     reducers({
         // Each fetch merges into the state, so overlapping fetches cannot drop each other's actions.
+        // A refetched action replaces its old copy.
         referencedActions: [
             [] as ActionApi[],
             {
                 addReferencedActions: (state, { referencedActions }) => {
-                    const loadedIds = new Set(state.map((action) => action.id))
-                    return [...state, ...referencedActions.filter((action) => !loadedIds.has(action.id))]
+                    const fetchedIds = new Set(referencedActions.map((action) => action.id))
+                    return [...state.filter((action) => !fetchedIds.has(action.id)), ...referencedActions]
                 },
             },
         ],
@@ -82,10 +87,10 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
     listeners(({ actions, values, cache }) => ({
         // Fetches only the actions a banner references. The full actions list can hold thousands of actions.
         // Insight and dashboard view modes do not load it.
-        loadReferencedActions: async ({ actionIds }) => {
+        loadReferencedActions: async ({ actionIds, refresh }) => {
             // Dashboard tiles stream in one at a time, so a later call can name actions an earlier call still fetches.
             const pendingIds: Set<number> = (cache.pendingActionIds ??= new Set<number>())
-            const loadedIds = new Set(values.referencedActions.map((action) => action.id))
+            const loadedIds = new Set(refresh ? [] : values.referencedActions.map((action) => action.id))
             const missingIds = [...new Set(actionIds)].filter((id) => !loadedIds.has(id) && !pendingIds.has(id))
             if (!missingIds.length) {
                 return

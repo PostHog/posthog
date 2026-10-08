@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -29,10 +29,13 @@ export function FlagCalledRebuildBanner({
     const { reportBannerShown, loadReferencedActions } = useActions(flagCalledRebuildBannerLogic)
     // Callers rebuild the references on every render, so the effect depends on this string instead of the array.
     const actionIdsKey = references.actionIds.join(',')
+    // The logic stays mounted across scenes, so the first load on each mount refetches actions edited since.
+    const refreshedRef = useRef(false)
 
     useEffect(() => {
         if (bannersEnabled && actionIdsKey) {
-            loadReferencedActions(actionIdsKey.split(',').map(Number))
+            loadReferencedActions(actionIdsKey.split(',').map(Number), !refreshedRef.current)
+            refreshedRef.current = true
         }
     }, [bannersEnabled, actionIdsKey, loadReferencedActions])
 
