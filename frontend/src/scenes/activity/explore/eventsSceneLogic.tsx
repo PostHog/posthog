@@ -132,7 +132,8 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         // A lookup that names no event reads the events table. On flag_evaluations_mode 2 that table holds no flag call.
         // This listener runs the lookup again with the flag call event, which reads flag_evaluations.
         // It names the event when that query finds the row.
-        // Only a query in the URL dispatches this listener. A user who clears the event therefore keeps it cleared.
+        // Only a query in the URL dispatches this listener. An edit in the open scene does not dispatch it.
+        // A reload after the user clears the event runs the check again, because the URL then holds the cleared lookup.
         nameFlagCallLookup: async ({ query }, breakpoint) => {
             if (
                 values.currentTeam?.flag_evaluations_mode !== FLAG_EVALUATIONS_ONLY_MODE ||

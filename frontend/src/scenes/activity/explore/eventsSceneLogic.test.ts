@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -131,7 +132,7 @@ describe('eventsSceneLogic', () => {
             FlagEvaluationsModeEnumApi,
             Partial<EventsQuery>,
             'row' | 'no row' | 'error',
-            'link' | 'edit',
+            'link' | 'link, then edit' | 'edit' | 'restore',
             string | undefined,
         ]
     >([
@@ -186,7 +187,23 @@ describe('eventsSceneLogic', () => {
             'link',
             undefined,
         ],
+        [
+            'a link whose query the user edits before the check answers',
+            FlagEvaluationsModeEnumApi.Number2,
+            {},
+            'row',
+            'link, then edit',
+            undefined,
+        ],
         ['an edit that clears the event of a lookup', FlagEvaluationsModeEnumApi.Number2, {}, 'row', 'edit', undefined],
+        [
+            'a restored tab whose lookup names no event',
+            FlagEvaluationsModeEnumApi.Number2,
+            {},
+            'row',
+            'restore',
+            undefined,
+        ],
     ])(
         'resolves the event name for %s',
         async (_name, mode, sourceOverrides, flagCallQuery, arrival, expectedEvent) => {
@@ -216,10 +233,18 @@ describe('eventsSceneLogic', () => {
                 source: { ...(lookup.source as EventsQuery), after, before, ...sourceOverrides },
             }
 
-            if (arrival === 'link') {
+            if (arrival === 'link' || arrival === 'link, then edit') {
                 router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url)
-            } else {
+            }
+            if (arrival === 'link, then edit') {
+                logic.actions.setQuery({ ...query, source: { ...(query.source as EventsQuery), after: '-7d' } })
+            }
+            if (arrival === 'edit') {
                 logic.actions.setQuery(query)
+            }
+            if (arrival === 'restore') {
+                tabUiStateLogic.actions.setSavedQueryForTab(undefined, 'events', query)
+                router.actions.push(urls.activity(ActivityTab.ExploreEvents))
             }
             await expectLogic(logic).toFinishAllListeners()
 
