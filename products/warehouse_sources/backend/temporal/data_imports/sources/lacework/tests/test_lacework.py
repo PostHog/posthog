@@ -259,6 +259,29 @@ class TestGetRowsUnwindowed:
         ]
         assert manager.saved == []
 
+    @parameterized.expand(
+        [
+            ("credential_endpoint", "cloud_accounts", False),
+            ("plain_endpoint", "policies", True),
+        ]
+    )
+    def test_data_session_capture_follows_credential_redaction(self, _name: str, endpoint: str, captured: bool) -> None:
+        session = _FakeSession([_FakeResponse(200, {"data": []})])
+        with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=session) as mock_make:
+            list(
+                get_rows(
+                    account_name="mycompany",
+                    key_id="KEY_ID",
+                    secret_key="secret",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        data_session_calls = [c for c in mock_make.call_args_list if not c.kwargs.get("redact_values")]
+        assert [c.kwargs.get("capture", True) for c in data_session_calls] == [captured]
+
 
 class TestGetRowsPagination:
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)

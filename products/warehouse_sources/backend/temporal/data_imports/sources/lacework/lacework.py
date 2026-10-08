@@ -315,7 +315,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = LACEWORK_ENDPOINTS[endpoint]
     # One session reused across every page and window so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Endpoints that strip credentials from rows must not have the raw response sampled either: the
+    # name-based sample scrubbers don't recognise Lacework's camelCase credential keys.
+    session = make_tracked_session(capture=not config.redacted_data_keys)
     client = LaceworkClient(session, account_name, key_id, secret_key, logger)
     api_base_url = base_url(account_name)
 
