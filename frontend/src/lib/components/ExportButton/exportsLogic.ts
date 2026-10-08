@@ -12,7 +12,7 @@ import {
     settleWithDownload,
     startExportNudge,
 } from 'lib/components/ExportButton/exportNudge'
-import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
+import { getExportWarning, isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
@@ -367,6 +367,10 @@ export const exportsLogic = kea<exportsLogicType>([
                     void showExportCompleteToast(finished, () => actions.downloadExport(finished), kickoff).catch(
                         (error) => posthog.captureException(error)
                     )
+                    const warning = getExportWarning(finished)
+                    if (warning) {
+                        lemonToast.warning(warning)
+                    }
                 } else {
                     actions.removeFresh(fresh)
                     lemonToast.error('Export failed: ' + latest.exception)

@@ -10,6 +10,7 @@ import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/rep
 
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
+import type { StylesheetStats } from '~/session-replay/recording-rasterizer/types'
 
 import { BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
@@ -242,6 +243,10 @@ export class PlayerController {
 
     getError(): RasterizationError | null {
         return this.playbackError
+    }
+
+    getStylesheetStats(): StylesheetStats {
+        return this.interceptor.getStylesheetStats()
     }
 
     getInactivityPeriods(): InactivityPeriod[] {

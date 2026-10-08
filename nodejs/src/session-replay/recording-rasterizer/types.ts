@@ -85,7 +85,16 @@ export interface RasterizeRecordingOutput {
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
+    // Sub-frame stylesheets the rasterizer fetched for the replay, and how many of those fetches failed.
+    // A failed stylesheet renders as no styles, so a high ratio means the video shows an unstyled page.
+    stylesheets_requested: number
+    stylesheets_failed: number
     timings: ActivityTimings
+}
+
+export interface StylesheetStats {
+    requested: number
+    failed: number
 }
 
 export interface CaptureConfig {
@@ -112,5 +121,6 @@ export interface RecordingResult {
     frame_session_ms: number[] // session time at each captured frame, measured during capture
     pre_roll_frames: number // frames captured before playback started, which carry no sample
     output_fps: number // frames per second of the rendered file, so a frame index is a video position
+    stylesheets: StylesheetStats
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

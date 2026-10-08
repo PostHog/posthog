@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
+import {
+    getExportDisabledReason,
+    getExportPendingLabel,
+    getExportWarning,
+} from 'lib/components/ExportButton/exportStatus'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -107,7 +111,19 @@ export function ExportsScene(): JSX.Element {
         {
             title: 'Filename',
             dataIndex: 'filename',
-            render: (_, asset) => <span className="font-medium">{asset.filename}</span>,
+            render: (_, asset) => {
+                const warning = getExportWarning(asset)
+                return (
+                    <div className="flex items-center gap-1">
+                        <span className="font-medium">{asset.filename}</span>
+                        {warning && (
+                            <Tooltip title={warning}>
+                                <IconWarning className="text-warning shrink-0" data-attr="export-warning" />
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Format',

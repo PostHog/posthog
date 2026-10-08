@@ -101,6 +101,9 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
     file_size_bytes: int = 0
+    # Sub-frame stylesheets the renderer fetched, and how many failed. A failed one renders as no styles.
+    stylesheets_requested: int = 0
+    stylesheets_failed: int = 0
     timings: ActivityTimings = ActivityTimings()
 
 

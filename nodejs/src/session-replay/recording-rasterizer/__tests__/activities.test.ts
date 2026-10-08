@@ -77,6 +77,7 @@ function baseRecordingResult(_videoPath: string, overrides: Partial<RecordingRes
         frame_session_ms: [],
         pre_roll_frames: 0,
         output_fps: 3,
+        stylesheets: { requested: 0, failed: 0 },
         timings: { setup_s: 1.5, capture_s: 3.2 },
         ...overrides,
     }
@@ -108,6 +109,7 @@ describe('rasterizeRecordingActivity', () => {
         mockSuccessfulRecording({
             playback_speed: 1,
             inactivity_periods: inactivityPeriods,
+            stylesheets: { requested: 4, failed: 3 },
         })
 
         const result = await rasterizeRecordingActivity(baseInput({ playback_speed: 1 }))
@@ -118,6 +120,8 @@ describe('rasterizeRecordingActivity', () => {
         expect(result.show_metadata_footer).toBe(false)
         expect(result.truncated).toBe(false)
         expect(result.file_size_bytes).toBeGreaterThan(0)
+        expect(result.stylesheets_requested).toBe(4)
+        expect(result.stylesheets_failed).toBe(3)
 
         expect(result.inactivity_periods[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5 })
         expect(result.inactivity_periods[1]).toMatchObject({ recording_ts_from_s: 5, recording_ts_to_s: 5 })

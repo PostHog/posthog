@@ -44,6 +44,24 @@ export function getVideoExportDisabledReason(recordingDurationMs: number | undef
     return `This recording is longer than ${hours} hours, which is too long to export as one video. Use the clip button to export part of it.`
 }
 
+export const MISSING_STYLES_WARNING =
+    "Some page styles couldn't be loaded, so this video may show an unstyled page. Play the recording in PostHog to see it with its styles."
+
+// The renderer fetches each stylesheet of the recorded page again from our servers. A host that the user's
+// browser can reach but our servers cannot leaves the video unstyled, while the export still succeeds.
+export function getExportWarning(asset: ExportedAssetType): string | null {
+    const context = asset.export_context
+    if (!asset.has_content || !context || !('stylesheets_failed' in context)) {
+        return null
+    }
+    const failed = context.stylesheets_failed ?? 0
+    const requested = context.stylesheets_requested ?? 0
+    if (failed === 0 || failed * 2 < requested) {
+        return null
+    }
+    return MISSING_STYLES_WARNING
+}
+
 export function getExportDisabledReason(asset: ExportedAssetType): string | undefined {
     if (asset.exception) {
         return asset.exception

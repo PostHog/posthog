@@ -83,6 +83,7 @@ describe('rasterizeRecording', () => {
         mockPlayer = {
             load: jest.fn().mockResolvedValue(undefined),
             waitForStart: jest.fn().mockResolvedValue(undefined),
+            getStylesheetStats: jest.fn().mockReturnValue({ requested: 2, failed: 1 }),
             dispose: jest.fn(),
         } as unknown as jest.Mocked<PlayerController>
         mockedPlayerController.mockImplementation(() => mockPlayer)
@@ -234,6 +235,7 @@ describe('rasterizeRecording', () => {
         expect(result.capture_duration_s).toBe(5)
         expect(result.frame_count).toBe(120)
         expect(result.truncated).toBe(false)
+        expect(result.stylesheets).toEqual({ requested: 2, failed: 1 })
         expect(result.timings.capture_s).toBe(2.5)
         expect(result.timings.setup_s).toBeGreaterThanOrEqual(0)
     })

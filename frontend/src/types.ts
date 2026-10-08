@@ -5911,6 +5911,9 @@ export interface ReplayExportContext {
     duration?: number
     mode?: SessionRecordingPlayerMode
     skip_inactivity?: boolean
+    // Set by the renderer once the video exists.
+    stylesheets_requested?: number
+    stylesheets_failed?: number
 }
 
 export interface HeatmapExportContext {
